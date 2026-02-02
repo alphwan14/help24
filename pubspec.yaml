@@ -1,0 +1,49 @@
+name: help24
+description: A modern multi-service marketplace mobile app.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  google_fonts: ^6.1.0
+  provider: ^6.1.1
+  flutter_animate: ^4.3.0
+  iconsax: ^0.0.8
+  image_picker: ^1.0.7
+  cached_network_image: ^3.3.1
+  supabase_flutter: ^2.3.0
+  uuid: ^4.2.0
+  shared_preferences: ^2.2.2
+  # Firebase Auth
+  firebase_core: ^3.3.0
+  firebase_auth: ^5.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/help24_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#0A0A0A"
+  adaptive_icon_foreground: "assets/help24_icon.png"
+  web:
+    generate: false
+  windows:
+    generate: false
+  macos:
+    generate: false
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
