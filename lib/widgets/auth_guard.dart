@@ -118,9 +118,9 @@ class AuthGuard {
     return authProvider.currentUserId;
   }
   
-  /// Get current user name (or "Guest" if not authenticated)
+  /// Get current user name (empty if not authenticated)
   static String getUserName(BuildContext context) {
     final authProvider = context.read<AuthProvider>();
-    return authProvider.currentUser?.displayName ?? 'Guest';
+    return authProvider.currentUserName;
   }
 }

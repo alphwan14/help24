@@ -1,26 +1,28 @@
 import '../config/supabase_config.dart';
 import '../models/post_model.dart';
-import '../utils/guest_id.dart';
 
-/// Service for handling job/post applications with Supabase
+/// Service for handling job/post applications with Supabase. Uses real user ids.
 class ApplicationService {
   static final _client = SupabaseConfig.client;
 
-  /// Submit an application to a post
+  static const _applicationsSelect = '*, users(name, profile_image, avatar_url)';
+
+  /// Submit an application. Requires [currentUserId]. Name/avatar come from users join on read.
   static Future<Application> submitApplication({
     required String postId,
+    required String currentUserId,
     required String message,
     required double proposedPrice,
-    String? applicantName,
   }) async {
+    if (currentUserId.isEmpty) {
+      throw ApplicationServiceException('Sign in to submit an application.');
+    }
     try {
-      final guestId = GuestId.currentId;
-      final name = applicantName ?? GuestId.currentName;
-
       final applicationData = {
         'post_id': postId,
-        'applicant_name': name,
-        'applicant_temp_id': guestId,
+        'applicant_user_id': currentUserId,
+        'applicant_temp_id': '',
+        'applicant_name': '',
         'message': message,
         'proposed_price': proposedPrice,
       };
@@ -28,7 +30,7 @@ class ApplicationService {
       final response = await _client
           .from('applications')
           .insert(applicationData)
-          .select()
+          .select(_applicationsSelect)
           .single();
 
       return Application.fromJson(response);
@@ -37,12 +39,12 @@ class ApplicationService {
     }
   }
 
-  /// Get all applications for a specific post
+  /// Get all applications for a post (with applicant name/avatar from users join).
   static Future<List<Application>> getApplicationsForPost(String postId) async {
     try {
       final response = await _client
           .from('applications')
-          .select()
+          .select(_applicationsSelect)
           .eq('post_id', postId)
           .order('created_at', ascending: false);
 
@@ -54,15 +56,14 @@ class ApplicationService {
     }
   }
 
-  /// Get all applications submitted by the current guest user
-  static Future<List<Application>> getMyApplications() async {
+  /// Get applications submitted by the current user. Returns [] if [currentUserId] is null.
+  static Future<List<Application>> getMyApplications(String? currentUserId) async {
+    if (currentUserId == null || currentUserId.isEmpty) return [];
     try {
-      final guestId = GuestId.currentId;
-
       final response = await _client
           .from('applications')
-          .select()
-          .eq('applicant_temp_id', guestId)
+          .select(_applicationsSelect)
+          .eq('applicant_user_id', currentUserId)
           .order('created_at', ascending: false);
 
       return (response as List)
@@ -73,16 +74,15 @@ class ApplicationService {
     }
   }
 
-  /// Check if current user has already applied to a post
-  static Future<bool> hasApplied(String postId) async {
+  /// Check if current user has already applied to a post.
+  static Future<bool> hasApplied(String postId, String? currentUserId) async {
+    if (currentUserId == null || currentUserId.isEmpty) return false;
     try {
-      final guestId = GuestId.currentId;
-
       final response = await _client
           .from('applications')
           .select('id')
           .eq('post_id', postId)
-          .eq('applicant_temp_id', guestId)
+          .eq('applicant_user_id', currentUserId)
           .maybeSingle();
 
       return response != null;
@@ -91,16 +91,17 @@ class ApplicationService {
     }
   }
 
-  /// Delete an application (only if it belongs to current user)
-  static Future<void> deleteApplication(String applicationId) async {
+  /// Delete an application (only if it belongs to current user).
+  static Future<void> deleteApplication(String applicationId, String? currentUserId) async {
+    if (currentUserId == null || currentUserId.isEmpty) {
+      throw ApplicationServiceException('Sign in to delete an application.');
+    }
     try {
-      final guestId = GuestId.currentId;
-
       await _client
           .from('applications')
           .delete()
           .eq('id', applicationId)
-          .eq('applicant_temp_id', guestId);
+          .eq('applicant_user_id', currentUserId);
     } catch (e) {
       throw ApplicationServiceException('Failed to delete application: $e');
     }
@@ -120,29 +121,22 @@ class ApplicationService {
     }
   }
 
-  /// Get applications for posts owned by current user
-  static Future<List<Application>> getApplicationsToMyPosts() async {
+  /// Get applications for posts owned by current user (with applicant name/avatar).
+  static Future<List<Application>> getApplicationsToMyPosts(String? currentUserId) async {
+    if (currentUserId == null || currentUserId.isEmpty) return [];
     try {
-      final guestId = GuestId.currentId;
-
-      // First get post IDs owned by current user
       final postsResponse = await _client
           .from('posts')
           .select('id')
-          .eq('author_temp_id', guestId);
+          .eq('author_user_id', currentUserId);
 
-      if ((postsResponse as List).isEmpty) {
-        return [];
-      }
+      if ((postsResponse as List).isEmpty) return [];
 
-      final postIds = postsResponse
-          .map((p) => p['id'] as String)
-          .toList();
+      final postIds = postsResponse.map((p) => p['id'] as String).toList();
 
-      // Then get applications for those posts
       final response = await _client
           .from('applications')
-          .select()
+          .select(_applicationsSelect)
           .inFilter('post_id', postIds)
           .order('created_at', ascending: false);
 

@@ -354,7 +354,10 @@ class AuthService {
       await firebaseUser.reload();
       final updates = <String, dynamic>{'last_login': DateTime.now().toIso8601String()};
       if (name != null) updates['name'] = name.trim();
-      if (photoUrl != null) updates['profile_image'] = photoUrl;
+      if (photoUrl != null) {
+        updates['profile_image'] = photoUrl;
+        updates['avatar_url'] = photoUrl;
+      }
       await _supabase.from('users').update(updates).eq('id', firebaseUser.uid);
       final updatedUser = await getCurrentAppUser();
       return AuthResult.success(updatedUser);
@@ -386,8 +389,8 @@ class AuthService {
       'email': email,
       'name': userName,
       'profile_image': profileImage,
+      if (profileImage != null) 'avatar_url': profileImage,
       'last_login': now.toIso8601String(),
-      // Do NOT send created_at: DB default handles new rows; existing rows keep their created_at
     };
 
     try {

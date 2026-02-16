@@ -382,9 +382,8 @@ class _GuestProfile extends StatelessWidget {
         ),
         const SizedBox(height: 20),
 
-        // Guest text
         Text(
-          'Guest User',
+          'Not signed in',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 8),

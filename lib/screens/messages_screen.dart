@@ -11,7 +11,6 @@ import '../providers/auth_provider.dart';
 import '../services/location_service.dart';
 import '../services/message_service.dart';
 import '../theme/app_theme.dart';
-import '../utils/guest_id.dart';
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key});
@@ -22,7 +21,7 @@ class MessagesScreen extends StatefulWidget {
 
 class _MessagesScreenState extends State<MessagesScreen> {
   String get _currentUserId =>
-      context.read<AuthProvider>().currentUserId ?? GuestId.currentId;
+      context.read<AuthProvider>().currentUserId ?? '';
 
   @override
   void initState() {
@@ -105,7 +104,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     itemCount: conversations.length,
                     itemBuilder: (context, index) {
                       final conversation = conversations[index];
-                      final uid = context.read<AuthProvider>().currentUserId ?? GuestId.currentId;
+                      final uid = context.read<AuthProvider>().currentUserId ?? '';
                       return _ConversationTile(
                         conversation: conversation,
                         onTap: () async {

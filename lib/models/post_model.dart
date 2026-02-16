@@ -103,11 +103,28 @@ class KenyaLocation {
       all.where((l) => l.city == city).toList();
 }
 
+/// Parse display name from joined users row (Supabase). Use "Unknown user" if missing.
+String _userDisplayName(dynamic usersJson) {
+  if (usersJson == null || usersJson is! Map) return 'Unknown user';
+  final name = usersJson['name']?.toString()?.trim();
+  return (name != null && name.isNotEmpty) ? name : 'Unknown user';
+}
+
+/// Parse avatar URL from joined users row (avatar_url or profile_image).
+String _userAvatarUrl(dynamic usersJson) {
+  if (usersJson == null || usersJson is! Map) return '';
+  final a = usersJson['avatar_url']?.toString()?.trim;
+  final b = usersJson['profile_image']?.toString()?.trim;
+  return (a ?? b ?? '').toString();
+}
+
 class Application {
   final String id;
   final String postId;
   final String applicantName;
+  final String applicantAvatarUrl;
   final String applicantTempId;
+  final String applicantUserId;
   final String message;
   final double proposedPrice;
   final DateTime timestamp;
@@ -116,23 +133,28 @@ class Application {
     required this.id,
     this.postId = '',
     required this.applicantName,
+    this.applicantAvatarUrl = '',
     this.applicantTempId = '',
+    this.applicantUserId = '',
     required this.message,
     required this.proposedPrice,
     required this.timestamp,
   });
 
-  /// Create from Supabase JSON
+  /// Create from Supabase JSON (supports joined users(name, profile_image, avatar_url))
   factory Application.fromJson(Map<String, dynamic> json) {
+    final users = json['users'];
     return Application(
       id: json['id'] ?? '',
       postId: json['post_id'] ?? '',
-      applicantName: json['applicant_name'] ?? 'Anonymous',
+      applicantName: _userDisplayName(users),
+      applicantAvatarUrl: _userAvatarUrl(users),
       applicantTempId: json['applicant_temp_id'] ?? '',
+      applicantUserId: json['applicant_user_id']?.toString() ?? '',
       message: json['message'] ?? '',
       proposedPrice: (json['proposed_price'] ?? 0).toDouble(),
-      timestamp: json['created_at'] != null 
-          ? DateTime.parse(json['created_at']) 
+      timestamp: json['created_at'] != null
+          ? DateTime.parse(json['created_at'].toString())
           : DateTime.now(),
     );
   }
@@ -143,6 +165,7 @@ class Application {
       'post_id': postId,
       'applicant_name': applicantName,
       'applicant_temp_id': applicantTempId,
+      'applicant_user_id': applicantUserId.isNotEmpty ? applicantUserId : null,
       'message': message,
       'proposed_price': proposedPrice,
     };
@@ -163,6 +186,7 @@ class PostModel {
   final String authorName;
   final String authorAvatar;
   final String authorTempId;
+  final String authorUserId;
   final DateTime createdAt;
   final List<String> images;
   final List<Application> applications;
@@ -178,15 +202,16 @@ class PostModel {
     required this.type,
     this.difficulty = Difficulty.medium,
     this.rating = 4.5,
-    this.authorName = 'Anonymous',
+    this.authorName = 'Unknown user',
     this.authorAvatar = '',
     this.authorTempId = '',
+    this.authorUserId = '',
     DateTime? createdAt,
     this.images = const [],
     this.applications = const [],
   }) : createdAt = createdAt ?? DateTime.now();
 
-  /// Create from Supabase JSON (with nested images and applications)
+  /// Create from Supabase JSON (with nested post_images, applications, and joined users for author)
   factory PostModel.fromJson(Map<String, dynamic> json) {
     // Parse images from nested post_images relation
     List<String> images = [];
@@ -198,7 +223,7 @@ class PostModel {
       }
     }
 
-    // Parse applications from nested relation
+    // Parse applications from nested relation (each may have joined users for applicant)
     List<Application> applications = [];
     if (json['applications'] != null && json['applications'] is List) {
       for (final app in json['applications'] as List) {
@@ -208,6 +233,7 @@ class PostModel {
       }
     }
 
+    final authorUsers = json['users'];
     return PostModel(
       id: json['id'] ?? '',
       title: json['title'] ?? '',
@@ -219,18 +245,19 @@ class PostModel {
       type: _parsePostType(json['type']),
       difficulty: _parseDifficulty(json['difficulty']),
       rating: (json['rating'] ?? 4.5).toDouble(),
-      authorName: json['author_name'] ?? 'Anonymous',
-      authorAvatar: json['author_avatar']?.toString() ?? '',
+      authorName: _userDisplayName(authorUsers),
+      authorAvatar: _userAvatarUrl(authorUsers),
       authorTempId: json['author_temp_id'] ?? '',
-      createdAt: json['created_at'] != null 
-          ? DateTime.parse(json['created_at']) 
+      authorUserId: json['author_user_id']?.toString() ?? '',
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'].toString())
           : DateTime.now(),
       images: images,
       applications: applications,
     );
   }
 
-  /// Convert to Supabase JSON (for insert/update)
+  /// Convert to Supabase JSON (for insert/update). author_user_id set by service.
   Map<String, dynamic> toJson() {
     return {
       'title': title,
@@ -242,7 +269,6 @@ class PostModel {
       'type': type.name,
       'difficulty': difficulty.name,
       'rating': rating,
-      'author_name': authorName,
       'author_temp_id': authorTempId,
     };
   }
@@ -299,6 +325,7 @@ class PostModel {
     String? authorName,
     String? authorAvatar,
     String? authorTempId,
+    String? authorUserId,
     DateTime? createdAt,
     List<String>? images,
     List<Application>? applications,
@@ -317,6 +344,7 @@ class PostModel {
       authorName: authorName ?? this.authorName,
       authorAvatar: authorAvatar ?? this.authorAvatar,
       authorTempId: authorTempId ?? this.authorTempId,
+      authorUserId: authorUserId ?? this.authorUserId,
       createdAt: createdAt ?? this.createdAt,
       images: images ?? this.images,
       applications: applications ?? this.applications,
@@ -375,6 +403,9 @@ class PostModel {
 class JobModel {
   final String id;
   final String title;
+  final String authorName;
+  final String authorAvatarUrl;
+  final String authorUserId;
   final String company;
   final String location;
   final String pay;
@@ -389,7 +420,10 @@ class JobModel {
   JobModel({
     required this.id,
     required this.title,
-    required this.company,
+    this.authorName = 'Unknown user',
+    this.authorAvatarUrl = '',
+    this.authorUserId = '',
+    this.company = 'Unknown user',
     required this.location,
     required this.pay,
     this.type = 'Full-time',
@@ -423,42 +457,44 @@ class JobModel {
       }
     }
 
+    final authorUsers = json['users'];
+    final name = _userDisplayName(authorUsers);
     return JobModel(
       id: json['id'] ?? '',
       title: json['title'] ?? '',
-      company: json['author_name'] ?? 'Company',
+      authorName: name,
+      authorAvatarUrl: _userAvatarUrl(authorUsers),
+      authorUserId: json['author_user_id']?.toString() ?? '',
+      company: name,
       location: json['location'] ?? '',
       pay: 'KES ${json['price'] ?? 0}',
       type: json['difficulty'] ?? 'Full-time',
       description: json['description'] ?? '',
       authorTempId: json['author_temp_id'] ?? '',
-      postedAt: json['created_at'] != null 
-          ? DateTime.parse(json['created_at']) 
+      postedAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'].toString())
           : DateTime.now(),
       images: images,
       applications: applications,
     );
   }
 
-  /// Convert to Supabase JSON
+  /// Convert to Supabase JSON. author_user_id set by service.
   Map<String, dynamic> toJson() {
-    // Parse price from pay string (e.g., "KES 50000" -> 50000)
     double price = 0;
     final priceMatch = RegExp(r'[\d,]+').firstMatch(pay);
     if (priceMatch != null) {
       price = double.tryParse(priceMatch.group(0)!.replaceAll(',', '')) ?? 0;
     }
-
     return {
       'title': title,
-      'description': '$description\n\nJob Type: $type', // Include job type in description
-      'category': 'Other', // Jobs use generic category
+      'description': '$description\n\nJob Type: $type',
+      'category': 'Other',
       'location': location,
       'price': price,
       'urgency': 'flexible',
       'type': 'job',
-      'difficulty': 'medium', // Use valid difficulty value
-      'author_name': company,
+      'difficulty': 'medium',
       'author_temp_id': authorTempId,
     };
   }
@@ -466,6 +502,9 @@ class JobModel {
   JobModel copyWith({
     String? id,
     String? title,
+    String? authorName,
+    String? authorAvatarUrl,
+    String? authorUserId,
     String? company,
     String? location,
     String? pay,
@@ -480,6 +519,9 @@ class JobModel {
     return JobModel(
       id: id ?? this.id,
       title: title ?? this.title,
+      authorName: authorName ?? this.authorName,
+      authorAvatarUrl: authorAvatarUrl ?? this.authorAvatarUrl,
+      authorUserId: authorUserId ?? this.authorUserId,
       company: company ?? this.company,
       location: location ?? this.location,
       pay: pay ?? this.pay,

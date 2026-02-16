@@ -8,7 +8,6 @@ import 'theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'config/supabase_config.dart';
 import 'config/firebase_config.dart';
-import 'utils/guest_id.dart';
 import 'services/diagnostic_service.dart';
 
 void main() async {
@@ -20,8 +19,6 @@ void main() async {
   // Initialize Firebase (only if configured - won't crash if not)
   await FirebaseConfig.initialize();
   
-  // Initialize guest user ID (fallback for non-authenticated users)
-  await GuestId.initialize();
   
   // Run diagnostics in debug mode
   if (kDebugMode) {

@@ -6,6 +6,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
+import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 
 /// Represents a selected image with cross-platform support
@@ -1152,14 +1153,16 @@ class _PostScreenState extends State<PostScreen> {
         final job = JobModel(
           id: '',
           title: _titleController.text,
-          company: 'Your Company',
+          company: '',
           location: location,
           pay: 'KES ${_formatPrice(price)}',
           description: _descriptionController.text,
         );
 
+        final currentUserId = context.read<AuthProvider>().currentUserId;
         final createdJob = await provider.createJob(
           job,
+          currentUserId: currentUserId,
           imageFiles: _selectedImages.map((img) => img.file).toList(),
           onImageUploadProgress: (completed, total) {
             if (mounted) {
@@ -1186,8 +1189,10 @@ class _PostScreenState extends State<PostScreen> {
           type: _selectedType ?? PostType.request,
         );
 
+        final currentUserId = context.read<AuthProvider>().currentUserId;
         final createdPost = await provider.createPost(
           post,
+          currentUserId: currentUserId,
           imageFiles: _selectedImages.map((img) => img.file).toList(),
           onImageUploadProgress: (completed, total) {
             if (mounted) {

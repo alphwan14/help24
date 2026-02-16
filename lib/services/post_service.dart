@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import '../config/supabase_config.dart';
 import '../models/post_model.dart';
-import '../utils/guest_id.dart';
 import 'storage_service.dart';
 
 /// Filter options for fetching posts
@@ -73,7 +72,7 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, post_images(image_url), applications(*)');
+          .select('*, users(name, profile_image, avatar_url), post_images(image_url), applications(*, users(name, profile_image, avatar_url))');
 
       // Apply filters
       if (filters != null) {
@@ -160,7 +159,7 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, post_images(image_url), applications(*)')
+          .select('*, users(name, profile_image, avatar_url), post_images(image_url), applications(*, users(name, profile_image, avatar_url))')
           .eq('type', 'job');
 
       // Apply additional filters
@@ -202,7 +201,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, post_images(image_url), applications(*)')
+          .select('*, users(name, profile_image, avatar_url), post_images(image_url), applications(*, users(name, profile_image, avatar_url))')
           .eq('id', id)
           .maybeSingle();
 
@@ -213,24 +212,21 @@ class PostService {
     }
   }
 
-  /// Create a new post with optional images
-  /// Returns the created post with its ID
+  /// Create a new post with optional images. Requires [currentUserId] (Supabase/Firebase user id).
   static Future<PostModel> createPost(
     PostModel post, {
+    required String? currentUserId,
     List<XFile>? imageFiles,
     void Function(int completed, int total)? onImageUploadProgress,
   }) async {
+    if (currentUserId == null || currentUserId.isEmpty) {
+      throw PostServiceException('Sign in to create a post.');
+    }
     try {
-      // Get guest ID
-      final guestId = GuestId.currentId;
-      final guestName = GuestId.currentName;
-
-      // Prepare post data
       final postData = post.toJson();
-      postData['author_temp_id'] = guestId;
-      postData['author_name'] = guestName;
+      postData['author_user_id'] = currentUserId;
+      postData['author_temp_id'] = '';
 
-      // Insert post first (so we have an ID even if image upload fails)
       final postResponse = await _client
           .from('posts')
           .insert(postData)
@@ -299,11 +295,9 @@ class PostService {
         debugPrint('📤 No images to upload for this post');
       }
 
-      // Return the created post with images
       return post.copyWith(
         id: postId,
-        authorTempId: guestId,
-        authorName: guestName,
+        authorTempId: '',
         images: imageUrls,
       );
     } catch (e) {
@@ -311,17 +305,20 @@ class PostService {
     }
   }
 
-  /// Create a job post
+  /// Create a job post. Requires [currentUserId].
   static Future<JobModel> createJob(
     JobModel job, {
+    required String? currentUserId,
     List<XFile>? imageFiles,
     void Function(int completed, int total)? onImageUploadProgress,
   }) async {
+    if (currentUserId == null || currentUserId.isEmpty) {
+      throw PostServiceException('Sign in to create a job.');
+    }
     try {
-      final guestId = GuestId.currentId;
-
       final jobData = job.toJson();
-      jobData['author_temp_id'] = guestId;
+      jobData['author_user_id'] = currentUserId;
+      jobData['author_temp_id'] = '';
 
       final response = await _client
           .from('posts')
@@ -348,7 +345,7 @@ class PostService {
 
       return job.copyWith(
         id: jobId,
-        authorTempId: guestId,
+        authorTempId: '',
         images: imageUrls,
       );
     } catch (e) {
@@ -392,15 +389,14 @@ class PostService {
     }
   }
 
-  /// Get posts by the current guest user
-  static Future<List<PostModel>> getMyPosts() async {
+  /// Get posts by the current user. Returns empty list if [currentUserId] is null.
+  static Future<List<PostModel>> getMyPosts(String? currentUserId) async {
+    if (currentUserId == null || currentUserId.isEmpty) return [];
     try {
-      final guestId = GuestId.currentId;
-      
       final response = await _client
           .from('posts')
-          .select('*, post_images(image_url), applications(*)')
-          .eq('author_temp_id', guestId)
+          .select('*, users(name, profile_image, avatar_url), post_images(image_url), applications(*, users(name, profile_image, avatar_url))')
+          .eq('author_user_id', currentUserId)
           .neq('type', 'job')
           .order('created_at', ascending: false);
 

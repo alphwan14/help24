@@ -123,9 +123,10 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Create a new post with optional images
+  /// Create a new post. Requires [currentUserId] (real user id from auth).
   Future<PostModel?> createPost(
     PostModel post, {
+    required String? currentUserId,
     List<XFile>? imageFiles,
     void Function(int completed, int total)? onImageUploadProgress,
   }) async {
@@ -136,11 +137,11 @@ class AppProvider extends ChangeNotifier {
     try {
       final createdPost = await PostService.createPost(
         post,
+        currentUserId: currentUserId,
         imageFiles: imageFiles,
         onImageUploadProgress: onImageUploadProgress,
       );
 
-      // Add to local list
       _posts.insert(0, createdPost);
       notifyListeners();
       return createdPost;
@@ -154,9 +155,10 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Create a new job with optional images
+  /// Create a new job. Requires [currentUserId].
   Future<JobModel?> createJob(
     JobModel job, {
+    required String? currentUserId,
     List<XFile>? imageFiles,
     void Function(int completed, int total)? onImageUploadProgress,
   }) async {
@@ -167,6 +169,7 @@ class AppProvider extends ChangeNotifier {
     try {
       final createdJob = await PostService.createJob(
         job,
+        currentUserId: currentUserId,
         imageFiles: imageFiles,
         onImageUploadProgress: onImageUploadProgress,
       );
@@ -198,15 +201,17 @@ class AppProvider extends ChangeNotifier {
 
   // ==================== APPLICATIONS ====================
 
-  /// Submit application to a post
+  /// Submit application to a post. Requires [currentUserId].
   Future<bool> submitApplicationToPost(
     String postId, {
+    required String? currentUserId,
     required String message,
     required double proposedPrice,
   }) async {
     try {
       final application = await ApplicationService.submitApplication(
         postId: postId,
+        currentUserId: currentUserId ?? '',
         message: message,
         proposedPrice: proposedPrice,
       );
@@ -228,15 +233,17 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Submit application to a job
+  /// Submit application to a job. Requires [currentUserId].
   Future<bool> submitApplicationToJob(
     String jobId, {
+    required String? currentUserId,
     required String message,
     required double proposedPrice,
   }) async {
     try {
       final application = await ApplicationService.submitApplication(
         postId: jobId,
+        currentUserId: currentUserId ?? '',
         message: message,
         proposedPrice: proposedPrice,
       );

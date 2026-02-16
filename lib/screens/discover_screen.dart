@@ -8,8 +8,8 @@ import '../widgets/post_card.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/application_modal.dart';
 import '../widgets/auth_guard.dart';
+import '../widgets/marketplace_card_components.dart';
 import '../providers/auth_provider.dart';
-import '../utils/guest_id.dart';
 import 'messages_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
@@ -480,8 +480,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       ),
                       const SizedBox(height: 12),
                       ...post.applications.map((app) {
-                        final currentUserId = context.read<AuthProvider>().currentUserId ?? GuestId.currentId;
-                        final isAuthor = currentUserId == post.authorTempId;
+                        final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
+                        final isAuthor = currentUserId.isNotEmpty && currentUserId == post.authorUserId;
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(14),
@@ -497,24 +497,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             children: [
                               Row(
                                 children: [
-                                  Container(
-                                    width: 36,
-                                    height: 36,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [AppTheme.primaryAccent, AppTheme.secondaryAccent],
-                                      ),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        app.applicantName[0].toUpperCase(),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
+                                  MarketplaceAvatar(
+                                    imageUrl: app.applicantAvatarUrl.isNotEmpty ? app.applicantAvatarUrl : null,
+                                    displayName: app.applicantName,
+                                    size: 36,
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
@@ -606,10 +592,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   Future<void> _acceptApplicationAndChat(BuildContext context, PostModel post, Application app) async {
     final appProvider = context.read<AppProvider>();
-    final currentUserId = context.read<AuthProvider>().currentUserId ?? GuestId.currentId;
+    final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
+    final otherUserId = app.applicantUserId.isNotEmpty ? app.applicantUserId : app.applicantTempId;
+    if (otherUserId.isEmpty) return;
     final conv = await appProvider.createConversationOnAccept(
       currentUserId: currentUserId,
-      otherUserId: app.applicantTempId,
+      otherUserId: otherUserId,
       otherUserName: app.applicantName,
     );
     if (!context.mounted || conv == null) return;
@@ -639,8 +627,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             final provider = context.read<AppProvider>();
             
             // Submit to Supabase
+            final currentUserId = context.read<AuthProvider>().currentUserId;
             final success = await provider.submitApplicationToPost(
               post.id,
+              currentUserId: currentUserId,
               message: message,
               proposedPrice: proposedPrice,
             );

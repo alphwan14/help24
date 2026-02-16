@@ -25,7 +25,7 @@ class AuthProvider extends ChangeNotifier {
   String? get error => _error;
   bool get isFirebaseConfigured => FirebaseConfig.isConfigured;
   String? get currentUserId => _currentUser?.id;
-  String get currentUserName => _currentUser?.displayName ?? 'Guest';
+  String get currentUserName => _currentUser?.displayName ?? '';
   String? get currentUserEmail => _currentUser?.email;
   /// True if user just signed in (e.g. via phone) and has no name set — show profile setup.
   bool get needsProfileSetup =>

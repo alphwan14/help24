@@ -51,18 +51,18 @@ class JobCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Top row: avatar, company (username), timestamp
+                  // Top row: avatar, author name, timestamp
                   Row(
                     children: [
                       MarketplaceAvatar(
-                        imageUrl: null,
-                        displayName: job.company,
+                        imageUrl: job.authorAvatarUrl.isNotEmpty ? job.authorAvatarUrl : null,
+                        displayName: job.authorName,
                         size: 40,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          job.company,
+                          job.authorName,
                           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w700,
                                 color: textPrimary,
