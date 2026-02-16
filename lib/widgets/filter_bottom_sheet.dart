@@ -344,11 +344,14 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                         case Difficulty.hard:
                           color = AppTheme.errorRed;
                           break;
+                        case Difficulty.any:
+                          color = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+                          break;
                       }
                       return Expanded(
                         child: Padding(
                           padding: EdgeInsets.only(
-                            right: difficulty != Difficulty.hard ? 8 : 0,
+                            right: difficulty != Difficulty.any ? 8 : 0,
                           ),
                           child: GestureDetector(
                             onTap: () {

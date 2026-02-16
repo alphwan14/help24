@@ -166,6 +166,32 @@ class StorageService {
     return urls;
   }
 
+  /// Upload profile/avatar image for a user. Path: avatars/{userId}.{ext}
+  static Future<String> uploadProfileImage(XFile file, String userId) async {
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.length > maxFileSize) {
+        throw StorageException('Image too large. Maximum size is 5MB.');
+      }
+      final extension = _getExtensionFromXFile(file);
+      final filePath = 'avatars/$userId.$extension';
+      final contentType = _getContentType(extension);
+      await _client.storage.from(_bucket).uploadBinary(
+        filePath,
+        bytes,
+        fileOptions: FileOptions(
+          cacheControl: '3600',
+          upsert: true,
+          contentType: contentType,
+        ),
+      );
+      return _client.storage.from(_bucket).getPublicUrl(filePath);
+    } catch (e) {
+      if (e is StorageException) rethrow;
+      throw StorageException('Failed to upload profile image: $e');
+    }
+  }
+
   /// Delete an image from storage by URL
   static Future<void> deleteImage(String imageUrl) async {
     try {

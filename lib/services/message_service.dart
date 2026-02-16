@@ -1,266 +1,363 @@
-import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../models/post_model.dart';
-import '../utils/guest_id.dart';
 
-/// Service for handling messaging operations with Supabase
+/// Real-time messaging with Supabase: conversations + messages tables.
+/// Conversations are created only when a request/application is accepted.
 class MessageService {
-  static final _client = SupabaseConfig.client;
+  static SupabaseClient get _client => SupabaseConfig.client;
 
-  /// Fetch all conversations for the current guest user
-  /// Groups messages by conversation_id and returns latest message info
-  static Future<List<Conversation>> getConversations() async {
+  static const int pageSize = 50;
+
+  /// Fetch conversations for current user (user1_id or user2_id = currentUserId).
+  /// Returns list ordered by updated_at desc. Participant name from users table when available.
+  static Future<List<Conversation>> getConversations(String currentUserId) async {
+    if (currentUserId.isEmpty) return [];
     try {
-      final guestId = GuestId.currentId;
-
-      // Get all messages where user is sender or receiver
       final response = await _client
-          .from('messages')
+          .from('conversations')
           .select()
-          .or('sender_temp_id.eq.$guestId,receiver_temp_id.eq.$guestId')
-          .order('created_at', ascending: false);
+          .or('user1_id.eq.$currentUserId,user2_id.eq.$currentUserId')
+          .order('updated_at', ascending: false);
 
-      if ((response as List).isEmpty) {
-        return [];
-      }
-
-      // Group messages by conversation_id
-      final Map<String, List<Map<String, dynamic>>> conversationMap = {};
-      for (final msg in response) {
-        final convId = msg['conversation_id'] as String;
-        conversationMap.putIfAbsent(convId, () => []);
-        conversationMap[convId]!.add(msg);
-      }
-
-      // Create Conversation objects
+      final list = response as List;
       final conversations = <Conversation>[];
-      for (final entry in conversationMap.entries) {
-        final messages = entry.value;
-        if (messages.isEmpty) continue;
-
-        // Get the latest message
-        final latestMsg = messages.first;
-        
-        // Determine the other participant
-        final senderId = latestMsg['sender_temp_id'] as String;
-        final receiverId = latestMsg['receiver_temp_id'] as String;
-        final otherParticipantId = senderId == guestId ? receiverId : senderId;
-
-        // Count unread messages (messages from other user)
-        final unreadCount = messages.where((m) => 
-          m['sender_temp_id'] != guestId
-        ).length;
-
-        // Generate a display name from the participant ID
-        final displayName = _getDisplayName(otherParticipantId);
-
+      for (final row in list) {
+        final map = row as Map<String, dynamic>;
+        final user1 = map['user1_id'] as String? ?? '';
+        final user2 = map['user2_id'] as String? ?? '';
+        final otherId = user1 == currentUserId ? user2 : user1;
+        final name = await _getUserName(otherId);
         conversations.add(Conversation(
-          id: entry.key,
-          participantId: otherParticipantId,
-          userName: displayName,
-          lastMessage: latestMsg['content'] as String,
-          lastMessageTime: DateTime.parse(latestMsg['created_at']),
-          unreadCount: unreadCount,
+          id: (map['id'] ?? '').toString(),
+          participantId: otherId,
+          userName: name,
+          userAvatar: '',
+          lastMessage: map['last_message'] as String? ?? '',
+          lastMessageTime: map['updated_at'] != null
+              ? DateTime.parse(map['updated_at'].toString())
+              : DateTime.now(),
+          unreadCount: 0,
         ));
       }
-
-      // Sort by last message time
-      conversations.sort((a, b) => b.lastMessageTime.compareTo(a.lastMessageTime));
       return conversations;
     } catch (e) {
-      throw MessageServiceException('Failed to fetch conversations: $e');
+      debugPrint('MessageService getConversations: $e');
+      rethrow;
     }
   }
 
-  /// Get all messages for a specific conversation
-  static Future<List<Message>> getMessages(String conversationId) async {
+  /// Get messages for a conversation with pagination (oldest first).
+  /// [before] = created_at cursor for loading older messages; null = latest page.
+  static Future<List<Message>> getMessages(
+    String conversationId,
+    String currentUserId, {
+    int limit = pageSize,
+    DateTime? before,
+  }) async {
     try {
-      final guestId = GuestId.currentId;
+      var query = _client
+          .from('messages')
+          .select()
+          .eq('conversation_id', conversationId);
 
+      if (before != null) {
+        query = query.lt('created_at', before.toIso8601String());
+      }
+      final response = await query.order('created_at', ascending: true).limit(limit);
+
+      return (response as List)
+          .map((json) => Message.fromJson(json as Map<String, dynamic>, currentUserId))
+          .toList();
+    } catch (e) {
+      debugPrint('MessageService getMessages: $e');
+      rethrow;
+    }
+  }
+
+  /// Load initial page (latest messages). Returns messages in ascending created_at order.
+  static Future<List<Message>> getMessagesLatest(
+    String conversationId,
+    String currentUserId, {
+    int limit = pageSize,
+  }) async {
+    try {
       final response = await _client
           .from('messages')
           .select()
           .eq('conversation_id', conversationId)
-          .order('created_at', ascending: true);
+          .order('created_at', ascending: false)
+          .limit(limit);
 
-      return (response as List)
-          .map((json) => Message.fromJson(json, guestId))
+      final list = (response as List)
+          .map((json) => Message.fromJson(json as Map<String, dynamic>, currentUserId))
           .toList();
+      list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      return list;
     } catch (e) {
-      throw MessageServiceException('Failed to fetch messages: $e');
+      debugPrint('MessageService getMessagesLatest: $e');
+      rethrow;
     }
   }
 
-  /// Send a new message
+  /// Send a text message: insert with type 'text', update conversation.
   static Future<Message> sendMessage({
     required String conversationId,
-    required String receiverId,
+    required String senderId,
     required String content,
   }) async {
+    if (content.trim().isEmpty) {
+      throw MessageServiceException('Message cannot be empty');
+    }
     try {
-      final guestId = GuestId.currentId;
-
-      final messageData = {
+      final insert = {
         'conversation_id': conversationId,
-        'sender_temp_id': guestId,
-        'receiver_temp_id': receiverId,
-        'content': content,
+        'sender_id': senderId,
+        'message': content.trim(),
+        'type': 'text',
       };
+      final response = await _client.from('messages').insert(insert).select().single();
+      final message = Message.fromJson(response as Map<String, dynamic>, senderId);
 
-      final response = await _client
-          .from('messages')
-          .insert(messageData)
-          .select()
-          .single();
+      await _client.from('conversations').update({
+        'last_message': content.trim(),
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', conversationId);
 
-      return Message.fromJson(response, guestId);
+      return message;
     } catch (e) {
+      debugPrint('MessageService sendMessage: $e');
       throw MessageServiceException('Failed to send message: $e');
     }
   }
 
-  /// Start a new conversation with another user
-  /// Creates a conversation ID and sends the first message
-  static Future<Conversation> startConversation({
-    required String otherUserId,
-    required String otherUserName,
-    required String initialMessage,
+  /// Send a one-time location message (type 'location').
+  static Future<Message> sendLocation({
+    required String conversationId,
+    required String senderId,
+    required double latitude,
+    required double longitude,
   }) async {
     try {
-      final conversationId = GuestId.generateConversationId(otherUserId);
-      
-      final message = await sendMessage(
-        conversationId: conversationId,
-        receiverId: otherUserId,
-        content: initialMessage,
-      );
-
-      return Conversation(
-        id: conversationId,
-        participantId: otherUserId,
-        userName: otherUserName,
-        lastMessage: initialMessage,
-        lastMessageTime: message.timestamp,
-        unreadCount: 0,
-        messages: [message],
-      );
+      final insert = {
+        'conversation_id': conversationId,
+        'sender_id': senderId,
+        'message': 'Location',
+        'type': 'location',
+        'latitude': latitude,
+        'longitude': longitude,
+      };
+      final response = await _client.from('messages').insert(insert).select().single();
+      final message = Message.fromJson(response as Map<String, dynamic>, senderId);
+      await _client.from('conversations').update({
+        'last_message': 'Location',
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', conversationId);
+      return message;
     } catch (e) {
-      throw MessageServiceException('Failed to start conversation: $e');
+      debugPrint('MessageService sendLocation: $e');
+      throw MessageServiceException('Failed to send location: $e');
     }
   }
 
-  /// Subscribe to real-time message updates for a conversation
-  /// Returns a StreamSubscription that should be cancelled when done
+  /// Start live location: insert message with type 'live_location' and live_until.
+  static Future<Message> sendLiveLocation({
+    required String conversationId,
+    required String senderId,
+    required double latitude,
+    required double longitude,
+    required int durationMinutes,
+  }) async {
+    try {
+      final liveUntil = DateTime.now().add(Duration(minutes: durationMinutes));
+      final insert = {
+        'conversation_id': conversationId,
+        'sender_id': senderId,
+        'message': 'Live location',
+        'type': 'live_location',
+        'latitude': latitude,
+        'longitude': longitude,
+        'live_until': liveUntil.toIso8601String(),
+      };
+      final response = await _client.from('messages').insert(insert).select().single();
+      final message = Message.fromJson(response as Map<String, dynamic>, senderId);
+      await _client.from('conversations').update({
+        'last_message': 'Live location',
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', conversationId);
+      return message;
+    } catch (e) {
+      debugPrint('MessageService sendLiveLocation: $e');
+      throw MessageServiceException('Failed to start live location: $e');
+    }
+  }
+
+  /// Update location for a message (used for live location updates).
+  static Future<void> updateMessageLocation({
+    required String messageId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      await _client.from('messages').update({
+        'latitude': latitude,
+        'longitude': longitude,
+      }).eq('id', messageId);
+    } catch (e) {
+      debugPrint('MessageService updateMessageLocation: $e');
+      rethrow;
+    }
+  }
+
+  /// Stop live location: set live_until to now so it no longer updates; optionally set type to 'location'.
+  static Future<void> stopLiveLocation(String messageId) async {
+    try {
+      await _client.from('messages').update({
+        'live_until': DateTime.now().toIso8601String(),
+        'type': 'location',
+      }).eq('id', messageId);
+    } catch (e) {
+      debugPrint('MessageService stopLiveLocation: $e');
+      rethrow;
+    }
+  }
+
+  /// Create a conversation between two users (canonical order: user1_id < user2_id).
+  /// [currentUserId] = who is creating/accepting; returned Conversation has participant = the other user.
+  /// Returns existing conversation if one already exists for this pair.
+  static Future<Conversation> createConversation({
+    required String user1Id,
+    required String user2Id,
+    required String currentUserId,
+  }) async {
+    final u1 = user1Id.compareTo(user2Id) <= 0 ? user1Id : user2Id;
+    final u2 = user1Id.compareTo(user2Id) <= 0 ? user2Id : user1Id;
+    try {
+      final existing = await _client
+          .from('conversations')
+          .select()
+          .eq('user1_id', u1)
+          .eq('user2_id', u2)
+          .maybeSingle();
+
+      final Map<String, dynamic> map;
+      final String id;
+      if (existing != null) {
+        map = existing as Map<String, dynamic>;
+        id = (map['id'] ?? '').toString();
+      } else {
+        final insert = {
+          'user1_id': u1,
+          'user2_id': u2,
+          'last_message': '',
+          'updated_at': DateTime.now().toIso8601String(),
+        };
+        final response = await _client.from('conversations').insert(insert).select().single();
+        map = response as Map<String, dynamic>;
+        id = (map['id'] ?? '').toString();
+      }
+
+      final otherId = u1 == currentUserId ? u2 : u1;
+      final name = await _getUserName(otherId);
+      return Conversation(
+        id: id,
+        participantId: otherId,
+        userName: name,
+        userAvatar: '',
+        lastMessage: map['last_message'] as String? ?? '',
+        lastMessageTime: map['updated_at'] != null
+            ? DateTime.parse(map['updated_at'].toString())
+            : DateTime.now(),
+        unreadCount: 0,
+      );
+    } catch (e) {
+      debugPrint('MessageService createConversation: $e');
+      throw MessageServiceException('Failed to create conversation: $e');
+    }
+  }
+
+  /// Subscribe to new and updated messages for a single conversation (Realtime INSERT + UPDATE).
+  /// [onMessage] for new messages; [onMessageUpdated] for live location updates (same message id, new lat/lng).
   static RealtimeChannel subscribeToMessages(
     String conversationId,
-    void Function(Message message) onMessage,
-  ) {
-    final guestId = GuestId.currentId;
-
-    return _client
+    String currentUserId, {
+    required void Function(Message message) onMessage,
+    void Function(Message message)? onMessageUpdated,
+  }) {
+    if (conversationId.isEmpty) {
+      debugPrint('MessageService: skipped subscription — empty conversationId');
+      return _client.channel('noop:empty').subscribe();
+    }
+    final filter = PostgresChangeFilter(
+      type: PostgresChangeFilterType.eq,
+      column: 'conversation_id',
+      value: conversationId,
+    );
+    var channel = _client
         .channel('messages:$conversationId')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
           table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'conversation_id',
-            value: conversationId,
-          ),
+          filter: filter,
           callback: (payload) {
-            final newMessage = Message.fromJson(payload.newRecord, guestId);
-            onMessage(newMessage);
+            try {
+              final newRecord = payload.newRecord;
+              if (newRecord != null && newRecord.isNotEmpty) {
+                final msg = Message.fromJson(
+                  Map<String, dynamic>.from(newRecord),
+                  currentUserId,
+                );
+                onMessage(msg);
+              }
+            } catch (e) {
+              debugPrint('Realtime message parse error: $e');
+            }
           },
-        )
-        .subscribe();
+        );
+    if (onMessageUpdated != null) {
+      channel = channel.onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'messages',
+        filter: filter,
+        callback: (payload) {
+          try {
+            final newRecord = payload.newRecord;
+            if (newRecord != null && newRecord.isNotEmpty) {
+              final msg = Message.fromJson(
+                Map<String, dynamic>.from(newRecord),
+                currentUserId,
+              );
+              onMessageUpdated(msg);
+            }
+          } catch (e) {
+            debugPrint('Realtime message update parse error: $e');
+          }
+        },
+      );
+    }
+    return channel.subscribe();
   }
 
-  /// Unsubscribe from a real-time channel
   static Future<void> unsubscribe(RealtimeChannel channel) async {
     await _client.removeChannel(channel);
   }
 
-  /// Subscribe to all new messages for the current user
-  static RealtimeChannel subscribeToAllMessages(
-    void Function(Message message) onMessage,
-  ) {
-    final guestId = GuestId.currentId;
-
-    return _client
-        .channel('user_messages:$guestId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'receiver_temp_id',
-            value: guestId,
-          ),
-          callback: (payload) {
-            final newMessage = Message.fromJson(payload.newRecord, guestId);
-            onMessage(newMessage);
-          },
-        )
-        .subscribe();
-  }
-
-  /// Generate a display name from a user ID
-  static String _getDisplayName(String tempId) {
-    // For now, generate a simple display name
-    // In a real app, you might fetch this from a users table
-    final shortId = tempId.substring(0, 8);
-    return 'User $shortId';
-  }
-
-  /// Get or create a conversation with a post author
-  static Future<Conversation> getOrCreateConversation({
-    required String postAuthorId,
-    required String postAuthorName,
-    String? initialMessage,
-  }) async {
+  static Future<String> _getUserName(String userId) async {
+    if (userId.isEmpty) return 'User';
     try {
-      final conversationId = GuestId.generateConversationId(postAuthorId);
-      
-      // Check if conversation exists
-      final existingMessages = await getMessages(conversationId);
-      
-      if (existingMessages.isEmpty && initialMessage != null) {
-        // Create new conversation with initial message
-        return startConversation(
-          otherUserId: postAuthorId,
-          otherUserName: postAuthorName,
-          initialMessage: initialMessage,
-        );
-      }
-
-      // Return existing conversation
-      final lastMsg = existingMessages.isNotEmpty 
-          ? existingMessages.last 
-          : null;
-
-      return Conversation(
-        id: conversationId,
-        participantId: postAuthorId,
-        userName: postAuthorName,
-        lastMessage: lastMsg?.text ?? '',
-        lastMessageTime: lastMsg?.timestamp ?? DateTime.now(),
-        unreadCount: 0,
-        messages: existingMessages,
-      );
-    } catch (e) {
-      throw MessageServiceException('Failed to get or create conversation: $e');
-    }
+      final r = await _client.from('users').select('name').eq('id', userId).maybeSingle();
+      if (r != null && r['name'] != null) return r['name'] as String;
+    } catch (_) {}
+    return 'User ${userId.length > 8 ? userId.substring(0, 8) : userId}';
   }
 }
 
-/// Exception for message service errors
 class MessageServiceException implements Exception {
   final String message;
   MessageServiceException(this.message);
-  
   @override
   String toString() => 'MessageServiceException: $message';
 }

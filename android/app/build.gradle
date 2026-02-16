@@ -22,6 +22,8 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+def mapsApiKey = localProperties.getProperty('MAPS_API_KEY', '')
+
 android {
     namespace "com.help24.help24"
     compileSdk 36
@@ -47,6 +49,7 @@ android {
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true
+        manifestPlaceholders += [MAPS_API_KEY: mapsApiKey]
     }
 
     buildTypes {
@@ -66,3 +69,6 @@ flutter {
 dependencies {
     implementation 'androidx.multidex:multidex:2.0.1'
 }
+
+apply plugin: 'com.google.gms.google-services'
+

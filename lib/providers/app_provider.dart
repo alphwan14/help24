@@ -54,12 +54,11 @@ class AppProvider extends ChangeNotifier {
     _loadInitialData();
   }
 
-  /// Load initial data from Supabase
+  /// Load initial data from Supabase (conversations loaded when Messages screen opens with user id)
   Future<void> _loadInitialData() async {
     await Future.wait([
       loadPosts(),
       loadJobs(),
-      loadConversations(),
     ]);
   }
 
@@ -289,37 +288,41 @@ class AppProvider extends ChangeNotifier {
 
   // ==================== CONVERSATIONS ====================
 
-  /// Load conversations from Supabase
-  Future<void> loadConversations() async {
+  /// Load conversations from Supabase for [currentUserId] (Firebase UID or guest id).
+  Future<void> loadConversations(String currentUserId) async {
+    if (currentUserId.isEmpty) {
+      _conversations = [];
+      notifyListeners();
+      return;
+    }
     _isLoadingConversations = true;
     _error = null;
     notifyListeners();
 
     try {
-      _conversations = await MessageService.getConversations();
+      _conversations = await MessageService.getConversations(currentUserId);
     } catch (e) {
       _error = 'Failed to load conversations: $e';
-      print(_error);
+      debugPrint(_error);
     } finally {
       _isLoadingConversations = false;
       notifyListeners();
     }
   }
 
-  /// Get or create conversation with a user
-  Future<Conversation?> getOrCreateConversation({
+  /// Create a conversation when a request/application is accepted.
+  /// [currentUserId] = post/job author, [otherUserId] = applicant. Returns new or existing conversation.
+  Future<Conversation?> createConversationOnAccept({
+    required String currentUserId,
     required String otherUserId,
     required String otherUserName,
-    String? initialMessage,
   }) async {
     try {
-      final conversation = await MessageService.getOrCreateConversation(
-        postAuthorId: otherUserId,
-        postAuthorName: otherUserName,
-        initialMessage: initialMessage,
+      final conversation = await MessageService.createConversation(
+        user1Id: currentUserId,
+        user2Id: otherUserId,
+        currentUserId: currentUserId,
       );
-
-      // Update local conversations list
       final index = _conversations.indexWhere((c) => c.id == conversation.id);
       if (index == -1) {
         _conversations.insert(0, conversation);
@@ -327,11 +330,10 @@ class AppProvider extends ChangeNotifier {
         _conversations[index] = conversation;
       }
       notifyListeners();
-
       return conversation;
     } catch (e) {
-      _error = 'Failed to get conversation: $e';
-      print(_error);
+      _error = 'Failed to create conversation: $e';
+      debugPrint(_error);
       return null;
     }
   }

@@ -4,7 +4,7 @@ enum PostType { request, offer, job }
 
 enum Urgency { urgent, soon, flexible }
 
-enum Difficulty { easy, medium, hard }
+enum Difficulty { easy, medium, hard, any }
 
 class Category {
   final String name;
@@ -220,6 +220,7 @@ class PostModel {
       difficulty: _parseDifficulty(json['difficulty']),
       rating: (json['rating'] ?? 4.5).toDouble(),
       authorName: json['author_name'] ?? 'Anonymous',
+      authorAvatar: json['author_avatar']?.toString() ?? '',
       authorTempId: json['author_temp_id'] ?? '',
       createdAt: json['created_at'] != null 
           ? DateTime.parse(json['created_at']) 
@@ -276,6 +277,8 @@ class PostModel {
         return Difficulty.easy;
       case 'hard':
         return Difficulty.hard;
+      case 'any':
+        return Difficulty.any;
       case 'medium':
       default:
         return Difficulty.medium;
@@ -350,6 +353,21 @@ class PostModel {
         return const Color(0xFFFF9800);
       case Difficulty.hard:
         return const Color(0xFFE53935);
+      case Difficulty.any:
+        return const Color(0xFF6B7280);
+    }
+  }
+
+  String get difficultyText {
+    switch (difficulty) {
+      case Difficulty.easy:
+        return 'Easy';
+      case Difficulty.medium:
+        return 'Medium';
+      case Difficulty.hard:
+        return 'Hard';
+      case Difficulty.any:
+        return 'Any';
     }
   }
 }
@@ -476,6 +494,7 @@ class JobModel {
   }
 }
 
+/// Message type: text, image, location (static), live_location (updating).
 class Message {
   final String id;
   final String conversationId;
@@ -484,6 +503,10 @@ class Message {
   final String text;
   final DateTime timestamp;
   final bool isMe;
+  final String type;
+  final double? latitude;
+  final double? longitude;
+  final DateTime? liveUntil;
 
   Message({
     required this.id,
@@ -493,31 +516,82 @@ class Message {
     required this.text,
     required this.timestamp,
     required this.isMe,
+    this.type = 'text',
+    this.latitude,
+    this.longitude,
+    this.liveUntil,
   });
 
-  /// Create from Supabase JSON
+  bool get isLocation => type == 'location' || type == 'live_location';
+  bool get isLiveLocation => type == 'live_location';
+  bool get hasValidCoordinates =>
+      latitude != null && longitude != null && latitude!.abs() <= 90 && longitude!.abs() <= 180;
+
+  /// Create from Supabase JSON (supports new schema: sender_id, message, type, latitude, longitude, live_until)
   factory Message.fromJson(Map<String, dynamic> json, String currentUserId) {
-    final senderId = json['sender_temp_id'] ?? '';
+    final senderId = (json['sender_id'] ?? json['sender_temp_id'] ?? '') as String;
+    final text = (json['message'] ?? json['content'] ?? '') as String;
+    final type = (json['type'] ?? 'text') as String;
+    double? lat = json['latitude'] != null ? (json['latitude'] as num).toDouble() : null;
+    double? lng = json['longitude'] != null ? (json['longitude'] as num).toDouble() : null;
+    DateTime? liveUntil = json['live_until'] != null
+        ? DateTime.tryParse(json['live_until'].toString())
+        : null;
     return Message(
-      id: json['id'] ?? '',
-      conversationId: json['conversation_id'] ?? '',
+      id: (json['id'] ?? '').toString(),
+      conversationId: (json['conversation_id'] ?? '').toString(),
       senderId: senderId,
-      receiverId: json['receiver_temp_id'] ?? '',
-      text: json['content'] ?? '',
-      timestamp: json['created_at'] != null 
-          ? DateTime.parse(json['created_at']) 
+      receiverId: (json['receiver_temp_id'] ?? '').toString(),
+      text: text,
+      timestamp: json['created_at'] != null
+          ? DateTime.parse(json['created_at'].toString())
           : DateTime.now(),
       isMe: senderId == currentUserId,
+      type: type,
+      latitude: lat,
+      longitude: lng,
+      liveUntil: liveUntil,
     );
   }
 
-  /// Convert to Supabase JSON
+  Message copyWith({
+    String? id,
+    String? conversationId,
+    String? senderId,
+    String? receiverId,
+    String? text,
+    DateTime? timestamp,
+    bool? isMe,
+    String? type,
+    double? latitude,
+    double? longitude,
+    DateTime? liveUntil,
+  }) {
+    return Message(
+      id: id ?? this.id,
+      conversationId: conversationId ?? this.conversationId,
+      senderId: senderId ?? this.senderId,
+      receiverId: receiverId ?? this.receiverId,
+      text: text ?? this.text,
+      timestamp: timestamp ?? this.timestamp,
+      isMe: isMe ?? this.isMe,
+      type: type ?? this.type,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      liveUntil: liveUntil ?? this.liveUntil,
+    );
+  }
+
+  /// Convert to Supabase JSON (new messages table schema)
   Map<String, dynamic> toJson() {
     return {
       'conversation_id': conversationId,
-      'sender_temp_id': senderId,
-      'receiver_temp_id': receiverId,
-      'content': text,
+      'sender_id': senderId,
+      'message': text,
+      if (type != 'text') 'type': type,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (liveUntil != null) 'live_until': liveUntil!.toIso8601String(),
     };
   }
 }

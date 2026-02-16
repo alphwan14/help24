@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Help24 uses your location to share your position in chat (current or live location).</string>
+	<key>GMSServicesAPIKey</key>
+	<string></string>
 </dict>
 </plist>

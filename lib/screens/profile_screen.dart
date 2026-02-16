@@ -303,12 +303,12 @@ class _LoggedInProfile extends StatelessWidget {
 
         // Name
         Text(
-          user.name ?? 'User',
+          user.displayName,
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 4),
         Text(
-          user.email ?? '',
+          user.email.isNotEmpty ? user.email : (user.phoneNumber ?? ''),
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 8),

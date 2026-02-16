@@ -8,6 +8,9 @@ import '../widgets/post_card.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/application_modal.dart';
 import '../widgets/auth_guard.dart';
+import '../providers/auth_provider.dart';
+import '../utils/guest_id.dart';
+import 'messages_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
@@ -259,11 +262,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     itemCount: posts.length,
                     itemBuilder: (context, index) {
+                      final post = posts[index];
                       return PostCard(
-                        post: posts[index],
-                        onTap: () {
-                          _showPostDetails(context, posts[index]);
-                        },
+                        post: post,
+                        onTap: () => _showPostDetails(context, post),
+                        onRespond: post.type == PostType.request
+                            ? () => _openRespondModal(context, post)
+                            : null,
                       );
                     },
                   ),
@@ -452,7 +457,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           _DetailRow(
                             icon: Icons.trending_up,
                             label: 'Difficulty',
-                            value: post.difficulty.name[0].toUpperCase() + post.difficulty.name.substring(1),
+                            value: post.difficultyText,
                             valueColor: post.difficultyColor,
                           ),
                           const Divider(height: 24),
@@ -474,70 +479,79 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 12),
-                      ...post.applications.map((app) => Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                      ...post.applications.map((app) {
+                        final currentUserId = context.read<AuthProvider>().currentUserId ?? GuestId.currentId;
+                        final isAuthor = currentUserId == post.authorTempId;
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                            ),
                           ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 36,
-                                  height: 36,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [AppTheme.primaryAccent, AppTheme.secondaryAccent],
-                                    ),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      app.applicantName[0].toUpperCase(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [AppTheme.primaryAccent, AppTheme.secondaryAccent],
                                       ),
+                                      borderRadius: BorderRadius.circular(10),
                                     ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        app.applicantName,
-                                        style: Theme.of(context).textTheme.titleMedium,
-                                      ),
-                                      Text(
-                                        'KES ${_formatPrice(app.proposedPrice)}',
-                                        style: TextStyle(
-                                          color: AppTheme.successGreen,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
+                                    child: Center(
+                                      child: Text(
+                                        app.applicantName[0].toUpperCase(),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                    ],
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              app.message,
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                      )),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          app.applicantName,
+                                          style: Theme.of(context).textTheme.titleMedium,
+                                        ),
+                                        Text(
+                                          'KES ${_formatPrice(app.proposedPrice)}',
+                                          style: TextStyle(
+                                            color: AppTheme.successGreen,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (isAuthor)
+                                    TextButton(
+                                      onPressed: () => _acceptApplicationAndChat(context, post, app),
+                                      child: const Text('Accept'),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                app.message,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
                     ],
 
                     const SizedBox(height: 32),
@@ -578,6 +592,32 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _openRespondModal(BuildContext context, PostModel post) {
+    AuthGuard.requireAuth(
+      context,
+      action: 'respond to this request',
+      onAuthenticated: () => _showApplicationModal(context, post),
+    );
+  }
+
+  Future<void> _acceptApplicationAndChat(BuildContext context, PostModel post, Application app) async {
+    final appProvider = context.read<AppProvider>();
+    final currentUserId = context.read<AuthProvider>().currentUserId ?? GuestId.currentId;
+    final conv = await appProvider.createConversationOnAccept(
+      currentUserId: currentUserId,
+      otherUserId: app.applicantTempId,
+      otherUserName: app.applicantName,
+    );
+    if (!context.mounted || conv == null) return;
+    Navigator.pop(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (c) => ChatScreen(conversation: conv, currentUserId: currentUserId),
       ),
     );
   }

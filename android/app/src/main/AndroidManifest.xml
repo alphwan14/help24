@@ -2,6 +2,9 @@
     <!-- Required for network access -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Location for messaging -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     
     <application
         android:label="Help24"
@@ -29,6 +32,10 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Google Maps: set com.google.android.geo.API_KEY to your key (e.g. in build.gradle from local.properties) -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}"/>
     </application>
     <queries>
         <intent>
