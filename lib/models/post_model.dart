@@ -103,19 +103,25 @@ class KenyaLocation {
       all.where((l) => l.city == city).toList();
 }
 
-/// Parse display name from joined users row (Supabase). Use "Unknown user" if missing.
+/// Parse display name from joined users row. Never "Unknown" or "Guest": use name, else email prefix, else single char for avatar.
 String _userDisplayName(dynamic usersJson) {
-  if (usersJson == null || usersJson is! Map) return 'Unknown user';
+  if (usersJson == null || usersJson is! Map) return '?';
   final name = usersJson['name']?.toString()?.trim();
-  return (name != null && name.isNotEmpty) ? name : 'Unknown user';
+  if (name != null && name.isNotEmpty) return name;
+  final email = usersJson['email']?.toString()?.trim();
+  if (email != null && email.isNotEmpty) {
+    final prefix = email.split('@').first.trim();
+    return prefix.isNotEmpty ? prefix : '?';
+  }
+  return '?';
 }
 
 /// Parse avatar URL from joined users row (avatar_url or profile_image).
 String _userAvatarUrl(dynamic usersJson) {
   if (usersJson == null || usersJson is! Map) return '';
-  final a = usersJson['avatar_url']?.toString()?.trim;
-  final b = usersJson['profile_image']?.toString()?.trim;
-  return (a ?? b ?? '').toString();
+  final a = usersJson['avatar_url']?.toString()?.trim();
+  final b = usersJson['profile_image']?.toString()?.trim();
+  return (a != null && a.isNotEmpty) ? a : ((b != null && b.isNotEmpty) ? b : '');
 }
 
 class Application {
@@ -202,7 +208,7 @@ class PostModel {
     required this.type,
     this.difficulty = Difficulty.medium,
     this.rating = 4.5,
-    this.authorName = 'Unknown user',
+    this.authorName = '?',
     this.authorAvatar = '',
     this.authorTempId = '',
     this.authorUserId = '',
@@ -420,10 +426,10 @@ class JobModel {
   JobModel({
     required this.id,
     required this.title,
-    this.authorName = 'Unknown user',
+    this.authorName = '?',
     this.authorAvatarUrl = '',
     this.authorUserId = '',
-    this.company = 'Unknown user',
+    this.company = '?',
     required this.location,
     required this.pay,
     this.type = 'Full-time',

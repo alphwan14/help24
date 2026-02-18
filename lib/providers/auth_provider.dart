@@ -38,34 +38,44 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> initialize() async {
     if (_isInitialized) return;
-    _isLoading = true;
+    _isInitialized = true;
     notifyListeners();
+    if (!FirebaseConfig.isConfigured) return;
     try {
-      if (FirebaseConfig.isConfigured) {
-        _authSubscription = AuthService.authStateChanges.listen(_onAuthStateChanged);
-        if (AuthService.isLoggedIn) {
-          _currentUser = await AuthService.getCurrentAppUser();
-        }
+      _authSubscription = AuthService.authStateChanges.listen(_onAuthStateChanged);
+      final firebaseUser = AuthService.currentFirebaseUser;
+      if (firebaseUser != null) {
+        _currentUser = AuthService.appUserFromFirebase(firebaseUser);
+        notifyListeners();
+        AuthService.getCurrentAppUser().then((u) {
+          if (u != null) {
+            _currentUser = u;
+            notifyListeners();
+          }
+        });
       }
     } catch (e) {
       debugPrint('Auth initialization error: $e');
-    } finally {
-      _isInitialized = true;
-      _isLoading = false;
-      notifyListeners();
     }
   }
 
-  Future<void> _onAuthStateChanged(User? firebaseUser) async {
+  void _onAuthStateChanged(User? firebaseUser) {
     if (firebaseUser == null) {
       _currentUser = null;
       _verificationId = null;
       _resendToken = null;
       _pendingPhoneNumber = null;
-    } else {
-      _currentUser = await AuthService.getCurrentAppUser();
+      notifyListeners();
+      return;
     }
+    _currentUser = AuthService.appUserFromFirebase(firebaseUser);
     notifyListeners();
+    AuthService.getCurrentAppUser().then((u) {
+      if (u != null) {
+        _currentUser = u;
+        notifyListeners();
+      }
+    });
   }
 
   /// Start phone verification. On success, UI should navigate to OTP screen.

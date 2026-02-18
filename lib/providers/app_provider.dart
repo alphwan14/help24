@@ -4,6 +4,7 @@ import '../models/post_model.dart';
 import '../services/post_service.dart';
 import '../services/message_service.dart';
 import '../services/application_service.dart';
+import '../services/auth_service.dart';
 
 class AppProvider extends ChangeNotifier {
   bool _isDarkMode = true;
@@ -135,6 +136,7 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      await AuthService.ensureCurrentUserInSupabase();
       final createdPost = await PostService.createPost(
         post,
         currentUserId: currentUserId,
@@ -167,6 +169,7 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      await AuthService.ensureCurrentUserInSupabase();
       final createdJob = await PostService.createJob(
         job,
         currentUserId: currentUserId,
@@ -199,6 +202,29 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Delete a post or job. Only the author can delete. Removes from posts and jobs lists.
+  Future<bool> deletePost(String postId, String? currentUserId) async {
+    if (currentUserId == null || currentUserId.isEmpty) return false;
+    String? authorId;
+    if (_posts.any((p) => p.id == postId)) {
+      authorId = _posts.firstWhere((p) => p.id == postId).authorUserId;
+    } else if (_jobs.any((j) => j.id == postId)) {
+      authorId = _jobs.firstWhere((j) => j.id == postId).authorUserId;
+    }
+    if (authorId == null || authorId != currentUserId) return false;
+    try {
+      await PostService.deletePost(postId);
+      _posts.removeWhere((p) => p.id == postId);
+      _jobs.removeWhere((j) => j.id == postId);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = 'Failed to delete post: $e';
+      debugPrint(_error);
+      return false;
+    }
+  }
+
   // ==================== APPLICATIONS ====================
 
   /// Submit application to a post. Requires [currentUserId].
@@ -209,6 +235,7 @@ class AppProvider extends ChangeNotifier {
     required double proposedPrice,
   }) async {
     try {
+      await AuthService.ensureCurrentUserInSupabase();
       final application = await ApplicationService.submitApplication(
         postId: postId,
         currentUserId: currentUserId ?? '',
@@ -241,6 +268,7 @@ class AppProvider extends ChangeNotifier {
     required double proposedPrice,
   }) async {
     try {
+      await AuthService.ensureCurrentUserInSupabase();
       final application = await ApplicationService.submitApplication(
         postId: jobId,
         currentUserId: currentUserId ?? '',

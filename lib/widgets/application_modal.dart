@@ -6,7 +6,7 @@ class ApplicationModal extends StatefulWidget {
   final String title;
   final String type; // 'job', 'request', or 'offer'
   final double? suggestedPrice;
-  final Function(String message, double proposedPrice) onSubmit;
+  final Future<void> Function(String message, double proposedPrice) onSubmit;
 
   const ApplicationModal({
     super.key,
@@ -97,25 +97,9 @@ class _ApplicationModalState extends State<ApplicationModal> {
     await Future.delayed(const Duration(milliseconds: 800));
 
     final price = double.tryParse(_priceController.text) ?? 0;
-    widget.onSubmit(_messageController.text, price);
+    await widget.onSubmit(_messageController.text, price);
 
-    if (mounted) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white),
-              const SizedBox(width: 12),
-              Text(widget.type == 'job' ? 'Application sent!' : 'Response sent!'),
-            ],
-          ),
-          backgroundColor: AppTheme.successGreen,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-    }
+    if (mounted) Navigator.pop(context);
   }
 
   @override

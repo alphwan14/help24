@@ -28,12 +28,12 @@ class MessageService {
         final user1 = map['user1_id'] as String? ?? '';
         final user2 = map['user2_id'] as String? ?? '';
         final otherId = user1 == currentUserId ? user2 : user1;
-        final name = await _getUserName(otherId);
+        final profile = await _getUserProfile(otherId);
         conversations.add(Conversation(
           id: (map['id'] ?? '').toString(),
           participantId: otherId,
-          userName: name,
-          userAvatar: '',
+          userName: profile.name,
+          userAvatar: profile.avatarUrl,
           lastMessage: map['last_message'] as String? ?? '',
           lastMessageTime: map['updated_at'] != null
               ? DateTime.parse(map['updated_at'].toString())
@@ -119,6 +119,7 @@ class MessageService {
       };
       final response = await _client.from('messages').insert(insert).select().single();
       final message = Message.fromJson(response as Map<String, dynamic>, senderId);
+      debugPrint('✅ Message sent: conversation=$conversationId sender=$senderId');
 
       await _client.from('conversations').update({
         'last_message': content.trim(),
@@ -127,7 +128,7 @@ class MessageService {
 
       return message;
     } catch (e) {
-      debugPrint('MessageService sendMessage: $e');
+      debugPrint('❌ MessageService sendMessage: $e');
       throw MessageServiceException('Failed to send message: $e');
     }
   }
@@ -259,12 +260,12 @@ class MessageService {
       }
 
       final otherId = u1 == currentUserId ? u2 : u1;
-      final name = await _getUserName(otherId);
+      final profile = await _getUserProfile(otherId);
       return Conversation(
         id: id,
         participantId: otherId,
-        userName: name,
-        userAvatar: '',
+        userName: profile.name,
+        userAvatar: profile.avatarUrl,
         lastMessage: map['last_message'] as String? ?? '',
         lastMessageTime: map['updated_at'] != null
             ? DateTime.parse(map['updated_at'].toString())
@@ -346,12 +347,52 @@ class MessageService {
   }
 
   static Future<String> _getUserName(String userId) async {
-    if (userId.isEmpty) return 'User';
+    if (userId.isEmpty) return '?';
     try {
-      final r = await _client.from('users').select('name').eq('id', userId).maybeSingle();
-      if (r != null && r['name'] != null) return r['name'] as String;
-    } catch (_) {}
-    return 'User ${userId.length > 8 ? userId.substring(0, 8) : userId}';
+      final r = await _client.from('users').select('name, email').eq('id', userId).maybeSingle();
+      if (r != null) {
+        final name = r['name']?.toString()?.trim();
+        if (name != null && name.isNotEmpty) return name;
+        final email = r['email']?.toString()?.trim();
+        if (email != null && email.isNotEmpty) {
+          final prefix = email.split('@').first.trim();
+          return prefix.isNotEmpty ? prefix : '?';
+        }
+      }
+    } catch (e) {
+      debugPrint('MessageService _getUserName: $e');
+    }
+    return '?';
+  }
+
+  /// Fetch user name and avatar for conversation participant (from Supabase users table).
+  static Future<({String name, String avatarUrl})> _getUserProfile(String userId) async {
+    if (userId.isEmpty) return (name: '?', avatarUrl: '');
+    try {
+      final r = await _client
+          .from('users')
+          .select('name, email, avatar_url, profile_image')
+          .eq('id', userId)
+          .maybeSingle();
+      if (r != null) {
+        final name = r['name']?.toString()?.trim();
+        final email = r['email']?.toString()?.trim();
+        String displayName = (name != null && name.isNotEmpty)
+            ? name
+            : (email != null && email.isNotEmpty
+                ? (email.split('@').first.trim().isNotEmpty ? email.split('@').first.trim() : '?')
+                : '?');
+        final avatar = r['avatar_url']?.toString()?.trim();
+        final profileImage = r['profile_image']?.toString()?.trim();
+        return (
+          name: displayName,
+          avatarUrl: (avatar != null && avatar.isNotEmpty) ? avatar : (profileImage ?? ''),
+        );
+      }
+    } catch (e) {
+      debugPrint('MessageService _getUserProfile: $e');
+    }
+    return (name: '?', avatarUrl: '');
   }
 }
 

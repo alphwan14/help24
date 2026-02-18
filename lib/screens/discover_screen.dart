@@ -192,10 +192,29 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           Expanded(
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
-                // Show loading indicator
                 if (provider.isLoadingPosts) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppTheme.primaryAccent,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Loading...',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
                   );
                 }
 
@@ -283,13 +302,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _showPostDetails(BuildContext context, PostModel post) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+    final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
+    final isAuthor = currentUserId.isNotEmpty && post.authorUserId == currentUserId;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
+      builder: (sheetContext) => Container(
+        height: MediaQuery.of(sheetContext).size.height * 0.85,
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -305,9 +326,29 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.close, color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
+                    onPressed: () => Navigator.pop(sheetContext),
+                  ),
+                  if (isAuthor)
+                    TextButton.icon(
+                      onPressed: () => _confirmAndDeletePost(sheetContext, context, post),
+                      icon: Icon(Icons.delete_outline, size: 20, color: AppTheme.errorRed),
+                      label: Text('Delete', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
+                    )
+                  else
+                    const SizedBox(width: 48),
+                ],
+              ),
+            ),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -580,6 +621,61 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmAndDeletePost(BuildContext sheetContext, BuildContext parentContext, PostModel post) async {
+    final confirmed = await showDialog<bool>(
+      context: sheetContext,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete post?'),
+        content: const Text(
+          'This will permanently delete your post and its images. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Delete', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !parentContext.mounted) return;
+    final appProvider = parentContext.read<AppProvider>();
+    final currentUserId = parentContext.read<AuthProvider>().currentUserId;
+    final success = await appProvider.deletePost(post.id, currentUserId);
+    if (!sheetContext.mounted) return;
+    Navigator.pop(sheetContext);
+    if (!parentContext.mounted) return;
+    if (success) {
+      await appProvider.loadPosts();
+      ScaffoldMessenger.of(parentContext).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Post deleted'),
+            ],
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.successGreen,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(parentContext).showSnackBar(
+        SnackBar(
+          content: Text(appProvider.error ?? 'Failed to delete post'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.errorRed,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   void _openRespondModal(BuildContext context, PostModel post) {

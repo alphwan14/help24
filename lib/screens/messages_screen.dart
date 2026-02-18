@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -57,8 +58,28 @@ class _MessagesScreenState extends State<MessagesScreen> {
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
                 if (provider.isLoadingConversations) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppTheme.primaryAccent,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Loading...',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
                   );
                 }
 
@@ -163,6 +184,29 @@ class _ConversationTile extends StatelessWidget {
     }
   }
 
+  Widget _avatarPlaceholder(String initial) {
+    return Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppTheme.primaryAccent, AppTheme.secondaryAccent],
+        ),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -181,31 +225,30 @@ class _ConversationTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Avatar
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    AppTheme.primaryAccent,
-                    AppTheme.secondaryAccent,
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Center(
-                child: Text(
-                  conversation.userName.isNotEmpty 
-                      ? conversation.userName.substring(0, 1).toUpperCase()
-                      : 'U',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+            // Avatar (network image from Supabase or initial)
+            Builder(
+              builder: (context) {
+                final avatarUrl = conversation.userAvatar;
+                final initial = conversation.userName.isNotEmpty
+                    ? conversation.userName.substring(0, 1).toUpperCase()
+                    : '?';
+                if (avatarUrl.isNotEmpty) {
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: CachedNetworkImage(
+                        imageUrl: avatarUrl,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => _avatarPlaceholder(initial),
+                        errorWidget: (_, __, ___) => _avatarPlaceholder(initial),
+                      ),
+                    ),
+                  );
+                }
+                return _avatarPlaceholder(initial);
+              },
             ),
             const SizedBox(width: 14),
             // Content

@@ -72,7 +72,7 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, users(name, profile_image, avatar_url), post_images(image_url), applications(*, users(name, profile_image, avatar_url))');
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))');
 
       // Apply filters
       if (filters != null) {
@@ -159,7 +159,7 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, users(name, profile_image, avatar_url), post_images(image_url), applications(*, users(name, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
           .eq('type', 'job');
 
       // Apply additional filters
@@ -201,7 +201,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users(name, profile_image, avatar_url), post_images(image_url), applications(*, users(name, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
           .eq('id', id)
           .maybeSingle();
 
@@ -234,6 +234,7 @@ class PostService {
           .single();
 
       final postId = postResponse['id'] as String;
+      debugPrint('✅ Post created: id=$postId author_user_id=$currentUserId');
 
       // Upload images if provided (optional - post succeeds even without images)
       List<String> imageUrls = [];
@@ -327,6 +328,7 @@ class PostService {
           .single();
 
       final jobId = response['id'] as String;
+      debugPrint('✅ Job created: id=$jobId author_user_id=$currentUserId');
 
       List<String> imageUrls = [];
       if (imageFiles != null && imageFiles.isNotEmpty) {
@@ -395,7 +397,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users(name, profile_image, avatar_url), post_images(image_url), applications(*, users(name, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
           .eq('author_user_id', currentUserId)
           .neq('type', 'job')
           .order('created_at', ascending: false);

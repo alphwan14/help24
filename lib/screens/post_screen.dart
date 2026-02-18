@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 
 /// Represents a selected image with cross-platform support
@@ -1149,6 +1150,7 @@ class _PostScreenState extends State<PostScreen> {
         : _selectedCity;
 
     try {
+      await AuthService.ensureCurrentUserInSupabase();
       if (_selectedType == PostType.job) {
         final job = JobModel(
           id: '',

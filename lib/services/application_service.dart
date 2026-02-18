@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../config/supabase_config.dart';
 import '../models/post_model.dart';
 
@@ -5,7 +6,7 @@ import '../models/post_model.dart';
 class ApplicationService {
   static final _client = SupabaseConfig.client;
 
-  static const _applicationsSelect = '*, users(name, profile_image, avatar_url)';
+  static const _applicationsSelect = '*, users(name, email, profile_image, avatar_url)';
 
   /// Submit an application. Requires [currentUserId]. Name/avatar come from users join on read.
   static Future<Application> submitApplication({
@@ -33,8 +34,11 @@ class ApplicationService {
           .select(_applicationsSelect)
           .single();
 
-      return Application.fromJson(response);
+      final app = Application.fromJson(response);
+      debugPrint('✅ Application submitted: post=$postId applicant_user_id=$currentUserId');
+      return app;
     } catch (e) {
+      debugPrint('❌ Application submit failed: $e');
       throw ApplicationServiceException('Failed to submit application: $e');
     }
   }

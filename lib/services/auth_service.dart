@@ -29,12 +29,13 @@ class AppUser {
   String? get profileImage => photoUrl;
 
   factory AppUser.fromJson(Map<String, dynamic> json) {
+    final avatar = json['avatar_url'] as String? ?? json['profile_image'] as String? ?? json['photo_url'] as String?;
     return AppUser(
       id: json['id'] as String,
       email: json['email'] as String? ?? '',
       name: json['name'] as String?,
-      phoneNumber: json['phone_number'] as String?,
-      photoUrl: json['profile_image'] as String? ?? json['photo_url'] as String?,
+      phoneNumber: json['phone_number'] as String? ?? json['phone'] as String?,
+      photoUrl: avatar,
       createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
       lastLogin: DateTime.tryParse(json['last_login']?.toString() ?? '') ?? DateTime.now(),
     );
@@ -72,7 +73,7 @@ class AppUser {
     );
   }
 
-  String get displayName => (name != null && name!.trim().isNotEmpty) ? name! : (email.isNotEmpty ? email.split('@').first : (phoneNumber ?? 'User'));
+  String get displayName => (name != null && name!.trim().isNotEmpty) ? name! : (email.isNotEmpty ? email.split('@').first : (phoneNumber != null && phoneNumber!.isNotEmpty ? phoneNumber! : '?'));
   bool get hasProfile => name != null && name!.trim().isNotEmpty;
 
   String get initials {
@@ -195,17 +196,10 @@ class AuthService {
       final result = await auth.signInWithCredential(credential);
       final user = result.user;
       if (user == null) return AuthResult.failure('Sign in failed. Please try again.');
-      final isNew = result.additionalUserInfo?.isNewUser ?? false;
       final phone = user.phoneNumber ?? _normalizePhone(user.uid);
-      final appUser = await _syncUserToSupabase(
-        user,
-        name: user.displayName,
-        phoneNumber: phone,
-      );
-      if (isNew && (appUser.name == null || appUser.name!.trim().isEmpty)) {
-        // New phone user: keep appUser but caller should show profile setup
-      }
+      final appUser = _appUserFromFirebase(user, nameOverride: user.displayName);
       debugPrint('✅ Phone sign in: ${appUser.id}');
+      _syncUserToSupabase(user, name: user.displayName, phoneNumber: phone).then((_) => debugPrint('✅ User synced to Supabase'));
       return AuthResult.success(appUser);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(getPhoneErrorMessage(e));
@@ -257,8 +251,10 @@ class AuthService {
         await firebaseUser.updateDisplayName(name.trim());
         await firebaseUser.reload();
       }
-      final appUser = await _syncUserToSupabase(auth.currentUser ?? firebaseUser, name: name?.trim());
+      final current = auth.currentUser ?? firebaseUser;
+      final appUser = _appUserFromFirebase(current, nameOverride: name?.trim());
       debugPrint('✅ User signed up: ${appUser.email}');
+      _syncUserToSupabase(current, name: name?.trim()).then((_) => debugPrint('✅ User synced to Supabase'));
       return AuthResult.success(appUser);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getFirebaseErrorMessage(e));
@@ -284,8 +280,9 @@ class AuthService {
       );
       final firebaseUser = credential.user;
       if (firebaseUser == null) return AuthResult.failure('Failed to sign in. Please try again.');
-      final appUser = await _syncUserToSupabase(firebaseUser);
+      final appUser = _appUserFromFirebase(firebaseUser);
       debugPrint('✅ User signed in: ${appUser.email}');
+      _syncUserToSupabase(firebaseUser).then((_) => debugPrint('✅ User synced to Supabase'));
       return AuthResult.success(appUser);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getFirebaseErrorMessage(e));
@@ -320,6 +317,36 @@ class AuthService {
     }
   }
 
+  /// Ensures the current Firebase user exists in Supabase `users` table.
+  /// Call this before creating a post/job so `posts.author_user_id` FK is satisfied.
+  static Future<void> ensureCurrentUserInSupabase() async {
+    final firebaseUser = currentFirebaseUser;
+    if (firebaseUser == null) return;
+    await _syncUserToSupabase(
+      firebaseUser,
+      phoneNumber: firebaseUser.phoneNumber,
+    );
+  }
+
+  /// Build AppUser from Firebase only (no network). Use for instant UI update so login never freezes.
+  static AppUser appUserFromFirebase(User firebaseUser, {String? nameOverride}) {
+    return _appUserFromFirebase(firebaseUser, nameOverride: nameOverride);
+  }
+
+  static AppUser _appUserFromFirebase(User firebaseUser, {String? nameOverride}) {
+    final email = firebaseUser.email ?? '';
+    final name = nameOverride ?? firebaseUser.displayName ?? (email.isNotEmpty ? email.split('@').first : null);
+    return AppUser(
+      id: firebaseUser.uid,
+      email: email,
+      name: name?.trim().isEmpty == true ? null : name,
+      phoneNumber: firebaseUser.phoneNumber,
+      photoUrl: firebaseUser.photoURL,
+      createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
+      lastLogin: DateTime.now(),
+    );
+  }
+
   static Future<AppUser?> getCurrentAppUser() async {
     final firebaseUser = currentFirebaseUser;
     if (firebaseUser == null) return null;
@@ -327,18 +354,13 @@ class AuthService {
       return await _syncUserToSupabase(
         firebaseUser,
         phoneNumber: firebaseUser.phoneNumber,
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => _appUserFromFirebase(firebaseUser),
       );
     } catch (e) {
       debugPrint('Error getting current user: $e');
-      return AppUser(
-        id: firebaseUser.uid,
-        email: firebaseUser.email ?? '',
-        name: firebaseUser.displayName,
-        phoneNumber: firebaseUser.phoneNumber,
-        photoUrl: firebaseUser.photoURL,
-        createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
-        lastLogin: DateTime.now(),
-      );
+      return _appUserFromFirebase(firebaseUser);
     }
   }
 
@@ -368,28 +390,31 @@ class AuthService {
   }
 
   /// Sync Firebase user to Supabase users table (no RPC).
-  /// Uses client-side upsert: id = Firebase UID, no duplicates.
+  /// Uses client-side upsert: id = Firebase UID. Name = email prefix if no name; never use "Guest".
   static Future<AppUser> _syncUserToSupabase(
     User firebaseUser, {
     String? name,
     String? phoneNumber,
   }) async {
     final now = DateTime.now();
-    final userName = name ??
-        firebaseUser.displayName ??
+    final fromDisplay = firebaseUser.displayName?.trim();
+    final isGuestLike = fromDisplay != null &&
+        fromDisplay.isNotEmpty &&
+        fromDisplay.toLowerCase().startsWith('guest');
+    final userName = name?.trim() ??
+        ((fromDisplay != null && fromDisplay.isNotEmpty && !isGuestLike)
+            ? fromDisplay
+            : null) ??
         firebaseUser.email?.split('@').first ??
         (firebaseUser.phoneNumber != null ? 'User' : '');
-    final phone = firebaseUser.phoneNumber ?? phoneNumber;
     final email = firebaseUser.email ?? '';
     final profileImage = firebaseUser.photoURL;
+    final displayName = userName.isEmpty ? (email.isNotEmpty ? email.split('@').first : '') : userName;
 
     final row = <String, dynamic>{
       'id': firebaseUser.uid,
-      'phone_number': phone,
       'email': email,
-      'name': userName,
-      'profile_image': profileImage,
-      if (profileImage != null) 'avatar_url': profileImage,
+      'name': displayName,
       'last_login': now.toIso8601String(),
     };
 
@@ -400,18 +425,18 @@ class AuthService {
       );
       final inserted = await _supabase.from('users').select().eq('id', firebaseUser.uid).maybeSingle();
       if (inserted != null) {
-        debugPrint('✅ User synced to Supabase: ${firebaseUser.uid}');
+        debugPrint('✅ User synced to Supabase: ${firebaseUser.uid} name=${userName.isEmpty ? "(email prefix)" : userName}');
         return AppUser.fromJson(inserted as Map<String, dynamic>);
       }
     } catch (e) {
-      debugPrint('❌ Supabase sync: $e');
+      debugPrint('❌ Supabase user sync failed: $e');
     }
 
     return AppUser(
       id: firebaseUser.uid,
       email: email,
       name: userName.isEmpty ? null : userName,
-      phoneNumber: phone,
+      phoneNumber: firebaseUser.phoneNumber ?? phoneNumber,
       photoUrl: profileImage,
       createdAt: now,
       lastLogin: now,

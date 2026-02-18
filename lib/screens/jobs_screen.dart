@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
+import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/job_card.dart';
 import '../widgets/application_modal.dart';
@@ -183,6 +184,7 @@ class _JobsScreenState extends State<JobsScreen> {
                     final job = jobs[index];
                     return JobCard(
                       job: job,
+                      onTap: () => _showJobDetails(context, job),
                       onApply: () => _showApplyModal(context, job),
                     );
                   },
@@ -193,6 +195,119 @@ class _JobsScreenState extends State<JobsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _showJobDetails(BuildContext context, JobModel job) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
+    final isAuthor = currentUserId.isNotEmpty && job.authorUserId == currentUserId;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(sheetContext).size.height * 0.7),
+        decoration: BoxDecoration(
+          color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.close, color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
+                    onPressed: () => Navigator.pop(sheetContext),
+                  ),
+                  if (isAuthor)
+                    TextButton.icon(
+                      onPressed: () => _confirmAndDeleteJob(sheetContext, context, job),
+                      icon: Icon(Icons.delete_outline, size: 20, color: AppTheme.errorRed),
+                      label: Text('Delete', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
+                    )
+                  else
+                    const SizedBox(width: 48),
+                ],
+              ),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(job.title, style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 8),
+                    Text(job.description, style: Theme.of(context).textTheme.bodyMedium),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _showApplyModal(context, job);
+                        },
+                        icon: const Icon(Iconsax.send_2),
+                        label: const Text('Apply'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmAndDeleteJob(BuildContext sheetContext, BuildContext parentContext, JobModel job) async {
+    final confirmed = await showDialog<bool>(
+      context: sheetContext,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete job?'),
+        content: const Text('This will permanently delete this job post. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Delete', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !parentContext.mounted) return;
+    final appProvider = parentContext.read<AppProvider>();
+    final currentUserId = parentContext.read<AuthProvider>().currentUserId;
+    final success = await appProvider.deletePost(job.id, currentUserId);
+    if (!sheetContext.mounted) return;
+    Navigator.pop(sheetContext);
+    if (!parentContext.mounted) return;
+    if (success) {
+      await appProvider.loadJobs();
+      ScaffoldMessenger.of(parentContext).showSnackBar(
+        SnackBar(
+          content: const Row(children: [Icon(Icons.check_circle, color: Colors.white), SizedBox(width: 12), Text('Job deleted')]),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.successGreen,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(parentContext).showSnackBar(
+        SnackBar(
+          content: Text(appProvider.error ?? 'Failed to delete'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.errorRed,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   void _showApplyModal(BuildContext context, JobModel job) {
@@ -207,16 +322,41 @@ class _JobsScreenState extends State<JobsScreen> {
         child: ApplicationModal(
           title: job.title,
           type: 'job',
-          onSubmit: (message, proposedPrice) {
+          onSubmit: (message, proposedPrice) async {
             final provider = context.read<AppProvider>();
-            final application = Application(
-              id: DateTime.now().millisecondsSinceEpoch.toString(),
-              applicantName: 'You',
+            final currentUserId = context.read<AuthProvider>().currentUserId;
+            final success = await provider.submitApplicationToJob(
+              job.id,
+              currentUserId: currentUserId,
               message: message,
               proposedPrice: proposedPrice,
-              timestamp: DateTime.now(),
             );
-            provider.addApplicationToJob(job.id, application);
+            if (!context.mounted) return;
+            if (success) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.white),
+                      SizedBox(width: 12),
+                      Text('Application submitted!'),
+                    ],
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: AppTheme.successGreen,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(provider.error ?? 'Failed to submit'),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: AppTheme.errorRed,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              );
+            }
           },
         ),
       ),

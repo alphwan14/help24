@@ -43,14 +43,20 @@ class AuthGuard {
   }) async {
     final authProvider = context.read<AuthProvider>();
     
-    // If Firebase is not configured, allow action with guest mode
-    // This ensures app works even without Firebase credentials
+    // Require real authentication; no guest mode for posting/messaging
     if (!authProvider.isFirebaseConfigured) {
-      debugPrint('⚠️ Firebase not configured - allowing action in guest mode');
-      onAuthenticated();
-      return true;
+      debugPrint('⚠️ Firebase not configured - sign in required for this action');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sign-in is not configured. Contact support.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
     }
-    
+
     // If already logged in, execute action immediately
     if (authProvider.isLoggedIn) {
       onAuthenticated();
@@ -94,10 +100,7 @@ class AuthGuard {
       );
     }
     
-    // If authenticated, execute the original action
     if (authenticated == true) {
-      // Small delay to ensure auth state is updated
-      await Future.delayed(const Duration(milliseconds: 100));
       onAuthenticated();
       return true;
     }
@@ -105,11 +108,9 @@ class AuthGuard {
     return false;
   }
   
-  /// Check if user is authenticated without taking any action
+  /// Check if user is authenticated without taking any action (real auth only; no guest)
   static bool isAuthenticated(BuildContext context) {
-    final authProvider = context.read<AuthProvider>();
-    // Allow if logged in OR if Firebase is not configured (guest mode)
-    return authProvider.isLoggedIn || !authProvider.isFirebaseConfigured;
+    return context.read<AuthProvider>().isLoggedIn;
   }
   
   /// Get the current user ID (or null if not authenticated)

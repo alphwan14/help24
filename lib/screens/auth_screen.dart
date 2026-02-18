@@ -33,12 +33,8 @@ class _AuthScreenState extends State<AuthScreen> {
   void _goTo(_AuthStep step) => setState(() => _step = step);
 
   void _onSuccess() {
+    if (!mounted) return;
     widget.onSuccess?.call();
-    if (widget.isModal) {
-      Navigator.of(context).pop(true);
-    } else {
-      Navigator.of(context).pop(true);
-    }
   }
 
   @override

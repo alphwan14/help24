@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post_model.dart';
+import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
 import 'marketplace_card_components.dart';
@@ -20,6 +22,14 @@ class PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final isCurrentUser = post.authorUserId.isNotEmpty && post.authorUserId == auth.currentUserId;
+    final authorDisplayName = (post.authorName.isNotEmpty && post.authorName != '?')
+        ? post.authorName
+        : (isCurrentUser && auth.currentUserName.isNotEmpty
+            ? auth.currentUserName
+            : post.authorName);
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
     final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
@@ -59,13 +69,13 @@ class PostCard extends StatelessWidget {
                     children: [
                       MarketplaceAvatar(
                         imageUrl: post.authorAvatar.isNotEmpty ? post.authorAvatar : null,
-                        displayName: post.authorName,
+                        displayName: authorDisplayName,
                         size: 40,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          post.authorName,
+                          authorDisplayName,
                           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w700,
                                 color: textPrimary,

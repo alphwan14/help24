@@ -16,7 +16,8 @@ class CustomBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bottomPadding = MediaQuery.of(context).padding.bottom;
-    
+    const double minHeight = 70;
+
     return Container(
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
@@ -28,58 +29,60 @@ class CustomBottomNav extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 20,
-            offset: const Offset(0, -5),
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
       child: SafeArea(
         top: false,
-        child: Container(
-          height: 80,
+        child: Padding(
           padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 8,
-            bottom: bottomPadding > 0 ? 0 : 8,
+            left: 20,
+            right: 20,
+            top: 12,
+            bottom: bottomPadding > 0 ? bottomPadding : 12,
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _NavItem(
-                icon: Iconsax.discover,
-                activeIcon: Iconsax.discover5,
-                label: 'Discover',
-                isActive: currentIndex == 0,
-                onTap: () => onTap(0),
-              ),
-              _NavItem(
-                icon: Iconsax.briefcase,
-                activeIcon: Iconsax.briefcase5,
-                label: 'Jobs',
-                isActive: currentIndex == 1,
-                onTap: () => onTap(1),
-              ),
-              _CenterButton(
-                onTap: () => onTap(2),
-              ),
-              _NavItem(
-                icon: Iconsax.message,
-                activeIcon: Iconsax.message5,
-                label: 'Messages',
-                isActive: currentIndex == 3,
-                onTap: () => onTap(3),
-              ),
-              _NavItem(
-                icon: Iconsax.profile_circle,
-                activeIcon: Iconsax.profile_circle5,
-                label: 'Profile',
-                isActive: currentIndex == 4,
-                onTap: () => onTap(4),
-              ),
-            ],
+          child: SizedBox(
+            height: minHeight.clamp(minHeight, 86),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _NavItem(
+                  icon: Iconsax.discover,
+                  activeIcon: Iconsax.discover5,
+                  label: 'Discover',
+                  isActive: currentIndex == 0,
+                  onTap: () => onTap(0),
+                ),
+                _NavItem(
+                  icon: Iconsax.briefcase,
+                  activeIcon: Iconsax.briefcase5,
+                  label: 'Jobs',
+                  isActive: currentIndex == 1,
+                  onTap: () => onTap(1),
+                ),
+                _CenterButton(
+                  onTap: () => onTap(2),
+                ),
+                _NavItem(
+                  icon: Iconsax.message,
+                  activeIcon: Iconsax.message5,
+                  label: 'Messages',
+                  isActive: currentIndex == 3,
+                  onTap: () => onTap(3),
+                ),
+                _NavItem(
+                  icon: Iconsax.profile_circle,
+                  activeIcon: Iconsax.profile_circle5,
+                  label: 'Profile',
+                  isActive: currentIndex == 4,
+                  onTap: () => onTap(4),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -105,45 +108,45 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+    final color = isActive
+        ? AppTheme.primaryAccent
+        : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary);
+
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: 60,
+        width: 64,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
                 color: isActive
-                    ? AppTheme.primaryAccent.withValues(alpha: 0.15)
+                    ? AppTheme.primaryAccent.withValues(alpha: 0.12)
                     : Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(
                 isActive ? activeIcon : icon,
-                size: 24,
-                color: isActive
-                    ? AppTheme.primaryAccent
-                    : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
+                size: 26,
+                color: color,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               label,
               style: TextStyle(
                 fontSize: 11,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                color: isActive
-                    ? AppTheme.primaryAccent
-                    : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                color: color,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -164,9 +167,8 @@ class _CenterButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 64,
-        height: 64,
-        margin: const EdgeInsets.only(bottom: 8),
+        width: 56,
+        height: 56,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -176,12 +178,12 @@ class _CenterButton extends StatelessWidget {
               AppTheme.primaryAccent.withBlue(255),
             ],
           ),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: AppTheme.primaryAccent.withValues(alpha: 0.5),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
+              color: AppTheme.primaryAccent.withValues(alpha: 0.4),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -191,8 +193,9 @@ class _CenterButton extends StatelessWidget {
             Icon(
               Icons.add_rounded,
               color: Colors.white,
-              size: 28,
+              size: 26,
             ),
+            SizedBox(height: 2),
             Text(
               'Post',
               style: TextStyle(
