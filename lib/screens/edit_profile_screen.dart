@@ -1,10 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../models/user_model.dart';
-import 'dart:typed_data';
 import '../providers/auth_provider.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';

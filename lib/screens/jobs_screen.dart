@@ -4,8 +4,10 @@ import 'package:iconsax/iconsax.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/connectivity_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/job_card.dart';
+import '../widgets/loading_empty_offline.dart';
 import '../widgets/application_modal.dart';
 
 class JobsScreen extends StatefulWidget {
@@ -120,11 +122,10 @@ class _JobsScreenState extends State<JobsScreen> {
 
           // Jobs List
           Expanded(
-            child: Consumer<AppProvider>(
-              builder: (context, provider, _) {
+            child: Consumer2<AppProvider, ConnectivityProvider>(
+              builder: (context, provider, connectivity, _) {
                 var jobs = provider.jobs;
 
-                // Filter by search
                 if (_searchQuery.isNotEmpty) {
                   jobs = jobs.where((job) {
                     return job.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
@@ -133,7 +134,6 @@ class _JobsScreenState extends State<JobsScreen> {
                   }).toList();
                 }
 
-                // Filter by type
                 if (_selectedType != 'All') {
                   if (_selectedType == 'Remote') {
                     jobs = jobs.where((job) => job.location.toLowerCase().contains('remote')).toList();
@@ -142,52 +142,48 @@ class _JobsScreenState extends State<JobsScreen> {
                   }
                 }
 
+                if (provider.isLoadingJobs && jobs.isEmpty) {
+                  return const LoadingView(message: 'Loading jobs...');
+                }
+
                 if (jobs.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Icon(
-                            Iconsax.briefcase,
-                            size: 36,
-                            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          'No jobs found',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Check back later for new opportunities',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
+                  if (connectivity.isOffline) {
+                    return OfflineEmptyView(
+                      message: 'No internet connection',
+                      onRetry: () {
+                        connectivity.checkNow();
+                        provider.loadJobs();
+                      },
+                    );
+                  }
+                  return EmptyStateView(
+                    icon: Iconsax.briefcase,
+                    title: 'No jobs available yet',
+                    subtitle: 'Check back later for new opportunities. Pull to refresh or try different filters.',
+                    actions: [
+                      TextButton.icon(
+                        onPressed: () => provider.loadJobs(),
+                        icon: const Icon(Icons.refresh, size: 20),
+                        label: const Text('Refresh'),
+                      ),
+                    ],
                   );
                 }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  itemCount: jobs.length,
-                  itemBuilder: (context, index) {
-                    final job = jobs[index];
-                    return JobCard(
-                      job: job,
-                      onTap: () => _showJobDetails(context, job),
-                      onApply: () => _showApplyModal(context, job),
-                    );
-                  },
+                return RefreshIndicator(
+                  onRefresh: () => provider.loadJobs(),
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    itemCount: jobs.length,
+                    itemBuilder: (context, index) {
+                      final job = jobs[index];
+                      return JobCard(
+                        job: job,
+                        onTap: () => _showJobDetails(context, job),
+                        onApply: () => _showApplyModal(context, job),
+                      );
+                    },
+                  ),
                 );
               },
             ),

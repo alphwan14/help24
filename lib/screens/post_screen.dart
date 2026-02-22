@@ -9,6 +9,7 @@ import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/format_utils.dart';
 
 /// Represents a selected image with cross-platform support
 class SelectedImage {
@@ -1000,7 +1001,7 @@ class _PostScreenState extends State<PostScreen> {
                         const SizedBox(width: 8),
                         _PreviewChip(
                           icon: Icons.attach_money,
-                          text: 'KES ${_formatPrice(price)}',
+                          text: 'Kes.${formatPriceFull(price)}',
                         ),
                         const Spacer(),
                         Container(
@@ -1103,15 +1104,6 @@ class _PostScreenState extends State<PostScreen> {
     );
   }
 
-  String _formatPrice(double price) {
-    if (price >= 1000000) {
-      return '${(price / 1000000).toStringAsFixed(1)}M';
-    } else if (price >= 1000) {
-      return '${(price / 1000).toStringAsFixed(price % 1000 == 0 ? 0 : 1)}K';
-    }
-    return price.toStringAsFixed(0);
-  }
-
   Color _getUrgencyColor() {
     switch (_selectedUrgency) {
       case Urgency.urgent:
@@ -1157,7 +1149,7 @@ class _PostScreenState extends State<PostScreen> {
           title: _titleController.text,
           company: '',
           location: location,
-          pay: 'KES ${_formatPrice(price)}',
+          pay: 'Kes.${formatPriceFull(price)}',
           description: _descriptionController.text,
         );
 

@@ -10,6 +10,7 @@ import '../providers/locale_provider.dart';
 import '../services/notification_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/loading_empty_offline.dart';
 import 'auth_screen.dart';
 import 'edit_profile_screen.dart';
 import 'web_view_screen.dart';
@@ -40,6 +41,12 @@ class ProfileScreen extends StatelessWidget {
                 return StreamBuilder<UserModel?>(
                   stream: UserProfileService.watchUser(uid),
                   builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 32),
+                        child: LoadingView(message: 'Loading profile...'),
+                      );
+                    }
                     if (snap.data == null && snap.connectionState != ConnectionState.waiting) {
                       UserProfileService.ensureProfileDoc(
                         uid: uid,

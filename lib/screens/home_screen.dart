@@ -5,7 +5,9 @@ import '../widgets/custom_bottom_nav.dart';
 import '../widgets/auth_guard.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/connectivity_provider.dart';
 import '../providers/locale_provider.dart';
+import '../widgets/loading_empty_offline.dart';
 import 'discover_screen.dart';
 import 'jobs_screen.dart';
 import 'post_screen.dart';
@@ -99,24 +101,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _showPostScreen
-          ? PostScreen(
-              onComplete: () {
-                setState(() {
-                  _showPostScreen = false;
-                  _currentIndex = 0;
-                });
-              },
-            )
-          : IndexedStack(
-              index: _currentIndex,
-              children: const [
-                DiscoverScreen(),
-                JobsScreen(),
-                MessagesScreen(),
-                ProfileScreen(),
-              ],
-            ),
+      body: Column(
+        children: [
+          Consumer<ConnectivityProvider>(
+            builder: (_, connectivity, __) =>
+                connectivity.isOffline ? const OfflineBanner() : const SizedBox.shrink(),
+          ),
+          Expanded(
+            child: _showPostScreen
+                ? PostScreen(
+                    onComplete: () {
+                      setState(() {
+                        _showPostScreen = false;
+                        _currentIndex = 0;
+                      });
+                    },
+                  )
+                : IndexedStack(
+                    index: _currentIndex,
+                    children: const [
+                      DiscoverScreen(),
+                      JobsScreen(),
+                      MessagesScreen(),
+                      ProfileScreen(),
+                    ],
+                  ),
+          ),
+        ],
+      ),
       bottomNavigationBar: _showPostScreen
           ? null
           : CustomBottomNav(

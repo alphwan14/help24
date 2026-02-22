@@ -4,6 +4,7 @@ import 'package:iconsax/iconsax.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/format_utils.dart';
 
 class FilterBottomSheet extends StatefulWidget {
   const FilterBottomSheet({super.key});
@@ -301,7 +302,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       Text(
-                        'KES ${_formatPrice(_priceRange.start)} - ${_formatPrice(_priceRange.end)}',
+                        'Kes.${formatPriceFull(_priceRange.start)} - Kes.${formatPriceFull(_priceRange.end)}',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppTheme.primaryAccent,
                           fontWeight: FontWeight.w600,
@@ -559,10 +560,4 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     );
   }
 
-  String _formatPrice(double price) {
-    if (price >= 1000) {
-      return '${(price / 1000).toStringAsFixed(0)}K';
-    }
-    return price.toStringAsFixed(0);
-  }
 }

@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post_model.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
 import 'marketplace_card_components.dart';
 
@@ -170,7 +171,7 @@ class JobCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        job.pay,
+                        normalizePayDisplay(job.pay),
                         style: const TextStyle(
                           color: AppTheme.successGreen,
                           fontWeight: FontWeight.w600,

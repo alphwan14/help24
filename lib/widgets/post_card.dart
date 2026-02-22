@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post_model.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
 import 'marketplace_card_components.dart';
 
@@ -156,7 +157,7 @@ class PostCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        'KES ${_formatPrice(post.price)}',
+                        'Kes.${formatPriceFull(post.price)}',
                         style: const TextStyle(
                           color: AppTheme.successGreen,
                           fontWeight: FontWeight.w600,
@@ -212,9 +213,4 @@ class PostCard extends StatelessWidget {
     );
   }
 
-  String _formatPrice(double price) {
-    if (price >= 1000000) return '${(price / 1000000).toStringAsFixed(1)}M';
-    if (price >= 1000) return '${(price / 1000).toStringAsFixed(price % 1000 == 0 ? 0 : 1)}K';
-    return price.toStringAsFixed(0);
-  }
 }

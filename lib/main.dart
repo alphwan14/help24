@@ -10,7 +10,9 @@ import 'l10n/app_localizations.dart';
 import 'models/post_model.dart';
 import 'providers/app_provider.dart';
 import 'providers/auth_provider.dart';
+import 'providers/connectivity_provider.dart';
 import 'providers/locale_provider.dart';
+import 'widgets/loading_empty_offline.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/web_view_screen.dart';
@@ -112,6 +114,7 @@ class _Help24AppState extends State<Help24App> {
         ChangeNotifierProvider(create: (_) => AppProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
+        ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
       ],
       child: Consumer2<AppProvider, LocaleProvider>(
         builder: (context, appProvider, localeProvider, _) {

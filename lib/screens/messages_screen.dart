@@ -12,6 +12,7 @@ import '../services/location_service.dart';
 import '../services/message_service.dart';
 import '../services/chat_service_firestore.dart';
 import '../theme/app_theme.dart';
+import '../widgets/loading_empty_offline.dart';
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key});
@@ -68,64 +69,24 @@ class _MessagesScreenState extends State<MessagesScreen> {
           Expanded(
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
-                if (provider.isLoadingConversations) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 32,
-                          height: 32,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppTheme.primaryAccent,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Loading...',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
                 final conversations = provider.conversations;
 
+                if (provider.isLoadingConversations && conversations.isEmpty) {
+                  return const LoadingView(message: 'Loading messages...');
+                }
+
                 if (conversations.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Iconsax.message,
-                          size: 64,
-                          color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No messages yet',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Start a conversation by contacting a poster',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 24),
-                        TextButton.icon(
-                          onPressed: _refreshConversations,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Refresh'),
-                        ),
-                      ],
-                    ),
+                  return EmptyStateView(
+                    icon: Iconsax.message,
+                    title: 'No messages yet',
+                    subtitle: 'Start a conversation by contacting a poster. Pull to refresh.',
+                    actions: [
+                      TextButton.icon(
+                        onPressed: _refreshConversations,
+                        icon: const Icon(Icons.refresh, size: 20),
+                        label: const Text('Refresh'),
+                      ),
+                    ],
                   );
                 }
 

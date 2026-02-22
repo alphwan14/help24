@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post_model.dart';
 import '../services/post_service.dart';
-import '../services/message_service.dart';
 import '../services/chat_service_firestore.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
@@ -73,14 +73,22 @@ class AppProvider extends ChangeNotifier {
 
   // ==================== POSTS ====================
 
-  /// Load posts from Supabase with current filters
+  /// Load posts from Supabase with current filters.
+  /// When offline: keeps cached _posts, does not clear or show endless loading.
   Future<void> loadPosts() async {
     _isLoadingPosts = true;
     _error = null;
     notifyListeners();
 
     try {
-      // Build filters
+      final results = await Connectivity().checkConnectivity();
+      final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
+      if (offline) {
+        _isLoadingPosts = false;
+        notifyListeners();
+        return;
+      }
+
       String? typeFilter;
       if (_selectedFilter == 'Requests') {
         typeFilter = 'request';
@@ -110,13 +118,22 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Load jobs from Supabase
+  /// Load jobs from Supabase.
+  /// When offline: keeps cached _jobs, does not clear or show endless loading.
   Future<void> loadJobs() async {
     _isLoadingJobs = true;
     _error = null;
     notifyListeners();
 
     try {
+      final results = await Connectivity().checkConnectivity();
+      final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
+      if (offline) {
+        _isLoadingJobs = false;
+        notifyListeners();
+        return;
+      }
+
       _jobs = await PostService.fetchJobs();
     } catch (e) {
       _error = 'Failed to load jobs: $e';

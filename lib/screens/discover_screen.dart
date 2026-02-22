@@ -3,7 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
+import '../providers/connectivity_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/format_utils.dart';
+import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_card.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/auth_guard.dart';
@@ -190,88 +193,41 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
           // Posts List
           Expanded(
-            child: Consumer<AppProvider>(
-              builder: (context, provider, _) {
-                if (provider.isLoadingPosts) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 32,
-                          height: 32,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppTheme.primaryAccent,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Loading...',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
+            child: Consumer2<AppProvider, ConnectivityProvider>(
+              builder: (context, provider, connectivity, _) {
                 final posts = provider.filteredPosts;
 
+                if (provider.isLoadingPosts && posts.isEmpty) {
+                  return const LoadingView(message: 'Loading posts...');
+                }
+
                 if (posts.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Icon(
-                            Iconsax.document,
-                            size: 36,
-                            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                          ),
+                  if (connectivity.isOffline) {
+                    return OfflineEmptyView(
+                      message: 'No internet connection',
+                      onRetry: () {
+                        connectivity.checkNow();
+                        _refreshPosts();
+                      },
+                    );
+                  }
+                  return EmptyStateView(
+                    icon: Iconsax.document,
+                    title: 'No posts found',
+                    subtitle: provider.error ?? 'Try adjusting your filters or search. Pull to refresh.',
+                    actions: [
+                      TextButton.icon(
+                        onPressed: _refreshPosts,
+                        icon: const Icon(Icons.refresh, size: 20),
+                        label: const Text('Refresh'),
+                      ),
+                      if (provider.hasActiveFilters)
+                        TextButton.icon(
+                          onPressed: () => provider.clearFilters(),
+                          icon: const Icon(Iconsax.close_circle, size: 20),
+                          label: const Text('Clear Filters'),
                         ),
-                        const SizedBox(height: 20),
-                        Text(
-                          'No posts found',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          provider.error ?? 'Try adjusting your filters or search',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            TextButton.icon(
-                              onPressed: _refreshPosts,
-                              icon: const Icon(Icons.refresh),
-                              label: const Text('Refresh'),
-                            ),
-                            if (provider.hasActiveFilters) ...[
-                              const SizedBox(width: 12),
-                              TextButton.icon(
-                                onPressed: () => provider.clearFilters(),
-                                icon: const Icon(Iconsax.close_circle),
-                                label: const Text('Clear Filters'),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ],
-                    ),
+                    ],
                   );
                 }
 
@@ -497,7 +453,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           _DetailRow(
                             icon: Icons.payments_outlined,
                             label: 'Budget',
-                            value: 'KES ${_formatPrice(post.price)}',
+                            value: 'Kes.${formatPriceFull(post.price)}',
                             valueColor: AppTheme.successGreen,
                           ),
                           const Divider(height: 24),
@@ -636,14 +592,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
-  String _formatPrice(double price) {
-    if (price >= 1000000) {
-      return '${(price / 1000000).toStringAsFixed(1)}M';
-    } else if (price >= 1000) {
-      return '${(price / 1000).toStringAsFixed(price % 1000 == 0 ? 0 : 1)}K';
-    }
-    return price.toStringAsFixed(0);
-  }
 }
 
 class _DetailRow extends StatelessWidget {
