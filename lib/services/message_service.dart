@@ -278,6 +278,20 @@ class MessageService {
     }
   }
 
+  /// Update conversation preview (last_message and updated_at). Used when applicant submits so the thread appears in Messages.
+  static Future<void> updateConversationPreview(String conversationId, String lastMessage) async {
+    if (conversationId.isEmpty) return;
+    try {
+      await _client.from('conversations').update({
+        'last_message': lastMessage.length > 200 ? '${lastMessage.substring(0, 200)}…' : lastMessage,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', conversationId);
+    } catch (e) {
+      debugPrint('MessageService updateConversationPreview: $e');
+      rethrow;
+    }
+  }
+
   /// Subscribe to new and updated messages for a single conversation (Realtime INSERT + UPDATE).
   /// [onMessage] for new messages; [onMessageUpdated] for live location updates (same message id, new lat/lng).
   static RealtimeChannel subscribeToMessages(

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../config/firebase_config.dart';
 import '../config/supabase_config.dart';
+import 'user_profile_service.dart';
 
 /// User model for the app (messaging-ready: userId, name, phone, email, profileImage).
 class AppUser {
@@ -197,6 +198,13 @@ class AuthService {
       final user = result.user;
       if (user == null) return AuthResult.failure('Sign in failed. Please try again.');
       final phone = user.phoneNumber ?? _normalizePhone(user.uid);
+      await UserProfileService.createUserOnSignup(
+        uid: user.uid,
+        email: user.email ?? '',
+        name: user.displayName,
+        phone: phone,
+      );
+      await UserProfileService.setOnline(user.uid, true);
       final appUser = _appUserFromFirebase(user, nameOverride: user.displayName);
       debugPrint('✅ Phone sign in: ${appUser.id}');
       _syncUserToSupabase(user, name: user.displayName, phoneNumber: phone).then((_) => debugPrint('✅ User synced to Supabase'));
@@ -254,6 +262,11 @@ class AuthService {
       final current = auth.currentUser ?? firebaseUser;
       final appUser = _appUserFromFirebase(current, nameOverride: name?.trim());
       debugPrint('✅ User signed up: ${appUser.email}');
+      await UserProfileService.createUserOnSignup(
+        uid: current.uid,
+        email: current.email ?? '',
+        name: name?.trim(),
+      );
       _syncUserToSupabase(current, name: name?.trim()).then((_) => debugPrint('✅ User synced to Supabase'));
       return AuthResult.success(appUser);
     } on FirebaseAuthException catch (e) {
@@ -280,6 +293,7 @@ class AuthService {
       );
       final firebaseUser = credential.user;
       if (firebaseUser == null) return AuthResult.failure('Failed to sign in. Please try again.');
+      await UserProfileService.setOnline(firebaseUser.uid, true);
       final appUser = _appUserFromFirebase(firebaseUser);
       debugPrint('✅ User signed in: ${appUser.email}');
       _syncUserToSupabase(firebaseUser).then((_) => debugPrint('✅ User synced to Supabase'));
@@ -294,6 +308,8 @@ class AuthService {
 
   static Future<void> signOut() async {
     try {
+      final uid = currentUserId;
+      if (uid != null) await UserProfileService.setOnline(uid, false);
       await _firebaseAuth?.signOut();
       debugPrint('✅ User signed out');
     } catch (e) {

@@ -6,10 +6,10 @@ import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/post_card.dart';
 import '../widgets/filter_bottom_sheet.dart';
-import '../widgets/application_modal.dart';
 import '../widgets/auth_guard.dart';
-import '../widgets/marketplace_card_components.dart';
 import '../providers/auth_provider.dart';
+import '../services/chat_service_firestore.dart';
+import '../services/comment_service_firestore.dart';
 import 'messages_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
@@ -286,7 +286,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                         post: post,
                         onTap: () => _showPostDetails(context, post),
                         onRespond: post.type == PostType.request
-                            ? () => _openRespondModal(context, post)
+                            ? () {
+                                AuthGuard.requireAuth(
+                                  context,
+                                  action: 'message about this request',
+                                  onAuthenticated: () => _openPrivateChat(context, post),
+                                );
+                              }
                             : null,
                       );
                     },
@@ -512,104 +518,36 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       ),
                     ),
 
-                    // Applications section
-                    if (post.applications.isNotEmpty) ...[
-                      const SizedBox(height: 24),
-                      Text(
-                        'Responses (${post.applications.length})',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 12),
-                      ...post.applications.map((app) {
-                        final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
-                        final isAuthor = currentUserId.isNotEmpty && currentUserId == post.authorUserId;
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  MarketplaceAvatar(
-                                    imageUrl: app.applicantAvatarUrl.isNotEmpty ? app.applicantAvatarUrl : null,
-                                    displayName: app.applicantName,
-                                    size: 36,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          app.applicantName,
-                                          style: Theme.of(context).textTheme.titleMedium,
-                                        ),
-                                        Text(
-                                          'KES ${_formatPrice(app.proposedPrice)}',
-                                          style: TextStyle(
-                                            color: AppTheme.successGreen,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (isAuthor)
-                                    TextButton(
-                                      onPressed: () => _acceptApplicationAndChat(context, post, app),
-                                      child: const Text('Accept'),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                app.message,
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ],
+                    // Public comments (real-time)
+                    const SizedBox(height: 24),
+                    Text(
+                      'Comments',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    _CommentsSection(postId: post.id),
+                    const SizedBox(height: 24),
 
-                    const SizedBox(height: 32),
-                    
-                    // Action Button
+                    // Contact = private DM only (no public responders)
                     SizedBox(
                       width: double.infinity,
                       height: 52,
                       child: ElevatedButton.icon(
                         onPressed: () {
                           Navigator.pop(context);
-                          // Require auth before applying
                           AuthGuard.requireAuth(
                             context,
-                            action: post.type == PostType.request 
-                                ? 'respond to this request' 
+                            action: post.type == PostType.request
+                                ? 'message about this request'
                                 : 'contact this provider',
-                            onAuthenticated: () {
-                              _showApplicationModal(context, post);
-                            },
+                            onAuthenticated: () => _openPrivateChat(context, post),
                           );
                         },
                         icon: Icon(
-                          post.type == PostType.request 
-                              ? Iconsax.send_2 
-                              : Iconsax.message,
+                          post.type == PostType.request ? Iconsax.send_2 : Iconsax.message,
                         ),
                         label: Text(
-                          post.type == PostType.request 
-                              ? 'Respond to Request' 
-                              : 'Contact Provider',
+                          post.type == PostType.request ? 'Message about request' : 'Contact Provider',
                         ),
                       ),
                     ),
@@ -678,98 +616,22 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     }
   }
 
-  void _openRespondModal(BuildContext context, PostModel post) {
-    AuthGuard.requireAuth(
-      context,
-      action: 'respond to this request',
-      onAuthenticated: () => _showApplicationModal(context, post),
-    );
-  }
-
-  Future<void> _acceptApplicationAndChat(BuildContext context, PostModel post, Application app) async {
+  /// Open private chat with post author. No public application list; messages only in Messages tab.
+  Future<void> _openPrivateChat(BuildContext context, PostModel post) async {
     final appProvider = context.read<AppProvider>();
     final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
-    final otherUserId = app.applicantUserId.isNotEmpty ? app.applicantUserId : app.applicantTempId;
-    if (otherUserId.isEmpty) return;
-    final conv = await appProvider.createConversationOnAccept(
-      currentUserId: currentUserId,
-      otherUserId: otherUserId,
-      otherUserName: app.applicantName,
+    final authorId = post.authorUserId;
+    if (currentUserId.isEmpty || authorId.isEmpty) return;
+    final conv = await appProvider.ensureConversationOnApply(
+      applicantId: currentUserId,
+      authorId: authorId,
+      initialMessage: '',
     );
     if (!context.mounted || conv == null) return;
-    Navigator.pop(context);
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (c) => ChatScreen(conversation: conv, currentUserId: currentUserId),
-      ),
-    );
-  }
-
-  void _showApplicationModal(BuildContext context, PostModel post) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (modalContext) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(modalContext).viewInsets.bottom,
-        ),
-        child: ApplicationModal(
-          title: post.title,
-          type: post.type == PostType.request ? 'request' : 'offer',
-          suggestedPrice: post.price,
-          onSubmit: (message, proposedPrice) async {
-            final provider = context.read<AppProvider>();
-            
-            // Submit to Supabase
-            final currentUserId = context.read<AuthProvider>().currentUserId;
-            final success = await provider.submitApplicationToPost(
-              post.id,
-              currentUserId: currentUserId,
-              message: message,
-              proposedPrice: proposedPrice,
-            );
-
-            if (context.mounted) {
-              if (success) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Row(
-                      children: [
-                        const Icon(Icons.check_circle, color: Colors.white),
-                        const SizedBox(width: 12),
-                        const Text('Application submitted!'),
-                      ],
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    backgroundColor: AppTheme.successGreen,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Row(
-                      children: [
-                        const Icon(Icons.error_outline, color: Colors.white),
-                        const SizedBox(width: 12),
-                        Text(provider.error ?? 'Failed to submit application'),
-                      ],
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    backgroundColor: AppTheme.errorRed,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                );
-              }
-            }
-          },
-        ),
       ),
     );
   }
@@ -817,5 +679,181 @@ class _DetailRow extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// Public comments on a post. Real-time stream; add comment with auth.
+class _CommentsSection extends StatefulWidget {
+  final String postId;
+
+  const _CommentsSection({required this.postId});
+
+  @override
+  State<_CommentsSection> createState() => _CommentsSectionState();
+}
+
+class _CommentsSectionState extends State<_CommentsSection> {
+  final _controller = TextEditingController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addComment() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _sending) return;
+    final uid = context.read<AuthProvider>().currentUserId ?? '';
+    if (uid.isEmpty) return;
+    setState(() => _sending = true);
+    try {
+      await CommentServiceFirestore.addComment(
+        postId: widget.postId,
+        userId: uid,
+        text: text,
+      );
+      if (mounted) _controller.clear();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to post comment'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final uid = context.read<AuthProvider>().currentUserId ?? '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        StreamBuilder<List<PostComment>>(
+          stream: CommentServiceFirestore.watchComments(widget.postId),
+          builder: (context, snap) {
+            final comments = snap.data ?? [];
+            if (comments.isEmpty && !snap.hasData) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+              );
+            }
+            if (comments.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'No comments yet. Be the first!',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                  ),
+                ),
+              );
+            }
+            return ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: comments.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final c = comments[index];
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            c.userName,
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _timeAgo(c.timestamp),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(c.text, style: Theme.of(context).textTheme.bodyMedium),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        if (uid.isNotEmpty)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  decoration: InputDecoration(
+                    hintText: 'Add a comment...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  ),
+                  maxLines: 2,
+                  onSubmitted: (_) => _addComment(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: _sending ? null : _addComment,
+                icon: _sending
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.send_rounded, size: 20),
+              ),
+            ],
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'Sign in to comment',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  String _timeAgo(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'Just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    if (d.inDays < 7) return '${d.inDays}d ago';
+    return '${t.day}/${t.month}';
   }
 }

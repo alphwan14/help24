@@ -5,12 +5,12 @@ import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/location_service.dart';
 import '../services/message_service.dart';
+import '../services/chat_service_firestore.dart';
 import '../theme/app_theme.dart';
 
 class MessagesScreen extends StatefulWidget {
@@ -27,13 +27,24 @@ class _MessagesScreenState extends State<MessagesScreen> {
   @override
   void initState() {
     super.initState();
+    _loadConversationsWhenReady();
+  }
+
+  /// Start Firestore .snapshots() stream for chats (real-time; persisted after app restart).
+  void _loadConversationsWhenReady() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AppProvider>().loadConversations(_currentUserId);
+      if (!mounted) return;
+      final uid = context.read<AuthProvider>().currentUserId ?? '';
+      if (uid.isNotEmpty) {
+        context.read<AppProvider>().loadConversations(uid);
+      }
     });
   }
 
   Future<void> _refreshConversations() async {
-    await context.read<AppProvider>().loadConversations(_currentUserId);
+    final uid = _currentUserId;
+    if (uid.isEmpty) return;
+    await context.read<AppProvider>().loadConversations(uid);
   }
 
   @override
@@ -331,22 +342,19 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
-  List<Message> _messages = [];
-  bool _isLoading = true;
+  final List<Message> _pendingMessages = []; // Optimistic: show "Sending..." then replace with stream
   bool _isSending = false;
-  bool _isLoadingMore = false;
-  bool _hasMore = true;
-  RealtimeChannel? _subscription;
-  bool _otherTyping = false;
   StreamSubscription? _liveLocationSubscription;
   Timer? _liveEndTimer;
   String? _liveMessageId;
+  int _lastMessageCount = 0;
+
+  /// Chat id is always Firestore chatId (e.g. "uid1_uid2"). Same for sending and loading.
+  String get _chatId => widget.conversation.id;
 
   @override
   void initState() {
     super.initState();
-    _loadMessages();
-    _subscribeToMessages();
     _scrollController.addListener(_onScroll);
   }
 
@@ -357,91 +365,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.removeListener(_onScroll);
     _messageController.dispose();
     _scrollController.dispose();
-    _unsubscribe();
     super.dispose();
   }
 
   void _onScroll() {
-    if (_isLoadingMore || !_hasMore || _messages.isEmpty) return;
-    if (_scrollController.position.pixels <= _scrollController.position.minScrollExtent + 80) {
-      _loadOlderMessages();
-    }
-  }
-
-  Future<void> _loadMessages() async {
-    setState(() => _isLoading = true);
-    try {
-      final messages = await MessageService.getMessagesLatest(
-        widget.conversation.id,
-        widget.currentUserId,
-      );
-      if (mounted) {
-        setState(() {
-          _messages = messages;
-          _isLoading = false;
-          _hasMore = messages.length >= MessageService.pageSize;
-        });
-        _scrollToBottom();
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        _showError('Failed to load messages. Pull to retry.');
-      }
-    }
-  }
-
-  Future<void> _loadOlderMessages() async {
-    if (_messages.isEmpty) return;
-    setState(() => _isLoadingMore = true);
-    try {
-      final before = _messages.first.timestamp;
-      final older = await MessageService.getMessages(
-        widget.conversation.id,
-        widget.currentUserId,
-        before: before,
-      );
-      if (mounted && older.isNotEmpty) {
-        setState(() {
-          _messages.insertAll(0, older);
-          _isLoadingMore = false;
-          _hasMore = older.length >= MessageService.pageSize;
-        });
-      } else {
-        setState(() {
-          _isLoadingMore = false;
-          _hasMore = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _isLoadingMore = false);
-    }
-  }
-
-  void _subscribeToMessages() {
-    _subscription = MessageService.subscribeToMessages(
-      widget.conversation.id,
-      widget.currentUserId,
-      onMessage: (message) {
-        if (!mounted) return;
-        if (_messages.any((m) => m.id == message.id)) return;
-        setState(() => _messages.add(message));
-        _scrollToBottom();
-      },
-      onMessageUpdated: (message) {
-        if (!mounted) return;
-        setState(() {
-          final i = _messages.indexWhere((m) => m.id == message.id);
-          if (i >= 0) _messages[i] = message;
-        });
-      },
-    );
-  }
-
-  Future<void> _unsubscribe() async {
-    if (_subscription != null) {
-      await MessageService.unsubscribe(_subscription!);
-    }
+    // Optional: load older messages for pagination later
   }
 
   void _scrollToBottom() {
@@ -471,26 +399,33 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty || _isSending) return;
 
     _messageController.clear();
-    setState(() => _isSending = true);
 
+    final optimistic = Message(
+      id: 'pending_${DateTime.now().millisecondsSinceEpoch}',
+      conversationId: _chatId,
+      senderId: widget.currentUserId,
+      receiverId: '',
+      text: text,
+      timestamp: DateTime.now(),
+      isMe: true,
+      type: 'text',
+    );
+    setState(() => _pendingMessages.add(optimistic));
+    _scrollToBottom();
     try {
-      final message = await MessageService.sendMessage(
-        conversationId: widget.conversation.id,
+      await ChatServiceFirestore.sendMessage(
+        chatIdParam: _chatId,
         senderId: widget.currentUserId,
         content: text,
       );
       if (mounted) {
-        setState(() {
-          _messages.add(message);
-          _isSending = false;
-        });
-        _scrollToBottom();
+        setState(() => _pendingMessages.removeWhere((m) => m.id == optimistic.id));
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isSending = false);
+        setState(() => _pendingMessages.removeWhere((m) => m.id == optimistic.id));
         _messageController.text = text;
-        _showError('Failed to send. Check connection and try again.');
+        _showError('Failed to send. It may sync when back online.');
       }
     }
   }
@@ -553,19 +488,13 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     try {
-      final message = await MessageService.sendLocation(
+      await MessageService.sendLocation(
         conversationId: widget.conversation.id,
         senderId: widget.currentUserId,
         latitude: position.latitude,
         longitude: position.longitude,
       );
-      if (mounted) {
-        setState(() {
-          _messages.add(message);
-          _isSending = false;
-        });
-        _scrollToBottom();
-      }
+      if (mounted) setState(() => _isSending = false);
     } catch (e) {
       if (mounted) {
         setState(() => _isSending = false);
@@ -593,11 +522,9 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       if (!mounted) return;
       setState(() {
-        _messages.add(message);
         _isSending = false;
         _liveMessageId = message.id;
       });
-      _scrollToBottom();
 
       _liveEndTimer = Timer(Duration(minutes: durationMinutes), () {
         if (!mounted) return;
@@ -629,16 +556,7 @@ class _ChatScreenState extends State<ChatScreen> {
       try {
         await MessageService.stopLiveLocation(_liveMessageId!);
       } catch (_) {}
-      if (mounted) {
-        setState(() {
-          final i = _messages.indexWhere((m) => m.id == _liveMessageId);
-          if (i >= 0 && i < _messages.length) {
-            final m = _messages[i];
-            _messages[i] = m.copyWith(type: 'location', liveUntil: null);
-          }
-          _liveMessageId = null;
-        });
-      }
+      if (mounted) setState(() => _liveMessageId = null);
     }
   }
 
@@ -664,33 +582,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return PopScope(
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop && _messages.isNotEmpty) {
-          // Return updated conversation
-          final updatedConversation = widget.conversation.copyWith(
-            lastMessage: _messages.last.text,
-            lastMessageTime: _messages.last.timestamp,
-            messages: _messages,
-          );
-          Navigator.of(context).pop(updatedConversation);
-        }
-      },
+      onPopInvokedWithResult: (_, __) {},
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              if (_messages.isNotEmpty) {
-                final updatedConversation = widget.conversation.copyWith(
-                  lastMessage: _messages.last.text,
-                  lastMessageTime: _messages.last.timestamp,
-                  messages: _messages,
-                );
-                Navigator.of(context).pop(updatedConversation);
-              } else {
-                Navigator.of(context).pop();
-              }
-            },
+            onPressed: () => Navigator.of(context).pop(),
           ),
           title: Row(
             children: [
@@ -732,68 +629,66 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         body: Column(
           children: [
-            // Messages
+            // Messages from chats/{chatId}/messages — real-time stream, no refresh
             Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _messages.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Iconsax.message,
-                                size: 48,
-                                color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Start the conversation',
-                                style: Theme.of(context).textTheme.bodyLarge,
-                              ),
-                            ],
+              child: StreamBuilder<List<Message>>(
+                stream: ChatServiceFirestore.watchMessages(_chatId, widget.currentUserId),
+                builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final streamList = snap.data ?? [];
+                  final combined = List<Message>.from(streamList);
+                  for (final p in _pendingMessages) {
+                    final duplicate = combined.any((m) =>
+                        m.isMe && m.text == p.text && m.timestamp.difference(p.timestamp).inSeconds.abs() < 15);
+                    if (!duplicate) combined.add(p);
+                  }
+                  combined.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+                  if (combined.isEmpty) {
+                    _lastMessageCount = 0;
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Iconsax.message,
+                            size: 48,
+                            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                           ),
-                        )
-                      : ListView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                          itemCount: _messages.length + (_isLoadingMore ? 1 : 0),
-                          itemBuilder: (context, index) {
-                            if (_isLoadingMore && index == 0) {
-                              return const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 12),
-                                child: Center(child: SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 2))),
-                              );
-                            }
-                            final msgIndex = _isLoadingMore ? index - 1 : index;
-                            final msg = _messages[msgIndex];
-                            return _MessageBubble(
-                              message: msg,
-                              currentUserId: widget.currentUserId,
-                              isLiveSharing: _liveMessageId == msg.id,
-                              onStopLiveSharing: msg.id == _liveMessageId ? _stopLiveSharing : null,
-                              onTapLocation: msg.hasValidCoordinates ? () => _openFullScreenMap(msg) : null,
-                            );
-                          },
-                        ),
-            ),
-            if (_otherTyping)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                child: Row(
-                  children: [
-                    Text(
-                      'typing…',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                        fontStyle: FontStyle.italic,
+                          const SizedBox(height: 16),
+                          Text(
+                            'Start the conversation',
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
+                    );
+                  }
+                  if (combined.length > _lastMessageCount) {
+                    _lastMessageCount = combined.length;
+                    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                  }
+                  return ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    itemCount: combined.length,
+                    itemBuilder: (context, index) {
+                      final msg = combined[index];
+                      final isPending = msg.id.startsWith('pending_');
+                      return _MessageBubble(
+                        message: msg,
+                        currentUserId: widget.currentUserId,
+                        isPending: isPending,
+                        isLiveSharing: _liveMessageId == msg.id,
+                        onStopLiveSharing: msg.id == _liveMessageId ? _stopLiveSharing : null,
+                        onTapLocation: msg.hasValidCoordinates ? () => _openFullScreenMap(msg) : null,
+                      );
+                    },
+                  );
+                },
               ),
-
+            ),
             // Input
             Container(
               padding: EdgeInsets.only(
@@ -833,16 +728,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: _isSending ? null : _showLocationOptions,
-                    icon: Icon(
-                      Iconsax.location,
-                      color: _isSending ? (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary) : AppTheme.primaryAccent,
-                      size: 24,
-                    ),
-                    tooltip: 'Share location',
-                  ),
-                  const SizedBox(width: 4),
                   GestureDetector(
                     onTap: _isSending ? null : _sendMessage,
                     child: Container(
@@ -901,6 +786,7 @@ class _LiveOption extends StatelessWidget {
 class _MessageBubble extends StatelessWidget {
   final Message message;
   final String currentUserId;
+  final bool isPending;
   final bool isLiveSharing;
   final VoidCallback? onStopLiveSharing;
   final VoidCallback? onTapLocation;
@@ -908,6 +794,7 @@ class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
     required this.currentUserId,
+    this.isPending = false,
     this.isLiveSharing = false,
     this.onStopLiveSharing,
     this.onTapLocation,
@@ -1021,14 +908,43 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   ),
                 const SizedBox(height: 4),
-                Text(
-                  _formatTime(message.timestamp),
-                  style: TextStyle(
-                    color: message.isMe
-                        ? Colors.white.withValues(alpha: 0.7)
-                        : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
-                    fontSize: 10,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatTime(message.timestamp),
+                      style: TextStyle(
+                        color: message.isMe
+                            ? Colors.white.withValues(alpha: 0.7)
+                            : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
+                        fontSize: 10,
+                      ),
+                    ),
+                    if (isPending) ...[
+                      const SizedBox(width: 6),
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            message.isMe ? Colors.white70 : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Sending...',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                          color: message.isMe
+                              ? Colors.white.withValues(alpha: 0.8)
+                              : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -1092,7 +1008,6 @@ class _FullScreenMapScreen extends StatefulWidget {
 
 class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
   late Message _message;
-  RealtimeChannel? _subscription;
   double? _myLat;
   double? _myLng;
   bool _loadingMyPosition = true;
@@ -1103,7 +1018,6 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
     super.initState();
     _message = widget.message;
     _loadMyPosition();
-    _subscribeToUpdates();
   }
 
   Future<void> _loadMyPosition() async {
@@ -1116,25 +1030,6 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
       });
       if (pos != null && _mapController != null) _fitBounds();
     }
-  }
-
-  void _subscribeToUpdates() {
-    _subscription = MessageService.subscribeToMessages(
-      widget.conversationId,
-      widget.currentUserId,
-      onMessage: (_) {},
-      onMessageUpdated: (updated) {
-        if (updated.id == _message.id && mounted) {
-          setState(() => _message = updated);
-        }
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    if (_subscription != null) MessageService.unsubscribe(_subscription!);
-    super.dispose();
   }
 
   int? get _minutesLeft {

@@ -19,13 +19,17 @@ dependencies:
   supabase_flutter: ^2.3.0
   uuid: ^4.2.0
   shared_preferences: ^2.2.2
-  # Firebase Auth
+  # Firebase Auth & Firestore (messaging: real-time, offline)
   firebase_core: ^3.15.2
   firebase_auth: ^5.6.2
+  cloud_firestore: ^5.6.2
+  firebase_storage: ^12.3.6
+  firebase_messaging: ^15.1.6
   # Location
   geolocator: ^13.0.2
   permission_handler: ^11.3.1
   google_maps_flutter: ^2.9.0
+  webview_flutter: ^4.10.0
 
 dev_dependencies:
   flutter_test:
@@ -51,3 +55,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/l10n/

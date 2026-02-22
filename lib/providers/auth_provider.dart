@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../services/auth_service.dart';
 import '../config/firebase_config.dart';
+import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 
 /// Authentication state: session, phone OTP flow, errors.
 /// Auth does NOT block the app; only protected actions require login.
@@ -70,6 +71,9 @@ class AuthProvider extends ChangeNotifier {
     }
     _currentUser = AuthService.appUserFromFirebase(firebaseUser);
     notifyListeners();
+    if (FirebaseConfig.isConfigured) {
+      NotificationService.onLogin(firebaseUser.uid);
+    }
     AuthService.getCurrentAppUser().then((u) {
       if (u != null) {
         _currentUser = u;

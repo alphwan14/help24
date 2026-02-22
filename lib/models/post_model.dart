@@ -124,6 +124,25 @@ String _userAvatarUrl(dynamic usersJson) {
   return (a != null && a.isNotEmpty) ? a : ((b != null && b.isNotEmpty) ? b : '');
 }
 
+/// Public comment on a post. Stored in Firestore posts/{postId}/comments/{commentId}.
+class PostComment {
+  final String id;
+  final String postId;
+  final String userId;
+  final String userName;
+  final String text;
+  final DateTime timestamp;
+
+  PostComment({
+    required this.id,
+    this.postId = '',
+    required this.userId,
+    this.userName = '?',
+    required this.text,
+    required this.timestamp,
+  });
+}
+
 class Application {
   final String id;
   final String postId;

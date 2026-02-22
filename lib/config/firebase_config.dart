@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 /// Firebase configuration with placeholder credentials
@@ -108,7 +109,12 @@ class FirebaseConfig {
       await Firebase.initializeApp(
         options: currentPlatformOptions,
       );
-      debugPrint('✅ Firebase initialized successfully');
+      // Enable Firestore offline persistence so chats and messages work offline
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: 100 * 1024 * 1024, // 100 MB
+      );
+      debugPrint('✅ Firebase initialized successfully (Firestore offline enabled)');
       return true;
     } catch (e) {
       debugPrint('❌ Firebase initialization failed: $e');

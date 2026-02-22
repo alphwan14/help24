@@ -333,6 +333,15 @@ class _JobsScreenState extends State<JobsScreen> {
             );
             if (!context.mounted) return;
             if (success) {
+              final uid = context.read<AuthProvider>().currentUserId ?? '';
+              final authorId = job.authorUserId;
+              if (uid.isNotEmpty && authorId.isNotEmpty) {
+                await provider.ensureConversationOnApply(
+                  applicantId: uid,
+                  authorId: authorId,
+                  initialMessage: message,
+                );
+              }
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: const Row(

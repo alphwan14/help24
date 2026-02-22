@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post_model.dart';
 import '../services/post_service.dart';
 import '../services/message_service.dart';
+import '../services/chat_service_firestore.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
 
@@ -11,6 +13,7 @@ class AppProvider extends ChangeNotifier {
   List<PostModel> _posts = [];
   List<JobModel> _jobs = [];
   List<Conversation> _conversations = [];
+  StreamSubscription<List<Conversation>>? _conversationStreamSubscription;
   
   // Loading states
   bool _isLoadingPosts = false;
@@ -323,37 +326,70 @@ class AppProvider extends ChangeNotifier {
 
   // ==================== CONVERSATIONS ====================
 
-  /// Load conversations from Supabase for [currentUserId] (Firebase UID or guest id).
+  /// Real-time chat list from Firestore chats collection. Call when opening Messages tab.
+  /// Reads only from chats; .snapshots() for live updates; cache persists after app reopen.
   Future<void> loadConversations(String currentUserId) async {
     if (currentUserId.isEmpty) {
       _conversations = [];
+      _conversationStreamSubscription?.cancel();
+      _conversationStreamSubscription = null;
       notifyListeners();
       return;
     }
-    _isLoadingConversations = true;
     _error = null;
+    _conversationStreamSubscription?.cancel();
+    _isLoadingConversations = true;
     notifyListeners();
+    _conversationStreamSubscription = ChatServiceFirestore.watchConversations(currentUserId).listen(
+      (list) {
+        _conversations = list;
+        _isLoadingConversations = false;
+        notifyListeners();
+      },
+      onError: (e) {
+        _error = 'Failed to load conversations: $e';
+        _isLoadingConversations = false;
+        notifyListeners();
+      },
+    );
+  }
 
+  void stopListeningToConversations() {
+    _conversationStreamSubscription?.cancel();
+    _conversationStreamSubscription = null;
+  }
+
+  /// Create or get chat when applicant submits (Firestore only). Chat appears in Messages tab.
+  Future<Conversation?> ensureConversationOnApply({
+    required String applicantId,
+    required String authorId,
+    String initialMessage = '',
+  }) async {
+    if (applicantId.isEmpty || authorId.isEmpty) return null;
     try {
-      _conversations = await MessageService.getConversations(currentUserId);
+      final conv = await ChatServiceFirestore.createChat(
+        user1Id: applicantId,
+        user2Id: authorId,
+        currentUserId: applicantId,
+        initialMessage: initialMessage,
+      );
+      updateConversation(conv);
+      return conv;
     } catch (e) {
-      _error = 'Failed to load conversations: $e';
+      _error = 'Failed to create conversation: $e';
       debugPrint(_error);
-    } finally {
-      _isLoadingConversations = false;
-      notifyListeners();
+      return null;
     }
   }
 
-  /// Create a conversation when a request/application is accepted.
-  /// [currentUserId] = post/job author, [otherUserId] = applicant. Returns new or existing conversation.
+  /// Create a chat when a request/application is accepted (Firestore only).
   Future<Conversation?> createConversationOnAccept({
     required String currentUserId,
     required String otherUserId,
     required String otherUserName,
   }) async {
     try {
-      final conversation = await MessageService.createConversation(
+      final conversation = await ChatServiceFirestore.createChat(
         user1Id: currentUserId,
         user2Id: otherUserId,
         currentUserId: currentUserId,
