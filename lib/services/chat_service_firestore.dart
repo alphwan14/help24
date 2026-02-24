@@ -14,18 +14,31 @@ class ChatServiceFirestore {
   static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
   static SupabaseClient get _supabase => SupabaseConfig.client;
 
-  /// Deterministic chat id for two users (same for both sides). Format: "uid1_uid2" (sorted).
-  static String chatId(String user1Id, String user2Id) {
+  /// Deterministic chat id. With [contextId] (postId or jobId): "contextId_uid1_uid2" (one chat per post/job). Without: "uid1_uid2" (sorted).
+  static String chatId(String user1Id, String user2Id, {String? jobId, String? postId}) {
     final ids = [user1Id, user2Id]..sort();
+    final contextId = postId ?? jobId;
+    if (contextId != null && contextId.isNotEmpty) {
+      return '${contextId}_${ids[0]}_${ids[1]}';
+    }
     return '${ids[0]}_${ids[1]}';
   }
 
-  /// Parse participants from chatId ("uid1_uid2").
+  /// Parse participants from chatId ("uid1_uid2" or "jobId_uid1_uid2").
   static List<String> participantsFromChatId(String chatIdParam) {
     if (chatIdParam.isEmpty) return [];
     final parts = chatIdParam.split('_');
+    if (parts.length >= 3) return [parts[1], parts[2]];
     if (parts.length >= 2) return [parts[0], parts[1]];
     return [];
+  }
+
+  /// Extract jobId from chatId if present ("jobId_uid1_uid2" → jobId).
+  static String? jobIdFromChatId(String chatIdParam) {
+    if (chatIdParam.isEmpty) return null;
+    final parts = chatIdParam.split('_');
+    if (parts.length >= 3) return parts[0];
+    return null;
   }
 
   /// Stream of chats for current user. Reads from chats collection only; real-time via .snapshots().
@@ -101,14 +114,17 @@ class ChatServiceFirestore {
     );
   }
 
-  /// Create or get chat document. Chat doc has participants, lastMessage, updatedAt.
+  /// Create or get chat document. Chat doc has participants, lastMessage, updatedAt; optional postId/jobId.
+  /// When [postId] or [jobId] is set, chatId is unique per post/job so each opens a different chat.
   static Future<Conversation> createChat({
     required String user1Id,
     required String user2Id,
     required String currentUserId,
     String initialMessage = '',
+    String? postId,
+    String? jobId,
   }) async {
-    final cid = chatId(user1Id, user2Id);
+    final cid = chatId(user1Id, user2Id, postId: postId, jobId: jobId);
     final otherId = user1Id == currentUserId ? user2Id : user1Id;
     final profile = await _getUserProfile(otherId);
 
@@ -135,13 +151,16 @@ class ChatServiceFirestore {
         ? (existing.data()!['updatedAt'] as Timestamp).toDate()
         : now);
 
-    await ref.set({
+    final data = <String, dynamic>{
       'participants': participants,
       'participantNames': names,
       'participantAvatars': avatars,
       'lastMessage': lastMsg.length > 200 ? '${lastMsg.substring(0, 200)}…' : lastMsg,
       'updatedAt': Timestamp.fromDate(updatedAt),
-    }, SetOptions(merge: true));
+    };
+    if (postId != null && postId.isNotEmpty) data['postId'] = postId;
+    if (jobId != null && jobId.isNotEmpty) data['jobId'] = jobId;
+    await ref.set(data, SetOptions(merge: true));
 
     return Conversation(
       id: cid,
@@ -172,8 +191,7 @@ class ChatServiceFirestore {
     }, SetOptions(merge: true));
   }
 
-  /// Send a text message. Creates chat doc on first message (participants, lastMessage, updatedAt).
-  /// Messages stored at chats/{chatId}/messages/{messageId}. Real-time stream reads same path.
+  /// Send a text message. Messages stored at chats/{chatId}/messages/{messageId}. Real-time stream reads same path.
   static Future<Message> sendMessage({
     required String chatIdParam,
     required String senderId,
@@ -183,37 +201,49 @@ class ChatServiceFirestore {
     final text = content.trim();
     final now = DateTime.now();
 
+    final participants = participantsFromChatId(chatIdParam);
+    if (participants.isEmpty) {
+      debugPrint('ChatServiceFirestore sendMessage: invalid chatId (no participants): $chatIdParam');
+      throw ChatServiceException('Invalid chatId: $chatIdParam');
+    }
+    if (!participants.contains(senderId)) {
+      debugPrint('ChatServiceFirestore sendMessage: sender $senderId not in participants $participants');
+      throw ChatServiceException('You are not a participant in this chat');
+    }
+
     final chatRef = _firestore.collection('chats').doc(chatIdParam);
     final messagesRef = chatRef.collection('messages');
 
-    final participants = participantsFromChatId(chatIdParam);
-    if (participants.isEmpty) throw ChatServiceException('Invalid chatId: $chatIdParam');
+    try {
+      final docRef = await messagesRef.add({
+        'senderId': senderId,
+        'text': text,
+        'createdAt': Timestamp.fromDate(now),
+        'timestamp': Timestamp.fromDate(now),
+        'status': 'sent',
+        'type': 'text',
+      });
 
-    final docRef = await messagesRef.add({
-      'senderId': senderId,
-      'text': text,
-      'createdAt': Timestamp.fromDate(now),
-      'timestamp': Timestamp.fromDate(now),
-      'status': 'sent',
-      'type': 'text',
-    });
+      await chatRef.set({
+        'participants': participants,
+        'lastMessage': text.length > 200 ? '${text.substring(0, 200)}…' : text,
+        'updatedAt': Timestamp.fromDate(now),
+      }, SetOptions(merge: true));
 
-    await chatRef.set({
-      'participants': participants,
-      'lastMessage': text.length > 200 ? '${text.substring(0, 200)}…' : text,
-      'updatedAt': Timestamp.fromDate(now),
-    }, SetOptions(merge: true));
-
-    return Message(
-      id: docRef.id,
-      conversationId: chatIdParam,
-      senderId: senderId,
-      receiverId: '',
-      text: text,
-      timestamp: now,
-      isMe: true,
-      type: 'text',
-    );
+      return Message(
+        id: docRef.id,
+        conversationId: chatIdParam,
+        senderId: senderId,
+        receiverId: '',
+        text: text,
+        timestamp: now,
+        isMe: true,
+        type: 'text',
+      );
+    } catch (e) {
+      debugPrint('ChatServiceFirestore sendMessage: $e');
+      rethrow;
+    }
   }
 
   /// Get user profile (name, avatar) from Firestore users collection; falls back to Supabase if needed.

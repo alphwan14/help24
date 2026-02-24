@@ -212,7 +212,7 @@ class LocationChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('📍', style: TextStyle(fontSize: 12)),
+          Icon(Icons.location_on_outlined, size: 14, color: fg),
           const SizedBox(width: 4),
           Text(
             text,

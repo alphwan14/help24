@@ -208,6 +208,8 @@ class PostModel {
   final PostType type;
   final Difficulty difficulty;
   final double rating;
+  /// Author's total review count. When 0 (or null), show "New" instead of a rating.
+  final int authorReviewCount;
   final String authorName;
   final String authorAvatar;
   final String authorTempId;
@@ -227,6 +229,7 @@ class PostModel {
     required this.type,
     this.difficulty = Difficulty.medium,
     this.rating = 4.5,
+    this.authorReviewCount = 0,
     this.authorName = '?',
     this.authorAvatar = '',
     this.authorTempId = '',
@@ -235,6 +238,9 @@ class PostModel {
     this.images = const [],
     this.applications = const [],
   }) : createdAt = createdAt ?? DateTime.now();
+
+  /// Whether to show a numeric rating (has at least one review). Otherwise show "New".
+  bool get hasAuthorRatings => authorReviewCount > 0;
 
   /// Create from Supabase JSON (with nested post_images, applications, and joined users for author)
   factory PostModel.fromJson(Map<String, dynamic> json) {
@@ -270,6 +276,7 @@ class PostModel {
       type: _parsePostType(json['type']),
       difficulty: _parseDifficulty(json['difficulty']),
       rating: (json['rating'] ?? 4.5).toDouble(),
+      authorReviewCount: _parseInt(json['author_review_count'] ?? json['authorReviewCount'], 0),
       authorName: _userDisplayName(authorUsers),
       authorAvatar: _userAvatarUrl(authorUsers),
       authorTempId: json['author_temp_id'] ?? '',
@@ -296,6 +303,13 @@ class PostModel {
       'rating': rating,
       'author_temp_id': authorTempId,
     };
+  }
+
+  static int _parseInt(dynamic value, int fallback) {
+    if (value == null) return fallback;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString()) ?? fallback;
   }
 
   static Urgency _parseUrgency(String? value) {
@@ -347,6 +361,7 @@ class PostModel {
     PostType? type,
     Difficulty? difficulty,
     double? rating,
+    int? authorReviewCount,
     String? authorName,
     String? authorAvatar,
     String? authorTempId,
@@ -366,6 +381,7 @@ class PostModel {
       type: type ?? this.type,
       difficulty: difficulty ?? this.difficulty,
       rating: rating ?? this.rating,
+      authorReviewCount: authorReviewCount ?? this.authorReviewCount,
       authorName: authorName ?? this.authorName,
       authorAvatar: authorAvatar ?? this.authorAvatar,
       authorTempId: authorTempId ?? this.authorTempId,
@@ -441,6 +457,11 @@ class JobModel {
   final List<String> images;
   final List<Application> applications;
   final bool hasApplied;
+  final double rating;
+  final int authorReviewCount;
+  final Difficulty difficulty;
+  final Urgency urgency;
+  final String categoryName;
 
   JobModel({
     required this.id,
@@ -458,7 +479,39 @@ class JobModel {
     this.images = const [],
     this.applications = const [],
     this.hasApplied = false,
+    this.rating = 0,
+    this.authorReviewCount = 0,
+    this.difficulty = Difficulty.any,
+    this.urgency = Urgency.flexible,
+    this.categoryName = 'Job',
   }) : postedAt = postedAt ?? DateTime.now();
+
+  bool get hasAuthorRatings => authorReviewCount > 0;
+
+  String get urgencyText {
+    switch (urgency) {
+      case Urgency.urgent: return 'Urgent';
+      case Urgency.soon: return 'Soon';
+      case Urgency.flexible: return 'Flexible';
+    }
+  }
+
+  Color get urgencyColor {
+    switch (urgency) {
+      case Urgency.urgent: return const Color(0xFFE53935);
+      case Urgency.soon: return const Color(0xFFFF9800);
+      case Urgency.flexible: return const Color(0xFF4CAF50);
+    }
+  }
+
+  String get difficultyText {
+    switch (difficulty) {
+      case Difficulty.easy: return 'Easy';
+      case Difficulty.medium: return 'Medium';
+      case Difficulty.hard: return 'Hard';
+      case Difficulty.any: return 'Any';
+    }
+  }
 
   /// Create from Supabase JSON
   factory JobModel.fromJson(Map<String, dynamic> json) {
@@ -493,7 +546,7 @@ class JobModel {
       company: name,
       location: json['location'] ?? '',
       pay: 'KES ${json['price'] ?? 0}',
-      type: json['difficulty'] ?? 'Full-time',
+      type: json['type']?.toString() ?? json['difficulty']?.toString() ?? 'Full-time',
       description: json['description'] ?? '',
       authorTempId: json['author_temp_id'] ?? '',
       postedAt: json['created_at'] != null
@@ -501,7 +554,30 @@ class JobModel {
           : DateTime.now(),
       images: images,
       applications: applications,
+      rating: (json['rating'] ?? 0).toDouble(),
+      authorReviewCount: PostModel._parseInt(json['author_review_count'] ?? json['authorReviewCount'], 0),
+      difficulty: _parseJobDifficulty(json['difficulty']),
+      urgency: _parseUrgency(json['urgency']),
+      categoryName: json['category']?.toString() ?? 'Job',
     );
+  }
+
+  static Difficulty _parseJobDifficulty(dynamic value) {
+    if (value == null) return Difficulty.any;
+    switch (value.toString().toLowerCase()) {
+      case 'easy': return Difficulty.easy;
+      case 'hard': return Difficulty.hard;
+      case 'medium': return Difficulty.medium;
+      default: return Difficulty.any;
+    }
+  }
+
+  static Urgency _parseUrgency(dynamic value) {
+    if (value == null) return Urgency.flexible;
+    final s = value.toString().toLowerCase();
+    if (s == 'urgent') return Urgency.urgent;
+    if (s == 'soon') return Urgency.soon;
+    return Urgency.flexible;
   }
 
   /// Convert to Supabase JSON. author_user_id set by service.
@@ -540,6 +616,11 @@ class JobModel {
     List<String>? images,
     List<Application>? applications,
     bool? hasApplied,
+    double? rating,
+    int? authorReviewCount,
+    Difficulty? difficulty,
+    Urgency? urgency,
+    String? categoryName,
   }) {
     return JobModel(
       id: id ?? this.id,
@@ -557,6 +638,11 @@ class JobModel {
       images: images ?? this.images,
       applications: applications ?? this.applications,
       hasApplied: hasApplied ?? this.hasApplied,
+      rating: rating ?? this.rating,
+      authorReviewCount: authorReviewCount ?? this.authorReviewCount,
+      difficulty: difficulty ?? this.difficulty,
+      urgency: urgency ?? this.urgency,
+      categoryName: categoryName ?? this.categoryName,
     );
   }
 }

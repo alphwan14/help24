@@ -86,10 +86,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       String? profileImageUrl = _uploadedImageUrl;
       if (_pickedImage != null) {
-        profileImageUrl = await UserProfileService.uploadProfileImage(
+        final uploaded = await UserProfileService.uploadProfileImage(
           _pickedImage!,
           widget.uid,
         );
+        if (uploaded.isNotEmpty) profileImageUrl = uploaded;
       }
 
       await UserProfileService.ensureProfileDoc(

@@ -134,7 +134,18 @@ class AppProvider extends ChangeNotifier {
         return;
       }
 
-      _jobs = await PostService.fetchJobs();
+      final filters = PostFilters(
+        searchQuery: _searchQuery.isNotEmpty ? _searchQuery : null,
+        categories: _selectedCategories.isNotEmpty ? _selectedCategories.toList() : null,
+        city: _selectedCity.isNotEmpty ? _selectedCity : null,
+        area: _selectedArea.isNotEmpty ? _selectedArea : null,
+        type: 'job',
+        urgency: _selectedUrgency?.name,
+        minPrice: _priceRange.start > 0 ? _priceRange.start : null,
+        maxPrice: _priceRange.end < 100000 ? _priceRange.end : null,
+        difficulty: _selectedDifficulty?.name,
+      );
+      _jobs = await PostService.fetchJobs(filters: filters);
     } catch (e) {
       _error = 'Failed to load jobs: $e';
       print(_error);
@@ -240,6 +251,24 @@ class AppProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _error = 'Failed to delete post: $e';
+      debugPrint(_error);
+      return false;
+    }
+  }
+
+  /// Mark a job/post as completed (owner only). Updates backend and removes from list.
+  Future<bool> markJobCompleted(String postId, String? currentUserId) async {
+    if (currentUserId == null || currentUserId.isEmpty) return false;
+    final idx = _jobs.indexWhere((j) => j.id == postId);
+    if (idx == -1) return false;
+    if (_jobs[idx].authorUserId != currentUserId) return false;
+    try {
+      await PostService.updatePost(postId, {'status': 'completed'});
+      _jobs.removeWhere((j) => j.id == postId);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = 'Failed to mark as completed: $e';
       debugPrint(_error);
       return false;
     }
@@ -376,11 +405,14 @@ class AppProvider extends ChangeNotifier {
     _conversationStreamSubscription = null;
   }
 
-  /// Create or get chat when applicant submits (Firestore only). Chat appears in Messages tab.
+  /// Create or get chat when user contacts provider (Firestore only). Chat appears in Messages tab.
+  /// Pass [postId] from Discover or [jobId] from Jobs so each post/job has its own chat (no reused chats).
   Future<Conversation?> ensureConversationOnApply({
     required String applicantId,
     required String authorId,
     String initialMessage = '',
+    String? postId,
+    String? jobId,
   }) async {
     if (applicantId.isEmpty || authorId.isEmpty) return null;
     try {
@@ -389,6 +421,8 @@ class AppProvider extends ChangeNotifier {
         user2Id: authorId,
         currentUserId: applicantId,
         initialMessage: initialMessage,
+        postId: postId,
+        jobId: jobId,
       );
       updateConversation(conv);
       return conv;

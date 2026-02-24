@@ -54,23 +54,28 @@ class UserProfileService {
     String? phone,
   }) async {
     if (!_isAvailable || uid.isEmpty) return;
-    final ref = _firestore.collection(_collection).doc(uid);
-    final existing = await ref.get();
-    if (existing.exists) return;
-    final displayName = name?.trim() ?? (email.isNotEmpty ? email.split('@').first : '');
-    await ref.set({
-      'uid': uid,
-      'name': displayName,
-      'email': email,
-      if (phone != null && phone.isNotEmpty) 'phone': phone,
-      'profileImage': '',
-      'bio': '',
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'isOnline': true,
-      'lastSeen': FieldValue.serverTimestamp(),
-    });
-    debugPrint('✅ UserProfileService: ensured user doc $uid');
+    try {
+      final ref = _firestore.collection(_collection).doc(uid);
+      final existing = await ref.get();
+      if (existing.exists) return;
+      final displayName = name?.trim() ?? (email.isNotEmpty ? email.split('@').first : '');
+      await ref.set({
+        'uid': uid,
+        'name': displayName,
+        'email': email,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+        'profileImage': '',
+        'bio': '',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'isOnline': true,
+        'lastSeen': FieldValue.serverTimestamp(),
+      });
+      debugPrint('UserProfileService: ensured user doc $uid');
+    } catch (e) {
+      debugPrint('UserProfileService ensureProfileDoc ($uid): $e');
+      rethrow;
+    }
   }
 
   /// Call on login: set isOnline = true, lastSeen = now.
@@ -95,7 +100,7 @@ class UserProfileService {
     });
   }
 
-  /// One-time fetch (e.g. for chat display name/avatar).
+  /// One-time fetch (e.g. for chat display name/avatar). Returns null on missing doc or error.
   static Future<UserModel?> getUser(String? uid) async {
     if (!_isAvailable || uid == null || uid.isEmpty) return null;
     try {
@@ -103,12 +108,12 @@ class UserProfileService {
       if (!snap.exists || snap.data() == null) return null;
       return UserModel.fromFirestore(snap);
     } catch (e) {
-      debugPrint('UserProfileService getUser: $e');
+      debugPrint('UserProfileService getUser ($uid): $e');
       return null;
     }
   }
 
-  /// Update profile fields. updatedAt set to server timestamp.
+  /// Update profile fields. updatedAt set to server timestamp. Creates doc if missing (merge: true).
   static Future<void> updateProfile({
     required String uid,
     String? name,
@@ -116,29 +121,44 @@ class UserProfileService {
     String? profileImage,
   }) async {
     if (!_isAvailable || uid.isEmpty) return;
-    final updates = <String, dynamic>{
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-    if (name != null) updates['name'] = name;
-    if (bio != null) updates['bio'] = bio;
-    if (profileImage != null) updates['profileImage'] = profileImage;
-    await _firestore.collection(_collection).doc(uid).set(updates, SetOptions(merge: true));
+    try {
+      final updates = <String, dynamic>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (name != null) updates['name'] = name;
+      if (bio != null) updates['bio'] = bio;
+      if (profileImage != null) updates['profileImage'] = profileImage;
+      await _firestore.collection(_collection).doc(uid).set(updates, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('UserProfileService updateProfile ($uid): $e');
+      rethrow;
+    }
   }
 
   /// Upload profile image to Firebase Storage, return download URL.
-  /// Path: profiles/{uid}.{ext}
+  /// On Storage permission/network failure returns empty string so UI can still save name/bio.
   static Future<String> uploadProfileImage(XFile file, String uid) async {
-    if (!_isAvailable) throw UserProfileException('Firebase is not configured.');
-    final bytes = await file.readAsBytes();
-    if (bytes.length > 5 * 1024 * 1024) throw UserProfileException('Image too large. Max 5MB.');
-    final ext = _extensionFromXFile(file);
-    final path = '$_storagePath/$uid.$ext';
-    final ref = _storage.ref().child(path);
-    // Web: uploadBytes; mobile: can use putFile if we had File path. Use uploadBytes for cross-platform.
-    final metadata = SettableMetadata(contentType: _contentType(ext));
-    await ref.putData(bytes, metadata);
-    final url = await ref.getDownloadURL();
-    return url;
+    if (!_isAvailable) {
+      debugPrint('UserProfileService.uploadProfileImage: Firebase not configured');
+      return '';
+    }
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 5 * 1024 * 1024) {
+        debugPrint('UserProfileService.uploadProfileImage: Image too large (max 5MB)');
+        return '';
+      }
+      final ext = _extensionFromXFile(file);
+      final path = '$_storagePath/$uid.$ext';
+      final ref = _storage.ref().child(path);
+      final metadata = SettableMetadata(contentType: _contentType(ext));
+      await ref.putData(bytes, metadata);
+      final url = await ref.getDownloadURL();
+      return url;
+    } catch (e) {
+      debugPrint('UserProfileService.uploadProfileImage: $e');
+      return '';
+    }
   }
 
   static String _extensionFromXFile(XFile file) {

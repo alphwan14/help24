@@ -310,7 +310,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -474,14 +474,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       ),
                     ),
 
-                    // Public comments (real-time)
+                    // Public comments list (input is fixed below with keyboard avoidance)
                     const SizedBox(height: 24),
                     Text(
                       'Comments',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
-                    _CommentsSection(postId: post.id),
+                    _CommentsList(postId: post.id),
                     const SizedBox(height: 24),
 
                     // Contact = private DM only (no public responders)
@@ -510,6 +510,16 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                   ],
                 ),
               ),
+            ),
+            // Comment input fixed above keyboard — padding keeps it visible when keyboard opens
+            Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+                left: 16,
+                right: 16,
+                top: 8,
+              ),
+              child: _CommentInputBar(postId: post.id),
             ),
           ],
         ),
@@ -582,6 +592,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       applicantId: currentUserId,
       authorId: authorId,
       initialMessage: '',
+      postId: post.id,
     );
     if (!context.mounted || conv == null) return;
     Navigator.push(
@@ -630,17 +641,104 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-/// Public comments on a post. Real-time stream; add comment with auth.
-class _CommentsSection extends StatefulWidget {
+/// Comments list only (used inside scroll). Input is in _CommentInputBar for keyboard avoidance.
+class _CommentsList extends StatelessWidget {
   final String postId;
 
-  const _CommentsSection({required this.postId});
+  const _CommentsList({required this.postId});
 
   @override
-  State<_CommentsSection> createState() => _CommentsSectionState();
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return StreamBuilder<List<PostComment>>(
+      stream: CommentServiceFirestore.watchComments(postId),
+      builder: (context, snap) {
+        final comments = snap.data ?? [];
+        if (comments.isEmpty && !snap.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+          );
+        }
+        if (comments.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'No comments yet. Be the first!',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+              ),
+            ),
+          );
+        }
+        return ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: comments.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final c = comments[index];
+            return Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        c.userName,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _commentTimeAgo(c.timestamp),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(c.text, style: Theme.of(context).textTheme.bodyMedium),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  static String _commentTimeAgo(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'Just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    if (d.inDays < 7) return '${d.inDays}d ago';
+    return '${t.day}/${t.month}';
+  }
 }
 
-class _CommentsSectionState extends State<_CommentsSection> {
+/// Comment input bar — placed at bottom of sheet with viewInsets so it moves above keyboard.
+class _CommentInputBar extends StatefulWidget {
+  final String postId;
+
+  const _CommentInputBar({required this.postId});
+
+  @override
+  State<_CommentInputBar> createState() => _CommentInputBarState();
+}
+
+class _CommentInputBarState extends State<_CommentInputBar> {
   final _controller = TextEditingController();
   bool _sending = false;
 
@@ -682,126 +780,46 @@ class _CommentsSectionState extends State<_CommentsSection> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final uid = context.read<AuthProvider>().currentUserId ?? '';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        StreamBuilder<List<PostComment>>(
-          stream: CommentServiceFirestore.watchComments(widget.postId),
-          builder: (context, snap) {
-            final comments = snap.data ?? [];
-            if (comments.isEmpty && !snap.hasData) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-              );
-            }
-            if (comments.isEmpty) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  'No comments yet. Be the first!',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                  ),
-                ),
-              );
-            }
-            return ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: comments.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final c = comments[index];
-                return Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            c.userName,
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _timeAgo(c.timestamp),
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(c.text, style: Theme.of(context).textTheme.bodyMedium),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-        ),
-        const SizedBox(height: 12),
-        if (uid.isNotEmpty)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  decoration: InputDecoration(
-                    hintText: 'Add a comment...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  ),
-                  maxLines: 2,
-                  onSubmitted: (_) => _addComment(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: _sending ? null : _addComment,
-                icon: _sending
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.send_rounded, size: 20),
-              ),
-            ],
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              'Sign in to comment',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-              ),
-            ),
+    if (uid.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text(
+          'Sign in to comment',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
           ),
+        ),
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _controller,
+            decoration: InputDecoration(
+              hintText: 'Add a comment...',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            ),
+            maxLines: 2,
+            onSubmitted: (_) => _addComment(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton.filled(
+          onPressed: _sending ? null : _addComment,
+          icon: _sending
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.send_rounded, size: 20),
+        ),
       ],
     );
-  }
-
-  String _timeAgo(DateTime t) {
-    final d = DateTime.now().difference(t);
-    if (d.inMinutes < 1) return 'Just now';
-    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
-    if (d.inHours < 24) return '${d.inHours}h ago';
-    if (d.inDays < 7) return '${d.inDays}d ago';
-    return '${t.day}/${t.month}';
   }
 }

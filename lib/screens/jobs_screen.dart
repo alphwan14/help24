@@ -221,10 +221,20 @@ class _JobsScreenState extends State<JobsScreen> {
                     onPressed: () => Navigator.pop(sheetContext),
                   ),
                   if (isAuthor)
-                    TextButton.icon(
-                      onPressed: () => _confirmAndDeleteJob(sheetContext, context, job),
-                      icon: Icon(Icons.delete_outline, size: 20, color: AppTheme.errorRed),
-                      label: Text('Delete', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton.icon(
+                          onPressed: () => _confirmMarkCompleted(sheetContext, context, job),
+                          icon: const Icon(Icons.check_circle_outline, size: 20),
+                          label: const Text('Mark completed'),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => _confirmAndDeleteJob(sheetContext, context, job),
+                          icon: Icon(Icons.delete_outline, size: 20, color: AppTheme.errorRed),
+                          label: Text('Delete', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
+                        ),
+                      ],
                     )
                   else
                     const SizedBox(width: 48),
@@ -260,6 +270,34 @@ class _JobsScreenState extends State<JobsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmMarkCompleted(BuildContext sheetContext, BuildContext parentContext, JobModel job) async {
+    final appProvider = parentContext.read<AppProvider>();
+    final currentUserId = parentContext.read<AuthProvider>().currentUserId;
+    final success = await appProvider.markJobCompleted(job.id, currentUserId);
+    if (!sheetContext.mounted) return;
+    Navigator.pop(sheetContext);
+    if (!parentContext.mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(parentContext).showSnackBar(
+        SnackBar(
+          content: const Row(children: [Icon(Icons.check_circle, color: Colors.white), SizedBox(width: 12), Text('Job marked as completed')]),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.successGreen,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(parentContext).showSnackBar(
+        SnackBar(
+          content: Text(appProvider.error ?? 'Failed to update'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.errorRed,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   Future<void> _confirmAndDeleteJob(BuildContext sheetContext, BuildContext parentContext, JobModel job) async {
@@ -336,6 +374,7 @@ class _JobsScreenState extends State<JobsScreen> {
                   applicantId: uid,
                   authorId: authorId,
                   initialMessage: message,
+                  jobId: job.id,
                 );
               }
               ScaffoldMessenger.of(context).showSnackBar(

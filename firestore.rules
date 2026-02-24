@@ -2,12 +2,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users: authenticated users can read and write only their own profile (document ID = uid).
+    // Users: authenticated users can read/write only their own profile (users/{uid}).
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Chats: users can read/update/delete only chats where they are in participants; create when they are in participants.
+    // Chats: create only if current user is in participants; read/update/delete only if current user is a participant.
     match /chats/{chatId} {
       allow create: if request.auth != null
         && request.auth.uid in request.resource.data.get('participants', []);
@@ -15,13 +15,13 @@ service cloud.firestore {
         && request.auth.uid in resource.data.get('participants', []);
     }
 
-    // Chat messages: only participants of the parent chat can read/write.
+    // Messages: only participants of the parent chat can read/write. Chat doc must exist (created before first message).
     match /chats/{chatId}/messages/{messageId} {
       allow read, write: if request.auth != null
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.get('participants', []);
     }
 
-    // Posts and comments (if you use Firestore for these).
+    // Posts and comments (Firestore-only; if using Supabase for posts, this block can be removed or kept for Firestore posts).
     match /posts/{postId} {
       allow read: if true;
       allow create: if request.auth != null;

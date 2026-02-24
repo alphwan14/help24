@@ -162,10 +162,28 @@ class PostService {
           .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
           .eq('type', 'job');
 
-      // Apply additional filters
+      // Apply filters (aligned with posts): location, category, price, difficulty, urgency, search)
       if (filters != null) {
         if (filters.city != null && filters.city!.isNotEmpty) {
           query = query.ilike('location', '%${filters.city}%');
+        }
+        if (filters.area != null && filters.area!.isNotEmpty) {
+          query = query.ilike('location', '%${filters.area}%');
+        }
+        if (filters.categories != null && filters.categories!.isNotEmpty) {
+          query = query.inFilter('category', filters.categories!);
+        }
+        if (filters.urgency != null && filters.urgency!.isNotEmpty) {
+          query = query.eq('urgency', filters.urgency!);
+        }
+        if (filters.difficulty != null && filters.difficulty!.isNotEmpty) {
+          query = query.eq('difficulty', filters.difficulty!);
+        }
+        if (filters.minPrice != null) {
+          query = query.gte('price', filters.minPrice!);
+        }
+        if (filters.maxPrice != null) {
+          query = query.lte('price', filters.maxPrice!);
         }
         if (filters.searchQuery != null && filters.searchQuery!.isNotEmpty) {
           query = query.or(

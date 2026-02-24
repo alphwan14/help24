@@ -51,6 +51,7 @@ class NotificationService {
   }
 
   /// Initialize FCM: request permission, get token, register background handler.
+  /// Does not throw; logs and returns on any failure (e.g. web without service worker, permission denied).
   static Future<void> initialize() async {
     if (!FirebaseConfig.isConfigured) return;
     try {
@@ -61,8 +62,9 @@ class NotificationService {
       );
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
       await _requestPermissionAndToken();
-    } catch (e) {
+    } catch (e, st) {
       debugPrint('NotificationService initialize: $e');
+      if (kDebugMode) debugPrint(st.toString());
     }
   }
 
@@ -150,27 +152,34 @@ class NotificationService {
     }
   }
 
-  /// Set up foreground/opened handlers. Call after MaterialApp is built (e.g. in main after runApp).
+  /// Set up foreground/opened handlers. Call after MaterialApp is built. Never throws; logs on FCM errors.
   static void setupMessageHandlers({
     required void Function(RemoteMessage message) onForegroundMessage,
     required void Function(RemoteMessage message) onNotificationTap,
   }) {
-    // Foreground: show in-app banner and pass message to caller
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      debugPrint('NotificationService onMessage: ${message.notification?.title}');
-      onForegroundMessage(message);
-    });
+    try {
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        debugPrint('NotificationService onMessage: ${message.notification?.title}');
+        onForegroundMessage(message);
+      }, onError: (e) {
+        debugPrint('NotificationService onMessage error: $e');
+      });
 
-    // User tapped notification (app was in background)
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      debugPrint('NotificationService onMessageOpenedApp: ${message.data}');
-      onNotificationTap(message);
-    });
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        debugPrint('NotificationService onMessageOpenedApp: ${message.data}');
+        onNotificationTap(message);
+      }, onError: (e) {
+        debugPrint('NotificationService onMessageOpenedApp error: $e');
+      });
 
-    // App opened from terminated state via notification
-    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
-      if (message != null) onNotificationTap(message);
-    });
+      FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+        if (message != null) onNotificationTap(message);
+      }).catchError((e) {
+        debugPrint('NotificationService getInitialMessage: $e');
+      });
+    } catch (e) {
+      debugPrint('NotificationService setupMessageHandlers: $e');
+    }
   }
 
   /// Navigate to chat or post based on notification data. Call from onNotificationTap.
