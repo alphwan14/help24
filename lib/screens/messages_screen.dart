@@ -8,6 +8,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/connectivity_provider.dart';
 import '../services/location_service.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/post_service.dart';
@@ -68,8 +69,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
           // Conversations List
           Expanded(
-            child: Consumer<AppProvider>(
-              builder: (context, provider, _) {
+            child: Consumer2<AppProvider, ConnectivityProvider>(
+              builder: (context, provider, connectivity, _) {
                 final conversations = provider.conversations;
 
                 if (provider.isLoadingConversations && conversations.isEmpty) {
@@ -77,6 +78,16 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 }
 
                 if (conversations.isEmpty) {
+                  // Offline with no cached conversations: show offline empty state.
+                  if (connectivity.isOffline) {
+                    return OfflineEmptyView(
+                      message: 'No internet connection',
+                      onRetry: () {
+                        connectivity.checkNow();
+                        _refreshConversations();
+                      },
+                    );
+                  }
                   return EmptyStateView(
                     icon: Iconsax.message,
                     title: 'No messages yet',
@@ -157,6 +168,24 @@ class _ConversationTile extends StatelessWidget {
     }
   }
 
+  Widget _avatarLoadingPlaceholder() {
+    return Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        color: AppTheme.darkCard,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryAccent),
+        ),
+      ),
+    );
+  }
+
   Widget _avatarPlaceholder(String initial) {
     return Container(
       width: 52,
@@ -214,7 +243,7 @@ class _ConversationTile extends StatelessWidget {
                       child: CachedNetworkImage(
                         imageUrl: avatarUrl,
                         fit: BoxFit.cover,
-                        placeholder: (_, __) => _avatarPlaceholder(initial),
+                        placeholder: (_, __) => _avatarLoadingPlaceholder(),
                         errorWidget: (_, __, ___) => _avatarPlaceholder(initial),
                       ),
                     ),

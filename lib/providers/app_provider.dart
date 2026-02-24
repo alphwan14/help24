@@ -7,6 +7,7 @@ import '../services/post_service.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
+import '../services/cache_service.dart';
 
 class AppProvider extends ChangeNotifier {
   bool _isDarkMode = true;
@@ -84,6 +85,10 @@ class AppProvider extends ChangeNotifier {
       final results = await Connectivity().checkConnectivity();
       final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
       if (offline) {
+        final cached = await CacheService.loadPosts();
+        if (cached.isNotEmpty) {
+          _posts = cached;
+        }
         _isLoadingPosts = false;
         notifyListeners();
         return;
@@ -109,6 +114,9 @@ class AppProvider extends ChangeNotifier {
       );
 
       _posts = await PostService.fetchPosts(filters: filters);
+      if (_posts.isNotEmpty) {
+        await CacheService.savePosts(_posts);
+      }
     } catch (e) {
       _error = 'Failed to load posts: $e';
       print(_error);
@@ -129,6 +137,10 @@ class AppProvider extends ChangeNotifier {
       final results = await Connectivity().checkConnectivity();
       final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
       if (offline) {
+        final cached = await CacheService.loadJobs();
+        if (cached.isNotEmpty) {
+          _jobs = cached;
+        }
         _isLoadingJobs = false;
         notifyListeners();
         return;
@@ -146,6 +158,9 @@ class AppProvider extends ChangeNotifier {
         difficulty: _selectedDifficulty?.name,
       );
       _jobs = await PostService.fetchJobs(filters: filters);
+      if (_jobs.isNotEmpty) {
+        await CacheService.saveJobs(_jobs);
+      }
     } catch (e) {
       _error = 'Failed to load jobs: $e';
       print(_error);

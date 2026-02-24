@@ -201,6 +201,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 }
 
                 if (posts.isEmpty) {
+                  // Only show offline empty state when offline AND no cached data.
                   if (connectivity.isOffline) {
                     return OfflineEmptyView(
                       message: 'No internet connection',

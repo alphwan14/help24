@@ -34,7 +34,7 @@ class MarketplaceAvatar extends StatelessWidget {
           child: CachedNetworkImage(
             imageUrl: imageUrl!,
             fit: BoxFit.cover,
-            placeholder: (_, __) => _placeholder(placeholderColor),
+            placeholder: (_, __) => _loadingPlaceholder(placeholderColor),
             errorWidget: (_, __, ___) => _placeholder(placeholderColor),
           ),
         ),
@@ -72,6 +72,20 @@ class MarketplaceAvatar extends StatelessWidget {
             fontSize: size * 0.4,
             fontWeight: FontWeight.w600,
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Loading state when profile_image URL is set — no initials until load fails.
+  Widget _loadingPlaceholder(Color bg) {
+    return Container(
+      color: bg,
+      child: Center(
+        child: SizedBox(
+          width: size * 0.4,
+          height: size * 0.4,
+          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkTextTertiary),
         ),
       ),
     );

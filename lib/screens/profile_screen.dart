@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
-import '../config/app_urls.dart';
 import '../l10n/app_localizations.dart';
 import '../models/user_model.dart';
 import '../providers/app_provider.dart';
@@ -14,7 +13,9 @@ import '../theme/app_theme.dart';
 import '../widgets/loading_empty_offline.dart';
 import 'auth_screen.dart';
 import 'edit_profile_screen.dart';
-import 'web_view_screen.dart';
+import 'help_center_screen.dart';
+import 'terms_screen.dart';
+import 'privacy_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -213,19 +214,19 @@ class ProfileScreen extends StatelessWidget {
                   icon: Iconsax.message_question,
                   title: AppLocalizations.of(context)?.t('help_center') ?? 'Help Center',
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () {},
+                  onTap: () => _openHelpCenter(context),
                 ),
                 _SettingsTile(
                   icon: Iconsax.document_text,
                   title: AppLocalizations.of(context)?.t('terms_of_service') ?? 'Terms of Service',
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _openWebView(context, AppUrls.termsOfService, 'Terms of Service'),
+                  onTap: () => _openTerms(context),
                 ),
                 _SettingsTile(
                   icon: Iconsax.shield_tick,
                   title: AppLocalizations.of(context)?.t('privacy_policy') ?? 'Privacy Policy',
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _openWebView(context, AppUrls.privacyPolicy, 'Privacy Policy'),
+                  onTap: () => _openPrivacy(context),
                 ),
               ],
             ),
@@ -347,15 +348,29 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  void _openWebView(BuildContext context, String url, String title) {
-    final l10n = AppLocalizations.of(context);
-    final pageTitle = title == 'Terms of Service'
-        ? (l10n?.t('terms_of_service') ?? title)
-        : (title == 'Privacy Policy' ? (l10n?.t('privacy_policy') ?? title) : title);
+  void _openHelpCenter(BuildContext context) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => WebViewScreen(title: pageTitle, url: url),
+        builder: (context) => const HelpCenterScreen(),
+      ),
+    );
+  }
+
+  void _openTerms(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const TermsScreen(),
+      ),
+    );
+  }
+
+  void _openPrivacy(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const PrivacyScreen(),
       ),
     );
   }
@@ -484,6 +499,13 @@ class _LoggedInProfile extends StatelessWidget {
                       width: 100,
                       height: 100,
                       fit: BoxFit.cover,
+                      placeholder: (_, __) => const Center(
+                        child: SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                        ),
+                      ),
                       errorWidget: (_, __, ___) => Text(
                         initials,
                         style: const TextStyle(

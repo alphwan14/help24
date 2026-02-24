@@ -195,6 +195,20 @@ class Application {
       'proposed_price': proposedPrice,
     };
   }
+
+  /// Map for offline cache (shape that Application.fromJson expects).
+  Map<String, dynamic> toCacheMap() {
+    return {
+      'id': id,
+      'post_id': postId,
+      'applicant_temp_id': applicantTempId,
+      'applicant_user_id': applicantUserId,
+      'message': message,
+      'proposed_price': proposedPrice,
+      'created_at': timestamp.toIso8601String(),
+      'users': {'name': applicantName, 'profile_image': applicantAvatarUrl},
+    };
+  }
 }
 
 class PostModel {
@@ -302,6 +316,29 @@ class PostModel {
       'difficulty': difficulty.name,
       'rating': rating,
       'author_temp_id': authorTempId,
+    };
+  }
+
+  /// Map for offline cache (shape that PostModel.fromJson expects).
+  Map<String, dynamic> toCacheMap() {
+    return {
+      'id': id,
+      'title': title,
+      'description': description,
+      'category': category.name,
+      'location': location,
+      'price': price,
+      'urgency': urgency.name,
+      'type': type.name,
+      'difficulty': difficulty.name,
+      'rating': rating,
+      'author_review_count': authorReviewCount,
+      'author_temp_id': authorTempId,
+      'author_user_id': authorUserId,
+      'created_at': createdAt.toIso8601String(),
+      'post_images': images.map((u) => {'image_url': u}).toList(),
+      'applications': applications.map((a) => a.toCacheMap()).toList(),
+      'users': {'name': authorName, 'profile_image': authorAvatar},
     };
   }
 
@@ -597,6 +634,29 @@ class JobModel {
       'type': 'job',
       'difficulty': 'medium',
       'author_temp_id': authorTempId,
+    };
+  }
+
+  /// Map for offline cache (shape that JobModel.fromJson expects).
+  Map<String, dynamic> toCacheMap() {
+    return {
+      'id': id,
+      'title': title,
+      'author_user_id': authorUserId,
+      'location': location,
+      'pay': pay,
+      'type': type,
+      'description': description,
+      'author_temp_id': authorTempId,
+      'created_at': postedAt.toIso8601String(),
+      'post_images': images.map((u) => {'image_url': u}).toList(),
+      'applications': applications.map((a) => a.toCacheMap()).toList(),
+      'users': {'name': authorName, 'profile_image': authorAvatarUrl},
+      'category': categoryName,
+      'difficulty': difficulty.name,
+      'urgency': urgency.name,
+      'rating': rating,
+      'author_review_count': authorReviewCount,
     };
   }
 

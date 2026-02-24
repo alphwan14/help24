@@ -660,6 +660,7 @@ class _LoginForm extends StatelessWidget {
             hint: 'you@example.com',
             icon: Iconsax.sms,
             keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
           ),
           const SizedBox(height: 16),
           _LargeField(
@@ -668,6 +669,8 @@ class _LoginForm extends StatelessWidget {
             hint: '••••••••',
             icon: Iconsax.lock,
             obscureText: obscurePassword,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => onSubmit(),
             suffixIcon: IconButton(
               icon: Icon(obscurePassword ? Iconsax.eye_slash : Iconsax.eye, color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary, size: 22),
               onPressed: onToggleObscure,
@@ -726,6 +729,7 @@ class _SignupForm extends StatelessWidget {
             hint: 'John Doe',
             icon: Iconsax.user,
             textCapitalization: TextCapitalization.words,
+            textInputAction: TextInputAction.next,
           ),
           const SizedBox(height: 16),
           _LargeField(
@@ -734,6 +738,7 @@ class _SignupForm extends StatelessWidget {
             hint: 'you@example.com',
             icon: Iconsax.sms,
             keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
           ),
           const SizedBox(height: 16),
           _LargeField(
@@ -742,6 +747,7 @@ class _SignupForm extends StatelessWidget {
             hint: 'At least 6 characters',
             icon: Iconsax.lock,
             obscureText: obscurePassword,
+            textInputAction: TextInputAction.next,
             suffixIcon: IconButton(
               icon: Icon(obscurePassword ? Iconsax.eye_slash : Iconsax.eye, color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary, size: 22),
               onPressed: onToggleObscure,
@@ -754,6 +760,8 @@ class _SignupForm extends StatelessWidget {
             hint: 'Re-enter password',
             icon: Iconsax.lock_1,
             obscureText: obscureConfirm,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => onSubmit(),
             suffixIcon: IconButton(
               icon: Icon(obscureConfirm ? Iconsax.eye_slash : Iconsax.eye, color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary, size: 22),
               onPressed: onToggleConfirm,
