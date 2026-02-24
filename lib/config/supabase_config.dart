@@ -9,6 +9,9 @@ class SupabaseConfig {
 
   /// Storage bucket name for post images
   static const String postImagesBucket = 'post-images';
+
+  /// Storage bucket for user profile images (create in Dashboard: Storage > New bucket > name: profiles)
+  static const String profilesBucket = 'profiles';
   
   /// Track initialization status
   static bool _isInitialized = false;

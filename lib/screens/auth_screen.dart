@@ -35,6 +35,10 @@ class _AuthScreenState extends State<AuthScreen> {
   void _onSuccess() {
     if (!mounted) return;
     widget.onSuccess?.call();
+    // If caller did not handle navigation, pop so user returns to app (no back button)
+    if (mounted && widget.onSuccess == null && Navigator.canPop(context)) {
+      Navigator.of(context).pop(true);
+    }
   }
 
   @override

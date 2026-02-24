@@ -8,15 +8,18 @@ import '../config/firebase_config.dart';
 import 'auth_service.dart';
 import 'user_profile_service.dart';
 
-/// Handles FCM: permission, token save to Firestore (when notificationsEnabled),
+/// Handles FCM: permission, token save to Supabase users (when notificationsEnabled),
 /// foreground in-app banner, background/opened navigation.
 ///
-/// To trigger push from server (e.g. new chat message / job response):
-/// - Cloud Functions: onDocumentCreated('chats/{chatId}/messages') get recipient uid from chat
-///   participants, read users/{recipientUid}.fcmTokens and users/{recipientUid}.notificationsEnabled;
-///   if enabled, send FCM to each token with payload { title, body, data: { chatId } }.
-/// - Same for job/post response: read applicant or author fcmTokens and send { data: { postId } }.
-/// Firestore: users/{uid}.fcmTokens (array), users/{uid}.notificationsEnabled (bool).
+/// Push notifications for new messages (must be sent from backend):
+/// When a new row is inserted into chat_messages:
+/// 1. Resolve recipient: chat has user1, user2 — recipient is the one who is not sender_id.
+/// 2. Load recipient fcm_tokens from public.users (column fcm_tokens jsonb).
+/// 3. If notifications_enabled and tokens non-empty, send FCM to each token:
+///    title: sender name (e.g. from users.name where id = sender_id)
+///    body: message preview (e.g. content truncated to 80 chars)
+///    data: { "chatId": "<chat_id uuid>", "postId": "<optional post_id>" }
+/// 4. On tap, app opens ChatScreen with conversation.id = data.chatId (see main.dart _onNotificationTap).
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('NotificationService background: ${message.messageId}');

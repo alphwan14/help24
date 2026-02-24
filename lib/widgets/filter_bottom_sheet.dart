@@ -302,7 +302,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       Text(
-                        'Kes.${formatPriceFull(_priceRange.start)} - Kes.${formatPriceFull(_priceRange.end)}',
+                        '${formatPriceDisplay(_priceRange.start)} - ${formatPriceDisplay(_priceRange.end)}',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppTheme.primaryAccent,
                           fontWeight: FontWeight.w600,

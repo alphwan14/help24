@@ -1,52 +1,44 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../config/firebase_config.dart';
+import '../config/supabase_config.dart';
 import '../models/user_model.dart';
+import 'storage_service.dart';
 
-/// Production user profile: Firestore `users` collection + Firebase Storage for avatar.
-/// Document ID = Firebase Auth UID. Use serverTimestamp() for all timestamps.
+/// User profile: Supabase `users` table + Supabase Storage bucket `profiles` for avatar.
+/// No Firestore or Firebase Storage. id = Firebase Auth UID (synced to Supabase on login).
 class UserProfileService {
-  static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
-  static FirebaseStorage get _storage => FirebaseStorage.instance;
+  static SupabaseClient get _client => SupabaseConfig.client;
 
-  static const String _collection = 'users';
-  static const String _storagePath = 'profiles';
+  static bool get _isAvailable => SupabaseConfig.isInitialized;
 
-  static bool get _isAvailable => FirebaseConfig.isConfigured;
-
-  /// Create user document on signup. Call after Firebase Auth user is created.
-  /// Sets: uid, name, email, phone?, profileImage, bio, createdAt, updatedAt, isOnline=true.
+  /// Create or ensure user row in Supabase on signup. Call after Firebase Auth user is created.
   static Future<void> createUserOnSignup({
     required String uid,
     required String email,
     String? name,
     String? phone,
   }) async {
-    if (!_isAvailable) return;
-    final ref = _firestore.collection(_collection).doc(uid);
-    final existing = await ref.get();
-    if (existing.exists) return;
-
-    final displayName = name?.trim() ?? (email.isNotEmpty ? email.split('@').first : '');
-    await ref.set({
-      'uid': uid,
-      'name': displayName,
-      'email': email,
-      if (phone != null && phone.isNotEmpty) 'phone': phone,
-      'profileImage': '',
-      'bio': '',
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'isOnline': true,
-      'lastSeen': FieldValue.serverTimestamp(),
-    });
-    debugPrint('✅ UserProfileService: created user doc $uid');
+    if (!_isAvailable || uid.isEmpty) return;
+    try {
+      final displayName = name?.trim() ?? (email.isNotEmpty ? email.split('@').first : '');
+      await _client.from('users').upsert({
+        'id': uid,
+        'email': email,
+        'name': displayName,
+        if (phone != null && phone.isNotEmpty) 'phone_number': phone,
+        'profile_image': '',
+      }, onConflict: 'id');
+      debugPrint('✅ UserProfileService: created/updated user $uid in Supabase');
+    } catch (e) {
+      debugPrint('UserProfileService createUserOnSignup: $e');
+      rethrow;
+    }
   }
 
-  /// Ensure profile document exists (e.g. for existing users who signed up before Firestore profiles).
+  /// Ensure profile row exists in Supabase (e.g. for existing users).
   static Future<void> ensureProfileDoc({
     required String uid,
     required String email,
@@ -55,65 +47,79 @@ class UserProfileService {
   }) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      final ref = _firestore.collection(_collection).doc(uid);
-      final existing = await ref.get();
-      if (existing.exists) return;
+      final existing = await _client.from('users').select('id').eq('id', uid).maybeSingle();
+      if (existing != null) return;
       final displayName = name?.trim() ?? (email.isNotEmpty ? email.split('@').first : '');
-      await ref.set({
-        'uid': uid,
-        'name': displayName,
+      await _client.from('users').insert({
+        'id': uid,
         'email': email,
-        if (phone != null && phone.isNotEmpty) 'phone': phone,
-        'profileImage': '',
-        'bio': '',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'isOnline': true,
-        'lastSeen': FieldValue.serverTimestamp(),
+        'name': displayName,
+        if (phone != null && phone.isNotEmpty) 'phone_number': phone,
+        'profile_image': '',
       });
-      debugPrint('UserProfileService: ensured user doc $uid');
+      debugPrint('UserProfileService: ensured user $uid in Supabase');
     } catch (e) {
       debugPrint('UserProfileService ensureProfileDoc ($uid): $e');
       rethrow;
     }
   }
 
-  /// Call on login: set isOnline = true, lastSeen = now.
+  /// Set online status and last_seen in Supabase users.
   static Future<void> setOnline(String uid, bool isOnline) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      await _firestore.collection(_collection).doc(uid).set({
-        'isOnline': isOnline,
-        'lastSeen': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await _client.from('users').update({
+        'is_online': isOnline,
+        'last_seen': DateTime.now().toIso8601String(),
+      }).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService setOnline: $e');
     }
   }
 
-  /// Real-time stream of user profile. Use in StreamBuilder.
+  /// Stream of user profile from Supabase (polling every 15s, no Realtime).
   static Stream<UserModel?> watchUser(String? uid) {
     if (!_isAvailable || uid == null || uid.isEmpty) return Stream.value(null);
-    return _firestore.collection(_collection).doc(uid).snapshots().map((snap) {
-      if (!snap.exists || snap.data() == null) return null;
-      return UserModel.fromFirestore(snap);
-    });
+
+    final controller = StreamController<UserModel?>.broadcast();
+    Timer? timer;
+
+    Future<void> fetch() async {
+      try {
+        final r = await _client.from('users').select().eq('id', uid).maybeSingle();
+        if (controller.isClosed) return;
+        if (r != null) {
+          controller.add(UserModel.fromSupabase(r as Map<String, dynamic>));
+        } else {
+          controller.add(null);
+        }
+      } catch (e) {
+        debugPrint('UserProfileService watchUser fetch: $e');
+        if (!controller.isClosed) controller.add(null);
+      }
+    }
+
+    fetch();
+    timer = Timer.periodic(const Duration(seconds: 15), (_) => fetch());
+    controller.onCancel = () => timer?.cancel();
+
+    return controller.stream;
   }
 
-  /// One-time fetch (e.g. for chat display name/avatar). Returns null on missing doc or error.
+  /// One-time fetch from Supabase users.
   static Future<UserModel?> getUser(String? uid) async {
     if (!_isAvailable || uid == null || uid.isEmpty) return null;
     try {
-      final snap = await _firestore.collection(_collection).doc(uid).get();
-      if (!snap.exists || snap.data() == null) return null;
-      return UserModel.fromFirestore(snap);
+      final r = await _client.from('users').select().eq('id', uid).maybeSingle();
+      if (r != null) return UserModel.fromSupabase(r as Map<String, dynamic>);
+      return null;
     } catch (e) {
       debugPrint('UserProfileService getUser ($uid): $e');
       return null;
     }
   }
 
-  /// Update profile fields. updatedAt set to server timestamp. Creates doc if missing (merge: true).
+  /// Update profile in Supabase users. Saves profile_image URL (from Supabase Storage).
   static Future<void> updateProfile({
     required String uid,
     String? name,
@@ -122,118 +128,100 @@ class UserProfileService {
   }) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      final updates = <String, dynamic>{
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+      final updates = <String, dynamic>{};
       if (name != null) updates['name'] = name;
       if (bio != null) updates['bio'] = bio;
-      if (profileImage != null) updates['profileImage'] = profileImage;
-      await _firestore.collection(_collection).doc(uid).set(updates, SetOptions(merge: true));
+      if (profileImage != null) {
+        updates['profile_image'] = profileImage;
+        updates['avatar_url'] = profileImage;
+      }
+      if (updates.isEmpty) return;
+      await _client.from('users').update(updates).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService updateProfile ($uid): $e');
       rethrow;
     }
   }
 
-  /// Upload profile image to Firebase Storage, return download URL.
-  /// On Storage permission/network failure returns empty string so UI can still save name/bio.
+  /// Upload profile image to Supabase Storage bucket `profiles`, save URL to users.profile_image, return public URL.
+  /// On failure throws (do NOT show success). Caller should catch and show error.
   static Future<String> uploadProfileImage(XFile file, String uid) async {
     if (!_isAvailable) {
-      debugPrint('UserProfileService.uploadProfileImage: Firebase not configured');
-      return '';
+      debugPrint('UserProfileService.uploadProfileImage: Supabase not configured');
+      throw UserProfileException('Profile upload is not available.');
     }
     try {
-      final bytes = await file.readAsBytes();
-      if (bytes.length > 5 * 1024 * 1024) {
-        debugPrint('UserProfileService.uploadProfileImage: Image too large (max 5MB)');
-        return '';
-      }
-      final ext = _extensionFromXFile(file);
-      final path = '$_storagePath/$uid.$ext';
-      final ref = _storage.ref().child(path);
-      final metadata = SettableMetadata(contentType: _contentType(ext));
-      await ref.putData(bytes, metadata);
-      final url = await ref.getDownloadURL();
-      return url;
+      final url = await StorageService.uploadProfileImageToProfilesBucket(file, uid);
+      if (url.isEmpty) throw UserProfileException('Upload returned no URL.');
+      final t = DateTime.now().millisecondsSinceEpoch;
+      final urlWithCacheBuster = url.contains('?') ? '$url&t=$t' : '$url?t=$t';
+      await _client.from('users').update({
+        'profile_image': urlWithCacheBuster,
+        'avatar_url': urlWithCacheBuster,
+      }).eq('id', uid);
+      debugPrint('UserProfileService.uploadProfileImage: saved URL to users.profile_image');
+      return urlWithCacheBuster;
     } catch (e) {
-      debugPrint('UserProfileService.uploadProfileImage: $e');
-      return '';
+      debugPrint('UserProfileService.uploadProfileImage FAILED: $e');
+      rethrow;
     }
   }
 
-  static String _extensionFromXFile(XFile file) {
-    final mime = file.mimeType?.toLowerCase() ?? '';
-    if (mime.contains('png')) return 'png';
-    if (mime.contains('gif')) return 'gif';
-    if (mime.contains('webp')) return 'webp';
-    final name = file.name.toLowerCase();
-    if (name.endsWith('.png')) return 'png';
-    if (name.endsWith('.gif')) return 'gif';
-    if (name.endsWith('.webp')) return 'webp';
-    return 'jpg';
-  }
+  // ---------- User preferences (Supabase users table) ----------
 
-  static String _contentType(String ext) {
-    switch (ext.toLowerCase()) {
-      case 'png': return 'image/png';
-      case 'gif': return 'image/gif';
-      case 'webp': return 'image/webp';
-      default: return 'image/jpeg';
-    }
-  }
-
-  // ---------- User preferences (Firestore merge only; no UserModel changes) ----------
-
-  /// Notifications: users/{uid}.fcmTokens (array), users/{uid}.notificationsEnabled (bool).
   static Future<void> setNotificationsEnabled(String uid, bool enabled) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      await _firestore.collection(_collection).doc(uid).set({
-        'notificationsEnabled': enabled,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      // When disabling, caller (NotificationService) should remove current FCM token from fcmTokens.
+      await _client.from('users').update({'notifications_enabled': enabled}).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService setNotificationsEnabled: $e');
     }
   }
 
-  /// Add FCM token to users/{uid}.fcmTokens (array). Only call when notificationsEnabled is true.
   static Future<void> addFcmToken(String uid, String token) async {
     if (!_isAvailable || uid.isEmpty || token.isEmpty) return;
     try {
-      await _firestore.collection(_collection).doc(uid).set({
-        'fcmTokens': FieldValue.arrayUnion([token]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final r = await _client.from('users').select('fcm_tokens').eq('id', uid).maybeSingle();
+      final list = <dynamic>[];
+      if (r != null && r['fcm_tokens'] != null) {
+        final current = r['fcm_tokens'];
+        if (current is List) list.addAll(current.map((e) => e.toString()));
+      }
+      if (!list.contains(token)) list.add(token);
+      await _client.from('users').update({'fcm_tokens': list}).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService addFcmToken: $e');
     }
   }
 
-  /// Remove FCM token from users/{uid}.fcmTokens.
   static Future<void> removeFcmToken(String uid, String token) async {
     if (!_isAvailable || uid.isEmpty || token.isEmpty) return;
     try {
-      await _firestore.collection(_collection).doc(uid).update({
-        'fcmTokens': FieldValue.arrayRemove([token]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final r = await _client.from('users').select('fcm_tokens').eq('id', uid).maybeSingle();
+      final list = <String>[];
+      if (r != null && r['fcm_tokens'] != null) {
+        final current = r['fcm_tokens'];
+        if (current is List) {
+          for (final e in current) {
+            final s = e.toString();
+            if (s != token) list.add(s);
+          }
+        }
+      }
+      await _client.from('users').update({'fcm_tokens': list}).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService removeFcmToken: $e');
     }
   }
 
-  /// Get notificationsEnabled and fcmTokens for a user (one-time read).
   static Future<({bool notificationsEnabled, List<String> fcmTokens})> getNotificationPrefs(String uid) async {
     if (!_isAvailable || uid.isEmpty) return (notificationsEnabled: true, fcmTokens: <String>[]);
     try {
-      final snap = await _firestore.collection(_collection).doc(uid).get();
-      final data = snap.data();
-      if (data == null) return (notificationsEnabled: true, fcmTokens: <String>[]);
-      final list = data['fcmTokens'];
+      final r = await _client.from('users').select('notifications_enabled, fcm_tokens').eq('id', uid).maybeSingle();
+      if (r == null) return (notificationsEnabled: true, fcmTokens: <String>[]);
+      final list = r['fcm_tokens'];
       final tokens = list is List ? list.map((e) => e.toString()).where((s) => s.isNotEmpty).toList() : <String>[];
-      final enabled = data['notificationsEnabled'] as bool? ?? true;
+      final enabled = r['notifications_enabled'] as bool? ?? true;
       return (notificationsEnabled: enabled, fcmTokens: tokens);
     } catch (e) {
       debugPrint('UserProfileService getNotificationPrefs: $e');
@@ -241,25 +229,20 @@ class UserProfileService {
     }
   }
 
-  /// Language: users/{uid}.language ("en" | "sw").
   static Future<void> setLanguage(String uid, String languageCode) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      await _firestore.collection(_collection).doc(uid).set({
-        'language': languageCode,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await _client.from('users').update({'language': languageCode}).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService setLanguage: $e');
     }
   }
 
-  /// Get language for user (one-time). Returns "en" or "sw".
   static Future<String> getLanguage(String uid) async {
     if (!_isAvailable || uid.isEmpty) return 'en';
     try {
-      final snap = await _firestore.collection(_collection).doc(uid).get();
-      final code = snap.data()?['language']?.toString();
+      final r = await _client.from('users').select('language').eq('id', uid).maybeSingle();
+      final code = r?['language']?.toString();
       if (code == 'sw') return 'sw';
       if (code == 'en') return 'en';
       return 'en';
@@ -268,31 +251,42 @@ class UserProfileService {
     }
   }
 
-  /// Record TOS acceptance: users/{uid}.tosAcceptedAt (server timestamp).
   static Future<void> setTosAccepted(String uid) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      await _firestore.collection(_collection).doc(uid).set({
-        'tosAcceptedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await _client.from('users').update({
+        'tos_accepted_at': DateTime.now().toIso8601String(),
+      }).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService setTosAccepted: $e');
     }
   }
 
-  /// Real-time stream of user preferences only (notificationsEnabled, language). Does not modify UserModel.
+  /// Stream of user prefs (polling every 15s, no Realtime).
   static Stream<({bool notificationsEnabled, String language})> watchUserPrefs(String? uid) {
     if (!_isAvailable || uid == null || uid.isEmpty) {
       return Stream.value((notificationsEnabled: true, language: 'en'));
     }
-    return _firestore.collection(_collection).doc(uid).snapshots().map((snap) {
-      final data = snap.data();
-      final enabled = data?['notificationsEnabled'] as bool? ?? true;
-      final lang = data?['language']?.toString();
-      final language = (lang == 'sw' || lang == 'en') ? lang! : 'en';
-      return (notificationsEnabled: enabled, language: language);
-    });
+    final controller = StreamController<({bool notificationsEnabled, String language})>.broadcast();
+    Timer? timer;
+
+    Future<void> fetch() async {
+      try {
+        final r = await _client.from('users').select('notifications_enabled, language').eq('id', uid).maybeSingle();
+        if (controller.isClosed) return;
+        final enabled = r?['notifications_enabled'] as bool? ?? true;
+        final lang = r?['language']?.toString();
+        final language = (lang == 'sw' || lang == 'en') ? lang! : 'en';
+        controller.add((notificationsEnabled: enabled, language: language));
+      } catch (e) {
+        if (!controller.isClosed) controller.add((notificationsEnabled: true, language: 'en'));
+      }
+    }
+
+    fetch();
+    timer = Timer.periodic(const Duration(seconds: 15), (_) => fetch());
+    controller.onCancel = () => timer?.cancel();
+    return controller.stream;
   }
 }
 

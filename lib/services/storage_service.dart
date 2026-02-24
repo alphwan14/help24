@@ -9,6 +9,7 @@ import '../config/supabase_config.dart';
 class StorageService {
   static SupabaseClient get _client => SupabaseConfig.client;
   static const _bucket = SupabaseConfig.postImagesBucket;
+  static const _profilesBucket = SupabaseConfig.profilesBucket;
 
   /// Maximum file size in bytes (5MB)
   static const int maxFileSize = 5 * 1024 * 1024;
@@ -166,7 +167,7 @@ class StorageService {
     return urls;
   }
 
-  /// Upload profile/avatar image for a user. Path: avatars/{userId}.{ext}
+  /// Upload profile/avatar image to post-images bucket. Path: avatars/{userId}.{ext}
   static Future<String> uploadProfileImage(XFile file, String userId) async {
     try {
       final bytes = await file.readAsBytes();
@@ -188,6 +189,42 @@ class StorageService {
       return _client.storage.from(_bucket).getPublicUrl(filePath);
     } catch (e) {
       if (e is StorageException) rethrow;
+      throw StorageException('Failed to upload profile image: $e');
+    }
+  }
+
+  /// Upload profile image to dedicated `profiles` bucket. Path: profiles/{userId}/avatar.jpg (fixed name for upsert).
+  /// Create bucket "profiles" in Dashboard and set RLS: allow authenticated users to upload/read their own path (e.g. userId/*).
+  static Future<String> uploadProfileImageToProfilesBucket(XFile file, String userId) async {
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.length > maxFileSize) {
+        debugPrint('❌ Storage upload FAILED: image too large (max 5MB)');
+        throw StorageException('Image too large. Maximum size is 5MB.');
+      }
+      const fileName = 'avatar.jpg';
+      final filePath = '$userId/$fileName';
+      const contentType = 'image/jpeg';
+      debugPrint('📤 Storage: uploading to $_profilesBucket/$filePath');
+      await _client.storage.from(_profilesBucket).uploadBinary(
+        filePath,
+        bytes,
+        fileOptions: FileOptions(
+          cacheControl: '0',
+          upsert: true,
+          contentType: contentType,
+        ),
+      );
+      final url = _client.storage.from(_profilesBucket).getPublicUrl(filePath);
+      debugPrint('✅ Storage upload SUCCESS: $url');
+      return url;
+    } catch (e) {
+      debugPrint('❌ Storage upload FAILED: $e');
+      if (e is StorageException) rethrow;
+      final msg = e.toString();
+      if (msg.contains('403') || msg.contains('row-level security') || msg.contains('Unauthorized')) {
+        throw StorageException('Upload denied. Ensure the profiles bucket allows uploads for your account.');
+      }
       throw StorageException('Failed to upload profile image: $e');
     }
   }

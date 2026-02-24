@@ -9,9 +9,10 @@ import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/location_service.dart';
-import '../services/message_service.dart';
-import '../services/chat_service_firestore.dart';
+import '../services/chat_service_supabase.dart';
+import '../services/post_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/format_utils.dart';
 import '../widgets/loading_empty_offline.dart';
 
 class MessagesScreen extends StatefulWidget {
@@ -31,7 +32,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     _loadConversationsWhenReady();
   }
 
-  /// Start Firestore .snapshots() stream for chats (real-time; persisted after app restart).
+  /// Start Supabase chat list stream for Messages tab (real-time).
   void _loadConversationsWhenReady() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -303,30 +304,57 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
-  final List<Message> _pendingMessages = []; // Optimistic: show "Sending..." then replace with stream
+  final List<Message> _pendingMessages = []; // Optimistic until send completes
+  List<Message> _messages = [];
+  bool _loadingMessages = true;
+  Timer? _pollTimer;
   bool _isSending = false;
   StreamSubscription? _liveLocationSubscription;
   Timer? _liveEndTimer;
   String? _liveMessageId;
   int _lastMessageCount = 0;
 
-  /// Chat id is always Firestore chatId (e.g. "uid1_uid2"). Same for sending and loading.
   String get _chatId => widget.conversation.id;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _loadMessages();
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (mounted) _loadMessages();
+    });
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _liveLocationSubscription?.cancel();
     _liveEndTimer?.cancel();
     _scrollController.removeListener(_onScroll);
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Fetch messages for this chat only (no Realtime). Sorted by created_at ascending.
+  Future<void> _loadMessages() async {
+    if (_chatId.isEmpty) return;
+    try {
+      final list = await ChatServiceSupabase.getMessages(_chatId, widget.currentUserId);
+      if (mounted) {
+        setState(() {
+          _messages = list;
+          _loadingMessages = false;
+        });
+        if (list.length > _lastMessageCount) {
+          _lastMessageCount = list.length;
+          _scrollToBottom();
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loadingMessages = false);
+    }
   }
 
   void _onScroll() {
@@ -374,13 +402,14 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _pendingMessages.add(optimistic));
     _scrollToBottom();
     try {
-      await ChatServiceFirestore.sendMessage(
+      await ChatServiceSupabase.sendMessage(
         chatIdParam: _chatId,
         senderId: widget.currentUserId,
         content: text,
       );
       if (mounted) {
         setState(() => _pendingMessages.removeWhere((m) => m.id == optimistic.id));
+        _loadMessages(); // Re-fetch immediately so new message appears
       }
     } catch (e) {
       if (mounted) {
@@ -449,13 +478,16 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     try {
-      await MessageService.sendLocation(
-        conversationId: widget.conversation.id,
+      await ChatServiceSupabase.sendLocation(
+        chatId: widget.conversation.id,
         senderId: widget.currentUserId,
         latitude: position.latitude,
         longitude: position.longitude,
       );
-      if (mounted) setState(() => _isSending = false);
+      if (mounted) {
+        setState(() => _isSending = false);
+        _loadMessages();
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _isSending = false);
@@ -474,8 +506,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     try {
-      final message = await MessageService.sendLiveLocation(
-        conversationId: widget.conversation.id,
+      final message = await ChatServiceSupabase.sendLiveLocation(
+        chatId: widget.conversation.id,
         senderId: widget.currentUserId,
         latitude: position.latitude,
         longitude: position.longitude,
@@ -486,6 +518,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _isSending = false;
         _liveMessageId = message.id;
       });
+      _loadMessages();
 
       _liveEndTimer = Timer(Duration(minutes: durationMinutes), () {
         if (!mounted) return;
@@ -494,7 +527,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       _liveLocationSubscription = LocationService.positionUpdatesEvery(intervalSeconds: 8).listen((pos) {
         if (_liveMessageId == null) return;
-        MessageService.updateMessageLocation(
+        ChatServiceSupabase.updateMessageLocation(
           messageId: _liveMessageId!,
           latitude: pos.latitude,
           longitude: pos.longitude,
@@ -515,9 +548,30 @@ class _ChatScreenState extends State<ChatScreen> {
     _liveLocationSubscription = null;
     if (_liveMessageId != null) {
       try {
-        await MessageService.stopLiveLocation(_liveMessageId!);
+        await ChatServiceSupabase.stopLiveLocation(_liveMessageId!);
       } catch (_) {}
       if (mounted) setState(() => _liveMessageId = null);
+    }
+  }
+
+  Future<void> _openPostFromChat(String postId) async {
+    try {
+      final post = await PostService.getPostById(postId);
+      if (post == null || !mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (context) => _PostDetailPage(post: post),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not load post: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -550,36 +604,81 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: const Icon(Icons.arrow_back),
             onPressed: () => Navigator.of(context).pop(),
           ),
-          title: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      AppTheme.primaryAccent,
-                      AppTheme.secondaryAccent,
+          title: GestureDetector(
+            onTap: widget.conversation.postId != null && widget.conversation.postId!.isNotEmpty
+                ? () => _openPostFromChat(widget.conversation.postId!)
+                : null,
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AppTheme.primaryAccent,
+                        AppTheme.secondaryAccent,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: widget.conversation.userAvatar.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.network(
+                              widget.conversation.userAvatar,
+                              width: 36,
+                              height: 36,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Text(
+                                widget.conversation.userName.isNotEmpty
+                                    ? widget.conversation.userName.substring(0, 1).toUpperCase()
+                                    : 'U',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          )
+                        : Text(
+                            widget.conversation.userName.isNotEmpty
+                                ? widget.conversation.userName.substring(0, 1).toUpperCase()
+                                : 'U',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.conversation.userName,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      if (widget.conversation.postId != null && widget.conversation.postId!.isNotEmpty)
+                        Text(
+                          'Tap to view post',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                          ),
+                        ),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Center(
-                  child: Text(
-                    widget.conversation.userName.isNotEmpty
-                        ? widget.conversation.userName.substring(0, 1).toUpperCase()
-                        : 'U',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(widget.conversation.userName),
-            ],
+              ],
+            ),
           ),
           actions: [
             IconButton(
@@ -590,22 +689,21 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         body: Column(
           children: [
-            // Messages from chats/{chatId}/messages — real-time stream, no refresh
+            // Messages: fetch on load, re-fetch after send, poll every 4s (no Realtime)
             Expanded(
-              child: StreamBuilder<List<Message>>(
-                stream: ChatServiceFirestore.watchMessages(_chatId, widget.currentUserId),
-                builder: (context, snap) {
-                  if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final streamList = snap.data ?? [];
-                  final combined = List<Message>.from(streamList);
+              child: Builder(
+                builder: (context) {
+                  final combined = List<Message>.from(_messages);
                   for (final p in _pendingMessages) {
                     final duplicate = combined.any((m) =>
                         m.isMe && m.text == p.text && m.timestamp.difference(p.timestamp).inSeconds.abs() < 15);
                     if (!duplicate) combined.add(p);
                   }
                   combined.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+                  if (_loadingMessages && combined.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
                   if (combined.isEmpty) {
                     _lastMessageCount = 0;
                     return Center(
@@ -625,10 +723,6 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       ),
                     );
-                  }
-                  if (combined.length > _lastMessageCount) {
-                    _lastMessageCount = combined.length;
-                    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
                   }
                   return ListView.builder(
                     controller: _scrollController,
@@ -762,7 +856,20 @@ class _MessageBubble extends StatelessWidget {
   });
 
   String _formatTime(DateTime time) {
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final messageDate = DateTime(time.year, time.month, time.day);
+    final timeStr = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    if (messageDate == today) {
+      return timeStr;
+    }
+    final yesterday = today.subtract(const Duration(days: 1));
+    if (messageDate == yesterday) {
+      return 'Yesterday $timeStr';
+    }
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final weekday = days[time.weekday - 1];
+    return '$weekday $timeStr';
   }
 
   int? _minutesLeft(DateTime? liveUntil) {
@@ -868,7 +975,7 @@ class _MessageBubble extends StatelessWidget {
                       fontSize: 14,
                     ),
                   ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -901,6 +1008,17 @@ class _MessageBubble extends StatelessWidget {
                           fontStyle: FontStyle.italic,
                           color: message.isMe
                               ? Colors.white.withValues(alpha: 0.8)
+                              : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
+                        ),
+                      ),
+                    ] else if (message.isMe) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        'Sent',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: message.isMe
+                              ? Colors.white.withValues(alpha: 0.6)
                               : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
                         ),
                       ),
@@ -1087,6 +1205,68 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Minimal post detail page when opening from chat (post_id linked).
+class _PostDetailPage extends StatelessWidget {
+  final PostModel post;
+
+  const _PostDetailPage({required this.post});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Post'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (post.images.isNotEmpty) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Image.network(
+                  post.images.first,
+                  height: 200,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    height: 200,
+                    color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+                    child: const Icon(Icons.image_not_supported, size: 48),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+            Text(
+              post.title,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              post.description,
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '${post.location} • ${formatPriceDisplay(post.price)}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

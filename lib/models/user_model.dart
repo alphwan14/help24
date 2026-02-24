@@ -66,6 +66,32 @@ class UserModel {
     );
   }
 
+  /// From Supabase users row (id, name, email, profile_image, avatar_url, ...).
+  factory UserModel.fromSupabase(Map<String, dynamic> row) {
+    final id = row['id']?.toString() ?? '';
+    final name = row['name']?.toString() ?? '';
+    final email = row['email']?.toString() ?? '';
+    final profileImage = row['profile_image']?.toString()?.trim();
+    final avatarUrl = row['avatar_url']?.toString()?.trim();
+    final image = (profileImage != null && profileImage.isNotEmpty)
+        ? profileImage
+        : (avatarUrl ?? '');
+    return UserModel(
+      uid: id,
+      name: name,
+      email: email,
+      phone: row['phone_number']?.toString(),
+      profileImage: image,
+      bio: row['bio']?.toString() ?? '',
+      createdAt: row['created_at'] != null
+          ? DateTime.tryParse(row['created_at'].toString())
+          : null,
+      updatedAt: null,
+      isOnline: false,
+      lastSeen: null,
+    );
+  }
+
   /// From Firestore document snapshot.
   factory UserModel.fromFirestore(DocumentSnapshot doc) {
     final data = (doc.data() as Map<String, dynamic>?) ?? {};

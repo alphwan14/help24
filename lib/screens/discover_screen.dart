@@ -11,7 +11,6 @@ import '../widgets/post_card.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/auth_guard.dart';
 import '../providers/auth_provider.dart';
-import '../services/chat_service_firestore.dart';
 import '../services/comment_service_firestore.dart';
 import 'messages_screen.dart';
 
@@ -453,7 +452,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           _DetailRow(
                             icon: Icons.payments_outlined,
                             label: 'Budget',
-                            value: 'Kes.${formatPriceFull(post.price)}',
+                            value: formatPriceDisplay(post.price),
                             valueColor: AppTheme.successGreen,
                           ),
                           const Divider(height: 24),

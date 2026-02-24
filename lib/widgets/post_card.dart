@@ -249,7 +249,7 @@ class PostCard extends StatelessWidget {
                 children: [
                   if (post.price > 0)
                     Text(
-                      'Kes.${formatPriceFull(post.price)}',
+                      formatPriceDisplay(post.price),
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             color: AppTheme.successGreen,
                             fontWeight: FontWeight.w700,

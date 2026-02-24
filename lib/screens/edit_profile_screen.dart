@@ -86,11 +86,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       String? profileImageUrl = _uploadedImageUrl;
       if (_pickedImage != null) {
-        final uploaded = await UserProfileService.uploadProfileImage(
-          _pickedImage!,
-          widget.uid,
-        );
-        if (uploaded.isNotEmpty) profileImageUrl = uploaded;
+        try {
+          final uploaded = await UserProfileService.uploadProfileImage(
+            _pickedImage!,
+            widget.uid,
+          );
+          profileImageUrl = uploaded;
+          if (mounted) setState(() => _uploadedImageUrl = uploaded);
+        } on UserProfileException catch (e) {
+          if (mounted) {
+            setState(() => _error = e.message);
+            _saving = false;
+          }
+          return;
+        } catch (e) {
+          if (mounted) {
+            setState(() => _error = 'Photo upload failed. Save without photo?');
+            _saving = false;
+          }
+          return;
+        }
       }
 
       await UserProfileService.ensureProfileDoc(

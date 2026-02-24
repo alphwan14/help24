@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post_model.dart';
 import '../services/post_service.dart';
-import '../services/chat_service_firestore.dart';
+import '../services/chat_service_supabase.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
 
@@ -386,7 +386,7 @@ class AppProvider extends ChangeNotifier {
     _conversationStreamSubscription?.cancel();
     _isLoadingConversations = true;
     notifyListeners();
-    _conversationStreamSubscription = ChatServiceFirestore.watchConversations(currentUserId).listen(
+    _conversationStreamSubscription = ChatServiceSupabase.watchConversations(currentUserId).listen(
       (list) {
         _conversations = list;
         _isLoadingConversations = false;
@@ -416,7 +416,7 @@ class AppProvider extends ChangeNotifier {
   }) async {
     if (applicantId.isEmpty || authorId.isEmpty) return null;
     try {
-      final conv = await ChatServiceFirestore.createChat(
+      final conv = await ChatServiceSupabase.createChat(
         user1Id: applicantId,
         user2Id: authorId,
         currentUserId: applicantId,
@@ -440,7 +440,7 @@ class AppProvider extends ChangeNotifier {
     required String otherUserName,
   }) async {
     try {
-      final conversation = await ChatServiceFirestore.createChat(
+      final conversation = await ChatServiceSupabase.createChat(
         user1Id: currentUserId,
         user2Id: otherUserId,
         currentUserId: currentUserId,

@@ -758,6 +758,8 @@ class Conversation {
   final DateTime lastMessageTime;
   final int unreadCount;
   final List<Message> messages;
+  /// Optional post id when chat is scoped to a post (for navigating to post from chat).
+  final String? postId;
 
   Conversation({
     required this.id,
@@ -768,6 +770,7 @@ class Conversation {
     required this.lastMessageTime,
     this.unreadCount = 0,
     this.messages = const [],
+    this.postId,
   });
 
   Conversation copyWith({
@@ -779,6 +782,7 @@ class Conversation {
     DateTime? lastMessageTime,
     int? unreadCount,
     List<Message>? messages,
+    String? postId,
   }) {
     return Conversation(
       id: id ?? this.id,
@@ -789,6 +793,7 @@ class Conversation {
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       unreadCount: unreadCount ?? this.unreadCount,
       messages: messages ?? this.messages,
+      postId: postId ?? this.postId,
     );
   }
 }

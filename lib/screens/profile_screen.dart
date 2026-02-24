@@ -9,6 +9,7 @@ import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../services/notification_service.dart';
 import '../services/user_profile_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../widgets/loading_empty_offline.dart';
 import 'auth_screen.dart';
@@ -151,10 +152,23 @@ class ProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // Account Section (only show if logged in)
+            // Account Section — Edit Profile always visible; other tiles when logged in
             Consumer<AuthProvider>(
               builder: (context, auth, _) {
-                if (!auth.isLoggedIn) return const SizedBox.shrink();
+                if (!auth.isLoggedIn) {
+                  return _SettingsSection(
+                    title: 'Account',
+                    children: [
+                      _SettingsTile(
+                        icon: Iconsax.profile_circle,
+                        title: 'Edit Profile',
+                        subtitle: 'Sign in to edit your profile',
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _showAuthModalForEditProfile(context),
+                      ),
+                    ],
+                  );
+                }
                 final uid = auth.currentUserId ?? '';
                 return StreamBuilder<UserModel?>(
                   stream: UserProfileService.watchUser(uid),
@@ -170,12 +184,12 @@ class ProfileScreen extends StatelessWidget {
                               trailing: const Icon(Icons.chevron_right),
                               onTap: () => _openEditProfile(context, snap.data),
                             ),
-                        _SettingsTile(
-                          icon: Iconsax.security_safe,
-                          title: 'Privacy & Security',
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () {},
-                        ),
+                            _SettingsTile(
+                              icon: Iconsax.security_safe,
+                              title: 'Privacy & Security',
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () {},
+                            ),
                             _SettingsTile(
                               icon: Iconsax.card,
                               title: 'Payment Methods',
@@ -276,8 +290,45 @@ class ProfileScreen extends StatelessWidget {
   void _navigateToAuth(BuildContext context) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const AuthScreen()),
+      MaterialPageRoute(
+        builder: (context) => AuthScreen(
+          isModal: false,
+          onSuccess: () {
+            if (context.mounted) Navigator.of(context).pop(true);
+          },
+        ),
+      ),
     );
+  }
+
+  void _showAuthModalForEditProfile(BuildContext context) {
+    showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      enableDrag: true,
+      builder: (modalContext) => DraggableScrollableSheet(
+        initialChildSize: 0.92,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (_, scrollController) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(modalContext).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: AuthScreen(
+            action: 'edit your profile',
+            isModal: true,
+            onSuccess: () => Navigator.pop(modalContext, true),
+          ),
+        ),
+      ),
+    ).then((value) {
+      if (value == true && context.mounted) {
+        final auth = context.read<AuthProvider>();
+        if (auth.currentUserId != null) _openEditProfile(context, null);
+      }
+    });
   }
 
   void _openEditProfile(BuildContext context, UserModel? profile) {
@@ -395,14 +446,14 @@ class _LoggedInProfile extends StatelessWidget {
     final name = profile?.displayName ?? authUser.displayName;
     final email = profile?.email ?? authUser.email;
     final secondary = email.isNotEmpty ? email : (authUser.phoneNumber ?? '');
-    final avatarUrl = profile?.profileImage.isNotEmpty == true
+    final avatarUrl = (profile?.profileImage != null && profile!.profileImage.isNotEmpty)
         ? profile!.profileImage
-        : authUser.photoUrl;
+        : (authUser.photoUrl != null && authUser.photoUrl.isNotEmpty ? authUser.photoUrl : '');
     final initials = profile?.initials ?? authUser.initials;
 
     return Column(
       children: [
-        // Profile Avatar
+        // Profile Avatar — image only when profile_image/photoUrl is set, else initials
         Container(
           width: 100,
           height: 100,
@@ -425,15 +476,15 @@ class _LoggedInProfile extends StatelessWidget {
             ],
           ),
           child: Center(
-            child: avatarUrl != null && avatarUrl.isNotEmpty
+            child: avatarUrl.isNotEmpty
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(28),
-                    child: Image.network(
-                      avatarUrl,
+                    child: CachedNetworkImage(
+                      imageUrl: avatarUrl,
                       width: 100,
                       height: 100,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Text(
+                      errorWidget: (_, __, ___) => Text(
                         initials,
                         style: const TextStyle(
                           color: Colors.white,
