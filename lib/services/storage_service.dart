@@ -229,6 +229,36 @@ class StorageService {
     }
   }
 
+  /// Upload chat attachment (image or file) to post-images bucket. Path: chat_attachments/{chatId}/{uuid}.{ext}
+  static Future<String> uploadChatAttachment(XFile file, String chatId) async {
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.length > maxFileSize * 2) {
+        throw StorageException('File too large. Maximum size is 10MB for attachments.');
+      }
+      final name = file.name.toLowerCase();
+      final path = (file.path ?? '').toLowerCase();
+      String ext = 'jpg';
+      for (final e in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx']) {
+        if (name.endsWith('.$e') || path.endsWith('.$e')) { ext = e; break; }
+      }
+      final contentType = ext == 'pdf'
+          ? 'application/pdf'
+          : (ext == 'doc' || ext == 'docx' ? 'application/msword' : _getContentType(ext));
+      final fileName = '${const Uuid().v4()}.$ext';
+      final filePath = 'chat_attachments/$chatId/$fileName';
+      await _client.storage.from(_bucket).uploadBinary(
+        filePath,
+        bytes,
+        fileOptions: FileOptions(cacheControl: '3600', upsert: false, contentType: contentType),
+      );
+      return _client.storage.from(_bucket).getPublicUrl(filePath);
+    } catch (e) {
+      if (e is StorageException) rethrow;
+      throw StorageException('Failed to upload attachment: $e');
+    }
+  }
+
   /// Delete an image from storage by URL
   static Future<void> deleteImage(String imageUrl) async {
     try {

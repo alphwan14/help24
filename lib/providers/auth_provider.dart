@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../config/firebase_config.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
+import '../services/supabase_auth_bridge.dart';
 
 /// Authentication state: session, phone OTP flow, errors.
 /// Auth does NOT block the app; only protected actions require login.
@@ -48,6 +49,12 @@ class AuthProvider extends ChangeNotifier {
       if (firebaseUser != null) {
         _currentUser = AuthService.appUserFromFirebase(firebaseUser);
         notifyListeners();
+        try {
+          final idToken = await firebaseUser.getIdToken();
+          if (idToken != null && idToken.isNotEmpty) {
+            await SupabaseAuthBridge.setSupabaseSessionFromFirebase(idToken);
+          }
+        } catch (_) {}
         AuthService.getCurrentAppUser().then((u) {
           if (u != null) {
             _currentUser = u;
@@ -66,6 +73,7 @@ class AuthProvider extends ChangeNotifier {
       _verificationId = null;
       _resendToken = null;
       _pendingPhoneNumber = null;
+      SupabaseAuthBridge.clearSupabaseSession();
       notifyListeners();
       return;
     }
@@ -74,6 +82,11 @@ class AuthProvider extends ChangeNotifier {
     if (FirebaseConfig.isConfigured) {
       NotificationService.onLogin(firebaseUser.uid);
     }
+    firebaseUser.getIdToken().then((idToken) async {
+      if (idToken != null && idToken.isNotEmpty) {
+        await SupabaseAuthBridge.setSupabaseSessionFromFirebase(idToken);
+      }
+    }).catchError((_) {});
     AuthService.getCurrentAppUser().then((u) {
       if (u != null) {
         _currentUser = u;

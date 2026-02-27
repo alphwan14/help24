@@ -15,6 +15,7 @@ dependencies:
   flutter_animate: ^4.3.0
   iconsax: ^0.0.8
   image_picker: ^1.0.7
+  file_picker: ^8.0.0
   cached_network_image: ^3.3.1
   supabase_flutter: ^2.3.0
   uuid: ^4.2.0

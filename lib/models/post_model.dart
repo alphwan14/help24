@@ -707,7 +707,7 @@ class JobModel {
   }
 }
 
-/// Message type: text, image, location (static), live_location (updating).
+/// Message type: text, image, file, location (static), live_location (updating).
 class Message {
   final String id;
   final String conversationId;
@@ -720,6 +720,7 @@ class Message {
   final double? latitude;
   final double? longitude;
   final DateTime? liveUntil;
+  final String? attachmentUrl;
 
   Message({
     required this.id,
@@ -733,14 +734,17 @@ class Message {
     this.latitude,
     this.longitude,
     this.liveUntil,
+    this.attachmentUrl,
   });
 
   bool get isLocation => type == 'location' || type == 'live_location';
   bool get isLiveLocation => type == 'live_location';
+  bool get isImage => type == 'image';
+  bool get isFile => type == 'file';
   bool get hasValidCoordinates =>
       latitude != null && longitude != null && latitude!.abs() <= 90 && longitude!.abs() <= 180;
 
-  /// Create from Supabase JSON (supports new schema: sender_id, message, type, latitude, longitude, live_until)
+  /// Create from Supabase JSON (supports sender_id, message, type, latitude, longitude, live_until, attachment_url)
   factory Message.fromJson(Map<String, dynamic> json, String currentUserId) {
     final senderId = (json['sender_id'] ?? json['sender_temp_id'] ?? '') as String;
     final text = (json['message'] ?? json['content'] ?? '') as String;
@@ -750,6 +754,7 @@ class Message {
     DateTime? liveUntil = json['live_until'] != null
         ? DateTime.tryParse(json['live_until'].toString())
         : null;
+    final attachmentUrl = json['attachment_url']?.toString();
     return Message(
       id: (json['id'] ?? '').toString(),
       conversationId: (json['conversation_id'] ?? '').toString(),
@@ -764,6 +769,7 @@ class Message {
       latitude: lat,
       longitude: lng,
       liveUntil: liveUntil,
+      attachmentUrl: attachmentUrl,
     );
   }
 
@@ -779,6 +785,7 @@ class Message {
     double? latitude,
     double? longitude,
     DateTime? liveUntil,
+    String? attachmentUrl,
   }) {
     return Message(
       id: id ?? this.id,
@@ -792,6 +799,7 @@ class Message {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       liveUntil: liveUntil ?? this.liveUntil,
+      attachmentUrl: attachmentUrl ?? this.attachmentUrl,
     );
   }
 
@@ -805,6 +813,22 @@ class Message {
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (liveUntil != null) 'live_until': liveUntil!.toIso8601String(),
+    };
+  }
+
+  /// For offline cache: map that fromJson(..., currentUserId) can read.
+  Map<String, dynamic> toCacheMap() {
+    return {
+      'id': id,
+      'sender_id': senderId,
+      'content': text,
+      'message': text,
+      'created_at': timestamp.toIso8601String(),
+      'type': type,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (liveUntil != null) 'live_until': liveUntil!.toIso8601String(),
+      if (attachmentUrl != null) 'attachment_url': attachmentUrl,
     };
   }
 }
@@ -854,6 +878,36 @@ class Conversation {
       unreadCount: unreadCount ?? this.unreadCount,
       messages: messages ?? this.messages,
       postId: postId ?? this.postId,
+    );
+  }
+
+  /// For offline cache.
+  Map<String, dynamic> toCacheMap() {
+    return {
+      'id': id,
+      'participant_id': participantId,
+      'user_name': userName,
+      'user_avatar': userAvatar,
+      'last_message': lastMessage,
+      'last_message_time': lastMessageTime.toIso8601String(),
+      'unread_count': unreadCount,
+      'post_id': postId,
+    };
+  }
+
+  /// From cache map (no messages; load messages separately).
+  static Conversation fromCacheMap(Map<String, dynamic> map) {
+    return Conversation(
+      id: (map['id'] ?? '').toString(),
+      participantId: (map['participant_id'] ?? '').toString(),
+      userName: (map['user_name'] ?? '').toString(),
+      userAvatar: (map['user_avatar'] ?? '').toString(),
+      lastMessage: (map['last_message'] ?? '').toString(),
+      lastMessageTime: map['last_message_time'] != null
+          ? DateTime.tryParse(map['last_message_time'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+      unreadCount: (map['unread_count'] is int) ? map['unread_count'] as int : 0,
+      postId: map['post_id']?.toString(),
     );
   }
 }

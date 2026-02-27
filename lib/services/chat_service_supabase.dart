@@ -115,12 +115,19 @@ class ChatServiceSupabase {
     return controller.stream;
   }
 
-  static Future<List<Conversation>> _fetchConversations(String currentUserId) async {
+  static const int _conversationsPageSize = 20;
+
+  static Future<List<Conversation>> _fetchConversations(
+    String currentUserId, {
+    int limit = _conversationsPageSize,
+    int offset = 0,
+  }) async {
     final response = await _client
         .from('chats')
         .select()
         .or('user1.eq.$currentUserId,user2.eq.$currentUserId')
-        .order('updated_at', ascending: false);
+        .order('updated_at', ascending: false)
+        .range(offset, offset + limit - 1);
 
     final list = <Conversation>[];
     for (final row in response as List) {
@@ -145,25 +152,56 @@ class ChatServiceSupabase {
     return list;
   }
 
-  /// Fetch messages for a single chat. Ordered by created_at ascending. No Realtime.
-  /// Only returns messages for this chat_id (no reuse of other chats).
-  static Future<List<Message>> getMessages(String chatIdParam, String currentUserId) async {
-    if (chatIdParam.isEmpty) return [];
+  /// Fetch a page of conversations (for load more). Returns (list, hasMore).
+  static Future<({List<Conversation> list, bool hasMore})> getConversationsPage(
+    String currentUserId, {
+    int limit = _conversationsPageSize,
+    int offset = 0,
+  }) async {
+    final list = await _fetchConversations(currentUserId, limit: limit, offset: offset);
+    return (list: list, hasMore: list.length >= limit);
+  }
+
+  static const int _messagesPageSize = 30;
+
+  /// Fetches the latest [limit] messages (newest first from DB), returned in chronological order.
+  /// [before] optional cursor (ISO8601 created_at) to load older messages.
+  /// Returns (messages in chronological order, hasMore).
+  static Future<({List<Message> messages, bool hasMore})> getMessagesPage(
+    String chatIdParam,
+    String currentUserId, {
+    int limit = _messagesPageSize,
+    String? before,
+  }) async {
+    if (chatIdParam.isEmpty) return (messages: <Message>[], hasMore: false);
     try {
-      final res = await _client
+      var query = _client
           .from('chat_messages')
           .select()
-          .eq('chat_id', chatIdParam)
-          .order('created_at', ascending: true);
-      final list = (res as List)
+          .eq('chat_id', chatIdParam);
+      if (before != null && before.isNotEmpty) {
+        query = query.lt('created_at', before);
+      }
+      final res = await query
+          .order('created_at', ascending: false)
+          .limit(limit);
+      final rows = res as List;
+      final list = rows
           .map((e) => _messageFromRow(e as Map<String, dynamic>, chatIdParam, currentUserId))
           .toList();
       list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      return list;
+      return (messages: list, hasMore: list.length >= limit);
     } catch (e) {
-      debugPrint('ChatServiceSupabase getMessages: $e');
-      return [];
+      debugPrint('ChatServiceSupabase getMessagesPage: $e');
+      return (messages: <Message>[], hasMore: false);
     }
+  }
+
+  /// Fetch messages for a single chat. Ordered by created_at ascending. No Realtime.
+  /// Kept for backward compatibility; prefer [getMessagesPage] for pagination.
+  static Future<List<Message>> getMessages(String chatIdParam, String currentUserId) async {
+    final result = await getMessagesPage(chatIdParam, currentUserId);
+    return result.messages;
   }
 
   static Message _messageFromRow(Map<String, dynamic> row, String chatIdParam, String currentUserId) {
@@ -187,6 +225,7 @@ class ChatServiceSupabase {
     if (row['latitude'] != null) map['latitude'] = (row['latitude'] as num).toDouble();
     if (row['longitude'] != null) map['longitude'] = (row['longitude'] as num).toDouble();
     if (row['live_until'] != null) map['live_until'] = row['live_until'].toString();
+    if (row['attachment_url'] != null) map['attachment_url'] = row['attachment_url'].toString();
     return Message.fromJson(map, currentUserId);
   }
 
@@ -214,6 +253,37 @@ class ChatServiceSupabase {
       return _messageFromRow(row, chatIdParam, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendMessage: $e');
+      rethrow;
+    }
+  }
+
+  /// Send image or file message with attachment URL (upload to Storage first, then call this).
+  static Future<Message> sendAttachmentMessage({
+    required String chatIdParam,
+    required String senderId,
+    required String type,
+    required String attachmentUrl,
+    String caption = '',
+  }) async {
+    if (type != 'image' && type != 'file') throw ChatServiceException('Type must be image or file');
+    try {
+      final content = caption.trim().isNotEmpty ? caption.trim() : (type == 'image' ? 'Image' : 'File');
+      final insert = {
+        'chat_id': chatIdParam,
+        'sender_id': senderId,
+        'content': content,
+        'type': type,
+        'attachment_url': attachmentUrl,
+      };
+      final res = await _client.from('chat_messages').insert(insert).select().single();
+      final row = res as Map<String, dynamic>;
+      await _client.from('chats').update({
+        'last_message': content,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', chatIdParam);
+      return _messageFromRow(row, chatIdParam, senderId);
+    } catch (e) {
+      debugPrint('ChatServiceSupabase sendAttachmentMessage: $e');
       rethrow;
     }
   }

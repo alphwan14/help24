@@ -35,7 +35,7 @@ class MarketplaceAvatar extends StatelessWidget {
             imageUrl: imageUrl!,
             fit: BoxFit.cover,
             placeholder: (_, __) => _loadingPlaceholder(placeholderColor),
-            errorWidget: (_, __, ___) => _placeholder(placeholderColor),
+            errorWidget: (_, __, ___) => _brokenImagePlaceholder(placeholderColor),
           ),
         ),
       );
@@ -72,6 +72,20 @@ class MarketplaceAvatar extends StatelessWidget {
             fontSize: size * 0.4,
             fontWeight: FontWeight.w600,
           ),
+        ),
+      ),
+    );
+  }
+
+  /// When image URL exists but load fails: show icon, not initials (per spec).
+  Widget _brokenImagePlaceholder(Color bg) {
+    return Container(
+      color: bg,
+      child: Center(
+        child: Icon(
+          Icons.person_outline_rounded,
+          size: size * 0.5,
+          color: AppTheme.darkTextTertiary,
         ),
       ),
     );

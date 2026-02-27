@@ -116,38 +116,75 @@ class _Help24AppState extends State<Help24App> {
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
       ],
-      child: Consumer2<AppProvider, LocaleProvider>(
-        builder: (context, appProvider, localeProvider, _) {
-          SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-            statusBarColor: Colors.transparent,
-            statusBarIconBrightness:
-                appProvider.isDarkMode ? Brightness.light : Brightness.dark,
-            systemNavigationBarColor:
-                appProvider.isDarkMode ? AppTheme.darkSurface : AppTheme.lightSurface,
-            systemNavigationBarIconBrightness:
-                appProvider.isDarkMode ? Brightness.light : Brightness.dark,
-          ));
+      child: _SyncOnReconnect(
+        child: Consumer2<AppProvider, LocaleProvider>(
+          builder: (context, appProvider, localeProvider, _) {
+            SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness:
+                  appProvider.isDarkMode ? Brightness.light : Brightness.dark,
+              systemNavigationBarColor:
+                  appProvider.isDarkMode ? AppTheme.darkSurface : AppTheme.lightSurface,
+              systemNavigationBarIconBrightness:
+                  appProvider.isDarkMode ? Brightness.light : Brightness.dark,
+            ));
 
-          return AppLocalizationsLoader(
-            child: MaterialApp(
-              navigatorKey: _navigatorKey,
-              scaffoldMessengerKey: _scaffoldMessengerKey,
-              title: 'Help24',
-              debugShowCheckedModeBanner: false,
-              theme: AppTheme.lightTheme,
-              darkTheme: AppTheme.darkTheme,
-              themeMode: appProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-              locale: const Locale('en'),
-              localizationsDelegates: const [appLocalizationsDelegate],
-              supportedLocales: const [
-                Locale('en'),
-                Locale('sw'),
-              ],
-              home: const HomeScreen(),
-            ),
-          );
-        },
+            return AppLocalizationsLoader(
+              child: MaterialApp(
+                navigatorKey: _navigatorKey,
+                scaffoldMessengerKey: _scaffoldMessengerKey,
+                title: 'Help24',
+                debugShowCheckedModeBanner: false,
+                theme: AppTheme.lightTheme,
+                darkTheme: AppTheme.darkTheme,
+                themeMode: appProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+                locale: const Locale('en'),
+                localizationsDelegates: const [appLocalizationsDelegate],
+                supportedLocales: const [
+                  Locale('en'),
+                  Locale('sw'),
+                ],
+                home: const HomeScreen(),
+              ),
+            );
+          },
+        ),
       ),
+    );
+  }
+}
+
+/// When connectivity goes from offline to online, refresh posts, jobs, and conversations.
+class _SyncOnReconnect extends StatefulWidget {
+  final Widget child;
+
+  const _SyncOnReconnect({required this.child});
+
+  @override
+  State<_SyncOnReconnect> createState() => _SyncOnReconnectState();
+}
+
+class _SyncOnReconnectState extends State<_SyncOnReconnect> {
+  bool _wasOffline = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ConnectivityProvider>(
+      builder: (context, connectivity, _) {
+        final isOffline = connectivity.isOffline;
+        if (_wasOffline && !isOffline) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            context.read<AppProvider>().refreshAll();
+            final uid = context.read<AuthProvider>().currentUserId;
+            if (uid != null && uid.isNotEmpty) {
+              context.read<AppProvider>().loadConversations(uid);
+            }
+          });
+        }
+        _wasOffline = isOffline;
+        return widget.child;
+      },
     );
   }
 }

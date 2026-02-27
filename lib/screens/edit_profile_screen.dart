@@ -31,6 +31,7 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _nameController;
   late TextEditingController _bioController;
+  late TextEditingController _professionController;
   XFile? _pickedImage;
   Uint8List? _pickedImageBytes;
   String? _uploadedImageUrl;
@@ -41,8 +42,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     final p = widget.initialProfile;
-    _nameController = TextEditingController(text: p?.name ?? '');
+    _nameController = TextEditingController(text: (p?.name ?? '').trim().isNotEmpty ? p!.name : (p?.displayName ?? ''));
     _bioController = TextEditingController(text: p?.bio ?? '');
+    _professionController = TextEditingController(text: p?.profession ?? '');
     _uploadedImageUrl = p?.profileImage;
   }
 
@@ -50,6 +52,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void dispose() {
     _nameController.dispose();
     _bioController.dispose();
+    _professionController.dispose();
     super.dispose();
   }
 
@@ -117,6 +120,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         uid: widget.uid,
         name: name,
         bio: _bioController.text.trim(),
+        profession: _professionController.text.trim(),
         profileImage: profileImageUrl,
       );
 
@@ -297,6 +301,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   filled: true,
                   fillColor: (isDark ? AppTheme.darkCard : AppTheme.lightCard).withValues(alpha: 0.6),
                 ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Profession',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _professionController,
+                decoration: InputDecoration(
+                  hintText: 'e.g. Plumber, Designer, Developer',
+                  prefixIcon: const Icon(Iconsax.briefcase, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  filled: true,
+                  fillColor: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+                ),
+                textCapitalization: TextCapitalization.words,
+                onChanged: (_) => setState(() => _error = null),
               ),
               const SizedBox(height: 20),
               Text(

@@ -506,13 +506,10 @@ class _LoggedInProfile extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
                         ),
                       ),
-                      errorWidget: (_, __, ___) => Text(
-                        initials,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 36,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      errorWidget: (_, __, ___) => Icon(
+                        Icons.person_outline_rounded,
+                        size: 44,
+                        color: Colors.white70,
                       ),
                     ),
                   )
@@ -551,9 +548,19 @@ class _LoggedInProfile extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
         ],
+        if (profile?.profession.isNotEmpty == true) ...[
+          const SizedBox(height: 6),
+          Text(
+            profile!.profession,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
+          ),
+        ],
         const SizedBox(height: 8),
 
-        // Stats Row
+        // Stats Row (live: posts count, rating or "New", completed jobs)
         Container(
           margin: const EdgeInsets.symmetric(vertical: 20),
           padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
@@ -564,23 +571,37 @@ class _LoggedInProfile extends StatelessWidget {
               color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
             ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              const _StatItem(value: '0', label: 'Posts'),
-              Container(
-                width: 1,
-                height: 40,
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-              ),
-              const _StatItem(value: '-', label: 'Rating'),
-              Container(
-                width: 1,
-                height: 40,
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-              ),
-              const _StatItem(value: '0', label: 'Completed'),
-            ],
+          child: FutureBuilder<
+              ({int postsCount, double averageRating, int totalReviews, int completedJobsCount})>(
+            future: UserProfileService.getProfileStats(profile?.uid ?? authUser.uid),
+            builder: (context, snap) {
+              final stats = snap.data;
+              final postsCount = stats?.postsCount ?? 0;
+              final rating = stats?.averageRating ?? 0.0;
+              final totalReviews = stats?.totalReviews ?? 0;
+              final completed = stats?.completedJobsCount ?? 0;
+              final ratingLabel = totalReviews > 0
+                  ? '${rating.toStringAsFixed(1)}'
+                  : 'New';
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _StatItem(value: '$postsCount', label: 'Posts'),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                  ),
+                  _StatItem(value: ratingLabel, label: 'Rating'),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                  ),
+                  _StatItem(value: '$completed', label: 'Completed'),
+                ],
+              );
+            },
           ),
         ),
       ],

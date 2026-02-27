@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../http_client_with_token.dart';
+
 /// Supabase configuration and client initialization
 class SupabaseConfig {
   // Supabase credentials
@@ -24,6 +26,7 @@ class SupabaseConfig {
   static String? get initError => _initError;
 
   /// Initialize Supabase - call this before runApp()
+  /// Uses [HttpClientWithToken] so Firebase-exchanged JWT is sent for RLS.
   static Future<bool> initialize() async {
     if (_isInitialized) return true;
     
@@ -32,6 +35,7 @@ class SupabaseConfig {
         url: supabaseUrl,
         anonKey: supabaseAnonKey,
         debug: kDebugMode,
+        httpClient: HttpClientWithToken(),
       );
       _isInitialized = true;
       _initError = null;

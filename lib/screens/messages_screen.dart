@@ -12,6 +12,13 @@ import '../providers/connectivity_provider.dart';
 import '../services/location_service.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/post_service.dart';
+import '../services/cache_service.dart';
+import '../services/supabase_auth_bridge.dart';
+import '../services/storage_service.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../widgets/loading_empty_offline.dart';
@@ -102,12 +109,34 @@ class _MessagesScreenState extends State<MessagesScreen> {
                   );
                 }
 
+                final hasMore = provider.hasMoreConversations;
                 return RefreshIndicator(
                   onRefresh: _refreshConversations,
                   child: ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    itemCount: conversations.length,
+                    itemCount: conversations.length + (hasMore ? 1 : 0),
                     itemBuilder: (context, index) {
+                      if (hasMore && index == conversations.length) {
+                        final loadingMore = provider.loadingMoreConversations;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: loadingMore
+                                ? const SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : TextButton.icon(
+                                    onPressed: () => provider.loadMoreConversations(
+                                      context.read<AuthProvider>().currentUserId ?? '',
+                                    ),
+                                    icon: const Icon(Iconsax.refresh, size: 18),
+                                    label: const Text('Load more conversations'),
+                                  ),
+                          ),
+                        );
+                      }
                       final conversation = conversations[index];
                       final uid = context.read<AuthProvider>().currentUserId ?? '';
                       return _ConversationTile(
@@ -336,6 +365,9 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<Message> _pendingMessages = []; // Optimistic until send completes
   List<Message> _messages = [];
   bool _loadingMessages = true;
+  bool _loadingOlder = false;
+  bool _hasMoreOlder = true;
+  DateTime? _oldestInCurrentPage; // oldest message in the "latest page" (for poll merge)
   Timer? _pollTimer;
   bool _isSending = false;
   StreamSubscription? _liveLocationSubscription;
@@ -366,28 +398,80 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  /// Fetch messages for this chat only (no Realtime). Sorted by created_at ascending.
+  /// Load latest 30 messages (or merge on poll). When offline, show cached messages.
   Future<void> _loadMessages() async {
     if (_chatId.isEmpty) return;
     try {
-      final list = await ChatServiceSupabase.getMessages(_chatId, widget.currentUserId);
-      if (mounted) {
+      final results = await Connectivity().checkConnectivity();
+      final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
+      if (offline) {
+        final cached = await CacheService.loadMessages(_chatId, widget.currentUserId);
+        if (!mounted) return;
         setState(() {
-          _messages = list;
+          _messages = cached;
           _loadingMessages = false;
+          _hasMoreOlder = false;
         });
-        if (list.length > _lastMessageCount) {
-          _lastMessageCount = list.length;
-          _scrollToBottom();
-        }
+        if (cached.isNotEmpty) _scrollToBottom();
+        return;
+      }
+      final result = await ChatServiceSupabase.getMessagesPage(_chatId, widget.currentUserId);
+      if (!mounted) return;
+      if (result.messages.isNotEmpty) {
+        CacheService.saveMessages(_chatId, result.messages);
+      }
+      List<Message> newList;
+      if (_oldestInCurrentPage != null) {
+        final older = _messages.where((m) => m.timestamp.isBefore(_oldestInCurrentPage!)).toList();
+        final seen = result.messages.map((m) => m.id).toSet();
+        newList = older.where((m) => !seen.contains(m.id)).toList() + result.messages;
+      } else {
+        newList = result.messages;
+      }
+      setState(() {
+        _messages = newList;
+        _oldestInCurrentPage = result.messages.isEmpty ? null : result.messages.first.timestamp;
+        _loadingMessages = false;
+        _hasMoreOlder = result.hasMore;
+      });
+      CacheService.saveMessages(_chatId, newList);
+      if (result.messages.length > _lastMessageCount || _lastMessageCount == 0) {
+        _lastMessageCount = result.messages.length;
+        _scrollToBottom();
       }
     } catch (e) {
       if (mounted) setState(() => _loadingMessages = false);
     }
   }
 
+  /// Load older messages (cursor-based). Prepends to _messages.
+  Future<void> _loadOlderMessages() async {
+    if (_chatId.isEmpty || _loadingOlder || !_hasMoreOlder || _messages.isEmpty) return;
+    _loadingOlder = true;
+    final before = _messages.first.timestamp.toUtc().toIso8601String();
+    try {
+      final result = await ChatServiceSupabase.getMessagesPage(
+        _chatId,
+        widget.currentUserId,
+        before: before,
+      );
+      if (!mounted) return;
+      final existingIds = _messages.map((m) => m.id).toSet();
+      final newOlder = result.messages.where((m) => !existingIds.contains(m.id)).toList();
+      setState(() {
+        _messages = newOlder + _messages;
+        _hasMoreOlder = result.hasMore;
+        _loadingOlder = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _loadingOlder = false);
+    }
+  }
+
   void _onScroll() {
-    // Optional: load older messages for pagination later
+    if (_scrollController.position.pixels < 120 && _hasMoreOlder && !_loadingOlder) {
+      _loadOlderMessages();
+    }
   }
 
   void _scrollToBottom() {
@@ -431,6 +515,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _pendingMessages.add(optimistic));
     _scrollToBottom();
     try {
+      await SupabaseAuthBridge.ensureSessionAsync();
       await ChatServiceSupabase.sendMessage(
         chatIdParam: _chatId,
         senderId: widget.currentUserId,
@@ -447,6 +532,123 @@ class _ChatScreenState extends State<ChatScreen> {
         _showError('Failed to send. It may sync when back online.');
       }
     }
+  }
+
+  Future<void> _pickAndSendImage() async {
+    if (_isSending) return;
+    await SupabaseAuthBridge.ensureSessionAsync();
+    try {
+      final picker = ImagePicker();
+      final xFile = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1024, imageQuality: 85);
+      if (xFile == null || !mounted) return;
+      setState(() => _isSending = true);
+      final url = await StorageService.uploadChatAttachment(xFile, _chatId);
+      if (!mounted) return;
+      await ChatServiceSupabase.sendAttachmentMessage(
+        chatIdParam: _chatId,
+        senderId: widget.currentUserId,
+        type: 'image',
+        attachmentUrl: url,
+      );
+      if (mounted) {
+        setState(() => _isSending = false);
+        _loadMessages();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSending = false);
+        _showError('Failed to send image.');
+      }
+    }
+  }
+
+  Future<void> _pickAndSendFile() async {
+    if (_isSending) return;
+    await SupabaseAuthBridge.ensureSessionAsync();
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx'],
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty || !mounted) return;
+      final platformFile = result.files.single;
+      final path = platformFile.path;
+      if (path == null || path.isEmpty) {
+        _showError('Could not access file.');
+        return;
+      }
+      setState(() => _isSending = true);
+      final xFile = XFile(path);
+      final url = await StorageService.uploadChatAttachment(xFile, _chatId);
+      if (!mounted) return;
+      await ChatServiceSupabase.sendAttachmentMessage(
+        chatIdParam: _chatId,
+        senderId: widget.currentUserId,
+        type: 'file',
+        attachmentUrl: url,
+        caption: platformFile.name,
+      );
+      if (mounted) {
+        setState(() => _isSending = false);
+        _loadMessages();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSending = false);
+        _showError('Failed to send file.');
+      }
+    }
+  }
+
+  void _showAttachmentOptions() {
+    if (_isSending) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Attach',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppTheme.primaryAccent.withValues(alpha: 0.2),
+                  child: const Icon(Iconsax.gallery, color: AppTheme.primaryAccent),
+                ),
+                title: const Text('Photo'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickAndSendImage();
+                },
+              ),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppTheme.secondaryAccent.withValues(alpha: 0.2),
+                  child: const Icon(Iconsax.document, color: AppTheme.secondaryAccent),
+                ),
+                title: const Text('File (PDF, CV)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickAndSendFile();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _showLocationOptions() {
@@ -499,6 +701,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendCurrentLocation() async {
     setState(() => _isSending = true);
+    await SupabaseAuthBridge.ensureSessionAsync();
     final position = await LocationService.getCurrentPosition();
     if (!mounted) return;
     if (position == null) {
@@ -527,6 +730,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _startLiveLocation(int durationMinutes) async {
     setState(() => _isSending = true);
+    await SupabaseAuthBridge.ensureSessionAsync();
     final position = await LocationService.getCurrentPosition();
     if (!mounted) return;
     if (position == null) {
@@ -753,12 +957,31 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     );
                   }
+                  final showLoadMore = _hasMoreOlder || _loadingOlder;
                   return ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    itemCount: combined.length,
+                    itemCount: combined.length + (showLoadMore ? 1 : 0),
                     itemBuilder: (context, index) {
-                      final msg = combined[index];
+                      if (showLoadMore && index == 0) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Center(
+                            child: _loadingOlder
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : TextButton.icon(
+                                    onPressed: _loadOlderMessages,
+                                    icon: const Icon(Iconsax.arrow_up_2, size: 18),
+                                    label: const Text('Load older messages'),
+                                  ),
+                          ),
+                        );
+                      }
+                      final msg = combined[showLoadMore ? index - 1 : index];
                       final isPending = msg.id.startsWith('pending_');
                       return _MessageBubble(
                         message: msg,
@@ -791,6 +1014,16 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               child: Row(
                 children: [
+                  IconButton(
+                    onPressed: _showAttachmentOptions,
+                    icon: const Icon(Iconsax.attach_circle),
+                    color: AppTheme.primaryAccent,
+                  ),
+                  IconButton(
+                    onPressed: _showLocationOptions,
+                    icon: const Icon(Iconsax.location),
+                    color: AppTheme.primaryAccent,
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _messageController,
@@ -912,6 +1145,8 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isLocation = message.isLocation && message.hasValidCoordinates;
+    final isImage = message.isImage && (message.attachmentUrl != null && message.attachmentUrl!.isNotEmpty);
+    final isFile = message.isFile && (message.attachmentUrl != null && message.attachmentUrl!.isNotEmpty);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -944,7 +1179,72 @@ class _MessageBubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (isLocation) ...[
+                if (isImage) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: CachedNetworkImage(
+                      imageUrl: message.attachmentUrl!,
+                      width: 220,
+                      height: 180,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => Container(
+                        width: 220,
+                        height: 180,
+                        color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
+                      errorWidget: (_, __, ___) => Container(
+                        width: 220,
+                        height: 180,
+                        color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                        child: const Icon(Icons.broken_image_outlined, size: 48),
+                      ),
+                    ),
+                  ),
+                  if (message.text.isNotEmpty && message.text != 'Image') ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      message.text,
+                      style: TextStyle(
+                        color: message.isMe
+                            ? Colors.white
+                            : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ] else if (isFile) ...[
+                  InkWell(
+                    onTap: () {
+                      if (message.attachmentUrl != null) {
+                        // Could launch URL in browser
+                      }
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Iconsax.document,
+                          size: 28,
+                          color: message.isMe ? Colors.white70 : AppTheme.primaryAccent,
+                        ),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            message.text.isNotEmpty ? message.text : 'File',
+                            style: TextStyle(
+                              color: message.isMe
+                                  ? Colors.white
+                                  : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
+                              fontSize: 14,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (isLocation) ...[
                   GestureDetector(
                     onTap: onTapLocation,
                     child: ClipRRect(

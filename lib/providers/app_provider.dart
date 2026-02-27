@@ -8,6 +8,8 @@ import '../services/chat_service_supabase.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
 import '../services/cache_service.dart';
+import '../services/user_profile_service.dart';
+import '../services/supabase_auth_bridge.dart';
 
 class AppProvider extends ChangeNotifier {
   bool _isDarkMode = true;
@@ -191,6 +193,9 @@ class AppProvider extends ChangeNotifier {
       );
 
       _posts.insert(0, createdPost);
+      if (_posts.isNotEmpty) {
+        CacheService.savePosts(_posts);
+      }
       notifyListeners();
       return createdPost;
     } catch (e) {
@@ -224,6 +229,9 @@ class AppProvider extends ChangeNotifier {
       );
 
       _jobs.insert(0, createdJob);
+      if (_jobs.isNotEmpty) {
+        CacheService.saveJobs(_jobs);
+      }
       notifyListeners();
       return createdJob;
     } catch (e) {
@@ -262,6 +270,8 @@ class AppProvider extends ChangeNotifier {
       await PostService.deletePost(postId);
       _posts.removeWhere((p) => p.id == postId);
       _jobs.removeWhere((j) => j.id == postId);
+      if (_posts.isNotEmpty) CacheService.savePosts(_posts);
+      if (_jobs.isNotEmpty) CacheService.saveJobs(_jobs);
       notifyListeners();
       return true;
     } catch (e) {
@@ -271,7 +281,7 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Mark a job/post as completed (owner only). Updates backend and removes from list.
+  /// Mark a job/post as completed (owner only). Updates backend, increments user completed_jobs_count, removes from list.
   Future<bool> markJobCompleted(String postId, String? currentUserId) async {
     if (currentUserId == null || currentUserId.isEmpty) return false;
     final idx = _jobs.indexWhere((j) => j.id == postId);
@@ -279,6 +289,7 @@ class AppProvider extends ChangeNotifier {
     if (_jobs[idx].authorUserId != currentUserId) return false;
     try {
       await PostService.updatePost(postId, {'status': 'completed'});
+      await UserProfileService.incrementCompletedJobsCount(currentUserId);
       _jobs.removeWhere((j) => j.id == postId);
       notifyListeners();
       return true;
@@ -387,24 +398,45 @@ class AppProvider extends ChangeNotifier {
 
   // ==================== CONVERSATIONS ====================
 
-  /// Real-time chat list from Firestore chats collection. Call when opening Messages tab.
-  /// Reads only from chats; .snapshots() for live updates; cache persists after app reopen.
+  /// Real-time chat list from Supabase. When offline, show cached conversations if any.
   Future<void> loadConversations(String currentUserId) async {
     if (currentUserId.isEmpty) {
       _conversations = [];
+      _hasMoreConversations = true;
       _conversationStreamSubscription?.cancel();
       _conversationStreamSubscription = null;
       notifyListeners();
       return;
     }
     _error = null;
+    _hasMoreConversations = true;
     _conversationStreamSubscription?.cancel();
     _isLoadingConversations = true;
     notifyListeners();
+
+    final results = await Connectivity().checkConnectivity();
+    final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
+    if (offline) {
+      final cached = await CacheService.loadConversations();
+      if (cached.isNotEmpty) {
+        _conversations = cached;
+      }
+      _isLoadingConversations = false;
+      notifyListeners();
+      return;
+    }
+
     _conversationStreamSubscription = ChatServiceSupabase.watchConversations(currentUserId).listen(
       (list) {
-        _conversations = list;
+        if (_conversations.length > list.length) {
+          _conversations = list + _conversations.sublist(list.length);
+        } else {
+          _conversations = list;
+        }
         _isLoadingConversations = false;
+        if (list.isNotEmpty) {
+          CacheService.saveConversations(list);
+        }
         notifyListeners();
       },
       onError: (e) {
@@ -420,6 +452,40 @@ class AppProvider extends ChangeNotifier {
     _conversationStreamSubscription = null;
   }
 
+  bool _hasMoreConversations = true;
+  bool _loadingMoreConversations = false;
+
+  bool get hasMoreConversations => _hasMoreConversations;
+  bool get loadingMoreConversations => _loadingMoreConversations;
+
+  /// Load next page of conversations (lazy load). Call when user scrolls near bottom.
+  Future<void> loadMoreConversations(String currentUserId) async {
+    if (currentUserId.isEmpty || !_hasMoreConversations || _isLoadingConversations || _loadingMoreConversations) return;
+    _loadingMoreConversations = true;
+    notifyListeners();
+    try {
+      final result = await ChatServiceSupabase.getConversationsPage(
+        currentUserId,
+        offset: _conversations.length,
+      );
+      if (result.list.isEmpty) {
+        _hasMoreConversations = false;
+      } else {
+        final existingIds = _conversations.map((c) => c.id).toSet();
+        final newList = result.list.where((c) => !existingIds.contains(c.id)).toList();
+        _conversations = _conversations + newList;
+        _hasMoreConversations = result.hasMore;
+      }
+      notifyListeners();
+    } catch (e) {
+      _hasMoreConversations = false;
+      notifyListeners();
+    } finally {
+      _loadingMoreConversations = false;
+      notifyListeners();
+    }
+  }
+
   /// Create or get chat when user contacts provider (Firestore only). Chat appears in Messages tab.
   /// Pass [postId] from Discover or [jobId] from Jobs so each post/job has its own chat (no reused chats).
   Future<Conversation?> ensureConversationOnApply({
@@ -431,6 +497,7 @@ class AppProvider extends ChangeNotifier {
   }) async {
     if (applicantId.isEmpty || authorId.isEmpty) return null;
     try {
+      await SupabaseAuthBridge.ensureSessionForWriteAsync();
       final conv = await ChatServiceSupabase.createChat(
         user1Id: applicantId,
         user2Id: authorId,
@@ -455,6 +522,7 @@ class AppProvider extends ChangeNotifier {
     required String otherUserName,
   }) async {
     try {
+      await SupabaseAuthBridge.ensureSessionForWriteAsync();
       final conversation = await ChatServiceSupabase.createChat(
         user1Id: currentUserId,
         user2Id: otherUserId,

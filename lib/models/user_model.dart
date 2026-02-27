@@ -9,6 +9,7 @@ class UserModel {
   final String? phone;
   final String profileImage;
   final String bio;
+  final String profession;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final bool isOnline;
@@ -21,6 +22,7 @@ class UserModel {
     this.phone,
     this.profileImage = '',
     this.bio = '',
+    this.profession = '',
     this.createdAt,
     this.updatedAt,
     this.isOnline = false,
@@ -47,6 +49,7 @@ class UserModel {
     String? phone,
     String? profileImage,
     String? bio,
+    String? profession,
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? isOnline,
@@ -59,6 +62,7 @@ class UserModel {
       phone: phone ?? this.phone,
       profileImage: profileImage ?? this.profileImage,
       bio: bio ?? this.bio,
+      profession: profession ?? this.profession,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isOnline: isOnline ?? this.isOnline,
@@ -66,7 +70,7 @@ class UserModel {
     );
   }
 
-  /// From Supabase users row (id, name, email, profile_image, avatar_url, ...).
+  /// From Supabase users row (id, name, email, profile_image, avatar_url, profession, ...).
   factory UserModel.fromSupabase(Map<String, dynamic> row) {
     final id = row['id']?.toString() ?? '';
     final name = row['name']?.toString() ?? '';
@@ -83,6 +87,7 @@ class UserModel {
       phone: row['phone_number']?.toString(),
       profileImage: image,
       bio: row['bio']?.toString() ?? '',
+      profession: row['profession']?.toString() ?? '',
       createdAt: row['created_at'] != null
           ? DateTime.tryParse(row['created_at'].toString())
           : null,
@@ -102,6 +107,7 @@ class UserModel {
       phone: data['phone']?.toString(),
       profileImage: data['profileImage']?.toString() ?? '',
       bio: data['bio']?.toString() ?? '',
+      profession: data['profession']?.toString() ?? '',
       createdAt: data['createdAt'] is Timestamp
           ? (data['createdAt'] as Timestamp).toDate()
           : null,
@@ -123,6 +129,7 @@ class UserModel {
       if (phone != null) 'phone': phone,
       'profileImage': profileImage,
       'bio': bio,
+      'profession': profession,
       'isOnline': isOnline,
     };
   }

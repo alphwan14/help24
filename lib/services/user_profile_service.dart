@@ -119,11 +119,12 @@ class UserProfileService {
     }
   }
 
-  /// Update profile in Supabase users. Saves profile_image URL (from Supabase Storage).
+  /// Update profile in Supabase users. Saves profile_image URL (from Supabase Storage), profession.
   static Future<void> updateProfile({
     required String uid,
     String? name,
     String? bio,
+    String? profession,
     String? profileImage,
   }) async {
     if (!_isAvailable || uid.isEmpty) return;
@@ -131,6 +132,7 @@ class UserProfileService {
       final updates = <String, dynamic>{};
       if (name != null) updates['name'] = name;
       if (bio != null) updates['bio'] = bio;
+      if (profession != null) updates['profession'] = profession;
       if (profileImage != null) {
         updates['profile_image'] = profileImage;
         updates['avatar_url'] = profileImage;
@@ -235,6 +237,36 @@ class UserProfileService {
       await _client.from('users').update({'language': languageCode}).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService setLanguage: $e');
+    }
+  }
+
+  /// Profile stats: posts count (author_user_id == uid), average_rating, total_reviews, completed_jobs_count from users table.
+  static Future<({int postsCount, double averageRating, int totalReviews, int completedJobsCount})> getProfileStats(String uid) async {
+    if (!_isAvailable || uid.isEmpty) {
+      return (postsCount: 0, averageRating: 0.0, totalReviews: 0, completedJobsCount: 0);
+    }
+    try {
+      final r = await _client.from('users').select('average_rating, total_reviews, completed_jobs_count').eq('id', uid).maybeSingle();
+      final postsList = await _client.from('posts').select('id').eq('author_user_id', uid).neq('type', 'job').limit(10000);
+      final postsCount = (postsList is List) ? postsList.length : 0;
+      final rating = (r?['average_rating'] is num) ? (r!['average_rating'] as num).toDouble() : 0.0;
+      final reviews = (r?['total_reviews'] is int) ? r!['total_reviews'] as int : ((r?['total_reviews'] is num) ? (r!['total_reviews'] as num).toInt() : 0);
+      final completed = (r?['completed_jobs_count'] is int) ? r!['completed_jobs_count'] as int : ((r?['completed_jobs_count'] is num) ? (r!['completed_jobs_count'] as num).toInt() : 0);
+      return (postsCount: postsCount, averageRating: rating, totalReviews: reviews, completedJobsCount: completed);
+    } catch (e) {
+      debugPrint('UserProfileService getProfileStats: $e');
+      return (postsCount: 0, averageRating: 0.0, totalReviews: 0, completedJobsCount: 0);
+    }
+  }
+
+  static Future<void> incrementCompletedJobsCount(String uid) async {
+    if (!_isAvailable || uid.isEmpty) return;
+    try {
+      final r = await _client.from('users').select('completed_jobs_count').eq('id', uid).maybeSingle();
+      final current = (r?['completed_jobs_count'] is int) ? r!['completed_jobs_count'] as int : 0;
+      await _client.from('users').update({'completed_jobs_count': current + 1}).eq('id', uid);
+    } catch (e) {
+      debugPrint('UserProfileService incrementCompletedJobsCount: $e');
     }
   }
 

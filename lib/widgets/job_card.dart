@@ -78,12 +78,15 @@ class JobCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Top row: category label (left), timestamp (right)
+                  // Top row: category label (left), timestamp (right) — no overflow
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      _JobCategoryBadge(label: job.categoryName),
+                      Flexible(
+                        child: _JobCategoryBadge(label: job.categoryName),
+                      ),
+                      const SizedBox(width: 8),
                       Text(
                         formatRelativeTime(job.postedAt),
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -109,8 +112,10 @@ class JobCard extends StatelessWidget {
                   ),
                   const SizedBox(height: _kGap),
 
-                  // Difficulty & Urgency as small tags under title
-                  Row(
+                  // Difficulty & Urgency as small tags — wrap to avoid overflow
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
                     children: [
                       _SmallTag(
                         label: job.difficulty == Difficulty.any ? job.type : job.difficultyText,
@@ -118,7 +123,6 @@ class JobCard extends StatelessWidget {
                             ? AppTheme.primaryAccent
                             : _difficultyColor(job.difficulty),
                       ),
-                      const SizedBox(width: 6),
                       _SmallTag(
                         label: job.urgencyText,
                         color: job.urgencyColor,

@@ -81,12 +81,15 @@ class PostCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Top row: category badge (left), timestamp (right)
+                  // Top row: category badge (left), timestamp (right) — no overflow
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      _CategoryBadge(category: post.category),
+                      Flexible(
+                        child: _CategoryBadge(category: post.category),
+                      ),
+                      const SizedBox(width: 8),
                       Text(
                         formatRelativeTime(post.createdAt),
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -112,14 +115,15 @@ class PostCard extends StatelessWidget {
                   ),
                   const SizedBox(height: _kGap),
 
-                  // Difficulty & Urgency as small tags under title
-                  Row(
+                  // Difficulty & Urgency as small tags — wrap to avoid overflow
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
                     children: [
                       _SmallTag(
                         label: post.difficultyText,
                         color: post.difficultyColor,
                       ),
-                      const SizedBox(width: 6),
                       _SmallTag(
                         label: post.urgencyText,
                         color: post.urgencyColor,
