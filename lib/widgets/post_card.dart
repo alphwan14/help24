@@ -81,13 +81,38 @@ class PostCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Top row: category badge (left), timestamp (right) — no overflow
+                  // Top row: type badge, category badge (left), timestamp (right)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Flexible(
-                        child: _CategoryBadge(category: post.category),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: post.typeBadgeColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: post.typeBadgeColor.withValues(alpha: 0.5),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Text(
+                                post.typeDisplayLabel,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: post.typeBadgeColor,
+                                ),
+                              ),
+                            ),
+                            _CategoryBadge(category: post.category),
+                          ],
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Text(

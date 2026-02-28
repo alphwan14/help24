@@ -2,6 +2,35 @@ import 'package:flutter/material.dart';
 
 enum PostType { request, offer, job }
 
+/// How price is quoted: per task, per hour, per day, per week, per month.
+enum PricingType { task, hour, day, week, month }
+
+extension PricingTypeExtension on PricingType {
+  String get displayLabel {
+    switch (this) {
+      case PricingType.task: return 'Per task';
+      case PricingType.hour: return 'Per hour';
+      case PricingType.day: return 'Per day';
+      case PricingType.week: return 'Per week';
+      case PricingType.month: return 'Per month';
+    }
+  }
+}
+
+/// Employment type for job posts only.
+enum EmploymentType { fullTime, partTime, contract, temporary }
+
+extension EmploymentTypeExtension on EmploymentType {
+  String get displayLabel {
+    switch (this) {
+      case EmploymentType.fullTime: return 'Full-time';
+      case EmploymentType.partTime: return 'Part-time';
+      case EmploymentType.contract: return 'Contract';
+      case EmploymentType.temporary: return 'Temporary';
+    }
+  }
+}
+
 enum Urgency { urgent, soon, flexible }
 
 enum Difficulty { easy, medium, hard, any }
@@ -220,6 +249,8 @@ class PostModel {
   final double price;
   final Urgency urgency;
   final PostType type;
+  final PricingType pricingType;
+  final EmploymentType? employmentType;
   final Difficulty difficulty;
   final double rating;
   /// Author's total review count. When 0 (or null), show "New" instead of a rating.
@@ -241,6 +272,8 @@ class PostModel {
     required this.price,
     required this.urgency,
     required this.type,
+    this.pricingType = PricingType.task,
+    this.employmentType,
     this.difficulty = Difficulty.medium,
     this.rating = 4.5,
     this.authorReviewCount = 0,
@@ -288,6 +321,8 @@ class PostModel {
       price: (json['price'] ?? 0).toDouble(),
       urgency: _parseUrgency(json['urgency']),
       type: _parsePostType(json['type']),
+      pricingType: _parsePricingType(json['pricing_type']),
+      employmentType: _parseEmploymentType(json['employment_type']),
       difficulty: _parseDifficulty(json['difficulty']),
       rating: (json['rating'] ?? 4.5).toDouble(),
       authorReviewCount: _parseInt(json['author_review_count'] ?? json['authorReviewCount'], 0),
@@ -313,6 +348,8 @@ class PostModel {
       'price': price,
       'urgency': urgency.name,
       'type': type.name,
+      'pricing_type': pricingType.name,
+      if (employmentType != null) 'employment_type': _employmentTypeToDb(employmentType!),
       'difficulty': difficulty.name,
       'rating': rating,
       'author_temp_id': authorTempId,
@@ -330,6 +367,8 @@ class PostModel {
       'price': price,
       'urgency': urgency.name,
       'type': type.name,
+      'pricing_type': pricingType.name,
+      if (employmentType != null) 'employment_type': _employmentTypeToDb(employmentType!),
       'difficulty': difficulty.name,
       'rating': rating,
       'author_review_count': authorReviewCount,
@@ -373,6 +412,37 @@ class PostModel {
     }
   }
 
+  static PricingType _parsePricingType(String? value) {
+    switch (value?.toLowerCase()) {
+      case 'hour': return PricingType.hour;
+      case 'day': return PricingType.day;
+      case 'week': return PricingType.week;
+      case 'month': return PricingType.month;
+      case 'task':
+      default: return PricingType.task;
+    }
+  }
+
+  static EmploymentType? _parseEmploymentType(String? value) {
+    if (value == null || value.isEmpty) return null;
+    switch (value.toLowerCase()) {
+      case 'full_time': return EmploymentType.fullTime;
+      case 'part_time': return EmploymentType.partTime;
+      case 'contract': return EmploymentType.contract;
+      case 'temporary': return EmploymentType.temporary;
+      default: return null;
+    }
+  }
+
+  static String _employmentTypeToDb(EmploymentType e) {
+    switch (e) {
+      case EmploymentType.fullTime: return 'full_time';
+      case EmploymentType.partTime: return 'part_time';
+      case EmploymentType.contract: return 'contract';
+      case EmploymentType.temporary: return 'temporary';
+    }
+  }
+
   static Difficulty _parseDifficulty(String? value) {
     switch (value?.toLowerCase()) {
       case 'easy':
@@ -396,6 +466,8 @@ class PostModel {
     double? price,
     Urgency? urgency,
     PostType? type,
+    PricingType? pricingType,
+    EmploymentType? employmentType,
     Difficulty? difficulty,
     double? rating,
     int? authorReviewCount,
@@ -416,6 +488,8 @@ class PostModel {
       price: price ?? this.price,
       urgency: urgency ?? this.urgency,
       type: type ?? this.type,
+      pricingType: pricingType ?? this.pricingType,
+      employmentType: employmentType ?? this.employmentType,
       difficulty: difficulty ?? this.difficulty,
       rating: rating ?? this.rating,
       authorReviewCount: authorReviewCount ?? this.authorReviewCount,
@@ -448,6 +522,24 @@ class PostModel {
         return 'Soon';
       case Urgency.flexible:
         return 'Flexible';
+    }
+  }
+
+  /// Display label for post type (Request / Offer / Job) for badges.
+  String get typeDisplayLabel {
+    switch (type) {
+      case PostType.request: return 'Request';
+      case PostType.offer: return 'Offer';
+      case PostType.job: return 'Job';
+    }
+  }
+
+  /// Badge color for post type.
+  Color get typeBadgeColor {
+    switch (type) {
+      case PostType.request: return const Color(0xFF2196F3); // blue
+      case PostType.offer: return const Color(0xFF4CAF50);   // green
+      case PostType.job: return const Color(0xFF9C27B0);    // purple
     }
   }
 
@@ -583,7 +675,7 @@ class JobModel {
       company: name,
       location: json['location'] ?? '',
       pay: 'KES ${json['price'] ?? 0}',
-      type: json['type']?.toString() ?? json['difficulty']?.toString() ?? 'Full-time',
+      type: _employmentTypeToDisplay(json['employment_type']) ?? json['type']?.toString() ?? 'Full-time',
       description: json['description'] ?? '',
       authorTempId: json['author_temp_id'] ?? '',
       postedAt: json['created_at'] != null
@@ -617,6 +709,17 @@ class JobModel {
     return Urgency.flexible;
   }
 
+  static String? _employmentTypeToDisplay(dynamic value) {
+    if (value == null) return null;
+    switch (value.toString().toLowerCase()) {
+      case 'full_time': return 'Full-time';
+      case 'part_time': return 'Part-time';
+      case 'contract': return 'Contract';
+      case 'temporary': return 'Temporary';
+      default: return null;
+    }
+  }
+
   /// Convert to Supabase JSON. author_user_id set by service.
   Map<String, dynamic> toJson() {
     double price = 0;
@@ -624,17 +727,30 @@ class JobModel {
     if (priceMatch != null) {
       price = double.tryParse(priceMatch.group(0)!.replaceAll(',', '')) ?? 0;
     }
+    final employmentType = _displayToEmploymentType(type);
     return {
       'title': title,
-      'description': '$description\n\nJob Type: $type',
-      'category': 'Other',
+      'description': description,
+      'category': categoryName,
       'location': location,
       'price': price,
-      'urgency': 'flexible',
+      'urgency': urgency.name,
       'type': 'job',
-      'difficulty': 'medium',
+      'pricing_type': 'task',
+      if (employmentType != null) 'employment_type': employmentType,
+      'difficulty': difficulty.name,
       'author_temp_id': authorTempId,
     };
+  }
+
+  static String? _displayToEmploymentType(String display) {
+    switch (display.toLowerCase()) {
+      case 'full-time': return 'full_time';
+      case 'part-time': return 'part_time';
+      case 'contract': return 'contract';
+      case 'temporary': return 'temporary';
+      default: return null;
+    }
   }
 
   /// Map for offline cache (shape that JobModel.fromJson expects).

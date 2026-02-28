@@ -388,6 +388,22 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                     decoration: BoxDecoration(
+                                      color: post.typeBadgeColor.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      post.typeDisplayLabel,
+                                      style: TextStyle(
+                                        color: post.typeBadgeColor,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
                                       color: post.urgencyColor.withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
@@ -452,10 +468,22 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           const Divider(height: 24),
                           _DetailRow(
                             icon: Icons.payments_outlined,
-                            label: 'Budget',
-                            value: formatPriceDisplay(post.price),
+                            label: post.type == PostType.request
+                                ? 'Budget'
+                                : post.type == PostType.job
+                                    ? 'Pay'
+                                    : 'Price',
+                            value: '${post.pricingType.displayLabel} · ${formatPriceDisplay(post.price)}',
                             valueColor: AppTheme.successGreen,
                           ),
+                          if (post.type == PostType.job && post.employmentType != null) ...[
+                            const Divider(height: 24),
+                            _DetailRow(
+                              icon: Icons.work_outline,
+                              label: 'Employment',
+                              value: post.employmentType!.displayLabel,
+                            ),
+                          ],
                           const Divider(height: 24),
                           _DetailRow(
                             icon: Icons.trending_up,

@@ -32,16 +32,18 @@ class PostScreen extends StatefulWidget {
 class _PostScreenState extends State<PostScreen> {
   int _currentStep = 0;
   PostType? _selectedType;
-  
+
   // Form controllers
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
   final _locationController = TextEditingController();
   final _customCategoryController = TextEditingController();
-  
+
   Category? _selectedCategory;
   Urgency _selectedUrgency = Urgency.flexible;
+  PricingType _selectedPricingType = PricingType.task;
+  EmploymentType? _selectedEmploymentType;
   String _selectedCity = '';
   String _selectedArea = '';
   List<SelectedImage> _selectedImages = [];
@@ -610,6 +612,36 @@ class _PostScreenState extends State<PostScreen> {
         ),
         const SizedBox(height: 20),
 
+        // Pricing type (how price is quoted)
+        Text('Pricing', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+            ),
+          ),
+          child: DropdownButton<PricingType>(
+            value: _selectedPricingType,
+            isExpanded: true,
+            underline: const SizedBox(),
+            dropdownColor: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+            items: PricingType.values.map((p) {
+              return DropdownMenuItem(
+                value: p,
+                child: Text(p.displayLabel),
+              );
+            }).toList(),
+            onChanged: (value) {
+              if (value != null) setState(() => _selectedPricingType = value);
+            },
+          ),
+        ),
+        const SizedBox(height: 20),
+
         // Location - City
         Text('Location', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
@@ -675,8 +707,48 @@ class _PostScreenState extends State<PostScreen> {
         ],
         const SizedBox(height: 20),
 
-        // Price
-        Text('Price/Budget (KES)', style: Theme.of(context).textTheme.titleMedium),
+        // Employment type (jobs only)
+        if (_selectedType == PostType.job) ...[
+          Text('Employment type', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+              ),
+            ),
+            child: DropdownButton<EmploymentType>(
+              value: _selectedEmploymentType,
+              hint: const Text('Select employment type'),
+              isExpanded: true,
+              underline: const SizedBox(),
+              dropdownColor: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+              items: EmploymentType.values.map((e) {
+                return DropdownMenuItem(
+                  value: e,
+                  child: Text(e.displayLabel),
+                );
+              }).toList(),
+              onChanged: (value) {
+                setState(() => _selectedEmploymentType = value);
+              },
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        // Price / Budget / Pay
+        Text(
+          _selectedType == PostType.request
+              ? 'Budget (KES)'
+              : _selectedType == PostType.job
+                  ? 'Pay (KES)'
+                  : 'Price (KES)',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: _priceController,
@@ -846,19 +918,21 @@ class _PostScreenState extends State<PostScreen> {
     if (_descriptionController.text.trim().isEmpty) missing.add('Description');
     if (_selectedCategory == null) missing.add('Category');
     if (_selectedCity.isEmpty) missing.add('Location');
-    if (_priceController.text.trim().isEmpty) missing.add('Price');
+    if (_priceController.text.trim().isEmpty) missing.add('Price/Budget');
+    if (_selectedType == PostType.job && _selectedEmploymentType == null) {
+      missing.add('Employment type');
+    }
     return 'Please fill in: ${missing.join(', ')}';
   }
 
   bool _canProceed() {
-    // Images are NOT required - user can post without images
     final hasTitle = _titleController.text.trim().isNotEmpty;
     final hasDescription = _descriptionController.text.trim().isNotEmpty;
     final hasCategory = _selectedCategory != null;
     final hasCity = _selectedCity.isNotEmpty;
     final hasPrice = _priceController.text.trim().isNotEmpty;
-    
-    return hasTitle && hasDescription && hasCategory && hasCity && hasPrice;
+    final hasEmploymentType = _selectedType != PostType.job || _selectedEmploymentType != null;
+    return hasTitle && hasDescription && hasCategory && hasCity && hasPrice && hasEmploymentType;
   }
 
   Widget _buildPreviewStep() {
@@ -975,6 +1049,34 @@ class _PostScreenState extends State<PostScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: _getTypeBadgeColor().withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      _getTypeDisplayLabel(),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: _getTypeBadgeColor(),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  if (_selectedCategory != null)
+                                    Text(
+                                      _selectedCategory!.name,
+                                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                        color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
                               Text(
                                 _titleController.text,
                                 style: Theme.of(context).textTheme.titleLarge,
@@ -992,18 +1094,24 @@ class _PostScreenState extends State<PostScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         _PreviewChip(
                           icon: Icons.location_on_outlined,
                           text: location,
                         ),
-                        const SizedBox(width: 8),
                         _PreviewChip(
-                          icon: Icons.attach_money,
-                          text: 'Kes.${formatPriceFull(price)}',
+                          icon: Iconsax.money,
+                          text: '${_selectedPricingType.displayLabel} · ${formatPriceDisplay(price)}',
                         ),
-                        const Spacer(),
+                        if (_selectedType == PostType.job && _selectedEmploymentType != null)
+                          _PreviewChip(
+                            icon: Iconsax.briefcase,
+                            text: _selectedEmploymentType!.displayLabel,
+                          ),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
@@ -1126,6 +1234,32 @@ class _PostScreenState extends State<PostScreen> {
     }
   }
 
+  Color _getTypeBadgeColor() {
+    switch (_selectedType) {
+      case PostType.request:
+        return const Color(0xFF2196F3);
+      case PostType.offer:
+        return const Color(0xFF4CAF50);
+      case PostType.job:
+        return const Color(0xFF9C27B0);
+      default:
+        return AppTheme.primaryAccent;
+    }
+  }
+
+  String _getTypeDisplayLabel() {
+    switch (_selectedType) {
+      case PostType.request:
+        return 'Request';
+      case PostType.offer:
+        return 'Offer';
+      case PostType.job:
+        return 'Job';
+      default:
+        return 'Post';
+    }
+  }
+
   Future<void> _submitPost() async {
     if (_isSubmitting) return;
 
@@ -1151,6 +1285,7 @@ class _PostScreenState extends State<PostScreen> {
           location: location,
           pay: 'Kes.${formatPriceFull(price)}',
           description: _descriptionController.text,
+          type: _selectedEmploymentType?.displayLabel ?? 'Full-time',
         );
 
         final currentUserId = context.read<AuthProvider>().currentUserId;
@@ -1181,6 +1316,8 @@ class _PostScreenState extends State<PostScreen> {
           price: price,
           urgency: _selectedUrgency,
           type: _selectedType ?? PostType.request,
+          pricingType: _selectedPricingType,
+          employmentType: _selectedType == PostType.job ? _selectedEmploymentType : null,
         );
 
         final currentUserId = context.read<AuthProvider>().currentUserId;

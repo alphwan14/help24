@@ -345,6 +345,9 @@ class _ConversationTile extends StatelessWidget {
   }
 }
 
+/// Max height for chat input (~5 lines) so it scrolls internally beyond that.
+const double _kChatInputMaxHeight = 130.0;
+
 class ChatScreen extends StatefulWidget {
   final Conversation conversation;
   final String currentUserId;
@@ -832,6 +835,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return PopScope(
       onPopInvokedWithResult: (_, __) {},
       child: Scaffold(
+        resizeToAvoidBottomInset: true,
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
@@ -996,82 +1000,94 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
               ),
             ),
-            // Input
-            Container(
+            // Input: multiline, auto-expand up to 5 lines, keyboard-avoiding
+            Padding(
               padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 12,
-                bottom: MediaQuery.of(context).padding.bottom + 12,
+                left: 12,
+                right: 12,
+                top: 8,
+                bottom: 8 + MediaQuery.of(context).padding.bottom + MediaQuery.of(context).viewInsets.bottom,
               ),
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-                border: Border(
-                  top: BorderSide(
-                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+                  border: Border(
+                    top: BorderSide(
+                      color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                    ),
                   ),
                 ),
-              ),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: _showAttachmentOptions,
-                    icon: const Icon(Iconsax.attach_circle),
-                    color: AppTheme.primaryAccent,
-                  ),
-                  IconButton(
-                    onPressed: _showLocationOptions,
-                    icon: const Icon(Iconsax.location),
-                    color: AppTheme.primaryAccent,
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      decoration: InputDecoration(
-                        hintText: 'Type a message...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                        filled: true,
-                        fillColor: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
-                      ),
-                      onSubmitted: (_) => _sendMessage(),
-                      enabled: !_isSending,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      onPressed: _showAttachmentOptions,
+                      icon: const Icon(Iconsax.attach_circle),
+                      color: AppTheme.primaryAccent,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: _isSending ? null : _sendMessage,
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: _isSending 
-                            ? AppTheme.primaryAccent.withValues(alpha: 0.5)
-                            : AppTheme.primaryAccent,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: _isSending
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : const Icon(
-                              Iconsax.send_1,
-                              color: Colors.white,
-                              size: 22,
+                    IconButton(
+                      onPressed: _showLocationOptions,
+                      icon: const Icon(Iconsax.location),
+                      color: AppTheme.primaryAccent,
+                    ),
+                    Expanded(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: _kChatInputMaxHeight,
+                        ),
+                        child: TextField(
+                          controller: _messageController,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.newline,
+                          keyboardType: TextInputType.multiline,
+                          decoration: InputDecoration(
+                            hintText: 'Type a message...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
                             ),
+                            filled: true,
+                            fillColor: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                          ),
+                          onSubmitted: (_) => _sendMessage(),
+                          enabled: !_isSending,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: _isSending ? null : _sendMessage,
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: _isSending
+                              ? AppTheme.primaryAccent.withValues(alpha: 0.5)
+                              : AppTheme.primaryAccent,
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: _isSending
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              )
+                            : const Icon(
+                                Iconsax.send_1,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
