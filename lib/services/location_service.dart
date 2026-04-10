@@ -1,11 +1,16 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 /// Handles device location: permission request and current position.
 /// Use for "send current location" and as source for live location updates.
 class LocationService {
+  static Future<PermissionStatus> permissionStatus() {
+    return Permission.locationWhenInUse.status;
+  }
+
   /// Request location permission. Returns true if granted or already granted.
   static Future<bool> requestPermission() async {
     final status = await Permission.locationWhenInUse.request();
@@ -20,12 +25,15 @@ class LocationService {
     return status.isGranted;
   }
 
-  /// Get current position. Requests permission if needed. Returns null if denied or error.
-  static Future<Position?> getCurrentPosition() async {
+  /// Get current position.
+  /// If [requestIfNeeded] is true, requests permission when missing.
+  static Future<Position?> getCurrentPosition({bool requestIfNeeded = true}) async {
     final has = await hasPermission();
-    if (!has) {
+    if (!has && requestIfNeeded) {
       final granted = await requestPermission();
       if (!granted) return null;
+    } else if (!has) {
+      return null;
     }
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -40,6 +48,28 @@ class LocationService {
       );
     } catch (e) {
       debugPrint('LocationService getCurrentPosition: $e');
+      return null;
+    }
+  }
+
+  /// Reverse geocode coordinates to a best-effort city/locality.
+  static Future<String?> getCityFromCoordinates({
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      final placemarks = await placemarkFromCoordinates(latitude, longitude);
+      if (placemarks.isEmpty) return null;
+      final p = placemarks.first;
+      final city = p.locality?.trim();
+      if (city != null && city.isNotEmpty) return city;
+      final subAdmin = p.subAdministrativeArea?.trim();
+      if (subAdmin != null && subAdmin.isNotEmpty) return subAdmin;
+      final admin = p.administrativeArea?.trim();
+      if (admin != null && admin.isNotEmpty) return admin;
+      return null;
+    } catch (e) {
+      debugPrint('LocationService getCityFromCoordinates: $e');
       return null;
     }
   }

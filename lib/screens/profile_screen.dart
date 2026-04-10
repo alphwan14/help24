@@ -6,6 +6,7 @@ import '../models/user_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
+import '../providers/location_provider.dart';
 import '../services/notification_service.dart';
 import '../services/user_profile_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -16,6 +17,7 @@ import 'edit_profile_screen.dart';
 import 'help_center_screen.dart';
 import 'terms_screen.dart';
 import 'privacy_screen.dart';
+import 'location_permission_explainer_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -121,6 +123,50 @@ class ProfileScreen extends StatelessWidget {
                             thumbColor: WidgetStateProperty.all(Colors.white),
                           ),
                         );
+                      },
+                    );
+                  },
+                ),
+                Consumer2<AuthProvider, LocationProvider>(
+                  builder: (context, auth, location, _) {
+                    if (!auth.isLoggedIn) {
+                      return _SettingsTile(
+                        icon: Icons.location_on_outlined,
+                        title: 'Location Access',
+                        subtitle: 'Sign in',
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _navigateToAuth(context),
+                      );
+                    }
+                    final uid = auth.currentUserId ?? '';
+                    String subtitle;
+                    if (location.isGranted) {
+                      subtitle = location.city == null || location.city!.isEmpty
+                          ? 'Enabled'
+                          : 'Enabled · ${location.city}';
+                    } else if (location.isPermanentlyDenied) {
+                      subtitle = 'Denied · enable in settings';
+                    } else {
+                      subtitle = 'Not enabled';
+                    }
+                    return _SettingsTile(
+                      icon: Icons.location_on_outlined,
+                      title: 'Location Access',
+                      subtitle: subtitle,
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () async {
+                        await context.read<LocationProvider>().initializeForUser(uid);
+                        if (!context.mounted) return;
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => LocationPermissionExplainerScreen(userId: uid),
+                          ),
+                        );
+                        if (!context.mounted) return;
+                        final locationProvider = context.read<LocationProvider>();
+                        await locationProvider.initializeForUser(uid);
+                        context.read<AppProvider>().setPriorityLocationCity(locationProvider.city);
                       },
                     );
                   },

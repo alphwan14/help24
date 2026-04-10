@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/location_provider.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
@@ -1307,6 +1308,7 @@ class _PostScreenState extends State<PostScreen> {
           throw Exception(provider.error ?? 'Failed to create job');
         }
       } else {
+        final locationProvider = context.read<LocationProvider>();
         final post = PostModel(
           id: '',
           title: _titleController.text,
@@ -1318,6 +1320,12 @@ class _PostScreenState extends State<PostScreen> {
           type: _selectedType ?? PostType.request,
           pricingType: _selectedPricingType,
           employmentType: _selectedType == PostType.job ? _selectedEmploymentType : null,
+          isUrgent: _selectedUrgency == Urgency.urgent,
+          urgentExpiresAt: _selectedUrgency == Urgency.urgent
+              ? DateTime.now().add(const Duration(hours: 1))
+              : null,
+          latitude: locationProvider.latitude,
+          longitude: locationProvider.longitude,
         );
 
         final currentUserId = context.read<AuthProvider>().currentUserId;

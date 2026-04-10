@@ -154,6 +154,33 @@ class PostService {
     }
   }
 
+  /// Fetch urgent request posts for top banner.
+  /// Limited result set for fast UI; caller can do distance sorting.
+  static Future<List<PostModel>> fetchUrgentPosts({int limit = 5}) async {
+    try {
+      final response = await _client
+          .from('posts')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .eq('type', 'request')
+          .eq('is_urgent', true)
+          .gt('urgent_expires_at', DateTime.now().toIso8601String())
+          .order('created_at', ascending: false)
+          .limit(limit);
+      return (response as List)
+          .map((json) => PostModel.fromJson(json))
+          .toList();
+    } catch (e) {
+      debugPrint('❌ Error fetching urgent posts: $e');
+      if (_isNetworkError(e)) {
+        throw PostServiceException(
+          'Unable to connect. Please check your internet connection.',
+          isNetworkError: true,
+        );
+      }
+      throw PostServiceException('Failed to load urgent posts.');
+    }
+  }
+
   /// Fetch only job-type posts
   static Future<List<JobModel>> fetchJobs({PostFilters? filters}) async {
     try {
@@ -244,6 +271,9 @@ class PostService {
       final postData = post.toJson();
       postData['author_user_id'] = currentUserId;
       postData['author_temp_id'] = '';
+      if (postData['is_urgent'] == true && postData['urgent_expires_at'] == null) {
+        postData['urgent_expires_at'] = DateTime.now().add(const Duration(hours: 1)).toIso8601String();
+      }
 
       final postResponse = await _client
           .from('posts')

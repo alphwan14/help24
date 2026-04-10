@@ -260,6 +260,10 @@ class PostModel {
   final String authorTempId;
   final String authorUserId;
   final DateTime createdAt;
+  final bool isUrgent;
+  final DateTime? urgentExpiresAt;
+  final double? latitude;
+  final double? longitude;
   final List<String> images;
   final List<Application> applications;
 
@@ -282,6 +286,10 @@ class PostModel {
     this.authorTempId = '',
     this.authorUserId = '',
     DateTime? createdAt,
+    this.isUrgent = false,
+    this.urgentExpiresAt,
+    this.latitude,
+    this.longitude,
     this.images = const [],
     this.applications = const [],
   }) : createdAt = createdAt ?? DateTime.now();
@@ -333,6 +341,12 @@ class PostModel {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'].toString())
           : DateTime.now(),
+      isUrgent: json['is_urgent'] == true || _parseUrgency(json['urgency']) == Urgency.urgent,
+      urgentExpiresAt: json['urgent_expires_at'] != null
+          ? DateTime.tryParse(json['urgent_expires_at'].toString())
+          : null,
+      latitude: (json['latitude'] is num) ? (json['latitude'] as num).toDouble() : null,
+      longitude: (json['longitude'] is num) ? (json['longitude'] as num).toDouble() : null,
       images: images,
       applications: applications,
     );
@@ -353,6 +367,10 @@ class PostModel {
       'difficulty': difficulty.name,
       'rating': rating,
       'author_temp_id': authorTempId,
+      'is_urgent': isUrgent || urgency == Urgency.urgent,
+      if (urgentExpiresAt != null) 'urgent_expires_at': urgentExpiresAt!.toIso8601String(),
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
     };
   }
 
@@ -374,6 +392,10 @@ class PostModel {
       'author_review_count': authorReviewCount,
       'author_temp_id': authorTempId,
       'author_user_id': authorUserId,
+      'is_urgent': isUrgent || urgency == Urgency.urgent,
+      if (urgentExpiresAt != null) 'urgent_expires_at': urgentExpiresAt!.toIso8601String(),
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
       'created_at': createdAt.toIso8601String(),
       'post_images': images.map((u) => {'image_url': u}).toList(),
       'applications': applications.map((a) => a.toCacheMap()).toList(),
@@ -476,6 +498,10 @@ class PostModel {
     String? authorTempId,
     String? authorUserId,
     DateTime? createdAt,
+    bool? isUrgent,
+    DateTime? urgentExpiresAt,
+    double? latitude,
+    double? longitude,
     List<String>? images,
     List<Application>? applications,
   }) {
@@ -498,6 +524,10 @@ class PostModel {
       authorTempId: authorTempId ?? this.authorTempId,
       authorUserId: authorUserId ?? this.authorUserId,
       createdAt: createdAt ?? this.createdAt,
+      isUrgent: isUrgent ?? this.isUrgent,
+      urgentExpiresAt: urgentExpiresAt ?? this.urgentExpiresAt,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
       images: images ?? this.images,
       applications: applications ?? this.applications,
     );

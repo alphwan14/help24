@@ -143,7 +143,7 @@ class _JobsScreenState extends State<JobsScreen> {
                 }
 
                 if (provider.isLoadingJobs && jobs.isEmpty) {
-                  return const LoadingView(message: 'Loading jobs...');
+                  return const FeedSkeletonList();
                 }
 
                 if (jobs.isEmpty) {

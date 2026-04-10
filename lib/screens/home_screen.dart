@@ -7,12 +7,14 @@ import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../providers/locale_provider.dart';
+import '../providers/location_provider.dart';
 import '../widgets/loading_empty_offline.dart';
 import 'discover_screen.dart';
 import 'jobs_screen.dart';
 import 'post_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
+import 'location_permission_explainer_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,6 +26,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   bool _showPostScreen = false;
+  String _lastAuthUserId = '';
+  bool _locationPromptInFlight = false;
 
   @override
   void initState() {
@@ -100,6 +104,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final uid = auth.currentUserId ?? '';
+    if (uid != _lastAuthUserId) {
+      _lastAuthUserId = uid;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _handleAuthLocationFlow(uid);
+      });
+    }
+
     return Scaffold(
       body: Column(
         children: [
@@ -144,5 +158,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return _currentIndex + 1;
     }
     return _currentIndex;
+  }
+
+  Future<void> _handleAuthLocationFlow(String uid) async {
+    final location = context.read<LocationProvider>();
+    final app = context.read<AppProvider>();
+    if (uid.isEmpty) {
+      app.setPriorityLocationCity(null);
+      return;
+    }
+
+    await location.initializeForUser(uid);
+    app.setPriorityLocationCity(location.city);
+
+    final shouldShow = await location.shouldShowExplainer(uid);
+    if (!mounted || !shouldShow || _locationPromptInFlight) return;
+    _locationPromptInFlight = true;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LocationPermissionExplainerScreen(userId: uid),
+      ),
+    );
+    _locationPromptInFlight = false;
+    if (!mounted) return;
+    await location.initializeForUser(uid);
+    app.setPriorityLocationCity(location.city);
   }
 }

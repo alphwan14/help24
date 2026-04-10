@@ -9,13 +9,14 @@ import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
 import 'marketplace_card_components.dart';
+import 'feed_card_tokens.dart';
 
 /// Design tokens for this card (production layout).
-const double _kPadding = 16;
-const double _kGap = 12;
-const double _kRadius = 16;
-const double _kAvatarSize = 36;
-const double _kMediaHeight = 72;
+const double _kPadding = FeedCardTokens.padding;
+const double _kGap = FeedCardTokens.gap;
+const double _kRadius = FeedCardTokens.radius;
+const double _kAvatarSize = FeedCardTokens.avatarSize;
+const double _kMediaHeight = FeedCardTokens.mediaSize;
 
 class PostCard extends StatelessWidget {
   final PostModel post;
@@ -52,7 +53,7 @@ class PostCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: FeedCardTokens.cardBottomMargin),
         decoration: BoxDecoration(
           color: cardColor,
           borderRadius: BorderRadius.circular(_kRadius),
@@ -124,7 +125,7 @@ class PostCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: _kGap),
+                  const SizedBox(height: 6),
 
                   // Title — prominent, bold, max 2 lines
                   Text(
@@ -132,13 +133,13 @@ class PostCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w700,
                           color: textPrimary,
-                          height: 1.28,
-                          fontSize: 16,
+                          height: 1.24,
+                          fontSize: 15,
                         ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: _kGap),
+                  const SizedBox(height: 6),
 
                   // Difficulty & Urgency as small tags — wrap to avoid overflow
                   Wrap(
@@ -155,7 +156,7 @@ class PostCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: _kGap),
+                  const SizedBox(height: 6),
 
                   // User info row: avatar, name + rating, location (full format, professional icon)
                   Row(
@@ -166,7 +167,7 @@ class PostCard extends StatelessWidget {
                         displayName: authorDisplayName,
                         size: _kAvatarSize,
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -193,21 +194,21 @@ class PostCard extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(height: 1),
                             Row(
                               children: [
                                 Icon(
                                   Icons.location_on_outlined,
-                                  size: 14,
+                                  size: 13,
                                   color: textSecondary,
                                 ),
-                                const SizedBox(width: 4),
+                                const SizedBox(width: 3),
                                 Expanded(
                                   child: Text(
                                     post.location.isEmpty ? 'Kenya' : post.location,
                                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                           color: textSecondary,
-                                          fontSize: 12,
+                                          fontSize: 11.5,
                                         ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -220,60 +221,60 @@ class PostCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: _kGap),
+                  const SizedBox(height: 6),
 
-                  // Description preview — 2–3 lines, ellipsis
-                  Text(
-                    post.description,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: textTertiary,
-                          height: 1.35,
-                          fontSize: 13,
+                  // Description + optional thumbnail in one row for denser feed cards.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          post.description,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: textTertiary,
+                                height: 1.3,
+                                fontSize: 12.5,
+                              ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
+                      ),
+                      if (post.images.isNotEmpty && post.images[0].isNotEmpty) ...[
+                        const SizedBox(width: 10),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: SizedBox(
+                            height: _kMediaHeight,
+                            width: _kMediaHeight,
+                            child: _buildImage(post.images[0]),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
+                  if (post.images.length > 1) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Iconsax.gallery, size: 14, color: textTertiary),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${post.images.length} photos',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: textTertiary,
+                                fontSize: 11,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
 
-            // Media: small image preview OR minimal photo indicator with count
-            if (post.images.isNotEmpty && post.images[0].isNotEmpty) ...[
-              const SizedBox(height: _kGap),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: _kPadding),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: SizedBox(
-                    height: _kMediaHeight,
-                    width: double.infinity,
-                    child: _buildImage(post.images[0]),
-                  ),
-                ),
-              ),
-            ] else if (post.images.length > 1) ...[
-              const SizedBox(height: _kGap),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: _kPadding),
-                child: Row(
-                  children: [
-                    Icon(Iconsax.gallery, size: 18, color: textTertiary),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${post.images.length} photos',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: textTertiary,
-                            fontSize: 12,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
             // Bottom row: price (left), primary button View/Respond (right)
             Padding(
-              padding: const EdgeInsets.fromLTRB(_kPadding, _kGap, _kPadding, _kPadding),
+              padding: const EdgeInsets.fromLTRB(_kPadding, 8, _kPadding, _kPadding),
               child: Row(
                 children: [
                   if (post.price > 0)
@@ -282,7 +283,7 @@ class PostCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             color: AppTheme.successGreen,
                             fontWeight: FontWeight.w700,
-                            fontSize: 15,
+                            fontSize: 14,
                           ),
                     ),
                   if (post.price > 0) const SizedBox(width: 12),
@@ -292,8 +293,8 @@ class PostCard extends StatelessWidget {
                       child: FilledButton(
                         onPressed: isRequest ? (onRespond ?? onTap) : onTap,
                         style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          minimumSize: const Size(0, 44),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                          minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         child: Text(ctaLabel),
@@ -341,7 +342,7 @@ class _SmallTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(6),
@@ -350,7 +351,7 @@ class _SmallTag extends StatelessWidget {
         label,
         style: TextStyle(
           color: color,
-          fontSize: 11,
+          fontSize: 10.5,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -368,7 +369,7 @@ class _CategoryBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: AppTheme.primaryAccent.withValues(alpha: isDark ? 0.2 : 0.1),
         borderRadius: BorderRadius.circular(8),
@@ -376,13 +377,13 @@ class _CategoryBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(category.icon, size: 14, color: AppTheme.primaryAccent),
-          const SizedBox(width: 6),
+          Icon(category.icon, size: 12, color: AppTheme.primaryAccent),
+          const SizedBox(width: 4),
           Text(
             category.name,
             style: TextStyle(
               color: AppTheme.primaryAccent,
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -412,12 +413,12 @@ class _UserRatingChip extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         if (hasRatings) ...[
-          Icon(Icons.star_rounded, size: 14, color: mutedColor),
+          Icon(Icons.star_rounded, size: 13, color: mutedColor),
           const SizedBox(width: 2),
           Text(
             '${averageRating.toStringAsFixed(1)} ($reviewCount)',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 10.5,
               color: mutedColor,
               fontWeight: FontWeight.w500,
             ),
@@ -426,7 +427,7 @@ class _UserRatingChip extends StatelessWidget {
           Text(
             'New',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 10.5,
               color: mutedColor,
               fontWeight: FontWeight.w500,
             ),

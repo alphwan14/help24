@@ -191,3 +191,90 @@ class OfflineBanner extends StatelessWidget {
     );
   }
 }
+
+/// Lightweight skeleton list used while feed data loads in background.
+class FeedSkeletonList extends StatelessWidget {
+  final int itemCount;
+  final EdgeInsetsGeometry padding;
+
+  const FeedSkeletonList({
+    super.key,
+    this.itemCount = 3,
+    this.padding = const EdgeInsets.symmetric(horizontal: 20),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final lineColor = isDark
+        ? AppTheme.darkTextTertiary.withValues(alpha: 0.18)
+        : AppTheme.lightTextTertiary.withValues(alpha: 0.18);
+
+    return ListView.separated(
+      padding: padding,
+      itemCount: itemCount,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, __) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _skeletonLine(lineColor, 120, 10),
+            const SizedBox(height: 8),
+            _skeletonLine(lineColor, double.infinity, 14),
+            const SizedBox(height: 6),
+            _skeletonLine(lineColor, 180, 14),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: lineColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: _skeletonLine(lineColor, 120, 10)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: _skeletonLine(lineColor, 130, 12)),
+                const SizedBox(width: 8),
+                Container(
+                  width: 76,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: lineColor,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _skeletonLine(Color color, double width, double height) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(8),
+      ),
+    );
+  }
+}

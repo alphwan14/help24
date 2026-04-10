@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -14,6 +15,7 @@ import '../services/supabase_auth_bridge.dart';
 class AppProvider extends ChangeNotifier {
   bool _isDarkMode = true;
   List<PostModel> _posts = [];
+  List<PostModel> _urgentPosts = [];
   List<JobModel> _jobs = [];
   List<Conversation> _conversations = [];
   StreamSubscription<List<Conversation>>? _conversationStreamSubscription;
@@ -21,6 +23,7 @@ class AppProvider extends ChangeNotifier {
   // Loading states
   bool _isLoadingPosts = false;
   bool _isLoadingJobs = false;
+  bool _isLoadingUrgentPosts = false;
   bool _isLoadingConversations = false;
   bool _isPosting = false;
   String? _error;
@@ -35,14 +38,17 @@ class AppProvider extends ChangeNotifier {
   Difficulty? _selectedDifficulty;
   Urgency? _selectedUrgency;
   double? _minRating;
+  String? _priorityLocationCity;
 
   // Getters
   bool get isDarkMode => _isDarkMode;
   List<PostModel> get posts => _posts;
   List<JobModel> get jobs => _jobs;
+  List<PostModel> get urgentPosts => _urgentPosts;
   List<Conversation> get conversations => _conversations;
   bool get isLoadingPosts => _isLoadingPosts;
   bool get isLoadingJobs => _isLoadingJobs;
+  bool get isLoadingUrgentPosts => _isLoadingUrgentPosts;
   bool get isLoadingConversations => _isLoadingConversations;
   bool get isPosting => _isPosting;
   String? get error => _error;
@@ -55,6 +61,7 @@ class AppProvider extends ChangeNotifier {
   Difficulty? get selectedDifficulty => _selectedDifficulty;
   Urgency? get selectedUrgency => _selectedUrgency;
   double? get minRating => _minRating;
+  String? get priorityLocationCity => _priorityLocationCity;
 
   AppProvider() {
     // Load data from Supabase on initialization
@@ -168,6 +175,47 @@ class AppProvider extends ChangeNotifier {
       print(_error);
     } finally {
       _isLoadingJobs = false;
+      notifyListeners();
+    }
+  }
+
+  /// Load urgent posts for top banner.
+  /// Prioritization: urgent -> nearest first -> newest fallback.
+  Future<void> loadUrgentPosts({
+    double? userLatitude,
+    double? userLongitude,
+    int limit = 5,
+  }) async {
+    _isLoadingUrgentPosts = true;
+    notifyListeners();
+    try {
+      final results = await Connectivity().checkConnectivity();
+      final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
+      if (offline) {
+        _urgentPosts = const [];
+        return;
+      }
+
+      final fetched = await PostService.fetchUrgentPosts(limit: limit);
+      fetched.sort((a, b) {
+        final aHasCoords = a.latitude != null && a.longitude != null && userLatitude != null && userLongitude != null;
+        final bHasCoords = b.latitude != null && b.longitude != null && userLatitude != null && userLongitude != null;
+        if (aHasCoords && bHasCoords) {
+          final ad = _distanceKm(userLatitude!, userLongitude!, a.latitude!, a.longitude!);
+          final bd = _distanceKm(userLatitude!, userLongitude!, b.latitude!, b.longitude!);
+          final byDistance = ad.compareTo(bd);
+          if (byDistance != 0) return byDistance;
+          return b.createdAt.compareTo(a.createdAt);
+        }
+        if (aHasCoords != bHasCoords) return aHasCoords ? -1 : 1;
+        return b.createdAt.compareTo(a.createdAt);
+      });
+      _urgentPosts = fetched;
+    } catch (e) {
+      _error = 'Failed to load urgent posts: $e';
+      debugPrint(_error);
+    } finally {
+      _isLoadingUrgentPosts = false;
       notifyListeners();
     }
   }
@@ -628,6 +676,14 @@ class AppProvider extends ChangeNotifier {
     loadPosts();
   }
 
+  /// Prioritize posts near the user's detected city without filtering out others.
+  void setPriorityLocationCity(String? city) {
+    final next = city?.trim();
+    if (_priorityLocationCity == next) return;
+    _priorityLocationCity = (next == null || next.isEmpty) ? null : next;
+    notifyListeners();
+  }
+
   /// Apply current filters and reload posts
   Future<void> applyFilters() async {
     await loadPosts();
@@ -646,7 +702,7 @@ class AppProvider extends ChangeNotifier {
 
   /// Get filtered posts (local filtering for instant UI)
   List<PostModel> get filteredPosts {
-    return _posts.where((post) {
+    final filtered = _posts.where((post) {
       // Search query filter (also done server-side, but good for instant UI)
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
@@ -704,6 +760,8 @@ class AppProvider extends ChangeNotifier {
 
       return true;
     }).toList();
+
+    return filtered;
   }
 
   /// Clear error message
@@ -711,4 +769,17 @@ class AppProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
   }
+
+  static double _distanceKm(double lat1, double lon1, double lat2, double lon2) {
+    const earthRadiusKm = 6371.0;
+    final dLat = _degToRad(lat2 - lat1);
+    final dLon = _degToRad(lon2 - lon1);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_degToRad(lat1)) * math.cos(_degToRad(lat2)) *
+            math.sin(dLon / 2) * math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadiusKm * c;
+  }
+
+  static double _degToRad(double deg) => deg * (math.pi / 180.0);
 }

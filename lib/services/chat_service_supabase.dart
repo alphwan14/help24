@@ -18,40 +18,81 @@ class ChatServiceSupabase {
     String? postId,
     String? jobId,
   }) async {
-    final u1 = user1Id.compareTo(user2Id) <= 0 ? user1Id : user2Id;
-    final u2 = user1Id.compareTo(user2Id) <= 0 ? user2Id : user1Id;
+    final idA = user1Id.trim();
+    final idB = user2Id.trim();
+    String u1 = idA.compareTo(idB) <= 0 ? idA : idB;
+    String u2 = idA.compareTo(idB) <= 0 ? idB : idA;
     final postIdUuid = _parseUuid(postId ?? jobId);
+    debugPrint('ChatServiceSupabase createChat: ordered user1_id=$u1 user2_id=$u2');
+
+    if (u1.isEmpty || u2.isEmpty) {
+      throw ChatServiceException('Cannot create chat with empty participant id');
+    }
+    if (u1 == u2) {
+      throw ChatServiceException('Cannot create chat with same participant ids');
+    }
 
     try {
-      // Find existing chat
-      var query = _client
-          .from('chats')
-          .select()
-          .eq('user1', u1)
-          .eq('user2', u2);
-      if (postIdUuid != null) {
-        query = query.eq('post_id', postIdUuid);
-      } else {
-        query = query.isFilter('post_id', null);
-      }
-      final existing = await query.maybeSingle();
+      // Prevent duplicates: always check canonical pair first.
+      final existing = await _findExistingChat(
+        user1Ordered: u1,
+        user2Ordered: u2,
+        postIdUuid: postIdUuid,
+      );
 
-      final Map<String, dynamic> row;
-      final String chatId;
+      late Map<String, dynamic> row;
+      late String chatId;
       if (existing != null) {
         row = existing as Map<String, dynamic>;
         chatId = (row['id'] ?? '').toString();
       } else {
-        final insert = <String, dynamic>{
-          'user1': u1,
-          'user2': u2,
-          'last_message': initialMessage.isEmpty ? '' : _truncate(initialMessage),
-          'updated_at': DateTime.now().toIso8601String(),
-        };
-        if (postIdUuid != null) insert['post_id'] = postIdUuid;
-        final res = await _client.from('chats').insert(insert).select().single();
-        row = res as Map<String, dynamic>;
-        chatId = (row['id'] ?? '').toString();
+        debugPrint('ChatServiceSupabase createChat: inserting ordered user1_id=$u1 user2_id=$u2');
+        try {
+          final res = await _insertChatRow(
+            user1: u1,
+            user2: u2,
+            postIdUuid: postIdUuid,
+            initialMessage: initialMessage,
+          );
+          row = res as Map<String, dynamic>;
+          chatId = (row['id'] ?? '').toString();
+        } on PostgrestException catch (e) {
+          if (e.code == '23514' && (e.message.contains('chats_user_order'))) {
+            // Defensive fallback: retry once with swapped order if DB ordering differs.
+            final su1 = u2;
+            final su2 = u1;
+            debugPrint(
+              'ChatServiceSupabase createChat: chats_user_order violation, retry swap user1_id=$su1 user2_id=$su2',
+            );
+            u1 = su1;
+            u2 = su2;
+            final retried = await _insertChatRow(
+              user1: u1,
+              user2: u2,
+              postIdUuid: postIdUuid,
+              initialMessage: initialMessage,
+            );
+            row = retried as Map<String, dynamic>;
+            chatId = (row['id'] ?? '').toString();
+            // Recovered by retrying with swapped order.
+          }
+          // Race-safe duplicate prevention: if another request inserted first, re-fetch.
+          else if (e.code == '23505' || (e.message.toLowerCase().contains('duplicate'))) {
+            final racedExisting = await _findExistingChat(
+              user1Ordered: u1,
+              user2Ordered: u2,
+              postIdUuid: postIdUuid,
+            );
+            if (racedExisting != null) {
+              row = racedExisting as Map<String, dynamic>;
+              chatId = (row['id'] ?? '').toString();
+            } else {
+              rethrow;
+            }
+          } else {
+            rethrow;
+          }
+        }
       }
 
       final otherId = u1 == currentUserId ? u2 : u1;
@@ -73,6 +114,41 @@ class ChatServiceSupabase {
       debugPrint('ChatServiceSupabase createChat: $e');
       rethrow;
     }
+  }
+
+  static Future<Map<String, dynamic>?> _findExistingChat({
+    required String user1Ordered,
+    required String user2Ordered,
+    required String? postIdUuid,
+  }) async {
+    var query = _client
+        .from('chats')
+        .select()
+        .eq('user1', user1Ordered)
+        .eq('user2', user2Ordered);
+    if (postIdUuid != null) {
+      query = query.eq('post_id', postIdUuid);
+    } else {
+      query = query.isFilter('post_id', null);
+    }
+    final existing = await query.maybeSingle();
+    return existing as Map<String, dynamic>?;
+  }
+
+  static Future<dynamic> _insertChatRow({
+    required String user1,
+    required String user2,
+    required String? postIdUuid,
+    required String initialMessage,
+  }) async {
+    final insert = <String, dynamic>{
+      'user1': user1,
+      'user2': user2,
+      'last_message': initialMessage.isEmpty ? '' : _truncate(initialMessage),
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+    if (postIdUuid != null) insert['post_id'] = postIdUuid;
+    return _client.from('chats').insert(insert).select().single();
   }
 
   static final _uuidRegex = RegExp(

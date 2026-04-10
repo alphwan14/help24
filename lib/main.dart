@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import 'providers/app_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/connectivity_provider.dart';
 import 'providers/locale_provider.dart';
+import 'providers/location_provider.dart';
 import 'widgets/loading_empty_offline.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
@@ -26,18 +28,6 @@ final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await SupabaseConfig.initialize();
-  await FirebaseConfig.initialize();
-
-  if (FirebaseConfig.isConfigured) {
-    await NotificationService.initialize();
-  }
-
-  if (kDebugMode) {
-    await DiagnosticService.runDiagnostics();
-    await DiagnosticService.testUpload();
-  }
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -57,6 +47,8 @@ class Help24App extends StatefulWidget {
 }
 
 class _Help24AppState extends State<Help24App> {
+  Future<void>? _bootstrapFuture;
+
   @override
   void initState() {
     super.initState();
@@ -65,6 +57,23 @@ class _Help24AppState extends State<Help24App> {
       onForegroundMessage: _onForegroundMessage,
       onNotificationTap: _onNotificationTap,
     );
+    _bootstrapFuture = _runBackgroundBootstrap();
+  }
+
+  Future<void> _runBackgroundBootstrap() async {
+    try {
+      await SupabaseConfig.initialize();
+      await FirebaseConfig.initialize();
+      if (FirebaseConfig.isConfigured) {
+        await NotificationService.initialize();
+      }
+      if (kDebugMode) {
+        unawaited(DiagnosticService.runDiagnostics());
+        unawaited(DiagnosticService.testUpload());
+      }
+    } catch (e) {
+      debugPrint('Background bootstrap error: $e');
+    }
   }
 
   void _onForegroundMessage(RemoteMessage message) {
@@ -116,6 +125,7 @@ class _Help24AppState extends State<Help24App> {
         ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
+        ChangeNotifierProvider(create: (_) => LocationProvider()),
       ],
       child: _SyncOnReconnect(
         child: Consumer2<AppProvider, LocaleProvider>(
@@ -145,10 +155,69 @@ class _Help24AppState extends State<Help24App> {
                   Locale('en'),
                   Locale('sw'),
                 ],
-                home: const HomeScreen(),
+                home: StartupGate(bootstrapFuture: _bootstrapFuture),
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class StartupGate extends StatefulWidget {
+  final Future<void>? bootstrapFuture;
+
+  const StartupGate({super.key, this.bootstrapFuture});
+
+  @override
+  State<StartupGate> createState() => _StartupGateState();
+}
+
+class _StartupGateState extends State<StartupGate> {
+  bool _showHome = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(widget.bootstrapFuture?.then((_) async {
+      if (!mounted) return;
+      await context.read<AuthProvider>().initialize();
+    }) ?? Future<void>.value());
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      setState(() => _showHome = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showHome) return const HomeScreen();
+    return const _SplashScreen();
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.darkSurface,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.handyman_rounded, size: 56, color: AppTheme.primaryAccent),
+            const SizedBox(height: 14),
+            Text(
+              'Help24',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
         ),
       ),
     );

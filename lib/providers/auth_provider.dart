@@ -40,9 +40,9 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> initialize() async {
     if (_isInitialized) return;
+    if (!FirebaseConfig.isConfigured) return;
     _isInitialized = true;
     notifyListeners();
-    if (!FirebaseConfig.isConfigured) return;
     try {
       _authSubscription = AuthService.authStateChanges.listen(_onAuthStateChanged);
       final firebaseUser = AuthService.currentFirebaseUser;

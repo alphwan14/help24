@@ -4,15 +4,19 @@ import 'package:iconsax/iconsax.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/connectivity_provider.dart';
+import '../providers/location_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
+import '../utils/time_utils.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_card.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/auth_guard.dart';
 import '../providers/auth_provider.dart';
 import '../services/comment_service_firestore.dart';
+import '../services/post_service.dart';
 import 'messages_screen.dart';
+import 'urgent_requests_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
@@ -41,9 +45,28 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     return SafeArea(
       child: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Discover', style: Theme.of(context).textTheme.headlineMedium),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const UrgentRequestsScreen()),
+                    );
+                  },
+                  icon: const Text('🚨'),
+                  label: const Text('Urgent'),
+                ),
+              ],
+            ),
+          ),
           // Search Bar
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
                 return TextField(
@@ -197,7 +220,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 final posts = provider.filteredPosts;
 
                 if (provider.isLoadingPosts && posts.isEmpty) {
-                  return const LoadingView(message: 'Loading posts...');
+                  return const FeedSkeletonList();
                 }
 
                 if (posts.isEmpty) {
@@ -614,15 +637,67 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   Future<void> _openPrivateChat(BuildContext context, PostModel post) async {
     final appProvider = context.read<AppProvider>();
     final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
-    final authorId = post.authorUserId;
-    if (currentUserId.isEmpty || authorId.isEmpty) return;
+    if (currentUserId.isEmpty) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please sign in to message providers'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    String authorId = post.authorUserId;
+    if (authorId.isEmpty) {
+      // Fallback for older/inconsistent rows where feed payload lacks author_user_id.
+      try {
+        final freshPost = await PostService.getPostById(post.id);
+        authorId = freshPost?.authorUserId ?? '';
+      } catch (_) {
+        authorId = '';
+      }
+    }
+
+    if (authorId.isEmpty) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to contact this provider right now'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    if (authorId == currentUserId) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This is your own post'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     final conv = await appProvider.ensureConversationOnApply(
       applicantId: currentUserId,
       authorId: authorId,
       initialMessage: '',
       postId: post.id,
     );
-    if (!context.mounted || conv == null) return;
+    if (!context.mounted) return;
+    if (conv == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(appProvider.error ?? 'Could not open chat. Please try again.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
