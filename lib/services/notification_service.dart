@@ -30,6 +30,7 @@ class NotificationService {
   static String? _currentToken;
   static VoidCallback? _onForegroundNotification;
   static GlobalKey<NavigatorState>? _navigatorKey;
+  static bool _tokenRefreshListenerAttached = false;
 
   static String? get currentToken => _currentToken;
 
@@ -65,6 +66,7 @@ class NotificationService {
       );
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
       await _requestPermissionAndToken();
+      _attachTokenRefreshListener();
     } catch (e, st) {
       debugPrint('NotificationService initialize: $e');
       if (kDebugMode) debugPrint(st.toString());
@@ -78,6 +80,7 @@ class NotificationService {
         badge: true,
         sound: true,
       );
+      debugPrint('NotificationService permission status: ${settings.authorizationStatus}');
       return settings.authorizationStatus == AuthorizationStatus.authorized ||
           settings.authorizationStatus == AuthorizationStatus.provisional;
     } catch (e) {
@@ -88,27 +91,35 @@ class NotificationService {
 
   static Future<void> _requestPermissionAndToken() async {
     final granted = await _requestPermission();
-    if (!granted) return;
+    if (!granted) {
+      debugPrint('NotificationService: permission not granted, skipping token registration');
+      return;
+    }
     try {
       if (Platform.isAndroid) {
         // Optional: create channel for Android
         // await FirebaseMessaging.instance.setDeliveryMetricsExportToBigQuery(true);
       }
       _currentToken = await _messaging.getToken();
-      debugPrint('NotificationService token: ${_currentToken != null ? "ok" : "null"}');
+      debugPrint('NotificationService token fetch: ${_currentToken != null ? "ok" : "null"}');
       final uid = AuthService.currentUserId;
       if (uid != null && _currentToken != null) {
         final prefs = await UserProfileService.getNotificationPrefs(uid);
         if (prefs.notificationsEnabled) {
           await UserProfileService.addFcmToken(uid, _currentToken!);
+          debugPrint('NotificationService: token saved to users.fcm_tokens for uid=$uid');
+        } else {
+          debugPrint('NotificationService: notifications disabled for uid=$uid, token not saved');
         }
+      } else {
+        debugPrint('NotificationService: token save skipped (uid=${uid ?? "null"}, token=${_currentToken == null ? "null" : "set"})');
       }
     } catch (e) {
       debugPrint('NotificationService getToken: $e');
     }
   }
 
-  /// Call after login: if notificationsEnabled, save FCM token to Firestore.
+  /// Call after login: if notificationsEnabled, save FCM token to Supabase users.fcm_tokens.
   static Future<void> onLogin(String uid) async {
     if (!FirebaseConfig.isConfigured || uid.isEmpty) return;
     try {
@@ -119,13 +130,16 @@ class NotificationService {
       final prefs = await UserProfileService.getNotificationPrefs(uid);
       if (prefs.notificationsEnabled) {
         await UserProfileService.addFcmToken(uid, _currentToken!);
+        debugPrint('NotificationService onLogin: token saved for uid=$uid');
+      } else {
+        debugPrint('NotificationService onLogin: notifications disabled for uid=$uid');
       }
     } catch (e) {
       debugPrint('NotificationService onLogin: $e');
     }
   }
 
-  /// Call when user enables notifications in settings: update Firestore first so UI shows On,
+  /// Call when user enables notifications in settings: update Supabase first so UI shows On,
   /// then try to get/save token (may fail on web or if permission denied).
   static Future<void> enableAndSaveToken(String uid) async {
     if (!FirebaseConfig.isConfigured || uid.isEmpty) return;
@@ -142,7 +156,7 @@ class NotificationService {
     }
   }
 
-  /// Call when user disables notifications: update Firestore first so UI shows Off, then remove token.
+  /// Call when user disables notifications: update Supabase first so UI shows Off, then remove token.
   static Future<void> disableAndRemoveToken(String uid) async {
     if (uid.isEmpty) return;
     try {
@@ -185,11 +199,34 @@ class NotificationService {
     }
   }
 
+  static void _attachTokenRefreshListener() {
+    if (_tokenRefreshListenerAttached) return;
+    _tokenRefreshListenerAttached = true;
+    FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
+      _currentToken = token;
+      final uid = AuthService.currentUserId;
+      debugPrint('NotificationService onTokenRefresh: received new token');
+      if (uid == null || uid.isEmpty) {
+        debugPrint('NotificationService onTokenRefresh: no logged-in user, skipping save');
+        return;
+      }
+      final prefs = await UserProfileService.getNotificationPrefs(uid);
+      if (!prefs.notificationsEnabled) {
+        debugPrint('NotificationService onTokenRefresh: notifications disabled, skipping save');
+        return;
+      }
+      await UserProfileService.addFcmToken(uid, token);
+      debugPrint('NotificationService onTokenRefresh: token saved for uid=$uid');
+    }, onError: (e) {
+      debugPrint('NotificationService onTokenRefresh error: $e');
+    });
+  }
+
   /// Navigate to chat or post based on notification data. Call from onNotificationTap.
   static void handleNotificationTap(RemoteMessage message, BuildContext context) {
     final data = message.data;
-    final chatId = data['chatId'] as String?;
-    final postId = data['postId'] as String?;
+    final chatId = (data['chatId'] ?? data['chat_id']) as String?;
+    final postId = (data['postId'] ?? data['post_id']) as String?;
     if (context.mounted) {
       if (chatId != null && chatId.isNotEmpty) {
         _navigateToChat(context, chatId);

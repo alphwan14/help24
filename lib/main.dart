@@ -80,8 +80,9 @@ class _Help24AppState extends State<Help24App> {
     final context = _navigatorKey.currentContext;
     if (context == null) return;
     final data = message.data;
-    final chatId = data['chatId'] as String?;
-    final postId = data['postId'] as String?;
+    final chatId = (data['chatId'] ?? data['chat_id']) as String?;
+    final postId = (data['postId'] ?? data['post_id']) as String?;
+    debugPrint('main._onNotificationTap payload: $data');
     final uid = context.read<AuthProvider>().currentUserId;
     if (chatId != null && chatId.isNotEmpty && uid != null) {
       final conv = Conversation(

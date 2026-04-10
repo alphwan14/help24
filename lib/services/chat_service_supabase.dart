@@ -246,6 +246,7 @@ class ChatServiceSupabase {
       };
       final res = await _client.from('chat_messages').insert(insert).select().single();
       final row = res as Map<String, dynamic>;
+      debugPrint('ChatServiceSupabase sendMessage: inserted chat_message id=${row['id']} chat_id=$chatIdParam sender_id=$senderId');
       await _client.from('chats').update({
         'last_message': _truncate(text),
         'updated_at': DateTime.now().toIso8601String(),
@@ -277,6 +278,7 @@ class ChatServiceSupabase {
       };
       final res = await _client.from('chat_messages').insert(insert).select().single();
       final row = res as Map<String, dynamic>;
+      debugPrint('ChatServiceSupabase sendAttachmentMessage: inserted chat_message id=${row['id']} type=$type chat_id=$chatIdParam sender_id=$senderId');
       await _client.from('chats').update({
         'last_message': content,
         'updated_at': DateTime.now().toIso8601String(),
@@ -306,6 +308,7 @@ class ChatServiceSupabase {
       };
       final res = await _client.from('chat_messages').insert(insert).select().single();
       final row = res as Map<String, dynamic>;
+      debugPrint('ChatServiceSupabase sendLocation: inserted chat_message id=${row['id']} chat_id=$chatId sender_id=$senderId');
       await _client.from('chats').update({
         'last_message': 'Location',
         'updated_at': DateTime.now().toIso8601String(),
@@ -338,6 +341,7 @@ class ChatServiceSupabase {
       };
       final res = await _client.from('chat_messages').insert(insert).select().single();
       final row = res as Map<String, dynamic>;
+      debugPrint('ChatServiceSupabase sendLiveLocation: inserted chat_message id=${row['id']} chat_id=$chatId sender_id=$senderId');
       await _client.from('chats').update({
         'last_message': 'Live location',
         'updated_at': DateTime.now().toIso8601String(),

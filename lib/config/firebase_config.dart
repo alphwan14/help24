@@ -27,8 +27,9 @@ class FirebaseConfig {
   
   // Android configuration
   static const String androidApiKey = 'AIzaSyCIzNruj2eqXtK75Y9cP6Gcf0uZZTAod9E';
-  static const String androidAppId = '1:454215745233:android:ecbcd3361eee2d63aa4ff0';
-  static const String androidMessagingSenderId = '454215745233-beo1ckg5erre4hit8vvgqimchi73died.apps.googleusercontent.com';
+  // Keep Android values in sync with android/app/google-services.json
+  static const String androidAppId = '1:454215745233:android:4b262becc88b5563aa4ff0';
+  static const String androidMessagingSenderId = '454215745233';
   static const String androidProjectId = 'help24-24410';
   static const String androidStorageBucket = 'help24-24410.firebasestorage.app';
   

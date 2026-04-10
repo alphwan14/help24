@@ -21,6 +21,7 @@ interface WebhookPayload {
     id?: string;
     chat_id?: string;
     sender_id?: string;
+    receiver_id?: string;
     content?: string;
     created_at?: string;
     type?: string;
@@ -114,7 +115,8 @@ async function sendFcmV1(
     message: {
       token: fcmToken,
       notification: { title, body },
-      data: { chat_id: String(chatId) },
+      // Keep both snake_case and camelCase keys for client compatibility.
+      data: { chat_id: String(chatId), chatId: String(chatId) },
     },
   };
   const res = await fetch(url, {
@@ -165,6 +167,7 @@ Deno.serve(async (req: Request) => {
   const record = payload.record;
   const rawChatId = record?.chat_id;
   const rawSenderId = record?.sender_id;
+  const rawReceiverId = record?.receiver_id;
 
   if (rawChatId == null || rawSenderId == null || rawChatId === "" || rawSenderId === "") {
     console.error("[send-chat-push] Missing chat_id or sender_id in payload.record");
@@ -212,7 +215,12 @@ Deno.serve(async (req: Request) => {
       });
     }
     const { user1, user2 } = chats[0];
-    const recipientId = ensureString(user1) === senderId ? ensureString(user2) : ensureString(user1);
+    const recipientIdFromChat =
+      ensureString(user1) === senderId ? ensureString(user2) : ensureString(user1);
+    const recipientId =
+      rawReceiverId != null && ensureString(rawReceiverId) !== ""
+        ? ensureString(rawReceiverId)
+        : recipientIdFromChat;
 
     if (recipientId === senderId || recipientId === "") {
       console.log("[send-chat-push] Recipient is sender or empty, skip push");
@@ -253,9 +261,12 @@ Deno.serve(async (req: Request) => {
         headers: { "Content-Type": "application/json" },
       });
     }
+    console.log(`[send-chat-push] target recipient user_id=${recipientId}`);
     const rawTokens = recipient.fcm_tokens;
     const tokens: string[] = Array.isArray(rawTokens)
-      ? (rawTokens as unknown[]).filter((t): t is string => typeof t === "string" && t.length > 0)
+      ? (rawTokens as unknown[])
+          .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+          .map((t) => t.trim())
       : [];
     if (tokens.length === 0) {
       console.log("[send-chat-push] No fcm_tokens for recipient:", recipientId);
@@ -264,7 +275,6 @@ Deno.serve(async (req: Request) => {
         headers: { "Content-Type": "application/json" },
       });
     }
-
     const senderNameRes = await fetch(
       `${SUPABASE_URL}/rest/v1/users?id=eq.${encodeURIComponent(senderId)}&select=name`,
       { headers: supabaseHeaders }
@@ -293,13 +303,21 @@ Deno.serve(async (req: Request) => {
     const accessToken = await getGoogleAccessToken();
     let sent = 0;
     for (const token of tokens) {
+      const tokenTail = token.slice(-6);
       const result = await sendFcmV1(accessToken, token, title, body, chatId);
-      if (result.ok) sent++;
+      if (result.ok) {
+        sent++;
+        console.log(`[send-chat-push] send result ok token_tail=${tokenTail}`);
+      } else {
+        console.error(
+          `[send-chat-push] send result failed token_tail=${tokenTail} error=${result.error ?? "unknown"}`
+        );
+      }
     }
     console.log(`[send-chat-push] sent ${sent}/${tokens.length} FCM v1 messages for chat=${chatId}`);
 
     return new Response(
-      JSON.stringify({ ok: true, sent, total: tokens.length, chat_id: chatId }),
+      JSON.stringify({ ok: true, sent, total: tokens.length, chat_id: chatId, recipient_id: recipientId }),
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
