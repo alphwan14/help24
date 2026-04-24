@@ -185,3 +185,9 @@ pubspec.lock
 # Keep SQL files for reference but you may want to exclude if they contain secrets
 # supabase_schema.sql
 # supabase_storage_setup.sql
+. e n v  
+ b a c k e n d / . e n v  
+ . e n v . *  
+ ! / . e n v . e x a m p l e  
+ * * / n o d e _ m o d u l e s /  
+ 
