@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   Post,
 } from '@nestjs/common';
@@ -13,11 +14,14 @@ import { ReleasePayoutDto } from './dto/release-payout.dto';
 
 @Controller('mpesa')
 export class MpesaController {
+  private readonly logger = new Logger(MpesaController.name);
+
   constructor(private readonly mpesa: MpesaService) {}
 
   @Post('initiate')
   @HttpCode(HttpStatus.CREATED)
   initiatePayment(@Body() dto: InitiatePaymentDto) {
+    this.logger.log(`[STK] initiate — post=${dto.post_id} phone=${dto.buyer_phone}`);
     return this.mpesa.initiatePayment(dto);
   }
 
@@ -25,6 +29,7 @@ export class MpesaController {
   @Post('stk-callback')
   @HttpCode(HttpStatus.OK)
   stkCallback(@Body() body: Record<string, unknown>) {
+    this.logger.log(`[STK] callback received: ${JSON.stringify(body)}`);
     return this.mpesa.handleStkCallback(body);
   }
 
@@ -38,6 +43,7 @@ export class MpesaController {
   @Post('b2c-callback')
   @HttpCode(HttpStatus.OK)
   b2cCallback(@Body() body: Record<string, unknown>) {
+    this.logger.log(`[B2C] callback received: ${JSON.stringify(body)}`);
     return this.mpesa.handleB2cCallback(body);
   }
 

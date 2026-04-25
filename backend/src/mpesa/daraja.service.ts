@@ -148,6 +148,7 @@ export class DarajaService {
         PartyA:            payload.PartyA,
         PartyB:            payload.PartyB,
         AccountReference:  payload.AccountReference,
+        CallBackURL:       payload.CallBackURL,
       })}`,
     );
 
@@ -159,6 +160,8 @@ export class DarajaService {
     } catch (err) {
       this.handleAxiosError('STK push', err);
     }
+
+    this.logger.log(`[Daraja] STK response: ${JSON.stringify(data)}`);
 
     if (data.ResponseCode !== '0') {
       throw new Error(`STK push rejected by Daraja: ${data.ResponseDescription}`);
