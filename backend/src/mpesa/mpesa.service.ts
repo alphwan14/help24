@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
@@ -47,14 +46,8 @@ export class MpesaService {
     const fee = calculateFee(amount);
     const totalPaid = calculateTotal(amount);
 
-    // Initiate STK push — buyer pays (amount + fee).
-    const stkResult = await this.daraja.stkPush({
-      phone: dto.buyer_phone,
-      amount: totalPaid,
-      postId: dto.post_id,
-    });
-
-    // Persist transaction before returning (critical — must succeed).
+    // Record the transaction BEFORE calling Daraja — if the DB write after
+    // STK push fails, the user would be charged with no record to reconcile.
     const transaction = await this.transactions.create({
       postId: dto.post_id,
       buyerUserId: dto.buyer_user_id,
@@ -62,7 +55,24 @@ export class MpesaService {
       amount,
       fee,
       totalPaid,
-      checkoutRequestId: stkResult.checkoutRequestId,
+    });
+
+    // Initiate STK push — buyer pays (amount + fee).
+    let stkResult;
+    try {
+      stkResult = await this.daraja.stkPush({
+        phone: dto.buyer_phone,
+        amount: totalPaid,
+        postId: dto.post_id,
+      });
+    } catch (err) {
+      await this.transactions.update(transaction.id, { status: 'failed' });
+      throw err;
+    }
+
+    // Stamp the checkout request ID now that Daraja accepted.
+    await this.transactions.update(transaction.id, {
+      checkout_request_id: stkResult.checkoutRequestId,
     });
 
     // Create escrow record — locked until STK callback confirms payment.
@@ -76,7 +86,6 @@ export class MpesaService {
       });
 
     if (escrowError) {
-      // STK push is already sent. Log CRITICAL for manual recovery.
       this.logger.error(
         `[CRITICAL] Failed to create escrow for transaction ${transaction.id}: ${escrowError.message}`,
       );

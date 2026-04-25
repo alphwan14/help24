@@ -149,7 +149,7 @@ export class ProvidersService {
     }
 
     // TODO: Replace with SMS provider (Africa's Talking / Twilio)
-    this.logger.log(`[OTP] Provider ${providerId} → ${phone}: ${otp}`);
+    this.logger.log(`[OTP] Issued for provider ${providerId} → ${phone}`);
   }
 
   private safeEqual(a: string, b: string): boolean {

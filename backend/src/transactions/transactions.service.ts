@@ -10,7 +10,7 @@ export interface Transaction {
   fee: number;
   total_paid: number;
   status: string;
-  checkout_request_id: string;
+  checkout_request_id: string | null;
   conversation_id: string | null;
   mpesa_receipt: string | null;
   created_at: string;
@@ -27,7 +27,6 @@ export class TransactionsService {
     amount: number;
     fee: number;
     totalPaid: number;
-    checkoutRequestId: string;
   }): Promise<Transaction> {
     const { data: tx, error } = await this.supabase.client
       .from('transactions')
@@ -38,7 +37,6 @@ export class TransactionsService {
         amount: data.amount,
         fee: data.fee,
         total_paid: data.totalPaid,
-        checkout_request_id: data.checkoutRequestId,
         status: 'pending',
       })
       .select()
