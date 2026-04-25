@@ -94,6 +94,19 @@ BEGIN
   END IF;
 END $$;
 
+-- Add any columns the pre-existing table may be missing.
+ALTER TABLE public.transactions
+  ADD COLUMN IF NOT EXISTS post_id             UUID    REFERENCES public.posts(id) ON DELETE RESTRICT,
+  ADD COLUMN IF NOT EXISTS buyer_user_id       TEXT,
+  ADD COLUMN IF NOT EXISTS amount              INTEGER,
+  ADD COLUMN IF NOT EXISTS fee                 INTEGER,
+  ADD COLUMN IF NOT EXISTS total_paid          INTEGER,
+  ADD COLUMN IF NOT EXISTS status              TEXT    NOT NULL DEFAULT 'pending',
+  ADD COLUMN IF NOT EXISTS checkout_request_id TEXT,
+  ADD COLUMN IF NOT EXISTS conversation_id     TEXT,
+  ADD COLUMN IF NOT EXISTS mpesa_receipt       TEXT,
+  ADD COLUMN IF NOT EXISTS created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 -- Ensure post_id is NOT NULL (in case it was added as nullable).
 DO $$
 BEGIN
@@ -163,6 +176,16 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- Add any columns the pre-existing escrow table may be missing.
+ALTER TABLE public.escrow
+  ADD COLUMN IF NOT EXISTS post_id        UUID        REFERENCES public.posts(id) ON DELETE RESTRICT,
+  ADD COLUMN IF NOT EXISTS transaction_id UUID        REFERENCES public.transactions(id) ON DELETE RESTRICT,
+  ADD COLUMN IF NOT EXISTS amount         INTEGER,
+  ADD COLUMN IF NOT EXISTS status         TEXT        NOT NULL DEFAULT 'locked',
+  ADD COLUMN IF NOT EXISTS provider_id    UUID        REFERENCES public.providers(id),
+  ADD COLUMN IF NOT EXISTS released_at    TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_escrow_post_id
   ON public.escrow (post_id);
