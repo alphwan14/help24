@@ -5,6 +5,7 @@ import { SupabaseModule } from './supabase/supabase.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { ProvidersModule } from './providers/providers.module';
 import { MpesaModule } from './mpesa/mpesa.module';
+import { HealthController, RootController } from './health.controller';
 
 @Module({
   imports: [
@@ -17,5 +18,6 @@ import { MpesaModule } from './mpesa/mpesa.module';
     ProvidersModule,
     MpesaModule,
   ],
+  controllers: [RootController, HealthController],
 })
 export class AppModule {}

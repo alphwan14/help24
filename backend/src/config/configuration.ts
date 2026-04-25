@@ -9,12 +9,23 @@ export const configuration = (): Record<string, unknown> => {
     return value.trim();
   }
 
+  // Validates that a callback URL is HTTPS and contains the expected path.
+  // Daraja rejects non-HTTPS callbacks and a missing path returns 404.
+  function callbackUrl(key: string, expectedPath: string): string {
+    const url = required(key);
+    if (!url.startsWith('https://')) {
+      throw new Error(`[Config] ${key} must use HTTPS — got: ${url}`);
+    }
+    if (!url.includes(expectedPath)) {
+      throw new Error(
+        `[Config] ${key} must contain "${expectedPath}" — got: ${url}`,
+      );
+    }
+    return url;
+  }
+
   return {
     port: parseInt(process.env.PORT ?? '3000', 10),
-    allowedOrigins: process.env.ALLOWED_ORIGINS
-      ?.split(',')
-      .map((s) => s.trim())
-      .filter(Boolean) ?? [],
     supabase: {
       url: required('SUPABASE_URL'),
       serviceRoleKey: required('SUPABASE_SERVICE_ROLE_KEY'),
@@ -25,11 +36,11 @@ export const configuration = (): Record<string, unknown> => {
       consumerSecret: required('MPESA_CONSUMER_SECRET'),
       shortcode: required('MPESA_SHORTCODE'),
       passkey: required('MPESA_PASSKEY'),
-      callbackUrl: required('MPESA_CALLBACK_URL'),
+      callbackUrl: callbackUrl('MPESA_CALLBACK_URL', '/mpesa/stk-callback'),
       b2cInitiatorName: required('MPESA_B2C_INITIATOR_NAME'),
       b2cSecurityCredential: required('MPESA_B2C_SECURITY_CREDENTIAL'),
-      b2cResultUrl: required('MPESA_B2C_RESULT_URL'),
-      b2cTimeoutUrl: required('MPESA_B2C_TIMEOUT_URL'),
+      b2cResultUrl: callbackUrl('MPESA_B2C_RESULT_URL', '/mpesa/b2c-callback'),
+      b2cTimeoutUrl: callbackUrl('MPESA_B2C_TIMEOUT_URL', '/mpesa/b2c-timeout'),
     },
   };
 };
