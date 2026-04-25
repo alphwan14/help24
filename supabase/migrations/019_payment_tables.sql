@@ -74,17 +74,23 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Fix: rename job_id → post_id if the table was created with the wrong column name.
+-- Fix: rename job_id → post_id, or drop job_id if post_id already exists.
 DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name   = 'transactions'
-      AND column_name  = 'job_id'
+    WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'job_id'
   ) THEN
-    ALTER TABLE public.transactions RENAME COLUMN job_id TO post_id;
-    RAISE NOTICE 'transactions.job_id renamed to post_id';
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'post_id'
+    ) THEN
+      ALTER TABLE public.transactions DROP COLUMN job_id;
+      RAISE NOTICE 'transactions.job_id dropped (post_id already existed)';
+    ELSE
+      ALTER TABLE public.transactions RENAME COLUMN job_id TO post_id;
+      RAISE NOTICE 'transactions.job_id renamed to post_id';
+    END IF;
   END IF;
 END $$;
 
@@ -138,17 +144,23 @@ CREATE TABLE IF NOT EXISTS public.escrow (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Fix: rename job_id → post_id on escrow if needed.
+-- Fix: rename job_id → post_id on escrow, or drop job_id if post_id already exists.
 DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name   = 'escrow'
-      AND column_name  = 'job_id'
+    WHERE table_schema = 'public' AND table_name = 'escrow' AND column_name = 'job_id'
   ) THEN
-    ALTER TABLE public.escrow RENAME COLUMN job_id TO post_id;
-    RAISE NOTICE 'escrow.job_id renamed to post_id';
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'escrow' AND column_name = 'post_id'
+    ) THEN
+      ALTER TABLE public.escrow DROP COLUMN job_id;
+      RAISE NOTICE 'escrow.job_id dropped (post_id already existed)';
+    ELSE
+      ALTER TABLE public.escrow RENAME COLUMN job_id TO post_id;
+      RAISE NOTICE 'escrow.job_id renamed to post_id';
+    END IF;
   END IF;
 END $$;
 
