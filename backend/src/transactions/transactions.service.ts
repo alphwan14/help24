@@ -5,6 +5,7 @@ export interface Transaction {
   id: string;
   post_id: string;
   buyer_user_id: string;
+  phone: string;
   amount: number;
   fee: number;
   total_paid: number;
@@ -22,6 +23,7 @@ export class TransactionsService {
   async create(data: {
     postId: string;
     buyerUserId: string;
+    phone: string;
     amount: number;
     fee: number;
     totalPaid: number;
@@ -32,6 +34,7 @@ export class TransactionsService {
       .insert({
         post_id: data.postId,
         buyer_user_id: data.buyerUserId,
+        phone: data.phone,
         amount: data.amount,
         fee: data.fee,
         total_paid: data.totalPaid,

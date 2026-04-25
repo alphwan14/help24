@@ -58,6 +58,7 @@ export class MpesaService {
     const transaction = await this.transactions.create({
       postId: dto.post_id,
       buyerUserId: dto.buyer_user_id,
+      phone: dto.buyer_phone,
       amount,
       fee,
       totalPaid,
