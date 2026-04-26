@@ -290,6 +290,7 @@ class _PostScreenState extends State<PostScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SafeArea(
+      top: false,
       child: Column(
         children: [
           // Header
@@ -387,7 +388,7 @@ class _PostScreenState extends State<PostScreen> {
   String _getStepTitle() {
     switch (_currentStep) {
       case 0:
-        return 'What do you want to post?';
+        return 'What would you like to do?';
       case 1:
         return 'Add Details';
       case 2:
@@ -415,8 +416,8 @@ class _PostScreenState extends State<PostScreen> {
       children: [
         _TypeCard(
           icon: Iconsax.document_text,
-          title: 'Post a Request',
-          description: 'Looking for someone to help you with a task',
+          title: 'I Need Help',
+          description: 'Looking for someone to help you with a task or service',
           isSelected: _selectedType == PostType.request,
           onTap: () {
             setState(() {
@@ -427,8 +428,8 @@ class _PostScreenState extends State<PostScreen> {
         const SizedBox(height: 12),
         _TypeCard(
           icon: Iconsax.lamp_charge,
-          title: 'Post an Offer',
-          description: 'Offer your services to potential clients',
+          title: 'I Can Help',
+          description: 'Share a service you offer to potential clients',
           isSelected: _selectedType == PostType.offer,
           onTap: () {
             setState(() {
@@ -1251,9 +1252,9 @@ class _PostScreenState extends State<PostScreen> {
   String _getTypeDisplayLabel() {
     switch (_selectedType) {
       case PostType.request:
-        return 'Request';
+        return 'Need Help';
       case PostType.offer:
-        return 'Offer';
+        return 'Can Help';
       case PostType.job:
         return 'Job';
       default:

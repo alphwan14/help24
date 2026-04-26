@@ -39,7 +39,7 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final location = context.watch<LocationProvider>();
     return Scaffold(
-      appBar: AppBar(title: const Text('Urgent Requests')),
+      appBar: AppBar(title: const Text('Urgent Help Needed')),
       body: Consumer<AppProvider>(
         builder: (context, provider, _) {
           final posts = provider.urgentPosts;
@@ -47,7 +47,7 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
             return const Center(child: CircularProgressIndicator(strokeWidth: 2));
           }
           if (posts.isEmpty) {
-            return const Center(child: Text('No urgent requests nearby'));
+            return const Center(child: Text('No urgent help requests nearby'));
           }
           return ListView.separated(
             padding: const EdgeInsets.all(16),

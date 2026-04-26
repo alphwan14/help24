@@ -26,6 +26,7 @@ class _JobsScreenState extends State<JobsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SafeArea(
+      top: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -555,11 +555,11 @@ class PostModel {
     }
   }
 
-  /// Display label for post type (Request / Offer / Job) for badges.
+  /// Display label for post type — shown on feed cards and in the detail sheet.
   String get typeDisplayLabel {
     switch (type) {
-      case PostType.request: return 'Request';
-      case PostType.offer: return 'Offer';
+      case PostType.request: return 'Need Help';
+      case PostType.offer: return 'Can Help';
       case PostType.job: return 'Job';
     }
   }

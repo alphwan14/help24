@@ -115,7 +115,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     return Scaffold(
-      body: Column(
+      body: SafeArea(
+        bottom: false,
+        child: Column(
         children: [
           Consumer<ConnectivityProvider>(
             builder: (_, connectivity, __) =>
@@ -142,6 +144,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
           ),
         ],
+        ),
       ),
       bottomNavigationBar: _showPostScreen
           ? null
@@ -174,10 +177,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final shouldShow = await location.shouldShowExplainer(uid);
     if (!mounted || !shouldShow || _locationPromptInFlight) return;
     _locationPromptInFlight = true;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => LocationPermissionExplainerScreen(userId: uid),
-      ),
+    await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => LocationPermissionExplainerScreen(userId: uid),
     );
     _locationPromptInFlight = false;
     if (!mounted) return;

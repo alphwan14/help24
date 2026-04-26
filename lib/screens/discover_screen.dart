@@ -15,8 +15,11 @@ import '../widgets/auth_guard.dart';
 import '../providers/auth_provider.dart';
 import '../services/comment_service_firestore.dart';
 import '../services/post_service.dart';
+import '../config/supabase_config.dart';
 import 'messages_screen.dart';
 import 'urgent_requests_screen.dart';
+import 'payment_screen.dart';
+import 'provider_registration_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
@@ -28,6 +31,17 @@ class DiscoverScreen extends StatefulWidget {
 class _DiscoverScreenState extends State<DiscoverScreen> {
   final TextEditingController _searchController = TextEditingController();
 
+  // Feed mode
+  bool _isProvidersTab = false;
+
+  // Provider feed state
+  String _providerFilter = 'All';
+  List<Map<String, dynamic>> _providers = [];
+  List<Map<String, dynamic>> _filteredProviders = [];
+  bool _isLoadingProviders = false;
+  String? _providersError;
+  String _providerSearchQuery = '';
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -38,52 +52,149 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     await context.read<AppProvider>().loadPosts();
   }
 
+  Future<void> _fetchProviders() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingProviders = true;
+      _providersError = null;
+    });
+    try {
+      final data = await SupabaseConfig.client
+          .from('providers')
+          .select('id, name, services, location, created_at')
+          .order('created_at', ascending: false);
+      if (!mounted) return;
+      setState(() {
+        _providers = List<Map<String, dynamic>>.from(data as List);
+        _isLoadingProviders = false;
+      });
+      _applyProviderFilters();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _providersError = 'Could not load providers. Pull to refresh.';
+        _isLoadingProviders = false;
+      });
+    }
+  }
+
+  void _applyProviderFilters() {
+    final query = _providerSearchQuery.toLowerCase();
+    var result = List<Map<String, dynamic>>.from(_providers);
+
+    if (query.isNotEmpty) {
+      result = result.where((p) {
+        final name = (p['name'] as String? ?? '').toLowerCase();
+        final location = (p['location'] as String? ?? '').toLowerCase();
+        final rawServices = p['services'];
+        final servicesStr = rawServices is List
+            ? rawServices.join(' ').toLowerCase()
+            : (rawServices?.toString().toLowerCase() ?? '');
+        return name.contains(query) ||
+            servicesStr.contains(query) ||
+            location.contains(query);
+      }).toList();
+    }
+
+    if (_providerFilter == 'Nearby') {
+      final city =
+          context.read<LocationProvider>().city?.toLowerCase() ?? '';
+      if (city.isNotEmpty) {
+        result = result
+            .where((p) => (p['location'] as String? ?? '')
+                .toLowerCase()
+                .contains(city))
+            .toList();
+      }
+    }
+    // 'Top Rated' and 'All' keep existing order (newest-first from Supabase)
+
+    if (mounted) setState(() => _filteredProviders = result);
+  }
+
+  void _switchToTab(bool toProviders) {
+    if (_isProvidersTab == toProviders) return;
+    _searchController.clear();
+    setState(() {
+      _isProvidersTab = toProviders;
+      _providerFilter = 'All';
+      _providerSearchQuery = '';
+    });
+    if (toProviders) {
+      if (_providers.isEmpty) _fetchProviders();
+    } else {
+      context.read<AppProvider>().setSearchQuery('');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textSecondary =
+        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final searchText = _searchController.text;
 
     return SafeArea(
+      top: false,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Top bar ──────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Discover', style: Theme.of(context).textTheme.headlineMedium),
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const UrgentRequestsScreen()),
-                    );
-                  },
-                  icon: const Text('🚨'),
-                  label: const Text('Urgent'),
+                Text('Discover',
+                    style: Theme.of(context).textTheme.headlineMedium),
+                TextButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const UrgentRequestsScreen()),
+                  ),
+                  child: const Text('Urgent'),
                 ),
               ],
             ),
           ),
-          // Search Bar
+
+          // ── Search bar ───────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
                 return TextField(
                   controller: _searchController,
-                  onChanged: provider.setSearchQuery,
+                  onChanged: (value) {
+                    if (_isProvidersTab) {
+                      setState(() => _providerSearchQuery = value);
+                      _applyProviderFilters();
+                    } else {
+                      provider.setSearchQuery(value);
+                    }
+                  },
                   decoration: InputDecoration(
-                    hintText: 'Search services, tasks, or offers...',
+                    hintText: _isProvidersTab
+                        ? 'Search service providers...'
+                        : 'Search services, tasks, or offers...',
                     prefixIcon: Icon(
                       Iconsax.search_normal,
-                      color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                      color: isDark
+                          ? AppTheme.darkTextTertiary
+                          : AppTheme.lightTextTertiary,
                     ),
-                    suffixIcon: provider.searchQuery.isNotEmpty
+                    suffixIcon: searchText.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.close, size: 20),
                             onPressed: () {
                               _searchController.clear();
-                              provider.setSearchQuery('');
+                              if (_isProvidersTab) {
+                                setState(() => _providerSearchQuery = '');
+                                _applyProviderFilters();
+                              } else {
+                                provider.setSearchQuery('');
+                              }
                             },
                           )
                         : null,
@@ -93,194 +204,368 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ),
           ),
 
-          // Filter Row
+          // ── Content-type toggle (Posts | Providers) ──────────
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Consumer<AppProvider>(
-              builder: (context, provider, _) {
-                return Row(
-                  children: [
-                    // Filter Pills
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: ['All', 'Requests', 'Offers'].map((filter) {
-                            final isSelected = provider.selectedFilter == filter;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: GestureDetector(
-                                onTap: () => provider.setSelectedFilter(filter),
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 200),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isSelected
-                                        ? AppTheme.primaryAccent
-                                        : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-                                    borderRadius: BorderRadius.circular(24),
-                                    border: Border.all(
-                                      color: isSelected
-                                          ? AppTheme.primaryAccent
-                                          : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    filter,
-                                    style: TextStyle(
-                                      color: isSelected
-                                          ? Colors.white
-                                          : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    // Filter Button
-                    GestureDetector(
-                      onTap: () async {
-                        await showModalBottomSheet(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => DraggableScrollableSheet(
-                            initialChildSize: 0.85,
-                            minChildSize: 0.5,
-                            maxChildSize: 0.95,
-                            builder: (context, scrollController) {
-                              return const FilterBottomSheet();
-                            },
-                          ),
-                        );
-                        // Reload posts after filter changes
-                        if (mounted) {
-                          provider.applyFilters();
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: provider.hasActiveFilters 
-                              ? AppTheme.primaryAccent.withValues(alpha: 0.12)
-                              : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: provider.hasActiveFilters
-                                ? AppTheme.primaryAccent
-                                : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Iconsax.filter,
-                              size: 18,
-                              color: provider.hasActiveFilters
-                                  ? AppTheme.primaryAccent
-                                  : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                            ),
-                            if (provider.hasActiveFilters) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  color: AppTheme.primaryAccent,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+            child: Row(
+              children: [
+                _ToggleTab(
+                  label: 'Posts',
+                  isActive: !_isProvidersTab,
+                  onTap: () => _switchToTab(false),
+                ),
+                const SizedBox(width: 28),
+                _ToggleTab(
+                  label: 'Providers',
+                  isActive: _isProvidersTab,
+                  onTap: () => _switchToTab(true),
+                ),
+              ],
             ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
 
-          // Posts List
-          Expanded(
-            child: Consumer2<AppProvider, ConnectivityProvider>(
-              builder: (context, provider, connectivity, _) {
-                final posts = provider.filteredPosts;
+          // ── Dynamic filter row ───────────────────────────────
+          _buildFilterRow(isDark),
 
-                if (provider.isLoadingPosts && posts.isEmpty) {
-                  return const FeedSkeletonList();
-                }
-
-                if (posts.isEmpty) {
-                  // Only show offline empty state when offline AND no cached data.
-                  if (connectivity.isOffline) {
-                    return OfflineEmptyView(
-                      message: 'No internet connection',
-                      onRetry: () {
-                        connectivity.checkNow();
-                        _refreshPosts();
-                      },
-                    );
-                  }
-                  return EmptyStateView(
-                    icon: Iconsax.document,
-                    title: 'No posts found',
-                    subtitle: provider.error ?? 'Try adjusting your filters or search. Pull to refresh.',
-                    actions: [
-                      TextButton.icon(
-                        onPressed: _refreshPosts,
-                        icon: const Icon(Icons.refresh, size: 20),
-                        label: const Text('Refresh'),
-                      ),
-                      if (provider.hasActiveFilters)
-                        TextButton.icon(
-                          onPressed: () => provider.clearFilters(),
-                          icon: const Icon(Iconsax.close_circle, size: 20),
-                          label: const Text('Clear Filters'),
-                        ),
-                    ],
-                  );
-                }
-
-                return RefreshIndicator(
-                  onRefresh: _refreshPosts,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    itemCount: posts.length,
-                    itemBuilder: (context, index) {
-                      final post = posts[index];
-                      return PostCard(
-                        post: post,
-                        onTap: () => _showPostDetails(context, post),
-                        onRespond: post.type == PostType.request
-                            ? () {
-                                AuthGuard.requireAuth(
-                                  context,
-                                  action: 'message about this request',
-                                  onAuthenticated: () => _openPrivateChat(context, post),
-                                );
-                              }
-                            : null,
-                      );
-                    },
-                  ),
-                );
-              },
+          // ── Context label (only when user has typed something) ─
+          if (searchText.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+              child: Text(
+                _isProvidersTab
+                    ? 'Showing service providers for "$searchText"'
+                    : 'Showing posts for "$searchText"',
+                style: TextStyle(
+                  color: textSecondary,
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
             ),
+
+          const SizedBox(height: 8),
+
+          // ── Feed ─────────────────────────────────────────────
+          Expanded(
+            child: _isProvidersTab
+                ? _buildProvidersFeed(isDark)
+                : _buildPostsFeed(),
           ),
         ],
+      ),
+    );
+  }
+
+  // ── Filter rows ────────────────────────────────────────────────
+
+  Widget _buildFilterRow(bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: _isProvidersTab
+          ? _buildProviderFilterRow(isDark)
+          : _buildPostFilterRow(isDark),
+    );
+  }
+
+  Widget _buildPostFilterRow(bool isDark) {
+    return Consumer<AppProvider>(
+      builder: (context, provider, _) {
+        return Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: ['All', 'Need Help', 'Can Help'].map((filter) {
+                    final isSelected = provider.selectedFilter == filter;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        onTap: () => provider.setSelectedFilter(filter),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 18, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppTheme.primaryAccent
+                                : (isDark
+                                    ? AppTheme.darkCard
+                                    : AppTheme.lightCard),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppTheme.primaryAccent
+                                  : (isDark
+                                      ? AppTheme.darkBorder
+                                      : AppTheme.lightBorder),
+                            ),
+                          ),
+                          child: Text(
+                            filter,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? Colors.white
+                                  : (isDark
+                                      ? AppTheme.darkTextPrimary
+                                      : AppTheme.lightTextPrimary),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            GestureDetector(
+              onTap: () async {
+                await showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => DraggableScrollableSheet(
+                    initialChildSize: 0.85,
+                    minChildSize: 0.5,
+                    maxChildSize: 0.95,
+                    builder: (context, scrollController) =>
+                        const FilterBottomSheet(),
+                  ),
+                );
+                if (mounted) provider.applyFilters();
+              },
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: provider.hasActiveFilters
+                      ? AppTheme.primaryAccent.withValues(alpha: 0.12)
+                      : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: provider.hasActiveFilters
+                        ? AppTheme.primaryAccent
+                        : (isDark
+                            ? AppTheme.darkBorder
+                            : AppTheme.lightBorder),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Iconsax.filter,
+                      size: 18,
+                      color: provider.hasActiveFilters
+                          ? AppTheme.primaryAccent
+                          : (isDark
+                              ? AppTheme.darkTextPrimary
+                              : AppTheme.lightTextPrimary),
+                    ),
+                    if (provider.hasActiveFilters) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.primaryAccent,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildProviderFilterRow(bool isDark) {
+    const filters = ['All', 'Nearby', 'Top Rated'];
+    return Row(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: filters.map((filter) {
+                final isSelected = _providerFilter == filter;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() => _providerFilter = filter);
+                      _applyProviderFilters();
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppTheme.primaryAccent
+                            : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: isSelected
+                              ? AppTheme.primaryAccent
+                              : (isDark
+                                  ? AppTheme.darkBorder
+                                  : AppTheme.lightBorder),
+                        ),
+                      ),
+                      child: Text(
+                        filter,
+                        style: TextStyle(
+                          color: isSelected
+                              ? Colors.white
+                              : (isDark
+                                  ? AppTheme.darkTextPrimary
+                                  : AppTheme.lightTextPrimary),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        // Filter icon (reserved for future provider filters)
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+          ),
+          child: Icon(
+            Iconsax.filter,
+            size: 18,
+            color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Feed widgets ────────────────────────────────────────────────
+
+  Widget _buildPostsFeed() {
+    return Consumer2<AppProvider, ConnectivityProvider>(
+      builder: (context, provider, connectivity, _) {
+        final posts = provider.filteredPosts;
+
+        if (provider.isLoadingPosts && posts.isEmpty) {
+          return const FeedSkeletonList();
+        }
+
+        if (posts.isEmpty) {
+          if (connectivity.isOffline) {
+            return OfflineEmptyView(
+              message: 'No internet connection',
+              onRetry: () {
+                connectivity.checkNow();
+                _refreshPosts();
+              },
+            );
+          }
+          return EmptyStateView(
+            icon: Iconsax.document,
+            title: 'No posts found',
+            subtitle: provider.error ??
+                'Try adjusting your filters or search. Pull to refresh.',
+            actions: [
+              TextButton.icon(
+                onPressed: _refreshPosts,
+                icon: const Icon(Icons.refresh, size: 20),
+                label: const Text('Refresh'),
+              ),
+              if (provider.hasActiveFilters)
+                TextButton.icon(
+                  onPressed: () => provider.clearFilters(),
+                  icon: const Icon(Iconsax.close_circle, size: 20),
+                  label: const Text('Clear Filters'),
+                ),
+            ],
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: _refreshPosts,
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: posts.length,
+            itemBuilder: (context, index) {
+              final post = posts[index];
+              return PostCard(
+                post: post,
+                onTap: () => _showPostDetails(context, post),
+                onRespond: post.type == PostType.request
+                    ? () {
+                        AuthGuard.requireAuth(
+                          context,
+                          action: 'offer help on this request',
+                          onAuthenticated: () =>
+                              _openPrivateChat(context, post),
+                        );
+                      }
+                    : null,
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProvidersFeed(bool isDark) {
+    if (_isLoadingProviders && _filteredProviders.isEmpty) {
+      return const FeedSkeletonList();
+    }
+
+    if (_filteredProviders.isEmpty && !_isLoadingProviders) {
+      return EmptyStateView(
+        icon: Iconsax.profile_2user,
+        title: _providersError != null
+            ? 'Could not load providers'
+            : 'No providers found',
+        subtitle: _providersError ??
+            (_providerFilter == 'Nearby'
+                ? 'No providers near you yet. Try "All" to see everyone.'
+                : 'No service providers registered yet. Be the first!'),
+        actions: [
+          TextButton.icon(
+            onPressed: _fetchProviders,
+            icon: const Icon(Icons.refresh, size: 20),
+            label: const Text('Refresh'),
+          ),
+        ],
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _fetchProviders,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: _filteredProviders.length,
+        itemBuilder: (context, index) {
+          return _ProviderCard(
+            provider: _filteredProviders[index],
+            isDark: isDark,
+          );
+        },
       ),
     );
   }
@@ -545,7 +830,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           AuthGuard.requireAuth(
                             context,
                             action: post.type == PostType.request
-                                ? 'message about this request'
+                                ? 'message about this help request'
                                 : 'contact this provider',
                             onAuthenticated: () => _openPrivateChat(context, post),
                           );
@@ -554,10 +839,52 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           post.type == PostType.request ? Iconsax.send_2 : Iconsax.message,
                         ),
                         label: Text(
-                          post.type == PostType.request ? 'Message about request' : 'Contact Provider',
+                          post.type == PostType.request ? 'I Can Help' : 'Contact Provider',
                         ),
                       ),
                     ),
+
+                    // Pay button — offer posts only, non-author viewers
+                    if (post.type == PostType.offer && !isAuthor && post.price > 0) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.successGreen,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () {
+                            AuthGuard.requireAuth(
+                              context,
+                              action: 'pay for this service',
+                              onAuthenticated: () {
+                                final buyerUserId =
+                                    context.read<AuthProvider>().currentUserId ?? '';
+                                Navigator.pop(context);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => PaymentScreen(
+                                      postId: post.id,
+                                      postTitle: post.title,
+                                      amount: post.price,
+                                      buyerUserId: buyerUserId,
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                          icon: const Icon(Icons.payment),
+                          label: const Text('Secure & Pay',
+                              style: TextStyle(fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -923,6 +1250,316 @@ class _CommentInputBarState extends State<_CommentInputBar> {
               : const Icon(Icons.send_rounded, size: 20),
         ),
       ],
+    );
+  }
+}
+
+// ─── Content-type toggle tab ────────────────────────────────────────────────
+
+/// A single tab in the Posts / Providers toggle row.
+/// Shows label text; active tab has a coloured underline bar.
+class _ToggleTab extends StatelessWidget {
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _ToggleTab({
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeColor =
+        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final inactiveColor =
+        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: isActive ? activeColor : inactiveColor,
+              fontSize: 16,
+              fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+            ),
+          ),
+          const SizedBox(height: 5),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            height: 2.5,
+            width: isActive ? label.length * 9.8 : 0,
+            decoration: BoxDecoration(
+              color: AppTheme.primaryAccent,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Provider card ──────────────────────────────────────────────────────────
+
+/// Card shown in the Providers feed.
+class _ProviderCard extends StatelessWidget {
+  final Map<String, dynamic> provider;
+  final bool isDark;
+
+  const _ProviderCard({required this.provider, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = provider['name'] as String? ?? 'Unknown';
+    final location = provider['location'] as String? ?? '';
+    final rawServices = provider['services'];
+    final List<String> services = rawServices is List
+        ? rawServices.map((s) => s.toString()).toList()
+        : (rawServices?.toString().isNotEmpty == true
+            ? [rawServices.toString()]
+            : []);
+
+    // Build initials (up to 2 words)
+    final initials = name.trim().split(RegExp(r'\s+')).take(2).map((w) {
+      return w.isEmpty ? '' : w[0].toUpperCase();
+    }).join();
+
+    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final textPrimary =
+        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary =
+        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Avatar with gradient initials
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [AppTheme.primaryAccent, AppTheme.secondaryAccent],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Center(
+              child: Text(
+                initials.isEmpty ? '?' : initials,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+
+          // Name, location, service tags
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (location.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.location_on_outlined,
+                          size: 13, color: textSecondary),
+                      const SizedBox(width: 3),
+                      Flexible(
+                        child: Text(
+                          location,
+                          style:
+                              TextStyle(color: textSecondary, fontSize: 12),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (services.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: services.take(4).map((service) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryAccent.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: AppTheme.primaryAccent
+                                  .withValues(alpha: 0.25)),
+                        ),
+                        child: Text(
+                          service,
+                          style: const TextStyle(
+                            color: AppTheme.primaryAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Verified badge
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: AppTheme.successGreen.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.verified_rounded,
+                size: 16, color: AppTheme.successGreen),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Legacy banner (kept, no longer rendered in main build) ─────────────────
+
+/// Collapsible provider intro banner shown at the top of the feed.
+class _ProviderIntroBanner extends StatefulWidget {
+  @override
+  State<_ProviderIntroBanner> createState() => _ProviderIntroBannerState();
+}
+
+class _ProviderIntroBannerState extends State<_ProviderIntroBanner> {
+  bool _dismissed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+          gradient: LinearGradient(
+            colors: [
+              AppTheme.primaryAccent.withValues(alpha: 0.08),
+              AppTheme.secondaryAccent.withValues(alpha: 0.04),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.verified_user_outlined,
+                  color: AppTheme.primaryAccent, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Offer your services here',
+                      style: TextStyle(
+                          color: textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13)),
+                  const SizedBox(height: 2),
+                  Text('Become a provider & get paid via M-Pesa',
+                      style: TextStyle(color: textSecondary, fontSize: 12)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProviderRegistrationScreen(),
+                  ),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryAccent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Join',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12)),
+              ),
+            ),
+            const SizedBox(width: 4),
+            GestureDetector(
+              onTap: () => setState(() => _dismissed = true),
+              child: Icon(Icons.close, size: 16, color: textSecondary),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

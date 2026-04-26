@@ -48,7 +48,7 @@ class PostCard extends StatelessWidget {
     final textTertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
 
     final isRequest = post.type == PostType.request;
-    final ctaLabel = isRequest ? 'Respond' : 'View';
+    final ctaLabel = isRequest ? 'Offer Help' : 'View';
 
     return GestureDetector(
       onTap: onTap,

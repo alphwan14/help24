@@ -32,6 +32,7 @@ dependencies:
   google_maps_flutter: ^2.9.0
   webview_flutter: ^4.10.0
   connectivity_plus: ^6.0.5
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:

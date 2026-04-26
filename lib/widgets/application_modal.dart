@@ -45,7 +45,7 @@ class _ApplicationModalState extends State<ApplicationModal> {
       case 'job':
         return 'Apply for Job';
       case 'request':
-        return 'Respond to Request';
+        return 'Help with this Request';
       case 'offer':
         return 'Accept Offer';
       default:

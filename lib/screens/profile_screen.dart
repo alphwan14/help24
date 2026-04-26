@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../widgets/loading_empty_offline.dart';
 import 'auth_screen.dart';
 import 'edit_profile_screen.dart';
+import 'provider_registration_screen.dart';
 import 'help_center_screen.dart';
 import 'terms_screen.dart';
 import 'privacy_screen.dart';
@@ -27,6 +28,7 @@ class ProfileScreen extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SafeArea(
+      top: false,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -157,11 +159,12 @@ class ProfileScreen extends StatelessWidget {
                       onTap: () async {
                         await context.read<LocationProvider>().initializeForUser(uid);
                         if (!context.mounted) return;
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => LocationPermissionExplainerScreen(userId: uid),
-                          ),
+                        await showModalBottomSheet<bool>(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (_) =>
+                              LocationPermissionExplainerScreen(userId: uid),
                         );
                         if (!context.mounted) return;
                         final locationProvider = context.read<LocationProvider>();
@@ -246,6 +249,33 @@ class ProfileScreen extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 16),
+                        _SettingsSection(
+                          title: 'Earn on Help24',
+                          children: [
+                            _SettingsTile(
+                              icon: Icons.verified_user_outlined,
+                              title: 'Become a Service Provider',
+                              subtitle: 'Offer your services & get paid instantly',
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryAccent.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'Join',
+                                  style: TextStyle(
+                                    color: AppTheme.primaryAccent,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              onTap: () => _openProviderRegistration(context),
+                            ),
+                          ],
+                        ),
                       ],
                     );
                   },
@@ -390,6 +420,16 @@ class ProfileScreen extends StatelessWidget {
           initialProfile: profile,
           emailFromAuth: auth.currentUser?.email ?? '',
         ),
+      ),
+    );
+  }
+
+  void _openProviderRegistration(BuildContext context) {
+    final phone = context.read<AuthProvider>().currentUser?.phoneNumber;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProviderRegistrationScreen(initialLoginPhone: phone),
       ),
     );
   }

@@ -203,21 +203,12 @@ class _SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.darkSurface,
+      backgroundColor: AppTheme.darkBackground,
       body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.handyman_rounded, size: 56, color: AppTheme.primaryAccent),
-            const SizedBox(height: 14),
-            Text(
-              'Help24',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ],
+        child: Image.asset(
+          'assets/help24_icon.png',
+          width: 80,
+          height: 80,
         ),
       ),
     );

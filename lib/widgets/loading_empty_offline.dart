@@ -170,23 +170,20 @@ class OfflineBanner extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       color: AppTheme.warningOrange.withValues(alpha: 0.2),
-      child: SafeArea(
-        bottom: false,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Iconsax.wifi_square, size: 18, color: AppTheme.warningOrange),
-            const SizedBox(width: 8),
-            Text(
-              "You're offline — showing cached data",
-              style: TextStyle(
-                fontSize: 13,
-                color: AppTheme.warningOrange,
-                fontWeight: FontWeight.w500,
-              ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Iconsax.wifi_square, size: 18, color: AppTheme.warningOrange),
+          const SizedBox(width: 8),
+          Text(
+            "You're offline — showing cached data",
+            style: TextStyle(
+              fontSize: 13,
+              color: AppTheme.warningOrange,
+              fontWeight: FontWeight.w500,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
