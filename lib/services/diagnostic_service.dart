@@ -1,10 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../config/supabase_config.dart';
 
 /// Diagnostic service to help debug image and database issues
 class DiagnosticService {
-  static final _client = SupabaseConfig.client;
+  static SupabaseClient get _client => Supabase.instance.client;
 
   /// Run full diagnostic check
   static Future<void> runDiagnostics() async {
@@ -42,7 +41,9 @@ class DiagnosticService {
       final posts = await _client.from('posts').select('id, title').limit(3);
       debugPrint('   ✅ posts table: ${(posts as List).length} records found');
       for (final post in posts.take(3)) {
-        debugPrint('      - ${post['id'].toString().substring(0, 8)}... : ${post['title']}');
+        final id = post['id'].toString();
+        final preview = id.length > 8 ? id.substring(0, 8) : id;
+        debugPrint('      - $preview... : ${post['title']}');
       }
     } catch (e) {
       debugPrint('   ❌ posts table: ERROR - $e');
@@ -53,7 +54,9 @@ class DiagnosticService {
       final images = await _client.from('post_images').select('id, post_id, image_url').limit(5);
       debugPrint('   ✅ post_images table: ${(images as List).length} records found');
       for (final img in images.take(5)) {
-        debugPrint('      - post_id: ${img['post_id'].toString().substring(0, 8)}...');
+        final postId = img['post_id'].toString();
+        final preview = postId.length > 8 ? postId.substring(0, 8) : postId;
+        debugPrint('      - post_id: $preview...');
         debugPrint('        url: ${img['image_url']}');
       }
     } catch (e) {

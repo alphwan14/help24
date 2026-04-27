@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../config/firebase_config.dart';
-import '../config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'user_profile_service.dart';
 
 /// User model for the app (messaging-ready: userId, name, phone, email, profileImage).
@@ -108,7 +108,7 @@ class PhoneVerificationState {
 
 /// Authentication service: Firebase (phone OTP + email) + Supabase user sync.
 class AuthService {
-  static final _supabase = SupabaseConfig.client;
+  static final _supabase = Supabase.instance.client;
 
   static bool get isFirebaseConfigured => FirebaseConfig.isConfigured;
 

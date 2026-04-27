@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../config/supabase_config.dart';
 import '../models/post_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -8,7 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// Comments = public discussion. Never mixed with private messages.
 class CommentServiceFirestore {
   static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
-  static SupabaseClient get _supabase => SupabaseConfig.client;
+  static SupabaseClient get _supabase => Supabase.instance.client;
 
   /// Real-time stream of comments for a post. Use for post details page.
   static Stream<List<PostComment>> watchComments(String postId) {

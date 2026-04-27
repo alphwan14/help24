@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
-import '../config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import 'storage_service.dart';
 
@@ -47,13 +47,7 @@ class PostServiceException implements Exception {
 
 /// Service for handling post-related operations with Supabase
 class PostService {
-  /// Get Supabase client safely
-  static get _client {
-    if (!SupabaseConfig.isInitialized) {
-      throw PostServiceException('Supabase not initialized', isNetworkError: true);
-    }
-    return SupabaseConfig.client;
-  }
+  static get _client => Supabase.instance.client;
   
   /// Check if error is a network error
   static bool _isNetworkError(dynamic error) {

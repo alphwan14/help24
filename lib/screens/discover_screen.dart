@@ -15,11 +15,11 @@ import '../widgets/auth_guard.dart';
 import '../providers/auth_provider.dart';
 import '../services/comment_service_firestore.dart';
 import '../services/post_service.dart';
-import '../config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'messages_screen.dart';
+import 'provider_profile_screen.dart';
 import 'urgent_requests_screen.dart';
 import 'payment_screen.dart';
-import 'provider_registration_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
@@ -59,17 +59,21 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       _providersError = null;
     });
     try {
-      final data = await SupabaseConfig.client
+      debugPrint('[Discover] Fetching providers from Supabase...');
+      final data = await Supabase.instance.client
           .from('providers')
           .select('id, name, services, location, created_at')
           .order('created_at', ascending: false);
       if (!mounted) return;
+      final providers = List<Map<String, dynamic>>.from(data as List);
+      debugPrint('[Discover] Got ${providers.length} provider(s): ${providers.map((p) => p['name']).toList()}');
       setState(() {
-        _providers = List<Map<String, dynamic>>.from(data as List);
+        _providers = providers;
         _isLoadingProviders = false;
       });
       _applyProviderFilters();
     } catch (e) {
+      debugPrint('[Discover] Error fetching providers: $e');
       if (!mounted) return;
       setState(() {
         _providersError = 'Could not load providers. Pull to refresh.';
@@ -561,9 +565,20 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20),
         itemCount: _filteredProviders.length,
         itemBuilder: (context, index) {
+          final p = _filteredProviders[index];
           return _ProviderCard(
-            provider: _filteredProviders[index],
+            provider: p,
             isDark: isDark,
+            onTap: () {
+              final id = p['id']?.toString() ?? '';
+              if (id.isEmpty) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ProviderProfileScreen(providerId: id),
+                ),
+              );
+            },
           );
         },
       ),
@@ -572,335 +587,375 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _showPostDetails(BuildContext context, PostModel post) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
-    final isAuthor = currentUserId.isNotEmpty && post.authorUserId == currentUserId;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Container(
-        height: MediaQuery.of(sheetContext).size.height * 0.85,
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 12),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                borderRadius: BorderRadius.circular(2),
-              ),
+      // Consumer wrapping makes isAuthor & offline reactive — no stale captures.
+      builder: (sheetContext) => Consumer2<AuthProvider, ConnectivityProvider>(
+        builder: (_, auth, connectivity, __) {
+          final currentUserId = auth.currentUserId ?? '';
+          final isAuthor = currentUserId.isNotEmpty &&
+              post.authorUserId.isNotEmpty &&
+              post.authorUserId == currentUserId;
+          final isOffline = connectivity.isOffline;
+
+          // Show whenever there is a price and the viewer isn't the author.
+          // Type is NOT used as a gate — _parsePostType defaults unknown values
+          // to PostType.request, silently hiding the button for valid offer posts.
+          final showPayButton = post.price > 0 && !isAuthor;
+
+          return Container(
+            height: MediaQuery.of(sheetContext).size.height * 0.85,
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.close, color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                    onPressed: () => Navigator.pop(sheetContext),
+            child: Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  if (isAuthor)
-                    TextButton.icon(
-                      onPressed: () => _confirmAndDeletePost(sheetContext, context, post),
-                      icon: Icon(Icons.delete_outline, size: 20, color: AppTheme.errorRed),
-                      label: Text('Delete', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
-                    )
-                  else
-                    const SizedBox(width: 48),
-                ],
-              ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Images
-                    if (post.images.isNotEmpty) ...[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: SizedBox(
-                          height: 200,
-                          width: double.infinity,
-                          child: PageView.builder(
-                            itemCount: post.images.length,
-                            itemBuilder: (context, index) {
-                              return Image.network(
-                                post.images[index],
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: AppTheme.darkCard,
-                                    child: const Icon(Icons.image_not_supported),
+                ),
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.close,
+                            color: isDark
+                                ? AppTheme.darkTextPrimary
+                                : AppTheme.lightTextPrimary),
+                        onPressed: () => Navigator.pop(sheetContext),
+                      ),
+                      if (isAuthor)
+                        TextButton.icon(
+                          onPressed: () => _confirmAndDeletePost(
+                              sheetContext, context, post),
+                          icon: Icon(Icons.delete_outline,
+                              size: 20, color: AppTheme.errorRed),
+                          label: Text('Delete',
+                              style: TextStyle(
+                                  color: AppTheme.errorRed,
+                                  fontWeight: FontWeight.w600)),
+                        )
+                      else
+                        const SizedBox(width: 48),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Images
+                        if (post.images.isNotEmpty) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: SizedBox(
+                              height: 200,
+                              width: double.infinity,
+                              child: PageView.builder(
+                                itemCount: post.images.length,
+                                itemBuilder: (context, index) {
+                                  return Image.network(
+                                    post.images[index],
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) {
+                                      return Container(
+                                        color: AppTheme.darkCard,
+                                        child: const Icon(
+                                            Icons.image_not_supported),
+                                      );
+                                    },
                                   );
                                 },
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Header
-                    Row(
-                      children: [
-                        Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Icon(
-                            post.category.icon,
-                            color: AppTheme.primaryAccent,
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                post.title,
-                                style: Theme.of(context).textTheme.headlineSmall,
                               ),
-                              const SizedBox(height: 4),
-                              Row(
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+
+                        // Header
+                        Row(
+                          children: [
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryAccent
+                                    .withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Icon(
+                                post.category.icon,
+                                color: AppTheme.primaryAccent,
+                                size: 28,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      post.category.name,
-                                      style: TextStyle(
+                                  Text(
+                                    post.title,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineSmall,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: [
+                                      _BadgeChip(
+                                        label: post.category.name,
                                         color: AppTheme.primaryAccent,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
                                       ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: post.typeBadgeColor.withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      post.typeDisplayLabel,
-                                      style: TextStyle(
+                                      _BadgeChip(
+                                        label: post.typeDisplayLabel,
                                         color: post.typeBadgeColor,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
                                       ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: post.urgencyColor.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Container(
-                                          width: 6,
-                                          height: 6,
-                                          decoration: BoxDecoration(
-                                            color: post.urgencyColor,
-                                            shape: BoxShape.circle,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          post.urgencyText,
-                                          style: TextStyle(
-                                            color: post.urgencyColor,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                      _BadgeChip(
+                                        label: post.urgencyText,
+                                        color: post.urgencyColor,
+                                        dot: true,
+                                      ),
+                                    ],
                                   ),
                                 ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Description
+                        Text('Description',
+                            style:
+                                Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 8),
+                        Text(post.description,
+                            style: Theme.of(context).textTheme.bodyLarge),
+                        const SizedBox(height: 24),
+
+                        // Details grid
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? AppTheme.darkCard
+                                : AppTheme.lightBackground,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            children: [
+                              _DetailRow(
+                                icon: Icons.location_on_outlined,
+                                label: 'Location',
+                                value: post.location,
+                              ),
+                              const Divider(height: 24),
+                              _DetailRow(
+                                icon: Icons.payments_outlined,
+                                label: post.type == PostType.request
+                                    ? 'Budget'
+                                    : post.type == PostType.job
+                                        ? 'Pay'
+                                        : 'Price',
+                                value:
+                                    '${post.pricingType.displayLabel} · ${formatPriceDisplay(post.price)}',
+                                valueColor: AppTheme.successGreen,
+                              ),
+                              if (post.type == PostType.job &&
+                                  post.employmentType != null) ...[
+                                const Divider(height: 24),
+                                _DetailRow(
+                                  icon: Icons.work_outline,
+                                  label: 'Employment',
+                                  value:
+                                      post.employmentType!.displayLabel,
+                                ),
+                              ],
+                              const Divider(height: 24),
+                              _DetailRow(
+                                icon: Icons.trending_up,
+                                label: 'Difficulty',
+                                value: post.difficultyText,
+                                valueColor: post.difficultyColor,
+                              ),
+                              const Divider(height: 24),
+                              _DetailRow(
+                                icon: Icons.star_outline,
+                                label: 'Rating',
+                                value: '${post.rating} / 5.0',
+                                valueColor: AppTheme.warningOrange,
                               ),
                             ],
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
 
-                    // Description
-                    Text(
-                      'Description',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      post.description,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Details Grid
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        children: [
-                          _DetailRow(
-                            icon: Icons.location_on_outlined,
-                            label: 'Location',
-                            value: post.location,
-                          ),
-                          const Divider(height: 24),
-                          _DetailRow(
-                            icon: Icons.payments_outlined,
-                            label: post.type == PostType.request
-                                ? 'Budget'
-                                : post.type == PostType.job
-                                    ? 'Pay'
-                                    : 'Price',
-                            value: '${post.pricingType.displayLabel} · ${formatPriceDisplay(post.price)}',
-                            valueColor: AppTheme.successGreen,
-                          ),
-                          if (post.type == PostType.job && post.employmentType != null) ...[
-                            const Divider(height: 24),
-                            _DetailRow(
-                              icon: Icons.work_outline,
-                              label: 'Employment',
-                              value: post.employmentType!.displayLabel,
-                            ),
-                          ],
-                          const Divider(height: 24),
-                          _DetailRow(
-                            icon: Icons.trending_up,
-                            label: 'Difficulty',
-                            value: post.difficultyText,
-                            valueColor: post.difficultyColor,
-                          ),
-                          const Divider(height: 24),
-                          _DetailRow(
-                            icon: Icons.star_outline,
-                            label: 'Rating',
-                            value: '${post.rating} / 5.0',
-                            valueColor: AppTheme.warningOrange,
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Public comments list (input is fixed below with keyboard avoidance)
-                    const SizedBox(height: 24),
-                    Text(
-                      'Comments',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 12),
-                    _CommentsList(postId: post.id),
-                    const SizedBox(height: 24),
-
-                    // Contact = private DM only (no public responders)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          AuthGuard.requireAuth(
-                            context,
-                            action: post.type == PostType.request
-                                ? 'message about this help request'
-                                : 'contact this provider',
-                            onAuthenticated: () => _openPrivateChat(context, post),
-                          );
-                        },
-                        icon: Icon(
-                          post.type == PostType.request ? Iconsax.send_2 : Iconsax.message,
-                        ),
-                        label: Text(
-                          post.type == PostType.request ? 'I Can Help' : 'Contact Provider',
-                        ),
-                      ),
-                    ),
-
-                    // Pay button — offer posts only, non-author viewers
-                    if (post.type == PostType.offer && !isAuthor && post.price > 0) ...[
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.successGreen,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: () {
-                            AuthGuard.requireAuth(
-                              context,
-                              action: 'pay for this service',
-                              onAuthenticated: () {
-                                final buyerUserId =
-                                    context.read<AuthProvider>().currentUserId ?? '';
-                                Navigator.pop(context);
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => PaymentScreen(
-                                      postId: post.id,
-                                      postTitle: post.title,
-                                      amount: post.price,
-                                      buyerUserId: buyerUserId,
+                        // ── Secure & Pay button ──────────────────────────────
+                        // Shown before comments so it's never hidden by scroll.
+                        // Visible when: price > 0 AND viewer is not the author.
+                        if (showPayButton) ...[
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isOffline
+                                    ? AppTheme.successGreen
+                                        .withValues(alpha: 0.55)
+                                    : AppTheme.successGreen,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(12)),
+                              ),
+                              onPressed: () {
+                                if (isOffline) {
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(
+                                    SnackBar(
+                                      content: const Row(
+                                        children: [
+                                          Icon(Icons.wifi_off_rounded,
+                                              color: Colors.white,
+                                              size: 18),
+                                          SizedBox(width: 10),
+                                          Flexible(
+                                            child: Text(
+                                                "You're offline. Connect to proceed."),
+                                          ),
+                                        ],
+                                      ),
+                                      backgroundColor:
+                                          AppTheme.warningOrange,
+                                      behavior:
+                                          SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(
+                                                  10)),
                                     ),
-                                  ),
+                                  );
+                                  return;
+                                }
+                                AuthGuard.requireAuth(
+                                  context,
+                                  action: 'pay for this service',
+                                  onAuthenticated: () {
+                                    final buyerUserId = context
+                                            .read<AuthProvider>()
+                                            .currentUserId ??
+                                        '';
+                                    final fee = calculatePlatformFee(
+                                        post.price);
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => PaymentScreen(
+                                          postId: post.id,
+                                          postTitle: post.title,
+                                          amount: post.price,
+                                          platformFee: fee,
+                                          buyerUserId: buyerUserId,
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 );
                               },
-                            );
-                          },
-                          icon: const Icon(Icons.payment),
-                          label: const Text('Secure & Pay',
-                              style: TextStyle(fontWeight: FontWeight.w700)),
+                              icon: Icon(
+                                isOffline
+                                    ? Icons.wifi_off_rounded
+                                    : Icons.lock_rounded,
+                                size: 18,
+                              ),
+                              label: Text(
+                                isOffline
+                                    ? 'Secure & Pay (offline)'
+                                    : 'Secure & Pay · KES ${(post.price + calculatePlatformFee(post.price)).toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                        ],
+
+                        // Contact button
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              AuthGuard.requireAuth(
+                                context,
+                                action: post.type == PostType.request
+                                    ? 'message about this help request'
+                                    : 'contact this provider',
+                                onAuthenticated: () =>
+                                    _openPrivateChat(context, post),
+                              );
+                            },
+                            icon: Icon(
+                              post.type == PostType.request
+                                  ? Iconsax.send_2
+                                  : Iconsax.message,
+                            ),
+                            label: Text(
+                              post.type == PostType.request
+                                  ? 'I Can Help'
+                                  : 'Contact Provider',
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
-                  ],
+
+                        const SizedBox(height: 24),
+                        Text('Comments',
+                            style:
+                                Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 12),
+                        _CommentsList(postId: post.id),
+                        const SizedBox(height: 24),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+                // Comment input pinned above keyboard
+                Padding(
+                  padding: EdgeInsets.only(
+                    bottom:
+                        MediaQuery.of(sheetContext).viewInsets.bottom,
+                    left: 16,
+                    right: 16,
+                    top: 8,
+                  ),
+                  child: _CommentInputBar(postId: post.id),
+                ),
+              ],
             ),
-            // Comment input fixed above keyboard — padding keeps it visible when keyboard opens
-            Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-                left: 16,
-                right: 16,
-                top: 8,
-              ),
-              child: _CommentInputBar(postId: post.id),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -1033,6 +1088,48 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
+}
+
+/// Compact badge chip used in the post-detail sheet header badges row.
+class _BadgeChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool dot;
+
+  const _BadgeChip({
+    required this.label,
+    required this.color,
+    this.dot = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (dot) ...[
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+                color: color, fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _DetailRow extends StatelessWidget {
@@ -1315,8 +1412,13 @@ class _ToggleTab extends StatelessWidget {
 class _ProviderCard extends StatelessWidget {
   final Map<String, dynamic> provider;
   final bool isDark;
+  final VoidCallback? onTap;
 
-  const _ProviderCard({required this.provider, required this.isDark});
+  const _ProviderCard({
+    required this.provider,
+    required this.isDark,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1341,11 +1443,17 @@ class _ProviderCard extends StatelessWidget {
     final textSecondary =
         isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: cardBg,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor),
         boxShadow: [
@@ -1460,106 +1568,10 @@ class _ProviderCard extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-// ─── Legacy banner (kept, no longer rendered in main build) ─────────────────
-
-/// Collapsible provider intro banner shown at the top of the feed.
-class _ProviderIntroBanner extends StatefulWidget {
-  @override
-  State<_ProviderIntroBanner> createState() => _ProviderIntroBannerState();
-}
-
-class _ProviderIntroBannerState extends State<_ProviderIntroBanner> {
-  bool _dismissed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    if (_dismissed) return const SizedBox.shrink();
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: borderColor),
-          gradient: LinearGradient(
-            colors: [
-              AppTheme.primaryAccent.withValues(alpha: 0.08),
-              AppTheme.secondaryAccent.withValues(alpha: 0.04),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
           ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.verified_user_outlined,
-                  color: AppTheme.primaryAccent, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Offer your services here',
-                      style: TextStyle(
-                          color: textPrimary,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13)),
-                  const SizedBox(height: 2),
-                  Text('Become a provider & get paid via M-Pesa',
-                      style: TextStyle(color: textSecondary, fontSize: 12)),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ProviderRegistrationScreen(),
-                  ),
-                );
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryAccent,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text('Join',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12)),
-              ),
-            ),
-            const SizedBox(width: 4),
-            GestureDetector(
-              onTap: () => setState(() => _dismissed = true),
-              child: Icon(Icons.close, size: 16, color: textSecondary),
-            ),
-          ],
         ),
       ),
     );
   }
 }
+

@@ -2,14 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
-import '../config/supabase_config.dart';
 
 /// Service for handling image uploads to Supabase Storage
 /// Supports both mobile (File) and web (XFile with bytes) platforms
 class StorageService {
-  static SupabaseClient get _client => SupabaseConfig.client;
-  static const _bucket = SupabaseConfig.postImagesBucket;
-  static const _profilesBucket = SupabaseConfig.profilesBucket;
+  static SupabaseClient get _client => Supabase.instance.client;
+  static const _bucket = 'post-images';
+  static const _profilesBucket = 'profiles';
 
   /// Maximum file size in bytes (5MB)
   static const int maxFileSize = 5 * 1024 * 1024;

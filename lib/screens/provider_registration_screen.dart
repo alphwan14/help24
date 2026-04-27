@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../providers/provider_status_provider.dart';
 import '../services/provider_service.dart';
 import '../theme/app_theme.dart';
 
@@ -88,14 +90,24 @@ class _ProviderRegistrationScreenState
     setState(() { _submitting = true; _submitError = null; });
 
     try {
-      await ProviderService.registerProvider(
+      final result = await ProviderService.registerProvider(
         name: _nameController.text.trim(),
         phoneLogin: _phoneLoginController.text.trim(),
         phonePayout: _phonePayoutController.text.trim(),
         services: List<String>.from(_selectedServices),
         location: _locationController.text.trim(),
       );
-      if (mounted) setState(() { _submitting = false; _success = true; });
+      if (!mounted) return;
+      // Immediately update global provider state so Profile screen rebuilds
+      // before the user even taps "Go to Discover".
+      context.read<ProviderStatusProvider>().markAsProvider({
+        ...result,
+        'name': _nameController.text.trim(),
+        'phone_login': ProviderService.normalizePhone(_phoneLoginController.text.trim()),
+        'services': List<String>.from(_selectedServices),
+        'location': _locationController.text.trim(),
+      });
+      setState(() { _submitting = false; _success = true; });
     } on ProviderServiceException catch (e) {
       if (mounted) setState(() { _submitting = false; _submitError = e.message; });
     } catch (_) {

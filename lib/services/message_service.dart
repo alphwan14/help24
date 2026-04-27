@@ -1,12 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../config/supabase_config.dart';
 import '../models/post_model.dart';
 
 /// Real-time messaging with Supabase: conversations + messages tables.
 /// Conversations are created only when a request/application is accepted.
 class MessageService {
-  static SupabaseClient get _client => SupabaseConfig.client;
+  static SupabaseClient get _client => Supabase.instance.client;
 
   static const int pageSize = 50;
 

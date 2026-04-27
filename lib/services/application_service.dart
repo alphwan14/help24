@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
-import '../config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 
 /// Service for handling job/post applications with Supabase. Uses real user ids.
 class ApplicationService {
-  static final _client = SupabaseConfig.client;
+  static SupabaseClient get _client => Supabase.instance.client;
 
   static const _applicationsSelect = '*, users(name, email, profile_image, avatar_url)';
 

@@ -3,16 +3,15 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../config/supabase_config.dart';
 import '../models/user_model.dart';
 import 'storage_service.dart';
 
 /// User profile: Supabase `users` table + Supabase Storage bucket `profiles` for avatar.
 /// No Firestore or Firebase Storage. id = Firebase Auth UID (synced to Supabase on login).
 class UserProfileService {
-  static SupabaseClient get _client => SupabaseConfig.client;
+  static SupabaseClient get _client => Supabase.instance.client;
 
-  static bool get _isAvailable => SupabaseConfig.isInitialized;
+  static bool get _isAvailable => true;
 
   /// Create or ensure user row in Supabase on signup. Call after Firebase Auth user is created.
   static Future<void> createUserOnSignup({

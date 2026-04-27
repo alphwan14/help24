@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../config/supabase_config.dart';
 import '../models/post_model.dart';
 
 /// Supabase-only messaging: chats + chat_messages (fetch + polling, no Realtime).
 /// Use this for "Contact Provider" and Messages tab.
 class ChatServiceSupabase {
-  static SupabaseClient get _client => SupabaseConfig.client;
+  static SupabaseClient get _client => Supabase.instance.client;
 
   /// Get or create a chat by (user1, user2, post_id). postId and jobId map to post_id (uuid or null).
   static Future<Conversation> createChat({
