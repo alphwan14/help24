@@ -266,6 +266,8 @@ class PostModel {
   final double? longitude;
   final List<String> images;
   final List<Application> applications;
+  /// User ID of the provider selected by the request author. Null until selected.
+  final String? selectedProviderUserId;
 
   PostModel({
     required this.id,
@@ -292,6 +294,7 @@ class PostModel {
     this.longitude,
     this.images = const [],
     this.applications = const [],
+    this.selectedProviderUserId,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Whether to show a numeric rating (has at least one review). Otherwise show "New".
@@ -349,6 +352,7 @@ class PostModel {
       longitude: (json['longitude'] is num) ? (json['longitude'] as num).toDouble() : null,
       images: images,
       applications: applications,
+      selectedProviderUserId: json['selected_provider_id']?.toString(),
     );
   }
 
@@ -400,6 +404,7 @@ class PostModel {
       'post_images': images.map((u) => {'image_url': u}).toList(),
       'applications': applications.map((a) => a.toCacheMap()).toList(),
       'users': {'name': authorName, 'profile_image': authorAvatar},
+      if (selectedProviderUserId != null) 'selected_provider_id': selectedProviderUserId,
     };
   }
 
@@ -504,6 +509,7 @@ class PostModel {
     double? longitude,
     List<String>? images,
     List<Application>? applications,
+    String? selectedProviderUserId,
   }) {
     return PostModel(
       id: id ?? this.id,
@@ -530,6 +536,7 @@ class PostModel {
       longitude: longitude ?? this.longitude,
       images: images ?? this.images,
       applications: applications ?? this.applications,
+      selectedProviderUserId: selectedProviderUserId ?? this.selectedProviderUserId,
     );
   }
 
@@ -558,8 +565,8 @@ class PostModel {
   /// Display label for post type — shown on feed cards and in the detail sheet.
   String get typeDisplayLabel {
     switch (type) {
-      case PostType.request: return 'Need Help';
-      case PostType.offer: return 'Can Help';
+      case PostType.request: return 'Request';
+      case PostType.offer: return 'Offer';
       case PostType.job: return 'Job';
     }
   }

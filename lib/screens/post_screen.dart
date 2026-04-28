@@ -8,6 +8,7 @@ import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/location_provider.dart';
+import '../providers/provider_status_provider.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
@@ -416,7 +417,7 @@ class _PostScreenState extends State<PostScreen> {
       children: [
         _TypeCard(
           icon: Iconsax.document_text,
-          title: 'I Need Help',
+          title: 'Request a Service',
           description: 'Looking for someone to help you with a task or service',
           isSelected: _selectedType == PostType.request,
           onTap: () {
@@ -428,8 +429,8 @@ class _PostScreenState extends State<PostScreen> {
         const SizedBox(height: 12),
         _TypeCard(
           icon: Iconsax.lamp_charge,
-          title: 'I Can Help',
-          description: 'Share a service you offer to potential clients',
+          title: 'Offer a Service',
+          description: 'Share your skills and get hired by people who need help',
           isSelected: _selectedType == PostType.offer,
           onTap: () {
             setState(() {
@@ -1252,9 +1253,9 @@ class _PostScreenState extends State<PostScreen> {
   String _getTypeDisplayLabel() {
     switch (_selectedType) {
       case PostType.request:
-        return 'Need Help';
+        return 'Request';
       case PostType.offer:
-        return 'Can Help';
+        return 'Offer';
       case PostType.job:
         return 'Job';
       default:
@@ -1350,6 +1351,12 @@ class _PostScreenState extends State<PostScreen> {
       }
 
       if (mounted) {
+        // If user just created an offer, refresh provider status badge instantly.
+        if (_selectedType == PostType.offer) {
+          final uid = context.read<AuthProvider>().currentUserId;
+          context.read<ProviderStatusProvider>().refresh(uid);
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(

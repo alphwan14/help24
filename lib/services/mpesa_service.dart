@@ -58,15 +58,19 @@ class PaymentStatusResult {
 class MpesaService {
   static const Duration _timeout = Duration(seconds: 30);
 
-  /// Initiate STK push. Phone is resolved by the backend from the buyer's
-  /// registered profile — do not pass it from the frontend.
+  /// Initiate STK push.
+  ///
+  /// The backend resolves buyer and provider phones from their stored profiles.
+  /// [amount] is the service cost in KES (before platform fee).
   static Future<PaymentInitResult> initiatePayment({
     required String postId,
     required String buyerUserId,
+    required double amount,
   }) async {
     final body = {
       'post_id': postId,
       'buyer_user_id': buyerUserId,
+      'amount': amount,
     };
 
     debugPrint('[MpesaService] POST ${ApiConfig.initiatePayment}');
@@ -92,12 +96,35 @@ class MpesaService {
           jsonDecode(response.body) as Map<String, dynamic>);
     }
 
-    String errorMessage = 'Payment initiation failed';
-    try {
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
-      errorMessage = (json['message'] as String?) ?? errorMessage;
-    } catch (_) {}
+    String errorMessage = _sanitizePaymentError(response.statusCode, response.body);
     throw MpesaException(errorMessage, statusCode: response.statusCode);
+  }
+
+  static String _sanitizePaymentError(int statusCode, String body) {
+    if (statusCode >= 500) {
+      return 'Payment could not be initiated. Please try again.';
+    }
+    try {
+      final json = jsonDecode(body) as Map<String, dynamic>;
+      final raw = (json['message'] as String? ?? '').toLowerCase();
+      // Pass through eligibility errors verbatim — they are user-meaningful.
+      if (raw.contains('not available for payment') ||
+          raw.contains('please log in')) {
+        return json['message'] as String;
+      }
+      if (raw.contains('provider') && raw.contains('not')) {
+        return 'Service provider not available for payment.';
+      }
+      if (raw.contains('phone') || raw.contains('format')) {
+        return 'Payment could not be initiated. Please try again.';
+      }
+    } catch (_) {}
+    if (statusCode == 401 || statusCode == 403) {
+      return 'Please log in to continue.';
+    }
+    if (statusCode == 404) return 'Service not found. It may have been removed.';
+    if (statusCode == 400) return 'Invalid payment request. Please try again.';
+    return 'Payment could not be initiated. Please try again.';
   }
 
   /// Poll payment status by post ID. Keep polling while status is "pending".

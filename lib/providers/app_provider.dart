@@ -104,9 +104,9 @@ class AppProvider extends ChangeNotifier {
       }
 
       String? typeFilter;
-      if (_selectedFilter == 'Need Help') {
+      if (_selectedFilter == 'Requests') {
         typeFilter = 'request';
-      } else if (_selectedFilter == 'Can Help') {
+      } else if (_selectedFilter == 'Offers') {
         typeFilter = 'offer';
       }
 
@@ -715,10 +715,10 @@ class AppProvider extends ChangeNotifier {
       }
 
       // Type filter
-      if (_selectedFilter == 'Need Help' && post.type != PostType.request) {
+      if (_selectedFilter == 'Requests' && post.type != PostType.request) {
         return false;
       }
-      if (_selectedFilter == 'Can Help' && post.type != PostType.offer) {
+      if (_selectedFilter == 'Offers' && post.type != PostType.offer) {
         return false;
       }
 

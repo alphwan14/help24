@@ -100,13 +100,7 @@ class _ProviderRegistrationScreenState
       if (!mounted) return;
       // Immediately update global provider state so Profile screen rebuilds
       // before the user even taps "Go to Discover".
-      context.read<ProviderStatusProvider>().markAsProvider({
-        ...result,
-        'name': _nameController.text.trim(),
-        'phone_login': ProviderService.normalizePhone(_phoneLoginController.text.trim()),
-        'services': List<String>.from(_selectedServices),
-        'location': _locationController.text.trim(),
-      });
+      context.read<ProviderStatusProvider>().markAsProvider();
       setState(() { _submitting = false; _success = true; });
     } on ProviderServiceException catch (e) {
       if (mounted) setState(() { _submitting = false; _submitError = e.message; });

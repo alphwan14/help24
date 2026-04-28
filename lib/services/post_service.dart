@@ -433,6 +433,35 @@ class PostService {
     }
   }
 
+  /// Mark a provider as selected for a request post.
+  /// Updates `selected_provider_id` on the post row.
+  static Future<void> selectProvider(String postId, String providerUserId) async {
+    try {
+      await _client
+          .from('posts')
+          .update({'selected_provider_id': providerUserId})
+          .eq('id', postId);
+    } catch (e) {
+      throw PostServiceException('Failed to select provider: $e');
+    }
+  }
+
+  /// Check whether a user has any active offer posts.
+  static Future<bool> hasOfferPosts(String userId) async {
+    if (userId.isEmpty) return false;
+    try {
+      final result = await _client
+          .from('posts')
+          .select('id')
+          .eq('author_user_id', userId)
+          .eq('type', 'offer')
+          .limit(1);
+      return (result as List).isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Get posts by the current user. Returns empty list if [currentUserId] is null.
   static Future<List<PostModel>> getMyPosts(String? currentUserId) async {
     if (currentUserId == null || currentUserId.isEmpty) return [];

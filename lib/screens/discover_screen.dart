@@ -4,7 +4,6 @@ import 'package:iconsax/iconsax.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/connectivity_provider.dart';
-import '../providers/location_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
@@ -15,9 +14,7 @@ import '../widgets/auth_guard.dart';
 import '../providers/auth_provider.dart';
 import '../services/comment_service_firestore.dart';
 import '../services/post_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'messages_screen.dart';
-import 'provider_profile_screen.dart';
 import 'urgent_requests_screen.dart';
 import 'payment_screen.dart';
 
@@ -31,16 +28,18 @@ class DiscoverScreen extends StatefulWidget {
 class _DiscoverScreenState extends State<DiscoverScreen> {
   final TextEditingController _searchController = TextEditingController();
 
-  // Feed mode
-  bool _isProvidersTab = false;
+  // 0 = All, 1 = Requests, 2 = Offers
+  int _tabIndex = 0;
 
-  // Provider feed state
-  String _providerFilter = 'All';
-  List<Map<String, dynamic>> _providers = [];
-  List<Map<String, dynamic>> _filteredProviders = [];
-  bool _isLoadingProviders = false;
-  String? _providersError;
-  String _providerSearchQuery = '';
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AppProvider>().setSelectedFilter('All');
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -52,83 +51,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     await context.read<AppProvider>().loadPosts();
   }
 
-  Future<void> _fetchProviders() async {
-    if (!mounted) return;
-    setState(() {
-      _isLoadingProviders = true;
-      _providersError = null;
-    });
-    try {
-      debugPrint('[Discover] Fetching providers from Supabase...');
-      final data = await Supabase.instance.client
-          .from('providers')
-          .select('id, name, services, location, created_at')
-          .order('created_at', ascending: false);
-      if (!mounted) return;
-      final providers = List<Map<String, dynamic>>.from(data as List);
-      debugPrint('[Discover] Got ${providers.length} provider(s): ${providers.map((p) => p['name']).toList()}');
-      setState(() {
-        _providers = providers;
-        _isLoadingProviders = false;
-      });
-      _applyProviderFilters();
-    } catch (e) {
-      debugPrint('[Discover] Error fetching providers: $e');
-      if (!mounted) return;
-      setState(() {
-        _providersError = 'Could not load providers. Pull to refresh.';
-        _isLoadingProviders = false;
-      });
-    }
-  }
-
-  void _applyProviderFilters() {
-    final query = _providerSearchQuery.toLowerCase();
-    var result = List<Map<String, dynamic>>.from(_providers);
-
-    if (query.isNotEmpty) {
-      result = result.where((p) {
-        final name = (p['name'] as String? ?? '').toLowerCase();
-        final location = (p['location'] as String? ?? '').toLowerCase();
-        final rawServices = p['services'];
-        final servicesStr = rawServices is List
-            ? rawServices.join(' ').toLowerCase()
-            : (rawServices?.toString().toLowerCase() ?? '');
-        return name.contains(query) ||
-            servicesStr.contains(query) ||
-            location.contains(query);
-      }).toList();
-    }
-
-    if (_providerFilter == 'Nearby') {
-      final city =
-          context.read<LocationProvider>().city?.toLowerCase() ?? '';
-      if (city.isNotEmpty) {
-        result = result
-            .where((p) => (p['location'] as String? ?? '')
-                .toLowerCase()
-                .contains(city))
-            .toList();
-      }
-    }
-    // 'Top Rated' and 'All' keep existing order (newest-first from Supabase)
-
-    if (mounted) setState(() => _filteredProviders = result);
-  }
-
-  void _switchToTab(bool toProviders) {
-    if (_isProvidersTab == toProviders) return;
+  void _switchToTab(int tab) {
+    if (_tabIndex == tab) return;
     _searchController.clear();
-    setState(() {
-      _isProvidersTab = toProviders;
-      _providerFilter = 'All';
-      _providerSearchQuery = '';
-    });
-    if (toProviders) {
-      if (_providers.isEmpty) _fetchProviders();
-    } else {
-      context.read<AppProvider>().setSearchQuery('');
-    }
+    setState(() => _tabIndex = tab);
+    final provider = context.read<AppProvider>();
+    provider.setSearchQuery('');
+    const filters = ['All', 'Requests', 'Offers'];
+    provider.setSelectedFilter(filters[tab]);
   }
 
   @override
@@ -139,13 +69,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     final searchText = _searchController.text;
 
     return SafeArea(
-      top: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Top bar ──────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -165,23 +94,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
           // ── Search bar ───────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
                 return TextField(
                   controller: _searchController,
-                  onChanged: (value) {
-                    if (_isProvidersTab) {
-                      setState(() => _providerSearchQuery = value);
-                      _applyProviderFilters();
-                    } else {
-                      provider.setSearchQuery(value);
-                    }
-                  },
+                  onChanged: provider.setSearchQuery,
                   decoration: InputDecoration(
-                    hintText: _isProvidersTab
-                        ? 'Search service providers...'
-                        : 'Search services, tasks, or offers...',
+                    hintText: _tabIndex == 0
+                        ? 'Search all posts...'
+                        : _tabIndex == 1
+                            ? 'Search requests...'
+                            : 'Search offers...',
                     prefixIcon: Icon(
                       Iconsax.search_normal,
                       color: isDark
@@ -193,12 +117,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             icon: const Icon(Icons.close, size: 20),
                             onPressed: () {
                               _searchController.clear();
-                              if (_isProvidersTab) {
-                                setState(() => _providerSearchQuery = '');
-                                _applyProviderFilters();
-                              } else {
-                                provider.setSearchQuery('');
-                              }
+                              provider.setSearchQuery('');
                             },
                           )
                         : null,
@@ -208,39 +127,105 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ),
           ),
 
-          // ── Content-type toggle (Posts | Providers) ──────────
+          // ── Tabs (left) + Filter button (right) in one row ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-            child: Row(
-              children: [
-                _ToggleTab(
-                  label: 'Posts',
-                  isActive: !_isProvidersTab,
-                  onTap: () => _switchToTab(false),
-                ),
-                const SizedBox(width: 28),
-                _ToggleTab(
-                  label: 'Providers',
-                  isActive: _isProvidersTab,
-                  onTap: () => _switchToTab(true),
-                ),
-              ],
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Consumer<AppProvider>(
+              builder: (context, provider, _) {
+                return Row(
+                  children: [
+                    _TabItem(
+                      label: 'All',
+                      isActive: _tabIndex == 0,
+                      onTap: () => _switchToTab(0),
+                    ),
+                    const SizedBox(width: 20),
+                    _TabItem(
+                      label: 'Requests',
+                      isActive: _tabIndex == 1,
+                      onTap: () => _switchToTab(1),
+                    ),
+                    const SizedBox(width: 20),
+                    _TabItem(
+                      label: 'Offers',
+                      isActive: _tabIndex == 2,
+                      onTap: () => _switchToTab(2),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () async {
+                        await showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => DraggableScrollableSheet(
+                            initialChildSize: 0.85,
+                            minChildSize: 0.5,
+                            maxChildSize: 0.95,
+                            builder: (context, scrollController) =>
+                                const FilterBottomSheet(),
+                          ),
+                        );
+                        if (mounted) provider.applyFilters();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: provider.hasActiveFilters
+                              ? AppTheme.primaryAccent.withValues(alpha: 0.12)
+                              : (isDark
+                                  ? AppTheme.darkCard
+                                  : AppTheme.lightCard),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: provider.hasActiveFilters
+                                ? AppTheme.primaryAccent
+                                : (isDark
+                                    ? AppTheme.darkBorder
+                                    : AppTheme.lightBorder),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Iconsax.filter,
+                              size: 18,
+                              color: provider.hasActiveFilters
+                                  ? AppTheme.primaryAccent
+                                  : (isDark
+                                      ? AppTheme.darkTextPrimary
+                                      : AppTheme.lightTextPrimary),
+                            ),
+                            if (provider.hasActiveFilters) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: AppTheme.primaryAccent,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
 
-          const SizedBox(height: 10),
-
-          // ── Dynamic filter row ───────────────────────────────
-          _buildFilterRow(isDark),
+          const SizedBox(height: 4),
 
           // ── Context label (only when user has typed something) ─
           if (searchText.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
               child: Text(
-                _isProvidersTab
-                    ? 'Showing service providers for "$searchText"'
-                    : 'Showing posts for "$searchText"',
+                'Showing ${_tabIndex == 0 ? 'all posts' : _tabIndex == 1 ? 'requests' : 'offers'} for "$searchText"',
                 style: TextStyle(
                   color: textSecondary,
                   fontSize: 12,
@@ -253,214 +238,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
           // ── Feed ─────────────────────────────────────────────
           Expanded(
-            child: _isProvidersTab
-                ? _buildProvidersFeed(isDark)
-                : _buildPostsFeed(),
+            child: _buildPostsFeed(),
           ),
         ],
       ),
-    );
-  }
-
-  // ── Filter rows ────────────────────────────────────────────────
-
-  Widget _buildFilterRow(bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: _isProvidersTab
-          ? _buildProviderFilterRow(isDark)
-          : _buildPostFilterRow(isDark),
-    );
-  }
-
-  Widget _buildPostFilterRow(bool isDark) {
-    return Consumer<AppProvider>(
-      builder: (context, provider, _) {
-        return Row(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: ['All', 'Need Help', 'Can Help'].map((filter) {
-                    final isSelected = provider.selectedFilter == filter;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: GestureDetector(
-                        onTap: () => provider.setSelectedFilter(filter),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? AppTheme.primaryAccent
-                                : (isDark
-                                    ? AppTheme.darkCard
-                                    : AppTheme.lightCard),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: isSelected
-                                  ? AppTheme.primaryAccent
-                                  : (isDark
-                                      ? AppTheme.darkBorder
-                                      : AppTheme.lightBorder),
-                            ),
-                          ),
-                          child: Text(
-                            filter,
-                            style: TextStyle(
-                              color: isSelected
-                                  ? Colors.white
-                                  : (isDark
-                                      ? AppTheme.darkTextPrimary
-                                      : AppTheme.lightTextPrimary),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            GestureDetector(
-              onTap: () async {
-                await showModalBottomSheet(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (context) => DraggableScrollableSheet(
-                    initialChildSize: 0.85,
-                    minChildSize: 0.5,
-                    maxChildSize: 0.95,
-                    builder: (context, scrollController) =>
-                        const FilterBottomSheet(),
-                  ),
-                );
-                if (mounted) provider.applyFilters();
-              },
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: provider.hasActiveFilters
-                      ? AppTheme.primaryAccent.withValues(alpha: 0.12)
-                      : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: provider.hasActiveFilters
-                        ? AppTheme.primaryAccent
-                        : (isDark
-                            ? AppTheme.darkBorder
-                            : AppTheme.lightBorder),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Iconsax.filter,
-                      size: 18,
-                      color: provider.hasActiveFilters
-                          ? AppTheme.primaryAccent
-                          : (isDark
-                              ? AppTheme.darkTextPrimary
-                              : AppTheme.lightTextPrimary),
-                    ),
-                    if (provider.hasActiveFilters) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: AppTheme.primaryAccent,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildProviderFilterRow(bool isDark) {
-    const filters = ['All', 'Nearby', 'Top Rated'];
-    return Row(
-      children: [
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: filters.map((filter) {
-                final isSelected = _providerFilter == filter;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() => _providerFilter = filter);
-                      _applyProviderFilters();
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 18, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? AppTheme.primaryAccent
-                            : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: isSelected
-                              ? AppTheme.primaryAccent
-                              : (isDark
-                                  ? AppTheme.darkBorder
-                                  : AppTheme.lightBorder),
-                        ),
-                      ),
-                      child: Text(
-                        filter,
-                        style: TextStyle(
-                          color: isSelected
-                              ? Colors.white
-                              : (isDark
-                                  ? AppTheme.darkTextPrimary
-                                  : AppTheme.lightTextPrimary),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        // Filter icon (reserved for future provider filters)
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-          ),
-          child: Icon(
-            Iconsax.filter,
-            size: 18,
-            color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
-          ),
-        ),
-      ],
     );
   }
 
@@ -534,57 +315,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
-  Widget _buildProvidersFeed(bool isDark) {
-    if (_isLoadingProviders && _filteredProviders.isEmpty) {
-      return const FeedSkeletonList();
-    }
-
-    if (_filteredProviders.isEmpty && !_isLoadingProviders) {
-      return EmptyStateView(
-        icon: Iconsax.profile_2user,
-        title: _providersError != null
-            ? 'Could not load providers'
-            : 'No providers found',
-        subtitle: _providersError ??
-            (_providerFilter == 'Nearby'
-                ? 'No providers near you yet. Try "All" to see everyone.'
-                : 'No service providers registered yet. Be the first!'),
-        actions: [
-          TextButton.icon(
-            onPressed: _fetchProviders,
-            icon: const Icon(Icons.refresh, size: 20),
-            label: const Text('Refresh'),
-          ),
-        ],
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _fetchProviders,
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: _filteredProviders.length,
-        itemBuilder: (context, index) {
-          final p = _filteredProviders[index];
-          return _ProviderCard(
-            provider: p,
-            isDark: isDark,
-            onTap: () {
-              final id = p['id']?.toString() ?? '';
-              if (id.isEmpty) return;
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ProviderProfileScreen(providerId: id),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
   void _showPostDetails(BuildContext context, PostModel post) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -601,10 +331,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               post.authorUserId == currentUserId;
           final isOffline = connectivity.isOffline;
 
-          // Show whenever there is a price and the viewer isn't the author.
-          // Type is NOT used as a gate — _parsePostType defaults unknown values
-          // to PostType.request, silently hiding the button for valid offer posts.
-          final showPayButton = post.price > 0 && !isAuthor;
+          // Secure Service is only available on Request posts where the author
+          // has already selected a provider. Never shown on Offer posts.
+          final showPayButton = post.type == PostType.request &&
+              isAuthor &&
+              post.selectedProviderUserId != null &&
+              post.price > 0;
 
           return Container(
             height: MediaQuery.of(sheetContext).size.height * 0.85,
@@ -729,6 +461,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                         label: post.typeDisplayLabel,
                                         color: post.typeBadgeColor,
                                       ),
+                                      if (post.type == PostType.offer)
+                                        _BadgeChip(
+                                          label: '✔ Provider',
+                                          color: AppTheme.successGreen,
+                                        ),
                                       _BadgeChip(
                                         label: post.urgencyText,
                                         color: post.urgencyColor,
@@ -808,9 +545,34 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           ),
                         ),
 
-                        // ── Secure & Pay button ──────────────────────────────
-                        // Shown before comments so it's never hidden by scroll.
-                        // Visible when: price > 0 AND viewer is not the author.
+                        // ── Applicant / provider selection (request owner only) ──
+                        if (post.type == PostType.request && isAuthor) ...[
+                          const SizedBox(height: 20),
+                          _ApplicantsSection(
+                            post: post,
+                            isDark: isDark,
+                            onProviderSelected: () {
+                              Navigator.pop(sheetContext);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: const Row(
+                                    children: [
+                                      Icon(Icons.check_circle, color: Colors.white, size: 18),
+                                      SizedBox(width: 10),
+                                      Flexible(child: Text('Provider selected. You can now secure the service.')),
+                                    ],
+                                  ),
+                                  backgroundColor: AppTheme.successGreen,
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+
+                        // ── Secure Service button ────────────────────────────
+                        // Only on Request posts where the author selected a provider.
                         if (showPayButton) ...[
                           const SizedBox(height: 16),
                           SizedBox(
@@ -891,8 +653,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                               ),
                               label: Text(
                                 isOffline
-                                    ? 'Secure & Pay (offline)'
-                                    : 'Secure & Pay · KES ${(post.price + calculatePlatformFee(post.price)).toStringAsFixed(0)}',
+                                    ? 'Secure Service (offline)'
+                                    : 'Secure Service · KES ${(post.price + calculatePlatformFee(post.price)).toStringAsFixed(0)}',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700),
                               ),
@@ -900,35 +662,37 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           ),
                         ],
 
-                        // Contact button
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 52,
-                          child: ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.pop(context);
-                              AuthGuard.requireAuth(
-                                context,
-                                action: post.type == PostType.request
-                                    ? 'message about this help request'
-                                    : 'contact this provider',
-                                onAuthenticated: () =>
-                                    _openPrivateChat(context, post),
-                              );
-                            },
-                            icon: Icon(
-                              post.type == PostType.request
-                                  ? Iconsax.send_2
-                                  : Iconsax.message,
-                            ),
-                            label: Text(
-                              post.type == PostType.request
-                                  ? 'I Can Help'
-                                  : 'Contact Provider',
+                        // Contact / action button — hidden for the post author
+                        if (!isAuthor) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                AuthGuard.requireAuth(
+                                  context,
+                                  action: post.type == PostType.request
+                                      ? 'apply to this request'
+                                      : 'request this service',
+                                  onAuthenticated: () =>
+                                      _openPrivateChat(context, post),
+                                );
+                              },
+                              icon: Icon(
+                                post.type == PostType.offer
+                                    ? Icons.handshake_outlined
+                                    : Iconsax.send_2,
+                              ),
+                              label: Text(
+                                post.type == PostType.offer
+                                    ? 'Request Service'
+                                    : 'Apply',
+                              ),
                             ),
                           ),
-                        ),
+                        ],
 
                         const SizedBox(height: 24),
                         Text('Comments',
@@ -1088,6 +852,216 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
+}
+
+/// Applicant list for request post owners — lets them select a provider.
+class _ApplicantsSection extends StatefulWidget {
+  final PostModel post;
+  final bool isDark;
+  final VoidCallback onProviderSelected;
+
+  const _ApplicantsSection({
+    required this.post,
+    required this.isDark,
+    required this.onProviderSelected,
+  });
+
+  @override
+  State<_ApplicantsSection> createState() => _ApplicantsSectionState();
+}
+
+class _ApplicantsSectionState extends State<_ApplicantsSection> {
+  String? _selecting;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final selectedId = widget.post.selectedProviderUserId;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Applicants', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryAccent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '${widget.post.applications.length}',
+                style: const TextStyle(
+                  color: AppTheme.primaryAccent,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (selectedId != null) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.successGreen.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Provider selected. Tap "Secure Service" to pay.',
+                    style: TextStyle(color: textSecondary, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (widget.post.applications.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'No applicants yet. Share your request to attract providers.',
+              style: TextStyle(color: textSecondary, fontSize: 13),
+            ),
+          )
+        else
+          ...widget.post.applications.map((app) {
+            final isSelected = app.applicantUserId == selectedId;
+            final isSelecting = _selecting == app.applicantUserId;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? AppTheme.successGreen.withValues(alpha: 0.06)
+                    : cardBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isSelected
+                      ? AppTheme.successGreen.withValues(alpha: 0.4)
+                      : borderColor,
+                ),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                    backgroundImage: app.applicantAvatarUrl.isNotEmpty
+                        ? NetworkImage(app.applicantAvatarUrl)
+                        : null,
+                    child: app.applicantAvatarUrl.isEmpty
+                        ? Text(
+                            app.applicantName.isNotEmpty
+                                ? app.applicantName[0].toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                              color: AppTheme.primaryAccent,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          app.applicantName,
+                          style: TextStyle(
+                            color: textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (app.message.isNotEmpty)
+                          Text(
+                            app.message,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: textSecondary, fontSize: 12),
+                          ),
+                        if (app.proposedPrice > 0)
+                          Text(
+                            'Offers KES ${app.proposedPrice.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              color: AppTheme.successGreen,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (isSelected)
+                    const Icon(Icons.check_circle_rounded,
+                        color: AppTheme.successGreen, size: 20)
+                  else
+                    SizedBox(
+                      height: 32,
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          foregroundColor: AppTheme.primaryAccent,
+                          textStyle: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 12),
+                        ),
+                        onPressed: isSelecting || app.applicantUserId.isEmpty
+                            ? null
+                            : () async {
+                                setState(() => _selecting = app.applicantUserId);
+                                try {
+                                  await PostService.selectProvider(
+                                    widget.post.id,
+                                    app.applicantUserId,
+                                  );
+                                  if (mounted) widget.onProviderSelected();
+                                } catch (_) {
+                                  if (mounted) {
+                                    setState(() => _selecting = null);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Could not select provider. Try again.'),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                        child: isSelecting
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppTheme.primaryAccent),
+                              )
+                            : const Text('Select'),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
+      ],
+    );
+  }
 }
 
 /// Compact badge chip used in the post-detail sheet header badges row.
@@ -1351,16 +1325,14 @@ class _CommentInputBarState extends State<_CommentInputBar> {
   }
 }
 
-// ─── Content-type toggle tab ────────────────────────────────────────────────
+// ─── Content-type tab (left-aligned, sized to label) ───────────────────────
 
-/// A single tab in the Posts / Providers toggle row.
-/// Shows label text; active tab has a coloured underline bar.
-class _ToggleTab extends StatelessWidget {
+class _TabItem extends StatelessWidget {
   final String label;
   final bool isActive;
   final VoidCallback onTap;
 
-  const _ToggleTab({
+  const _TabItem({
     required this.label,
     required this.isActive,
     required this.onTap,
@@ -1369,209 +1341,44 @@ class _ToggleTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final activeColor =
-        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final activeColor = AppTheme.primaryAccent;
     final inactiveColor =
         isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: isActive ? activeColor : inactiveColor,
-              fontSize: 16,
-              fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
-            ),
-          ),
-          const SizedBox(height: 5),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            height: 2.5,
-            width: isActive ? label.length * 9.8 : 0,
-            decoration: BoxDecoration(
-              color: AppTheme.primaryAccent,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Provider card ──────────────────────────────────────────────────────────
-
-/// Card shown in the Providers feed.
-class _ProviderCard extends StatelessWidget {
-  final Map<String, dynamic> provider;
-  final bool isDark;
-  final VoidCallback? onTap;
-
-  const _ProviderCard({
-    required this.provider,
-    required this.isDark,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final name = provider['name'] as String? ?? 'Unknown';
-    final location = provider['location'] as String? ?? '';
-    final rawServices = provider['services'];
-    final List<String> services = rawServices is List
-        ? rawServices.map((s) => s.toString()).toList()
-        : (rawServices?.toString().isNotEmpty == true
-            ? [rawServices.toString()]
-            : []);
-
-    // Build initials (up to 2 words)
-    final initials = name.trim().split(RegExp(r'\s+')).take(2).map((w) {
-      return w.isEmpty ? '' : w[0].toUpperCase();
-    }).join();
-
-    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final textPrimary =
-        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary =
-        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Avatar with gradient initials
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AppTheme.primaryAccent, AppTheme.secondaryAccent],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Center(
+      child: IntrinsicWidth(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
               child: Text(
-                initials.isEmpty ? '?' : initials,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                label,
+                style: TextStyle(
+                  color: isActive ? activeColor : inactiveColor,
+                  fontSize: 15,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 14),
-
-          // Name, location, service tags
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: TextStyle(
-                    color: textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (location.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(Icons.location_on_outlined,
-                          size: 13, color: textSecondary),
-                      const SizedBox(width: 3),
-                      Flexible(
-                        child: Text(
-                          location,
-                          style:
-                              TextStyle(color: textSecondary, fontSize: 12),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-                if (services.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: services.take(4).map((service) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryAccent.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: AppTheme.primaryAccent
-                                  .withValues(alpha: 0.25)),
-                        ),
-                        child: Text(
-                          service,
-                          style: const TextStyle(
-                            color: AppTheme.primaryAccent,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ],
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              height: 2.5,
+              decoration: BoxDecoration(
+                color: isActive ? activeColor : Colors.transparent,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-
-          // Verified badge
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: AppTheme.successGreen.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.verified_rounded,
-                size: 16, color: AppTheme.successGreen),
-          ),
-        ],
-      ),
-          ),
+          ],
         ),
       ),
     );
   }
 }
+
+
 

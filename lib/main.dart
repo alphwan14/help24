@@ -144,7 +144,7 @@ class _Help24AppState extends State<Help24App> {
             if (!auth.isLoggedIn) {
               status.reset();
             } else {
-              status.fetchStatus(auth.currentUser?.phoneNumber);
+              status.fetchStatus(auth.currentUserId);
             }
             return status;
           },

@@ -73,6 +73,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       await MpesaService.initiatePayment(
         postId: widget.postId,
         buyerUserId: widget.buyerUserId,
+        amount: widget.amount,
       );
       setState(() => _state = _PaymentState.waiting);
       _startPolling();
@@ -323,7 +324,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'You will receive an M-Pesa prompt to securely authorize this payment.',
+                    'An M-Pesa prompt will be sent to your registered phone number to authorize this payment.',
                     style: TextStyle(
                         color: textSecondary, fontSize: 13, height: 1.45),
                   ),
@@ -413,7 +414,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               color: AppTheme.primaryAccent, strokeWidth: 2.5),
           const SizedBox(height: 24),
           Text(
-            'Sending payment request…',
+            'Initiating secure payment…',
             style: TextStyle(
                 color: textPrimary,
                 fontWeight: FontWeight.w600,
@@ -454,7 +455,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
           const SizedBox(height: 14),
           Text(
-            'An M-Pesa PIN prompt has been sent to your phone.\nEnter your PIN to complete the payment.',
+            'STK push sent to your registered M-Pesa number. Enter your PIN to complete payment.',
             textAlign: TextAlign.center,
             style:
                 TextStyle(color: textSecondary, fontSize: 14, height: 1.55),

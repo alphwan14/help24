@@ -1,78 +1,66 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../services/provider_service.dart';
 
-/// Tracks whether the logged-in user is a registered provider.
-/// Source of truth is the Supabase `providers` table (matched by phone_login).
-/// Always call [fetchStatus] after login and [refresh] after registration.
+/// Tracks whether the logged-in user is a provider.
+/// A user is a provider if they have at least one active offer post.
+/// Creating an offer automatically makes them a provider — no separate registration needed.
 class ProviderStatusProvider extends ChangeNotifier {
   bool _isProvider = false;
   bool _isLoading = false;
-  Map<String, dynamic>? _providerData;
-  String? _lastFetchedPhone;
+  String? _lastFetchedUserId;
 
   bool get isProvider => _isProvider;
   bool get isLoading => _isLoading;
-  Map<String, dynamic>? get providerData => _providerData;
 
-  /// Fetch provider status from Supabase for the given phone number.
-  /// Skips the request if the same phone was already fetched (unless [force] is true).
-  Future<void> fetchStatus(String? phone, {bool force = false}) async {
-    if (phone == null || phone.isEmpty) {
+  /// Fetch provider status by checking for offer posts by [userId].
+  /// Skips if the same user was already checked (unless [force] is true).
+  Future<void> fetchStatus(String? userId, {bool force = false}) async {
+    if (userId == null || userId.isEmpty) {
       _reset();
       return;
     }
 
-    final normalized = ProviderService.normalizePhone(phone);
-
-    if (!force && normalized == _lastFetchedPhone && !_isLoading) return;
+    if (!force && userId == _lastFetchedUserId && !_isLoading) return;
 
     _isLoading = true;
     notifyListeners();
 
     try {
-      debugPrint('[ProviderStatus] Fetching provider record for phone: $normalized');
+      final result = await Supabase.instance.client
+          .from('posts')
+          .select('id')
+          .eq('author_user_id', userId)
+          .eq('type', 'offer')
+          .limit(1);
 
-      final data = await Supabase.instance.client
-          .from('providers')
-          .select()
-          .eq('phone_login', normalized)
-          .maybeSingle();
-
-      debugPrint('[ProviderStatus] isProvider=${data != null}  data=$data');
-
-      _isProvider = data != null;
-      _providerData = data != null ? Map<String, dynamic>.from(data as Map) : null;
-      _lastFetchedPhone = normalized;
+      _isProvider = (result as List).isNotEmpty;
+      _lastFetchedUserId = userId;
+      debugPrint('[ProviderStatus] userId=$userId isProvider=$_isProvider');
     } catch (e) {
-      debugPrint('[ProviderStatus] Error fetching provider status: $e');
-      // Keep last known state on error so UI doesn't flicker to "not provider"
+      debugPrint('[ProviderStatus] Error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  /// Force re-fetch (e.g. called right after successful registration).
-  Future<void> refresh(String? phone) => fetchStatus(phone, force: true);
+  /// Force re-fetch (e.g. right after creating an offer post).
+  Future<void> refresh(String? userId) => fetchStatus(userId, force: true);
 
-  /// Immediately mark user as provider after successful registration
-  /// so the UI updates before the async re-fetch completes.
-  void markAsProvider(Map<String, dynamic> data) {
+  /// Optimistically mark as provider immediately (before async re-fetch).
+  void markAsProvider() {
     _isProvider = true;
-    _providerData = Map<String, dynamic>.from(data);
     notifyListeners();
   }
 
-  /// Called on logout — resets all provider state.
+  /// Called on logout.
   void reset() => _reset();
 
   void _reset() {
-    if (!_isProvider && _providerData == null && _lastFetchedPhone == null) return;
+    if (!_isProvider && _lastFetchedUserId == null) return;
     _isProvider = false;
     _isLoading = false;
-    _providerData = null;
-    _lastFetchedPhone = null;
+    _lastFetchedUserId = null;
     notifyListeners();
   }
 }
