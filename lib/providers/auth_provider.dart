@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../config/firebase_config.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
@@ -255,6 +256,40 @@ class AuthProvider extends ChangeNotifier {
       return false;
     } catch (e) {
       _error = 'An unexpected error occurred';
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> signInWithGoogle() async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final googleUser = await GoogleSignIn().signIn();
+      if (googleUser == null) {
+        _isLoading = false;
+        notifyListeners();
+        return false; // user cancelled
+      }
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      final userCredential =
+          await FirebaseAuth.instance.signInWithCredential(credential);
+      if (userCredential.user != null) {
+        _currentUser = AuthService.appUserFromFirebase(userCredential.user!);
+        _error = null;
+        return true;
+      }
+      _error = 'Google sign-in failed. Please try again.';
+      return false;
+    } catch (e) {
+      _error = 'Google sign-in failed. Please try again.';
       return false;
     } finally {
       _isLoading = false;

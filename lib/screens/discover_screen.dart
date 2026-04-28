@@ -134,19 +134,19 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               builder: (context, provider, _) {
                 return Row(
                   children: [
-                    _TabItem(
+                    _TabPill(
                       label: 'All',
                       isActive: _tabIndex == 0,
                       onTap: () => _switchToTab(0),
                     ),
-                    const SizedBox(width: 20),
-                    _TabItem(
+                    const SizedBox(width: 8),
+                    _TabPill(
                       label: 'Requests',
                       isActive: _tabIndex == 1,
                       onTap: () => _switchToTab(1),
                     ),
-                    const SizedBox(width: 20),
-                    _TabItem(
+                    const SizedBox(width: 8),
+                    _TabPill(
                       label: 'Offers',
                       isActive: _tabIndex == 2,
                       onTap: () => _switchToTab(2),
@@ -1325,14 +1325,14 @@ class _CommentInputBarState extends State<_CommentInputBar> {
   }
 }
 
-// ─── Content-type tab (left-aligned, sized to label) ───────────────────────
+// ─── Pill/capsule tab button ────────────────────────────────────────────────
 
-class _TabItem extends StatelessWidget {
+class _TabPill extends StatelessWidget {
   final String label;
   final bool isActive;
   final VoidCallback onTap;
 
-  const _TabItem({
+  const _TabPill({
     required this.label,
     required this.isActive,
     required this.onTap,
@@ -1341,39 +1341,45 @@ class _TabItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final activeColor = AppTheme.primaryAccent;
-    final inactiveColor =
+    final activeBg = AppTheme.primaryAccent;
+    final inactiveBg = isDark
+        ? const Color(0xFF2C2C2E)
+        : const Color(0xFFE5E5EA);
+    final activeText = Colors.white;
+    final inactiveText =
         isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: IntrinsicWidth(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: isActive ? activeColor : inactiveColor,
-                  fontSize: 15,
-                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                ),
-              ),
-            ),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
-              height: 2.5,
-              decoration: BoxDecoration(
-                color: isActive ? activeColor : Colors.transparent,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ],
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: BoxDecoration(
+          color: isActive ? activeBg : inactiveBg,
+          borderRadius: BorderRadius.circular(999),
+          boxShadow: isActive
+              ? [
+                  BoxShadow(
+                    color: AppTheme.primaryAccent.withValues(alpha: 0.30),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        alignment: Alignment.center,
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          style: TextStyle(
+            color: isActive ? activeText : inactiveText,
+            fontSize: 14,
+            fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+          ),
+          child: Text(label),
         ),
       ),
     );

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -116,6 +117,7 @@ class _AuthScreenState extends State<AuthScreen> {
           action: widget.action,
           onPhone: () => _goTo(_AuthStep.phoneInput),
           onEmail: () => _goTo(_AuthStep.emailAuth),
+          onGoogleSuccess: _onSuccess,
         );
       case _AuthStep.phoneInput:
         return _PhoneInputStep(
@@ -158,12 +160,33 @@ class _AuthScreenState extends State<AuthScreen> {
 }
 
 // ---------- Welcome ----------
-class _WelcomeStep extends StatelessWidget {
+class _WelcomeStep extends StatefulWidget {
   final String? action;
   final VoidCallback onPhone;
   final VoidCallback onEmail;
+  final VoidCallback onGoogleSuccess;
 
-  const _WelcomeStep({this.action, required this.onPhone, required this.onEmail});
+  const _WelcomeStep({
+    this.action,
+    required this.onPhone,
+    required this.onEmail,
+    required this.onGoogleSuccess,
+  });
+
+  @override
+  State<_WelcomeStep> createState() => _WelcomeStepState();
+}
+
+class _WelcomeStepState extends State<_WelcomeStep> {
+  bool _googleLoading = false;
+
+  Future<void> _signInWithGoogle() async {
+    setState(() => _googleLoading = true);
+    final ok = await context.read<AuthProvider>().signInWithGoogle();
+    if (!mounted) return;
+    setState(() => _googleLoading = false);
+    if (ok) widget.onGoogleSuccess();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -171,48 +194,80 @@ class _WelcomeStep extends StatelessWidget {
     final textColor = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
     final subColor = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     return Padding(
-      padding: const EdgeInsets.only(top: 32),
+      padding: const EdgeInsets.only(top: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 24),
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [AppTheme.primaryAccent, AppTheme.secondaryAccent],
+          const SizedBox(height: 16),
+          Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: Image.asset(
+                'assets/help24_icon.png',
+                width: 80,
+                height: 80,
+                fit: BoxFit.cover,
               ),
             ),
-            child: const Center(child: Text('H', style: TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold))),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 20),
           Text(
-            'Welcome to Help24',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(color: textColor, fontWeight: FontWeight.w700),
+            'Help24',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+              color: textColor,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
-            action != null ? 'Sign in to $action' : 'Sign in or create an account to continue',
+            'Find help. Offer services.',
+            textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: subColor),
           ),
-          const SizedBox(height: 48),
+          if (widget.action != null) ...[
+            const SizedBox(height: 14),
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryAccent.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Sign in to ${widget.action}',
+                  style: const TextStyle(
+                    color: AppTheme.primaryAccent,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 40),
           _AuthButton(
             label: 'Continue with Phone',
             icon: Iconsax.call,
-            onPressed: onPhone,
+            onPressed: widget.onPhone,
             primary: true,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _AuthButton(
             label: 'Continue with Email',
             icon: Iconsax.sms,
-            onPressed: onEmail,
+            onPressed: widget.onEmail,
             primary: false,
           ),
+          const SizedBox(height: 20),
+          const _OrDivider(),
+          const SizedBox(height: 16),
+          _GoogleSignInButton(
+            loading: _googleLoading,
+            onPressed: _signInWithGoogle,
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -456,7 +511,7 @@ class _OtpVerifyStepState extends State<_OtpVerifyStep> {
   }
 }
 
-// ---------- Email auth (Sign In / Sign Up tabs) ----------
+// ---------- Email auth (Sign In / Sign Up) ----------
 class _EmailAuthStep extends StatefulWidget {
   final VoidCallback onSuccess;
   final VoidCallback onBack;
@@ -468,28 +523,21 @@ class _EmailAuthStep extends StatefulWidget {
   State<_EmailAuthStep> createState() => _EmailAuthStepState();
 }
 
-class _EmailAuthStepState extends State<_EmailAuthStep> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  final _loginEmail = TextEditingController();
+class _EmailAuthStepState extends State<_EmailAuthStep> {
+  bool _isSignIn = true;
+  final _loginEmail    = TextEditingController();
   final _loginPassword = TextEditingController();
-  final _signupName = TextEditingController();
-  final _signupEmail = TextEditingController();
-  final _signupPassword = TextEditingController();
-  final _signupConfirm = TextEditingController();
-  bool _obscureLogin = true;
-  bool _obscureSignup = true;
+  final _signupName    = TextEditingController();
+  final _signupEmail   = TextEditingController();
+  final _signupPassword  = TextEditingController();
+  final _signupConfirm   = TextEditingController();
+  bool _obscureLogin   = true;
+  bool _obscureSignup  = true;
   bool _obscureConfirm = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(() => setState(() {}));
-  }
+  bool _isGoogleLoading = false;
 
   @override
   void dispose() {
-    _tabController.dispose();
     _loginEmail.dispose();
     _loginPassword.dispose();
     _signupName.dispose();
@@ -499,8 +547,13 @@ class _EmailAuthStepState extends State<_EmailAuthStep> with SingleTickerProvide
     super.dispose();
   }
 
+  void _toggleMode() {
+    context.read<AuthProvider>().clearError();
+    setState(() => _isSignIn = !_isSignIn);
+  }
+
   Future<void> _login() async {
-    final email = _loginEmail.text.trim();
+    final email    = _loginEmail.text.trim();
     final password = _loginPassword.text;
     if (email.isEmpty || !email.contains('@')) {
       context.read<AuthProvider>().setError('Please enter a valid email address');
@@ -515,11 +568,20 @@ class _EmailAuthStepState extends State<_EmailAuthStep> with SingleTickerProvide
     if (ok && mounted) widget.onSuccess();
   }
 
+  Future<void> _signInWithGoogle() async {
+    FocusScope.of(context).unfocus();
+    setState(() => _isGoogleLoading = true);
+    final ok = await context.read<AuthProvider>().signInWithGoogle();
+    if (!mounted) return;
+    setState(() => _isGoogleLoading = false);
+    if (ok) widget.onSuccess();
+  }
+
   Future<void> _signup() async {
-    final name = _signupName.text.trim();
-    final email = _signupEmail.text.trim();
+    final name     = _signupName.text.trim();
+    final email    = _signupEmail.text.trim();
     final password = _signupPassword.text;
-    final confirm = _signupConfirm.text;
+    final confirm  = _signupConfirm.text;
     if (name.isEmpty) {
       context.read<AuthProvider>().setError('Please enter your name');
       return;
@@ -538,88 +600,185 @@ class _EmailAuthStepState extends State<_EmailAuthStep> with SingleTickerProvide
     }
     FocusScope.of(context).unfocus();
     final ok = await context.read<AuthProvider>().signUp(
-          email: email,
-          password: password,
-          name: name,
-        );
+          email: email, password: password, name: name);
     if (ok && mounted) widget.onSuccess();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final auth = context.watch<AuthProvider>();
-    return Padding(
-      padding: const EdgeInsets.only(top: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Email',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
+    final auth   = context.watch<AuthProvider>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 8),
+
+        // ── Branding ────────────────────────────────────────────
+        Center(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.asset(
+              'assets/help24_icon.png',
+              width: 56, height: 56, fit: BoxFit.cover,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Help24',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.3,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          'Find help. Offer services.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13,
+            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // ── Mode toggle ──────────────────────────────────────────
+        _ModeToggle(isSignIn: _isSignIn, onToggle: _toggleMode, isDark: isDark),
+        const SizedBox(height: 16),
+
+        // ── Error chip (if any) ──────────────────────────────────
+        if (auth.error != null) ...[
+          _ErrorChip(message: auth.error!, onDismiss: auth.clearError),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Form fields ──────────────────────────────────────────
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          transitionBuilder: (child, anim) =>
+              FadeTransition(opacity: anim, child: child),
+          child: _isSignIn
+              ? _InlineLoginForm(
+                  key: const ValueKey('login'),
+                  emailController:    _loginEmail,
+                  passwordController: _loginPassword,
+                  obscurePassword:    _obscureLogin,
+                  onToggleObscure:    () => setState(() => _obscureLogin = !_obscureLogin),
+                  onForgotPassword:   widget.onForgotPassword,
+                  onSubmit:           _login,
+                  isDark:             isDark,
+                )
+              : _InlineSignupForm(
+                  key: const ValueKey('signup'),
+                  nameController:     _signupName,
+                  emailController:    _signupEmail,
+                  passwordController: _signupPassword,
+                  confirmController:  _signupConfirm,
+                  obscurePassword:    _obscureSignup,
+                  obscureConfirm:     _obscureConfirm,
+                  onToggleObscure:    () => setState(() => _obscureSignup  = !_obscureSignup),
+                  onToggleConfirm:    () => setState(() => _obscureConfirm = !_obscureConfirm),
+                  onSubmit:           _signup,
+                  isDark:             isDark,
+                ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // ── Primary button ───────────────────────────────────────
+        _PrimaryButton(
+          label:     _isSignIn ? 'Sign In' : 'Create Account',
+          loading:   auth.isLoading,
+          onPressed: _isSignIn ? _login : _signup,
+        ),
+        const SizedBox(height: 16),
+
+        // ── OR divider ───────────────────────────────────────────
+        const _OrDivider(),
+        const SizedBox(height: 12),
+
+        // ── Google button ────────────────────────────────────────
+        _GoogleSignInButton(
+          loading:   _isGoogleLoading,
+          onPressed: _signInWithGoogle,
+        ),
+        const SizedBox(height: 16),
+
+        // ── Mode toggle link ─────────────────────────────────────
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _isSignIn ? "Don't have an account?  " : 'Already have an account?  ',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+              ),
+            ),
+            GestureDetector(
+              onTap: _toggleMode,
+              child: Text(
+                _isSignIn ? 'Sign up' : 'Sign in',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.primaryAccent,
                   fontWeight: FontWeight.w700,
                 ),
-          ),
-          const SizedBox(height: 20),
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-            ),
-            child: TabBar(
-              controller: _tabController,
-              indicator: BoxDecoration(
-                color: AppTheme.primaryAccent,
-                borderRadius: BorderRadius.circular(12),
               ),
-              labelColor: Colors.white,
-              unselectedLabelColor: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-              tabs: const [Tab(text: 'Sign In'), Tab(text: 'Sign Up')],
             ),
-          ),
-          const SizedBox(height: 24),
-          if (auth.error != null) ...[
-            _ErrorChip(message: auth.error!, onDismiss: auth.clearError),
-            const SizedBox(height: 16),
           ],
-          SizedBox(
-            height: 420,
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _LoginForm(
-                  emailController: _loginEmail,
-                  passwordController: _loginPassword,
-                  obscurePassword: _obscureLogin,
-                  onToggleObscure: () => setState(() => _obscureLogin = !_obscureLogin),
-                  onForgotPassword: widget.onForgotPassword,
-                  onSubmit: _login,
-                  isLoading: auth.isLoading,
-                  isDark: isDark,
-                ),
-                _SignupForm(
-                  nameController: _signupName,
-                  emailController: _signupEmail,
-                  passwordController: _signupPassword,
-                  confirmController: _signupConfirm,
-                  obscurePassword: _obscureSignup,
-                  obscureConfirm: _obscureConfirm,
-                  onToggleObscure: () => setState(() => _obscureSignup = !_obscureSignup),
-                  onToggleConfirm: () => setState(() => _obscureConfirm = !_obscureConfirm),
-                  onSubmit: _signup,
-                  isLoading: auth.isLoading,
-                  isDark: isDark,
-                ),
-              ],
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+// ── Mode toggle (Sign In | Sign Up pill) ─────────────────────────────────────
+
+class _ModeToggle extends StatelessWidget {
+  final bool isSignIn;
+  final VoidCallback onToggle;
+  final bool isDark;
+
+  const _ModeToggle({
+    required this.isSignIn,
+    required this.onToggle,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.darkCard : const Color(0xFFEEF0F4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ToggleOption(
+              label: 'Sign In',
+              isActive: isSignIn,
+              isDark: isDark,
+              onTap: isSignIn ? null : onToggle,
             ),
           ),
-          const SizedBox(height: 24),
-          _PrimaryButton(
-            label: _tabController.index == 0 ? 'Sign In' : 'Create account',
-            loading: auth.isLoading,
-            onPressed: _tabController.index == 0 ? _login : _signup,
+          Expanded(
+            child: _ToggleOption(
+              label: 'Sign Up',
+              isActive: !isSignIn,
+              isDark: isDark,
+              onTap: isSignIn ? onToggle : null,
+            ),
           ),
         ],
       ),
@@ -627,70 +786,195 @@ class _EmailAuthStepState extends State<_EmailAuthStep> with SingleTickerProvide
   }
 }
 
-class _LoginForm extends StatelessWidget {
+class _ToggleOption extends StatelessWidget {
+  final String label;
+  final bool isActive;
+  final bool isDark;
+  final VoidCallback? onTap;
+
+  const _ToggleOption({
+    required this.label,
+    required this.isActive,
+    required this.isDark,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
+          color: isActive ? AppTheme.primaryAccent : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+            color: isActive
+                ? Colors.white
+                : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Compact auth field (no separate label row) ────────────────────────────────
+
+class _AuthField extends StatelessWidget {
+  final TextEditingController controller;
+  final String hint;
+  final IconData icon;
+  final bool obscure;
+  final TextInputType? keyboardType;
+  final TextInputAction? action;
+  final TextCapitalization textCapitalization;
+  final Widget? suffixIcon;
+  final void Function(String)? onSubmitted;
+
+  const _AuthField({
+    required this.controller,
+    required this.hint,
+    required this.icon,
+    this.obscure = false,
+    this.keyboardType,
+    this.action,
+    this.textCapitalization = TextCapitalization.none,
+    this.suffixIcon,
+    this.onSubmitted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final iconColor = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+    return TextField(
+      controller: controller,
+      obscureText: obscure,
+      keyboardType: keyboardType,
+      textInputAction: action ?? TextInputAction.next,
+      textCapitalization: textCapitalization,
+      onSubmitted: onSubmitted,
+      style: TextStyle(
+        fontSize: 15,
+        color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
+      ),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: TextStyle(color: iconColor, fontSize: 15),
+        prefixIcon: Padding(
+          padding: const EdgeInsets.only(left: 14, right: 10),
+          child: Icon(icon, size: 19, color: iconColor),
+        ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 48),
+        suffixIcon: suffixIcon,
+        filled: true,
+        fillColor: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        counterText: '',
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+            color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppTheme.primaryAccent, width: 1.5),
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Inline login form ─────────────────────────────────────────────────────────
+
+class _InlineLoginForm extends StatelessWidget {
   final TextEditingController emailController;
   final TextEditingController passwordController;
   final bool obscurePassword;
   final VoidCallback onToggleObscure;
   final VoidCallback onForgotPassword;
   final VoidCallback onSubmit;
-  final bool isLoading;
   final bool isDark;
 
-  const _LoginForm({
+  const _InlineLoginForm({
+    super.key,
     required this.emailController,
     required this.passwordController,
     required this.obscurePassword,
     required this.onToggleObscure,
     required this.onForgotPassword,
     required this.onSubmit,
-    required this.isLoading,
     required this.isDark,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _LargeField(
-            controller: emailController,
-            label: 'Email',
-            hint: 'you@example.com',
-            icon: Iconsax.sms,
-            keyboardType: TextInputType.emailAddress,
-            textInputAction: TextInputAction.next,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _AuthField(
+          controller:  emailController,
+          hint:        'Email address',
+          icon:        Iconsax.sms,
+          keyboardType: TextInputType.emailAddress,
+          action:      TextInputAction.next,
+        ),
+        const SizedBox(height: 10),
+        _AuthField(
+          controller: passwordController,
+          hint:       '••••••••',
+          icon:       Iconsax.lock,
+          obscure:    obscurePassword,
+          action:     TextInputAction.done,
+          onSubmitted: (_) => onSubmit(),
+          suffixIcon: IconButton(
+            icon: Icon(
+              obscurePassword ? Iconsax.eye_slash : Iconsax.eye,
+              size: 19,
+              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+            ),
+            onPressed: onToggleObscure,
           ),
-          const SizedBox(height: 16),
-          _LargeField(
-            controller: passwordController,
-            label: 'Password',
-            hint: '••••••••',
-            icon: Iconsax.lock,
-            obscureText: obscurePassword,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => onSubmit(),
-            suffixIcon: IconButton(
-              icon: Icon(obscurePassword ? Iconsax.eye_slash : Iconsax.eye, color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary, size: 22),
-              onPressed: onToggleObscure,
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: onForgotPassword,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'Forgot password?',
+              style: TextStyle(
+                color: AppTheme.primaryAccent,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: onForgotPassword,
-              child: Text('Forgot password?', style: TextStyle(color: AppTheme.primaryAccent, fontWeight: FontWeight.w600)),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
-class _SignupForm extends StatelessWidget {
+// ── Inline signup form ────────────────────────────────────────────────────────
+
+class _InlineSignupForm extends StatelessWidget {
   final TextEditingController nameController;
   final TextEditingController emailController;
   final TextEditingController passwordController;
@@ -700,10 +984,10 @@ class _SignupForm extends StatelessWidget {
   final VoidCallback onToggleObscure;
   final VoidCallback onToggleConfirm;
   final VoidCallback onSubmit;
-  final bool isLoading;
   final bool isDark;
 
-  const _SignupForm({
+  const _InlineSignupForm({
+    super.key,
     required this.nameController,
     required this.emailController,
     required this.passwordController,
@@ -713,62 +997,63 @@ class _SignupForm extends StatelessWidget {
     required this.onToggleObscure,
     required this.onToggleConfirm,
     required this.onSubmit,
-    required this.isLoading,
     required this.isDark,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _LargeField(
-            controller: nameController,
-            label: 'Full name',
-            hint: 'John Doe',
-            icon: Iconsax.user,
-            textCapitalization: TextCapitalization.words,
-            textInputAction: TextInputAction.next,
-          ),
-          const SizedBox(height: 16),
-          _LargeField(
-            controller: emailController,
-            label: 'Email',
-            hint: 'you@example.com',
-            icon: Iconsax.sms,
-            keyboardType: TextInputType.emailAddress,
-            textInputAction: TextInputAction.next,
-          ),
-          const SizedBox(height: 16),
-          _LargeField(
-            controller: passwordController,
-            label: 'Password',
-            hint: 'At least 6 characters',
-            icon: Iconsax.lock,
-            obscureText: obscurePassword,
-            textInputAction: TextInputAction.next,
-            suffixIcon: IconButton(
-              icon: Icon(obscurePassword ? Iconsax.eye_slash : Iconsax.eye, color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary, size: 22),
-              onPressed: onToggleObscure,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _AuthField(
+          controller:          nameController,
+          hint:                'Full name',
+          icon:                Iconsax.user,
+          textCapitalization:  TextCapitalization.words,
+          action:              TextInputAction.next,
+        ),
+        const SizedBox(height: 10),
+        _AuthField(
+          controller:   emailController,
+          hint:         'Email address',
+          icon:         Iconsax.sms,
+          keyboardType: TextInputType.emailAddress,
+          action:       TextInputAction.next,
+        ),
+        const SizedBox(height: 10),
+        _AuthField(
+          controller: passwordController,
+          hint:       'Password (min. 6 characters)',
+          icon:       Iconsax.lock,
+          obscure:    obscurePassword,
+          action:     TextInputAction.next,
+          suffixIcon: IconButton(
+            icon: Icon(
+              obscurePassword ? Iconsax.eye_slash : Iconsax.eye,
+              size: 19,
+              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
             ),
+            onPressed: onToggleObscure,
           ),
-          const SizedBox(height: 16),
-          _LargeField(
-            controller: confirmController,
-            label: 'Confirm password',
-            hint: 'Re-enter password',
-            icon: Iconsax.lock_1,
-            obscureText: obscureConfirm,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => onSubmit(),
-            suffixIcon: IconButton(
-              icon: Icon(obscureConfirm ? Iconsax.eye_slash : Iconsax.eye, color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary, size: 22),
-              onPressed: onToggleConfirm,
+        ),
+        const SizedBox(height: 10),
+        _AuthField(
+          controller:  confirmController,
+          hint:        'Confirm password',
+          icon:        Iconsax.lock_1,
+          obscure:     obscureConfirm,
+          action:      TextInputAction.done,
+          onSubmitted: (_) => onSubmit(),
+          suffixIcon: IconButton(
+            icon: Icon(
+              obscureConfirm ? Iconsax.eye_slash : Iconsax.eye,
+              size: 19,
+              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
             ),
+            onPressed: onToggleConfirm,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -1172,6 +1457,151 @@ class _PrimaryButton extends StatelessWidget {
       ),
     );
   }
+}
+
+class _OrDivider extends StatelessWidget {
+  const _OrDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final lineColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final textColor = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+    return Row(
+      children: [
+        Expanded(child: Divider(color: lineColor, thickness: 1)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Text(
+            'OR',
+            style: TextStyle(
+              color: textColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.0,
+            ),
+          ),
+        ),
+        Expanded(child: Divider(color: lineColor, thickness: 1)),
+      ],
+    );
+  }
+}
+
+class _GoogleSignInButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onPressed;
+
+  const _GoogleSignInButton({required this.loading, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SizedBox(
+      height: 50,
+      child: Material(
+        color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: loading ? null : onPressed,
+          borderRadius: BorderRadius.circular(12),
+          splashColor: Colors.black.withValues(alpha: 0.04),
+          highlightColor: Colors.black.withValues(alpha: 0.02),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+              ),
+            ),
+            alignment: Alignment.center,
+            child: loading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const _GoogleLogo(size: 20),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Continue with Google',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: isDark
+                              ? AppTheme.darkTextPrimary
+                              : AppTheme.lightTextPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GoogleLogo extends StatelessWidget {
+  final double size;
+  const _GoogleLogo({this.size = 20});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _GoogleLogoPainter()),
+    );
+  }
+}
+
+class _GoogleLogoPainter extends CustomPainter {
+  static const _blue   = Color(0xFF4285F4);
+  static const _red    = Color(0xFFEA4335);
+  static const _yellow = Color(0xFFFBBC05);
+  static const _green  = Color(0xFF34A853);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    // Slightly thicker stroke so the ring reads clearly at small sizes
+    final strokeW = size.width * 0.22;
+    final arcR    = cx - strokeW / 2;
+    final rect    = Rect.fromCircle(center: Offset(cx, cy), radius: arcR);
+
+    Paint seg(Color c) => Paint()
+      ..color       = c
+      ..style       = PaintingStyle.stroke
+      ..strokeWidth = strokeW
+      ..strokeCap   = StrokeCap.butt;
+
+    const d = math.pi / 180;
+    // 70° gap centred on 0° (right / 3-o'clock): gap spans 325° → 35°
+    // Remaining 290° split into 4 segments:
+    canvas.drawArc(rect, d *  35, d *  55, false, seg(_blue));   //  35° →  90°
+    canvas.drawArc(rect, d *  90, d *  90, false, seg(_red));    //  90° → 180°
+    canvas.drawArc(rect, d * 180, d *  90, false, seg(_yellow)); // 180° → 270°
+    canvas.drawArc(rect, d * 270, d *  55, false, seg(_green));  // 270° → 325°
+    // Gap:  325° → 35°  (70° opening at the right — clearly visible at 20 px)
+
+    // Blue arm: fills the middle of the gap (centre → right inner wall)
+    // Offset arm slightly below centre so it sits in the lower half of the gap,
+    // matching the real Google G proportions.
+    final armY = cy + strokeW * 0.10;
+    canvas.drawLine(
+      Offset(cx, armY),
+      Offset(cx + arcR, armY),
+      seg(_blue)..strokeCap = StrokeCap.square,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
 class _ErrorChip extends StatelessWidget {
