@@ -8,8 +8,8 @@ import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/location_provider.dart';
-import '../providers/provider_status_provider.dart';
 import '../services/auth_service.dart';
+import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 
@@ -432,11 +432,7 @@ class _PostScreenState extends State<PostScreen> {
           title: 'Offer a Service',
           description: 'Share your skills and get hired by people who need help',
           isSelected: _selectedType == PostType.offer,
-          onTap: () {
-            setState(() {
-              _selectedType = PostType.offer;
-            });
-          },
+          onTap: () => setState(() => _selectedType = PostType.offer),
         ),
         const SizedBox(height: 12),
         _TypeCard(
@@ -872,7 +868,7 @@ class _PostScreenState extends State<PostScreen> {
         const SizedBox(height: 32),
 
         // Show what's missing if button is disabled
-        if (!_canProceed()) ...[
+        if (!_canProceed() && _getMissingFieldsText().isNotEmpty) ...[
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -925,7 +921,8 @@ class _PostScreenState extends State<PostScreen> {
     if (_selectedType == PostType.job && _selectedEmploymentType == null) {
       missing.add('Employment type');
     }
-    return 'Please fill in: ${missing.join(', ')}';
+    if (missing.isNotEmpty) return 'Please fill in: ${missing.join(', ')}';
+    return '';
   }
 
   bool _canProceed() {
@@ -1280,6 +1277,7 @@ class _PostScreenState extends State<PostScreen> {
 
     try {
       await AuthService.ensureCurrentUserInSupabase();
+
       if (_selectedType == PostType.job) {
         final job = JobModel(
           id: '',
@@ -1351,12 +1349,6 @@ class _PostScreenState extends State<PostScreen> {
       }
 
       if (mounted) {
-        // If user just created an offer, refresh provider status badge instantly.
-        if (_selectedType == PostType.offer) {
-          final uid = context.read<AuthProvider>().currentUserId;
-          context.read<ProviderStatusProvider>().refresh(uid);
-        }
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(

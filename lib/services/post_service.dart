@@ -66,7 +66,7 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))');
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))');
 
       // Apply filters
       if (filters != null) {
@@ -154,7 +154,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
           .eq('type', 'request')
           .eq('is_urgent', true)
           .gt('urgent_expires_at', DateTime.now().toIso8601String())
@@ -180,7 +180,7 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
           .eq('type', 'job');
 
       // Apply filters (aligned with posts): location, category, price, difficulty, urgency, search)
@@ -240,7 +240,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
           .eq('id', id)
           .maybeSingle();
 
@@ -434,14 +434,28 @@ class PostService {
   }
 
   /// Mark a provider as selected for a request post.
-  /// Updates `selected_provider_id` on the post row.
+  /// Updates `selected_provider_id` on the post row and verifies the write succeeded.
   static Future<void> selectProvider(String postId, String providerUserId) async {
+    assert(postId.isNotEmpty, 'postId must not be empty');
+    assert(providerUserId.isNotEmpty, 'providerUserId must not be empty');
+    debugPrint('[SelectProvider] post=$postId provider=$providerUserId');
     try {
-      await _client
+      final rows = await _client
           .from('posts')
           .update({'selected_provider_id': providerUserId})
-          .eq('id', postId);
+          .eq('id', postId)
+          .select('id, selected_provider_id');
+      debugPrint('[SelectProvider] result rows: $rows');
+      if ((rows as List).isEmpty) {
+        // RLS blocked or post not found — update returned 0 rows with no error.
+        throw PostServiceException(
+          'Update returned 0 rows — check RLS policies and that post $postId exists.',
+        );
+      }
+      debugPrint('[SelectProvider] SUCCESS — post=$postId now has selected_provider_id=$providerUserId');
     } catch (e) {
+      debugPrint('[SelectProvider] FAILED — $e');
+      if (e is PostServiceException) rethrow;
       throw PostServiceException('Failed to select provider: $e');
     }
   }
@@ -468,7 +482,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
           .eq('author_user_id', currentUserId)
           .neq('type', 'job')
           .order('created_at', ascending: false);

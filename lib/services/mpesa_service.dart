@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import '../utils/phone_utils.dart';
 
 class MpesaException implements Exception {
   final String message;
@@ -25,8 +26,8 @@ class PaymentInitResult {
   factory PaymentInitResult.fromJson(Map<String, dynamic> json) {
     return PaymentInitResult(
       message: json['message'] as String? ?? '',
-      transactionId: json['transactionId'] as String? ?? '',
-      checkoutRequestId: json['checkoutRequestId'] as String? ?? '',
+      transactionId: json['transaction_id'] as String? ?? '',
+      checkoutRequestId: json['checkout_request_id'] as String? ?? '',
     );
   }
 }
@@ -60,20 +61,29 @@ class MpesaService {
 
   /// Initiate STK push.
   ///
-  /// The backend resolves buyer and provider phones from their stored profiles.
-  /// [amount] is the service cost in KES (before platform fee).
+  /// [buyerPhone] is normalized to 254XXXXXXXXX and included as `buyer_phone`
+  /// so both the current deployed backend (which requires it) and the updated
+  /// backend (which ignores it) work correctly.
   static Future<PaymentInitResult> initiatePayment({
     required String postId,
     required String buyerUserId,
-    required double amount,
+    required String buyerPhone,
   }) async {
+    final normalized = normalizeKenyanNumber(buyerPhone);
+    if (normalized == null) {
+      throw MpesaException(
+        'Invalid M-Pesa number "$buyerPhone". Update your profile with a valid 254XXXXXXXXX number.',
+      );
+    }
+
     final body = {
       'post_id': postId,
       'buyer_user_id': buyerUserId,
-      'amount': amount,
+      'buyer_phone': normalized,
     };
 
     debugPrint('[MpesaService] POST ${ApiConfig.initiatePayment}');
+    debugPrint('[MPESA DEBUG] final payload: $body');
 
     final http.Response response;
     try {
@@ -89,42 +99,71 @@ class MpesaService {
       throw MpesaException('Network error — check your connection');
     }
 
-    debugPrint('[MpesaService] ${response.statusCode}');
+    debugPrint('[MpesaService] status=${response.statusCode} body=${response.body}');
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       return PaymentInitResult.fromJson(
           jsonDecode(response.body) as Map<String, dynamic>);
     }
 
-    String errorMessage = _sanitizePaymentError(response.statusCode, response.body);
+    final errorMessage = _extractErrorMessage(response.statusCode, response.body);
+    debugPrint('[MpesaService] error extracted: $errorMessage');
     throw MpesaException(errorMessage, statusCode: response.statusCode);
   }
 
-  static String _sanitizePaymentError(int statusCode, String body) {
-    if (statusCode >= 500) {
-      return 'Payment could not be initiated. Please try again.';
-    }
+  /// Extracts a user-friendly error string from a non-2xx backend response.
+  /// Handles NestJS exception bodies, class-validator arrays, and raw text.
+  static String _extractErrorMessage(int statusCode, String body) {
+    debugPrint('[MpesaService] _extractErrorMessage status=$statusCode body=$body');
     try {
       final json = jsonDecode(body) as Map<String, dynamic>;
-      final raw = (json['message'] as String? ?? '').toLowerCase();
-      // Pass through eligibility errors verbatim — they are user-meaningful.
-      if (raw.contains('not available for payment') ||
-          raw.contains('please log in')) {
-        return json['message'] as String;
+      final msg = json['message'];
+
+      // class-validator returns an array of field-level messages.
+      // Map them to a single readable string — hide internal field names.
+      if (msg is List && msg.isNotEmpty) {
+        final joined = msg.join(' | ');
+        debugPrint('[MpesaService] class-validator array: $joined');
+        // If any entry mentions phone, surface a clean message.
+        final lower = joined.toLowerCase();
+        if (lower.contains('phone') || lower.contains('buyer_phone')) {
+          return 'Please add a valid M-Pesa number (254XXXXXXXXX) to your profile.';
+        }
+        return 'Unable to start payment. Check your details and try again.';
       }
-      if (raw.contains('provider') && raw.contains('not')) {
-        return 'Service provider not available for payment.';
-      }
-      if (raw.contains('phone') || raw.contains('format')) {
-        return 'Payment could not be initiated. Please try again.';
-      }
-    } catch (_) {}
-    if (statusCode == 401 || statusCode == 403) {
-      return 'Please log in to continue.';
+
+      // Plain string message from BadRequestException / custom throw.
+      if (msg is String && msg.isNotEmpty) return msg;
+    } catch (_) {
+      // Body wasn't JSON — return raw body if short enough.
+      if (body.isNotEmpty && body.length < 300) return body;
     }
+
+    // Fallback by status code.
+    if (statusCode == 401 || statusCode == 403) return 'Please log in to continue.';
     if (statusCode == 404) return 'Service not found. It may have been removed.';
-    if (statusCode == 400) return 'Invalid payment request. Please try again.';
-    return 'Payment could not be initiated. Please try again.';
+    if (statusCode == 409) return 'Payment has already been made for this service.';
+    return 'Unable to start payment (HTTP $statusCode). Check backend logs.';
+  }
+
+  /// Sandbox smoke-test — calls /mpesa/test-stk with the supplied [phone].
+  /// Amount is fixed at 1 on the backend. Returns the raw response map.
+  static Future<Map<String, dynamic>> testStk(String phone) async {
+    const url = '${ApiConfig.baseUrl}/mpesa/test-stk';
+    debugPrint('[MpesaService] POST $url phone=$phone');
+    try {
+      final response = await http
+          .post(
+            Uri.parse(url),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'phone': phone}),
+          )
+          .timeout(_timeout);
+      debugPrint('[MpesaService] test-stk status=${response.statusCode} body=${response.body}');
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
   }
 
   /// Poll payment status by post ID. Keep polling while status is "pending".

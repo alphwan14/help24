@@ -48,7 +48,7 @@ class PostCard extends StatelessWidget {
     final textTertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
 
     final isRequest = post.type == PostType.request;
-    final ctaLabel = isRequest ? 'Offer Help' : 'View';
+    final ctaLabel = isRequest ? 'Offer Service' : 'View';
 
     return GestureDetector(
       onTap: onTap,
@@ -154,6 +154,11 @@ class PostCard extends StatelessWidget {
                         label: post.urgencyText,
                         color: post.urgencyColor,
                       ),
+                      if (post.type == PostType.offer && post.authorHasPhone)
+                        _SmallTag(
+                          label: '✔ Verified Provider',
+                          color: AppTheme.successGreen,
+                        ),
                     ],
                   ),
                   const SizedBox(height: 6),

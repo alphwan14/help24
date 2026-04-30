@@ -138,7 +138,9 @@ export class DarajaService {
       TransactionDesc:   'Help24 Escrow Payment',
     };
 
-    this.logger.log(`[Daraja] POST ${this.baseUrl}${STK_PATH}`);
+    this.logger.log(
+      `[Daraja] STK request — shortcode=${shortcode} timestamp=${timestamp} password_len=${password.length} phone=${params.phone} amount=${params.amount} callback=${callbackUrl}`,
+    );
     this.logger.log(
       `[Daraja] STK payload (no secrets): ${JSON.stringify({
         BusinessShortCode: payload.BusinessShortCode,

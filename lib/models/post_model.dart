@@ -153,6 +153,13 @@ String _userAvatarUrl(dynamic usersJson) {
   return (a != null && a.isNotEmpty) ? a : ((b != null && b.isNotEmpty) ? b : '');
 }
 
+/// Returns true if the author has a phone_number (M-Pesa) registered.
+bool _userHasPhone(dynamic usersJson) {
+  if (usersJson == null || usersJson is! Map) return false;
+  final p = usersJson['phone_number']?.toString()?.trim();
+  return p != null && p.isNotEmpty;
+}
+
 /// Public comment on a post. Stored in Firestore posts/{postId}/comments/{commentId}.
 class PostComment {
   final String id;
@@ -268,6 +275,8 @@ class PostModel {
   final List<Application> applications;
   /// User ID of the provider selected by the request author. Null until selected.
   final String? selectedProviderUserId;
+  /// True if the offer author has a verified M-Pesa phone on file.
+  final bool authorHasPhone;
 
   PostModel({
     required this.id,
@@ -295,6 +304,7 @@ class PostModel {
     this.images = const [],
     this.applications = const [],
     this.selectedProviderUserId,
+    this.authorHasPhone = false,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Whether to show a numeric rating (has at least one review). Otherwise show "New".
@@ -353,6 +363,7 @@ class PostModel {
       images: images,
       applications: applications,
       selectedProviderUserId: json['selected_provider_id']?.toString(),
+      authorHasPhone: _userHasPhone(authorUsers),
     );
   }
 
@@ -403,7 +414,7 @@ class PostModel {
       'created_at': createdAt.toIso8601String(),
       'post_images': images.map((u) => {'image_url': u}).toList(),
       'applications': applications.map((a) => a.toCacheMap()).toList(),
-      'users': {'name': authorName, 'profile_image': authorAvatar},
+      'users': {'name': authorName, 'profile_image': authorAvatar, if (authorHasPhone) 'phone_number': '1'},
       if (selectedProviderUserId != null) 'selected_provider_id': selectedProviderUserId,
     };
   }
@@ -510,6 +521,7 @@ class PostModel {
     List<String>? images,
     List<Application>? applications,
     String? selectedProviderUserId,
+    bool? authorHasPhone,
   }) {
     return PostModel(
       id: id ?? this.id,
@@ -537,6 +549,7 @@ class PostModel {
       images: images ?? this.images,
       applications: applications ?? this.applications,
       selectedProviderUserId: selectedProviderUserId ?? this.selectedProviderUserId,
+      authorHasPhone: authorHasPhone ?? this.authorHasPhone,
     );
   }
 

@@ -357,14 +357,14 @@ class _JobsScreenState extends State<JobsScreen> {
         child: ApplicationModal(
           title: job.title,
           type: 'job',
-          onSubmit: (message, proposedPrice) async {
+          onSubmit: (message) async {
             final provider = context.read<AppProvider>();
             final currentUserId = context.read<AuthProvider>().currentUserId;
             final success = await provider.submitApplicationToJob(
               job.id,
               currentUserId: currentUserId,
               message: message,
-              proposedPrice: proposedPrice,
+              proposedPrice: 0,
             );
             if (!context.mounted) return;
             if (success) {

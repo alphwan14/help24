@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_model.dart';
+import '../utils/phone_utils.dart';
 import 'storage_service.dart';
 
 /// User profile: Supabase `users` table + Supabase Storage bucket `profiles` for avatar.
@@ -60,6 +61,37 @@ class UserProfileService {
     } catch (e) {
       debugPrint('UserProfileService ensureProfileDoc ($uid): $e');
       rethrow;
+    }
+  }
+
+  /// Save M-Pesa phone number to user profile. Normalizes to `254XXXXXXXXX` before saving.
+  static Future<void> saveMpesaPhone(String uid, String phone) async {
+    if (!_isAvailable || uid.isEmpty || phone.isEmpty) return;
+    final normalized = normalizeKenyanNumber(phone.trim());
+    if (normalized == null) {
+      throw UserProfileException(
+        'Invalid phone number format. Use 254XXXXXXXXX (e.g. 254712345678).',
+      );
+    }
+    debugPrint('[UserProfileService] saveMpesaPhone uid=$uid normalized=$normalized');
+    try {
+      await _client.from('users').update({'phone_number': normalized}).eq('id', uid);
+      debugPrint('✅ UserProfileService: saved phone_number=$normalized for $uid');
+    } catch (e) {
+      debugPrint('UserProfileService saveMpesaPhone: $e');
+      rethrow;
+    }
+  }
+
+  /// Fetch just the phone_number for a user. Returns null if not set.
+  static Future<String?> getMpesaPhone(String uid) async {
+    if (!_isAvailable || uid.isEmpty) return null;
+    try {
+      final r = await _client.from('users').select('phone_number').eq('id', uid).maybeSingle();
+      return r?['phone_number']?.toString();
+    } catch (e) {
+      debugPrint('UserProfileService getMpesaPhone: $e');
+      return null;
     }
   }
 

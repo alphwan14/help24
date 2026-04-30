@@ -5,14 +5,12 @@ import '../theme/app_theme.dart';
 class ApplicationModal extends StatefulWidget {
   final String title;
   final String type; // 'job', 'request', or 'offer'
-  final double? suggestedPrice;
-  final Future<void> Function(String message, double proposedPrice) onSubmit;
+  final Future<void> Function(String message) onSubmit;
 
   const ApplicationModal({
     super.key,
     required this.title,
     required this.type,
-    this.suggestedPrice,
     required this.onSubmit,
   });
 
@@ -22,83 +20,43 @@ class ApplicationModal extends StatefulWidget {
 
 class _ApplicationModalState extends State<ApplicationModal> {
   final _messageController = TextEditingController();
-  final _priceController = TextEditingController();
   bool _isSubmitting = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.suggestedPrice != null) {
-      _priceController.text = widget.suggestedPrice!.toStringAsFixed(0);
-    }
-  }
 
   @override
   void dispose() {
     _messageController.dispose();
-    _priceController.dispose();
     super.dispose();
   }
 
-  String get _actionTitle {
+  String get _headerTitle {
     switch (widget.type) {
       case 'job':
         return 'Apply for Job';
       case 'request':
-        return 'Help with this Request';
+        return 'Send Offer';
       case 'offer':
-        return 'Accept Offer';
+        return 'Request Service';
       default:
-        return 'Submit Application';
-    }
-  }
-
-  String get _priceLabel {
-    switch (widget.type) {
-      case 'job':
-        return 'Expected Salary (KES)';
-      case 'request':
-        return 'Your Quote (KES)';
-      case 'offer':
-        return 'Agreed Price (KES)';
-      default:
-        return 'Proposed Price (KES)';
+        return 'Send Offer';
     }
   }
 
   String get _messagePlaceholder {
     switch (widget.type) {
       case 'job':
-        return 'Introduce yourself and explain why you\'re a great fit for this position...';
+        return 'Introduce yourself and explain why you\'re a great fit…';
       case 'request':
-        return 'Describe how you can help with this request and your relevant experience...';
+        return 'Tell them about yourself or ask any questions (optional)';
       case 'offer':
-        return 'Add any questions or comments about the offer...';
+        return 'Add any questions or comments about the offer…';
       default:
-        return 'Write your message...';
+        return 'Add a message (optional)';
     }
   }
 
   void _submit() async {
-    if (_messageController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please write a message'),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-      return;
-    }
-
     setState(() => _isSubmitting = true);
-
-    // Simulate network delay
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    final price = double.tryParse(_priceController.text) ?? 0;
-    await widget.onSubmit(_messageController.text, price);
-
+    await widget.onSubmit(_messageController.text.trim());
     if (mounted) Navigator.pop(context);
   }
 
@@ -146,10 +104,7 @@ class _ApplicationModalState extends State<ApplicationModal> {
                       color: AppTheme.primaryAccent.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: Icon(
-                      widget.type == 'job' ? Iconsax.briefcase : Iconsax.send_2,
-                      color: AppTheme.primaryAccent,
-                    ),
+                    child: const Icon(Iconsax.send_2, color: AppTheme.primaryAccent),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -157,7 +112,7 @@ class _ApplicationModalState extends State<ApplicationModal> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _actionTitle,
+                          _headerTitle,
                           style: Theme.of(context).textTheme.headlineSmall,
                         ),
                         const SizedBox(height: 2),
@@ -175,9 +130,17 @@ class _ApplicationModalState extends State<ApplicationModal> {
               const SizedBox(height: 24),
 
               // Message Field
-              Text(
-                'Your Message',
-                style: Theme.of(context).textTheme.titleMedium,
+              Row(
+                children: [
+                  Text('Message', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(width: 6),
+                  Text(
+                    '(optional)',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                        ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               TextField(
@@ -186,52 +149,6 @@ class _ApplicationModalState extends State<ApplicationModal> {
                 decoration: InputDecoration(
                   hintText: _messagePlaceholder,
                   hintMaxLines: 3,
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Price Field
-              Text(
-                _priceLabel,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _priceController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  hintText: 'Enter amount',
-                  prefixIcon: const Icon(Iconsax.money),
-                  prefixText: 'KES ',
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Attachment hint
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Iconsax.document_upload,
-                      color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'You can attach your CV or portfolio after connecting',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  ],
                 ),
               ),
               const SizedBox(height: 24),
@@ -251,9 +168,9 @@ class _ApplicationModalState extends State<ApplicationModal> {
                             color: Colors.white,
                           ),
                         )
-                      : Text(
-                          widget.type == 'job' ? 'Send Application' : 'Send Response',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      : const Text(
+                          'Send Offer',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                         ),
                 ),
               ),

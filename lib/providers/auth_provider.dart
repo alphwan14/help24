@@ -268,7 +268,10 @@ class AuthProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      final googleUser = await GoogleSignIn().signIn();
+      // Force account picker every time so the user explicitly chooses.
+      final gsi = GoogleSignIn();
+      await gsi.signOut();
+      final googleUser = await gsi.signIn();
       if (googleUser == null) {
         _isLoading = false;
         notifyListeners();

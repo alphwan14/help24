@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -21,8 +22,18 @@ export class MpesaController {
   @Post('initiate')
   @HttpCode(HttpStatus.CREATED)
   initiatePayment(@Body() dto: InitiatePaymentDto) {
-    this.logger.log(`[STK] initiate — post=${dto.post_id} phone=${dto.buyer_phone}`);
+    this.logger.log(`[STK] initiate — post=${dto.post_id} buyer=${dto.buyer_user_id}`);
     return this.mpesa.initiatePayment(dto);
+  }
+
+  /** Sandbox smoke-test — caller supplies phone, amount is fixed at 1. */
+  @Post('test-stk')
+  @HttpCode(HttpStatus.OK)
+  testStk(@Body() body: { phone?: string }) {
+    const phone = body?.phone?.trim() ?? '';
+    if (!phone) throw new BadRequestException('phone is required in request body');
+    this.logger.log(`[TEST-STK] endpoint called — phone=${phone}`);
+    return this.mpesa.testStk(phone);
   }
 
   // Daraja sends raw JSON — skip DTO validation, accept as-is.

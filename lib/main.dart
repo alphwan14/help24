@@ -15,7 +15,6 @@ import 'providers/auth_provider.dart';
 import 'providers/connectivity_provider.dart';
 import 'providers/locale_provider.dart';
 import 'providers/location_provider.dart';
-import 'providers/provider_status_provider.dart';
 import 'widgets/loading_empty_offline.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
@@ -137,18 +136,6 @@ class _Help24AppState extends State<Help24App> {
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
         ChangeNotifierProvider(create: (_) => LocationProvider()),
-        ChangeNotifierProxyProvider<AuthProvider, ProviderStatusProvider>(
-          create: (_) => ProviderStatusProvider(),
-          update: (_, auth, providerStatus) {
-            final status = providerStatus ?? ProviderStatusProvider();
-            if (!auth.isLoggedIn) {
-              status.reset();
-            } else {
-              status.fetchStatus(auth.currentUserId);
-            }
-            return status;
-          },
-        ),
       ],
       child: _SyncOnReconnect(
         child: Consumer2<AppProvider, LocaleProvider>(

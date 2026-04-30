@@ -5,5 +5,3 @@ export 'post_screen.dart';
 export 'messages_screen.dart';
 export 'profile_screen.dart';
 export 'payment_screen.dart';
-export 'provider_registration_screen.dart';
-export 'provider_profile_screen.dart';

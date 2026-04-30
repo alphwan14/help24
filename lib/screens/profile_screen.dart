@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
+import '../utils/phone_utils.dart';
 import '../l10n/app_localizations.dart';
 import '../models/user_model.dart';
 import '../providers/app_provider.dart';
@@ -241,9 +242,16 @@ class ProfileScreen extends StatelessWidget {
                             ),
                             _SettingsTile(
                               icon: Iconsax.card,
-                              title: 'Payment Methods',
+                              title: 'Payment Settings',
+                              subtitle: (snap.data?.phone?.isNotEmpty == true)
+                                  ? snap.data!.phone!
+                                  : 'M-Pesa number not set',
                               trailing: const Icon(Icons.chevron_right),
-                              onTap: () {},
+                              onTap: () => _showPaymentSettingsSheet(
+                                context,
+                                uid,
+                                snap.data?.phone,
+                              ),
                             ),
                           ],
                         ),
@@ -447,6 +455,15 @@ class ProfileScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void _showPaymentSettingsSheet(BuildContext context, String uid, String? currentPhone) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _PaymentSettingsSheet(uid: uid, currentPhone: currentPhone),
     );
   }
 
@@ -847,6 +864,168 @@ class _SettingsTile extends StatelessWidget {
               ),
             ),
             if (trailing != null) trailing!,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentSettingsSheet extends StatefulWidget {
+  final String uid;
+  final String? currentPhone;
+  const _PaymentSettingsSheet({required this.uid, this.currentPhone});
+  @override
+  State<_PaymentSettingsSheet> createState() => _PaymentSettingsSheetState();
+}
+
+class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
+  late final TextEditingController _phoneController;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _phoneController = TextEditingController(text: widget.currentPhone ?? '');
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final raw = _phoneController.text.trim();
+    if (raw.isEmpty) {
+      setState(() => _error = 'Enter your M-Pesa number.');
+      return;
+    }
+    final normalized = normalizeKenyanNumber(raw);
+    if (normalized == null) {
+      setState(() => _error = 'Invalid number. Use 07XXXXXXXX or 254XXXXXXXXX.');
+      return;
+    }
+    // Update the field to show the normalized value.
+    _phoneController.text = normalized;
+    setState(() { _saving = true; _error = null; });
+    try {
+      await UserProfileService.saveMpesaPhone(widget.uid, normalized);
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('M-Pesa number saved.'),
+            backgroundColor: AppTheme.successGreen,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not save. Please try again.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle bar
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            // Header
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryAccent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Iconsax.mobile, color: AppTheme.primaryAccent, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Text('Payment Settings', style: Theme.of(context).textTheme.titleLarge),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Info banner
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryAccent.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Iconsax.info_circle, size: 18, color: AppTheme.primaryAccent),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'This number is used for M-Pesa payments and payouts.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.primaryAccent),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Phone field
+            TextField(
+              controller: _phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: 'M-Pesa Number',
+                hintText: '254XXXXXXXXX',
+                prefixIcon: const Icon(Iconsax.mobile),
+                errorText: _error,
+              ),
+              onChanged: (_) { if (_error != null) setState(() => _error = null); },
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Format: 254 followed by 9 digits (e.g. 254712345678)',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Save button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Save Number'),
+              ),
+            ),
           ],
         ),
       ),

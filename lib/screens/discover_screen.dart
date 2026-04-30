@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../utils/phone_utils.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
 import '../models/post_model.dart';
@@ -14,9 +16,13 @@ import '../widgets/auth_guard.dart';
 import '../providers/auth_provider.dart';
 import '../services/comment_service_firestore.dart';
 import '../services/post_service.dart';
+import '../services/application_service.dart';
+import '../services/user_profile_service.dart';
+import '../widgets/application_modal.dart';
 import 'messages_screen.dart';
 import 'urgent_requests_screen.dart';
 import 'payment_screen.dart';
+import '../services/mpesa_service.dart';
 
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
@@ -301,9 +307,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     ? () {
                         AuthGuard.requireAuth(
                           context,
-                          action: 'offer help on this request',
+                          action: 'offer service on this request',
                           onAuthenticated: () =>
-                              _openPrivateChat(context, post),
+                              _openOfferServiceModal(context, post),
                         );
                       }
                     : null,
@@ -317,25 +323,27 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _showPostDetails(BuildContext context, PostModel post) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Local mutable selection state — updated immediately after "Select" to
+    // avoid waiting for a full feed reload to show the Secure Service button.
+    String? localSelectedId = post.selectedProviderUserId;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      // Consumer wrapping makes isAuthor & offline reactive — no stale captures.
-      builder: (sheetContext) => Consumer2<AuthProvider, ConnectivityProvider>(
-        builder: (_, auth, connectivity, __) {
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (_, setSheetState) => Consumer2<AuthProvider, ConnectivityProvider>(
+          builder: (_, auth, connectivity, __) {
           final currentUserId = auth.currentUserId ?? '';
           final isAuthor = currentUserId.isNotEmpty &&
               post.authorUserId.isNotEmpty &&
               post.authorUserId == currentUserId;
           final isOffline = connectivity.isOffline;
 
-          // Secure Service is only available on Request posts where the author
-          // has already selected a provider. Never shown on Offer posts.
+          // Use localSelectedId so the button appears immediately after selection.
           final showPayButton = post.type == PostType.request &&
               isAuthor &&
-              post.selectedProviderUserId != null &&
+              localSelectedId != null &&
               post.price > 0;
 
           return Container(
@@ -461,9 +469,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                         label: post.typeDisplayLabel,
                                         color: post.typeBadgeColor,
                                       ),
-                                      if (post.type == PostType.offer)
+                                      if (post.type == PostType.offer && post.authorHasPhone)
                                         _BadgeChip(
-                                          label: '✔ Provider',
+                                          label: '✔ Verified Provider',
                                           color: AppTheme.successGreen,
                                         ),
                                       _BadgeChip(
@@ -551,15 +559,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           _ApplicantsSection(
                             post: post,
                             isDark: isDark,
-                            onProviderSelected: () {
-                              Navigator.pop(sheetContext);
+                            overrideSelectedId: localSelectedId,
+                            onProviderSelected: (String userId) {
+                              setSheetState(() => localSelectedId = userId);
+                              // Refresh feed in background so re-opened sheets are up to date.
+                              context.read<AppProvider>().loadPosts();
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: const Row(
                                     children: [
                                       Icon(Icons.check_circle, color: Colors.white, size: 18),
                                       SizedBox(width: 10),
-                                      Flexible(child: Text('Provider selected. You can now secure the service.')),
+                                      Flexible(child: Text('Provider selected. Tap "Secure Service" to pay.')),
                                     ],
                                   ),
                                   backgroundColor: AppTheme.successGreen,
@@ -568,6 +579,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                 ),
                               );
                             },
+                            onChatWithApplicant: (String applicantUserId) async {
+                              Navigator.pop(sheetContext);
+                              await _openChatWithUser(context, post.id, applicantUserId);
+                            },
                           ),
                         ],
 
@@ -575,90 +590,27 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                         // Only on Request posts where the author selected a provider.
                         if (showPayButton) ...[
                           const SizedBox(height: 16),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: isOffline
-                                    ? AppTheme.successGreen
-                                        .withValues(alpha: 0.55)
-                                    : AppTheme.successGreen,
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(12)),
-                              ),
-                              onPressed: () {
-                                if (isOffline) {
-                                  ScaffoldMessenger.of(context)
-                                      .showSnackBar(
-                                    SnackBar(
-                                      content: const Row(
-                                        children: [
-                                          Icon(Icons.wifi_off_rounded,
-                                              color: Colors.white,
-                                              size: 18),
-                                          SizedBox(width: 10),
-                                          Flexible(
-                                            child: Text(
-                                                "You're offline. Connect to proceed."),
-                                          ),
-                                        ],
-                                      ),
-                                      backgroundColor:
-                                          AppTheme.warningOrange,
-                                      behavior:
-                                          SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(
-                                                  10)),
-                                    ),
-                                  );
-                                  return;
-                                }
-                                AuthGuard.requireAuth(
-                                  context,
-                                  action: 'pay for this service',
-                                  onAuthenticated: () {
-                                    final buyerUserId = context
-                                            .read<AuthProvider>()
-                                            .currentUserId ??
-                                        '';
-                                    final fee = calculatePlatformFee(
-                                        post.price);
-                                    Navigator.pop(context);
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => PaymentScreen(
-                                          postId: post.id,
-                                          postTitle: post.title,
-                                          amount: post.price,
-                                          platformFee: fee,
-                                          buyerUserId: buyerUserId,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                );
-                              },
-                              icon: Icon(
-                                isOffline
-                                    ? Icons.wifi_off_rounded
-                                    : Icons.lock_rounded,
-                                size: 18,
-                              ),
-                              label: Text(
-                                isOffline
-                                    ? 'Secure Service (offline)'
-                                    : 'Secure Service · KES ${(post.price + calculatePlatformFee(post.price)).toStringAsFixed(0)}',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w700),
-                              ),
-                            ),
+                          _SecureServiceButton(
+                            post: post,
+                            buyerUserId: currentUserId,
+                            isOffline: isOffline,
+                            onTap: (normalizedPhone) {
+                              final fee = calculatePlatformFee(post.price);
+                              Navigator.pop(sheetContext);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => PaymentScreen(
+                                    postId: post.id,
+                                    postTitle: post.title,
+                                    amount: post.price,
+                                    platformFee: fee,
+                                    buyerUserId: currentUserId,
+                                    buyerPhone: normalizedPhone,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ],
 
@@ -674,10 +626,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                 AuthGuard.requireAuth(
                                   context,
                                   action: post.type == PostType.request
-                                      ? 'apply to this request'
+                                      ? 'offer service on this request'
                                       : 'request this service',
-                                  onAuthenticated: () =>
-                                      _openPrivateChat(context, post),
+                                  onAuthenticated: () => post.type == PostType.request
+                                      ? _openOfferServiceModal(context, post)
+                                      : _openPrivateChat(context, post),
                                 );
                               },
                               icon: Icon(
@@ -688,7 +641,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                               label: Text(
                                 post.type == PostType.offer
                                     ? 'Request Service'
-                                    : 'Apply',
+                                    : 'Offer Service',
                               ),
                             ),
                           ),
@@ -721,7 +674,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           );
         },
       ),
-    );
+    ),
+  );
   }
 
   Future<void> _confirmAndDeletePost(BuildContext sheetContext, BuildContext parentContext, PostModel post) async {
@@ -852,18 +806,129 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
+  /// Open ApplicationModal to let a user offer service on a request.
+  Future<void> _openOfferServiceModal(BuildContext context, PostModel post) async {
+    final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
+    if (currentUserId.isEmpty) return;
+
+    if (post.authorUserId == currentUserId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This is your own request'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // Providers must have an M-Pesa number so they can receive payment when selected.
+    final phone = await UserProfileService.getMpesaPhone(currentUserId);
+    if (!context.mounted) return;
+    if (phone == null || phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.phone_android_rounded, color: Colors.white, size: 18),
+              SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  'Add your M-Pesa number in Profile → Payment Settings to offer services.',
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppTheme.warningOrange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ApplicationModal(
+        title: post.title,
+        type: 'request',
+        onSubmit: (message) async {
+          await ApplicationService.submitApplication(
+            postId: post.id,
+            currentUserId: currentUserId,
+            message: message,
+            proposedPrice: 0,
+          );
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.white),
+                    SizedBox(width: 12),
+                    Text('Offer sent!'),
+                  ],
+                ),
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: AppTheme.successGreen,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  /// Open (or create) a chat between the current user and [otherUserId].
+  Future<void> _openChatWithUser(BuildContext context, String postId, String otherUserId) async {
+    final appProvider = context.read<AppProvider>();
+    final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
+    if (currentUserId.isEmpty || otherUserId.isEmpty) return;
+
+    final conv = await appProvider.ensureConversationOnApply(
+      applicantId: otherUserId,
+      authorId: currentUserId,
+      initialMessage: '',
+      postId: postId,
+    );
+    if (!context.mounted) return;
+    if (conv == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(appProvider.error ?? 'Could not open chat. Please try again.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (c) => ChatScreen(conversation: conv, currentUserId: currentUserId),
+      ),
+    );
+  }
+
 }
 
-/// Applicant list for request post owners — lets them select a provider.
+/// Applicant list for request post owners — lets them chat or select a provider.
 class _ApplicantsSection extends StatefulWidget {
   final PostModel post;
   final bool isDark;
-  final VoidCallback onProviderSelected;
+  final String? overrideSelectedId;
+  final Function(String userId) onProviderSelected;
+  final Future<void> Function(String applicantUserId) onChatWithApplicant;
 
   const _ApplicantsSection({
     required this.post,
     required this.isDark,
     required this.onProviderSelected,
+    required this.onChatWithApplicant,
+    this.overrideSelectedId,
   });
 
   @override
@@ -872,19 +937,25 @@ class _ApplicantsSection extends StatefulWidget {
 
 class _ApplicantsSectionState extends State<_ApplicantsSection> {
   String? _selecting;
+  bool _chatLoading = false;
 
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
     final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
     final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textTertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
     final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
     final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final selectedId = widget.post.selectedProviderUserId;
+
+    // Use override (post-selection local state) if available; fallback to DB value.
+    final effectiveSelectedId = widget.overrideSelectedId ?? widget.post.selectedProviderUserId;
+    final anySelected = effectiveSelectedId != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Section header
         Row(
           children: [
             Text('Applicants', style: Theme.of(context).textTheme.titleLarge),
@@ -906,154 +977,200 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        if (selectedId != null) ...[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.successGreen.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Provider selected. Tap "Secure Service" to pay.',
-                    style: TextStyle(color: textSecondary, fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
+        const SizedBox(height: 10),
+
+        // Empty state
         if (widget.post.applications.isEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: 12),
             child: Text(
-              'No applicants yet. Share your request to attract providers.',
+              'No offers yet. Check back later.',
               style: TextStyle(color: textSecondary, fontSize: 13),
             ),
           )
         else
           ...widget.post.applications.map((app) {
-            final isSelected = app.applicantUserId == selectedId;
+            final isSelected = app.applicantUserId == effectiveSelectedId;
             final isSelecting = _selecting == app.applicantUserId;
+            final canSelect = !anySelected && !isSelecting && app.applicantUserId.isNotEmpty;
+
             return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: isSelected
-                    ? AppTheme.successGreen.withValues(alpha: 0.06)
-                    : cardBg,
-                borderRadius: BorderRadius.circular(12),
+                color: isSelected ? AppTheme.successGreen.withValues(alpha: 0.06) : cardBg,
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                   color: isSelected
-                      ? AppTheme.successGreen.withValues(alpha: 0.4)
+                      ? AppTheme.successGreen.withValues(alpha: 0.45)
                       : borderColor,
                 ),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                    backgroundImage: app.applicantAvatarUrl.isNotEmpty
-                        ? NetworkImage(app.applicantAvatarUrl)
-                        : null,
-                    child: app.applicantAvatarUrl.isEmpty
-                        ? Text(
-                            app.applicantName.isNotEmpty
-                                ? app.applicantName[0].toUpperCase()
-                                : '?',
-                            style: const TextStyle(
-                              color: AppTheme.primaryAccent,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          )
-                        : null,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          app.applicantName,
+                  // Top row: avatar + name + timestamp
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                        backgroundImage: app.applicantAvatarUrl.isNotEmpty
+                            ? NetworkImage(app.applicantAvatarUrl)
+                            : null,
+                        child: app.applicantAvatarUrl.isEmpty
+                            ? Text(
+                                app.applicantName.isNotEmpty
+                                    ? app.applicantName[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  color: AppTheme.primaryAccent,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                ),
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          app.applicantName.isNotEmpty ? app.applicantName : 'Anonymous',
                           style: TextStyle(
                             color: textPrimary,
                             fontWeight: FontWeight.w600,
-                            fontSize: 13,
+                            fontSize: 13.5,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        if (app.message.isNotEmpty)
+                      ),
+                      Text(
+                        formatRelativeTime(app.timestamp),
+                        style: TextStyle(color: textTertiary, fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Message
+                  Text(
+                    app.message.isNotEmpty ? app.message : 'No message provided.',
+                    style: TextStyle(
+                      color: app.message.isNotEmpty ? textSecondary : textTertiary,
+                      fontSize: 12.5,
+                      fontStyle: app.message.isEmpty ? FontStyle.italic : FontStyle.normal,
+                      height: 1.4,
+                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Action row
+                  if (isSelected)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppTheme.successGreen.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 15),
+                          SizedBox(width: 6),
                           Text(
-                            app.message,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: textSecondary, fontSize: 12),
-                          ),
-                        if (app.proposedPrice > 0)
-                          Text(
-                            'Offers KES ${app.proposedPrice.toStringAsFixed(0)}',
+                            'Selected Provider',
                             style: TextStyle(
                               color: AppTheme.successGreen,
+                              fontWeight: FontWeight.w600,
                               fontSize: 12,
-                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (isSelected)
-                    const Icon(Icons.check_circle_rounded,
-                        color: AppTheme.successGreen, size: 20)
-                  else
-                    SizedBox(
-                      height: 32,
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          foregroundColor: AppTheme.primaryAccent,
-                          textStyle: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 12),
-                        ),
-                        onPressed: isSelecting || app.applicantUserId.isEmpty
-                            ? null
-                            : () async {
-                                setState(() => _selecting = app.applicantUserId);
-                                try {
-                                  await PostService.selectProvider(
-                                    widget.post.id,
-                                    app.applicantUserId,
-                                  );
-                                  if (mounted) widget.onProviderSelected();
-                                } catch (_) {
-                                  if (mounted) {
-                                    setState(() => _selecting = null);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Could not select provider. Try again.'),
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
-                                    );
-                                  }
-                                }
-                              },
-                        child: isSelecting
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppTheme.primaryAccent),
-                              )
-                            : const Text('Select'),
+                        ],
                       ),
+                    )
+                  else
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        // Chat button
+                        SizedBox(
+                          height: 34,
+                          child: OutlinedButton.icon(
+                            onPressed: (_chatLoading || app.applicantUserId.isEmpty)
+                                ? null
+                                : () async {
+                                    setState(() => _chatLoading = true);
+                                    try {
+                                      await widget.onChatWithApplicant(app.applicantUserId);
+                                    } finally {
+                                      if (mounted) setState(() => _chatLoading = false);
+                                    }
+                                  },
+                            icon: const Icon(Iconsax.message, size: 14),
+                            label: const Text('Chat'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 14),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Select button
+                        SizedBox(
+                          height: 34,
+                          child: FilledButton(
+                            onPressed: canSelect
+                                ? () async {
+                                    setState(() => _selecting = app.applicantUserId);
+                                    try {
+                                      await PostService.selectProvider(
+                                        widget.post.id,
+                                        app.applicantUserId,
+                                      );
+                                      if (mounted) {
+                                        setState(() => _selecting = null);
+                                        widget.onProviderSelected(app.applicantUserId);
+                                      }
+                                    } catch (e) {
+                                      debugPrint('[SelectProvider] UI caught error: $e');
+                                      if (mounted) {
+                                        setState(() => _selecting = null);
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: const Row(children: [
+                                              Icon(Icons.error_outline, color: Colors.white, size: 18),
+                                              SizedBox(width: 10),
+                                              Flexible(child: Text('Could not select provider. Try again.')),
+                                            ]),
+                                            backgroundColor: AppTheme.errorRed,
+                                            behavior: SnackBarBehavior.floating,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  }
+                                : null,
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 14),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                            child: isSelecting
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Text('Select'),
+                          ),
+                        ),
+                      ],
                     ),
                 ],
               ),
@@ -1321,6 +1438,170 @@ class _CommentInputBarState extends State<_CommentInputBar> {
               : const Icon(Icons.send_rounded, size: 20),
         ),
       ],
+    );
+  }
+}
+
+// ─── Secure Service button with payment-status check ────────────────────────
+
+enum _SecureButtonState { loading, ready, paid }
+
+class _SecureServiceButton extends StatefulWidget {
+  final PostModel post;
+  final String buyerUserId;
+  final bool isOffline;
+  /// Called with the normalized 254XXXXXXXXX phone after preflight checks pass.
+  final void Function(String normalizedPhone) onTap;
+
+  const _SecureServiceButton({
+    required this.post,
+    required this.buyerUserId,
+    required this.isOffline,
+    required this.onTap,
+  });
+
+  @override
+  State<_SecureServiceButton> createState() => _SecureServiceButtonState();
+}
+
+class _SecureServiceButtonState extends State<_SecureServiceButton> {
+  _SecureButtonState _btnState = _SecureButtonState.loading;
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkPaymentStatus();
+  }
+
+  Future<void> _checkPaymentStatus() async {
+    try {
+      final status = await MpesaService.pollPaymentStatus(widget.post.id);
+      if (!mounted) return;
+      setState(() => _btnState = status.isPaid ? _SecureButtonState.paid : _SecureButtonState.ready);
+    } catch (_) {
+      // 404 = no transaction yet — show the button.
+      if (mounted) setState(() => _btnState = _SecureButtonState.ready);
+    }
+  }
+
+  Future<void> _handleTap() async {
+    if (widget.isOffline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(children: [
+            Icon(Icons.wifi_off_rounded, color: Colors.white, size: 18),
+            SizedBox(width: 10),
+            Flexible(child: Text("You're offline. Connect to proceed.")),
+          ]),
+          backgroundColor: AppTheme.warningOrange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
+    if (widget.buyerUserId.isEmpty) return;
+
+    setState(() => _checking = true);
+    try {
+      final rawPhone = await UserProfileService.getMpesaPhone(widget.buyerUserId);
+      if (!mounted) return;
+
+      final normalizedPhone = rawPhone != null ? normalizeKenyanNumber(rawPhone) : null;
+      debugPrint('[SecureBtn] raw phone="$rawPhone" normalized="$normalizedPhone"');
+
+      if (normalizedPhone == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(children: [
+              Icon(Icons.phone_android_rounded, color: Colors.white, size: 18),
+              SizedBox(width: 10),
+              Flexible(child: Text('Add a valid M-Pesa number (254XXXXXXXXX) in Profile → Payment Settings.')),
+            ]),
+            backgroundColor: AppTheme.warningOrange,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+      widget.onTap(normalizedPhone);
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_btnState == _SecureButtonState.loading) {
+      return const SizedBox(
+        height: 52,
+        child: Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.successGreen),
+          ),
+        ),
+      );
+    }
+
+    if (_btnState == _SecureButtonState.paid) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppTheme.successGreen.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.4)),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_rounded, color: AppTheme.successGreen, size: 18),
+            SizedBox(width: 8),
+            Text(
+              'Payment Secured',
+              style: TextStyle(
+                color: AppTheme.successGreen,
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final total = (widget.post.price + calculatePlatformFee(widget.post.price)).toStringAsFixed(0);
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton.icon(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: widget.isOffline
+              ? AppTheme.successGreen.withValues(alpha: 0.55)
+              : AppTheme.successGreen,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        onPressed: _checking ? null : _handleTap,
+        icon: _checking
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+            : Icon(widget.isOffline ? Icons.wifi_off_rounded : Icons.lock_rounded, size: 18),
+        label: Text(
+          widget.isOffline ? 'Secure Service (offline)' : 'Secure Service · KES $total',
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
     );
   }
 }
