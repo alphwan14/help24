@@ -207,6 +207,14 @@ class AppTheme {
         thumbColor: primaryAccent,
         overlayColor: primaryAccent.withOpacity(0.1),
       ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.all(Colors.white),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return primaryAccent;
+          return darkBorder;
+        }),
+        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+      ),
     );
   }
 
@@ -376,6 +384,15 @@ class AppTheme {
         inactiveTrackColor: lightBorder,
         thumbColor: primaryAccent,
         overlayColor: primaryAccent.withOpacity(0.1),
+      ),
+      // Inactive track uses a medium gray so it's clearly visible on white backgrounds.
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.all(Colors.white),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return primaryAccent;
+          return const Color(0xFFCBD5E1); // slate-300 — visible on white
+        }),
+        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
       ),
     );
   }

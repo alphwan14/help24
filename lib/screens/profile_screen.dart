@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
 import '../utils/phone_utils.dart';
@@ -72,7 +73,64 @@ class ProfileScreen extends StatelessWidget {
 
             const SizedBox(height: 20),
 
-            // Settings Section
+            // ── Account ─────────────────────────────────────────────────────
+            Consumer<AuthProvider>(
+              builder: (context, auth, _) {
+                if (!auth.isLoggedIn) {
+                  return _SettingsSection(
+                    title: 'Account',
+                    children: [
+                      _SettingsTile(
+                        icon: Iconsax.profile_circle,
+                        title: 'Edit Profile',
+                        subtitle: 'Sign in to edit your profile',
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _showAuthModalForEditProfile(context),
+                      ),
+                    ],
+                  );
+                }
+                final uid = auth.currentUserId ?? '';
+                return StreamBuilder<UserModel?>(
+                  stream: UserProfileService.watchUser(uid),
+                  builder: (context, snap) {
+                    return _SettingsSection(
+                      title: 'Account',
+                      children: [
+                        _SettingsTile(
+                          icon: Iconsax.profile_circle,
+                          title: 'Edit Profile',
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _openEditProfile(context, snap.data),
+                        ),
+                        _SettingsTile(
+                          icon: Iconsax.card,
+                          title: 'Payment Settings',
+                          subtitle: (snap.data?.phone?.isNotEmpty == true)
+                              ? snap.data!.phone!
+                              : 'M-Pesa number not set',
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _showPaymentSettingsSheet(
+                            context,
+                            uid,
+                            snap.data?.phone,
+                          ),
+                        ),
+                        _SettingsTile(
+                          icon: Iconsax.security_safe,
+                          title: 'Privacy & Security',
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _openPrivacy(context),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // ── Preferences ─────────────────────────────────────────────────
             _SettingsSection(
               title: AppLocalizations.of(context)?.t('preferences') ?? 'Preferences',
               children: [
@@ -84,8 +142,6 @@ class ProfileScreen extends StatelessWidget {
                       trailing: Switch.adaptive(
                         value: provider.isDarkMode,
                         onChanged: (_) => provider.toggleTheme(),
-                        activeTrackColor: AppTheme.primaryAccent,
-                        thumbColor: WidgetStateProperty.all(Colors.white),
                       ),
                     );
                   },
@@ -101,32 +157,8 @@ class ProfileScreen extends StatelessWidget {
                         onTap: () => _navigateToAuth(context),
                       );
                     }
-                    final uid = auth.currentUserId ?? '';
-                    return StreamBuilder<({bool notificationsEnabled, String language})>(
-                      stream: UserProfileService.watchUserPrefs(uid),
-                      builder: (context, snap) {
-                        final enabled = snap.data?.notificationsEnabled ?? true;
-                        return _SettingsTile(
-                          icon: Iconsax.notification,
-                          title: AppLocalizations.of(context)?.t('notifications') ?? 'Notifications',
-                          subtitle: enabled
-                              ? (AppLocalizations.of(context)?.t('notifications_on') ?? 'On')
-                              : (AppLocalizations.of(context)?.t('notifications_off') ?? 'Off'),
-                          trailing: Switch.adaptive(
-                            value: enabled,
-                            onChanged: (value) async {
-                              if (value) {
-                                await NotificationService.enableAndSaveToken(uid);
-                              } else {
-                                await NotificationService.disableAndRemoveToken(uid);
-                              }
-                            },
-                            activeTrackColor: AppTheme.primaryAccent,
-                            thumbColor: WidgetStateProperty.all(Colors.white),
-                          ),
-                        );
-                      },
-                    );
+                    // Wrapped in its own StatefulWidget for instant optimistic updates.
+                    return _NotificationSwitchTile(uid: auth.currentUserId!);
                   },
                 ),
                 Consumer2<AuthProvider, LocationProvider>(
@@ -199,67 +231,6 @@ class ProfileScreen extends StatelessWidget {
                   },
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-
-            // Account Section — Edit Profile always visible; other tiles when logged in
-            Consumer<AuthProvider>(
-              builder: (context, auth, _) {
-                if (!auth.isLoggedIn) {
-                  return _SettingsSection(
-                    title: 'Account',
-                    children: [
-                      _SettingsTile(
-                        icon: Iconsax.profile_circle,
-                        title: 'Edit Profile',
-                        subtitle: 'Sign in to edit your profile',
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _showAuthModalForEditProfile(context),
-                      ),
-                    ],
-                  );
-                }
-                final uid = auth.currentUserId ?? '';
-                return StreamBuilder<UserModel?>(
-                  stream: UserProfileService.watchUser(uid),
-                  builder: (context, snap) {
-                    return Column(
-                      children: [
-                        _SettingsSection(
-                          title: 'Account',
-                          children: [
-                            _SettingsTile(
-                              icon: Iconsax.profile_circle,
-                              title: 'Edit Profile',
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => _openEditProfile(context, snap.data),
-                            ),
-                            _SettingsTile(
-                              icon: Iconsax.security_safe,
-                              title: 'Privacy & Security',
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () {},
-                            ),
-                            _SettingsTile(
-                              icon: Iconsax.card,
-                              title: 'Payment Settings',
-                              subtitle: (snap.data?.phone?.isNotEmpty == true)
-                                  ? snap.data!.phone!
-                                  : 'M-Pesa number not set',
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => _showPaymentSettingsSheet(
-                                context,
-                                uid,
-                                snap.data?.phone,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
-                );
-              },
             ),
 
             _SettingsSection(
@@ -545,7 +516,7 @@ class _LoggedInProfile extends StatelessWidget {
                 AppTheme.secondaryAccent,
               ],
             ),
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(50),
             boxShadow: [
               BoxShadow(
                 color: AppTheme.primaryAccent.withValues(alpha: 0.3),
@@ -557,7 +528,7 @@ class _LoggedInProfile extends StatelessWidget {
           child: Center(
             child: avatarUrl.isNotEmpty
                 ? ClipRRect(
-                    borderRadius: BorderRadius.circular(28),
+                    borderRadius: BorderRadius.circular(50),
                     child: CachedNetworkImage(
                       imageUrl: avatarUrl,
                       width: 100,
@@ -692,7 +663,7 @@ class _GuestProfile extends StatelessWidget {
           height: 100,
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(50),
             border: Border.all(
               color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
               width: 2,
@@ -871,6 +842,50 @@ class _SettingsTile extends StatelessWidget {
   }
 }
 
+// ── Notification toggle — instant optimistic update ──────────────────────────
+class _NotificationSwitchTile extends StatefulWidget {
+  final String uid;
+  const _NotificationSwitchTile({required this.uid});
+  @override
+  State<_NotificationSwitchTile> createState() => _NotificationSwitchTileState();
+}
+
+class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
+  bool? _optimisticValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return StreamBuilder<({bool notificationsEnabled, String language})>(
+      stream: UserProfileService.watchUserPrefs(widget.uid),
+      builder: (context, snap) {
+        final actual = snap.data?.notificationsEnabled ?? true;
+        final displayed = _optimisticValue ?? actual;
+        return _SettingsTile(
+          icon: Iconsax.notification,
+          title: l10n?.t('notifications') ?? 'Notifications',
+          trailing: Switch.adaptive(
+            value: displayed,
+            onChanged: (val) async {
+              setState(() => _optimisticValue = val);
+              try {
+                if (val) {
+                  await NotificationService.enableAndSaveToken(widget.uid);
+                } else {
+                  await NotificationService.disableAndRemoveToken(widget.uid);
+                }
+                if (mounted) setState(() => _optimisticValue = null);
+              } catch (_) {
+                if (mounted) setState(() => _optimisticValue = !val);
+              }
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _PaymentSettingsSheet extends StatefulWidget {
   final String uid;
   final String? currentPhone;
@@ -883,17 +898,49 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
   late final TextEditingController _phoneController;
   bool _saving = false;
   String? _error;
+  bool _unlocked = false;
+  bool _authenticating = false;
 
   @override
   void initState() {
     super.initState();
     _phoneController = TextEditingController(text: widget.currentPhone ?? '');
+    // Skip biometric gate when no number has been set yet
+    _unlocked = widget.currentPhone == null || widget.currentPhone!.isEmpty;
   }
 
   @override
   void dispose() {
     _phoneController.dispose();
     super.dispose();
+  }
+
+  Future<void> _authenticate() async {
+    setState(() { _authenticating = true; _error = null; });
+    try {
+      final localAuth = LocalAuthentication();
+      final bool deviceSupported = await localAuth.isDeviceSupported();
+      if (!deviceSupported) {
+        // Device has no lock screen — skip gate
+        if (mounted) setState(() { _unlocked = true; _authenticating = false; });
+        return;
+      }
+      final bool ok = await localAuth.authenticate(
+        localizedReason: 'Authenticate to change your M-Pesa number',
+        options: const AuthenticationOptions(
+          stickyAuth: true,
+          biometricOnly: false,
+        ),
+      );
+      if (mounted) setState(() { _unlocked = ok; _authenticating = false; });
+    } on Exception catch (e) {
+      if (mounted) {
+        setState(() {
+          _authenticating = false;
+          _error = 'Authentication error: $e';
+        });
+      }
+    }
   }
 
   Future<void> _save() async {
@@ -907,7 +954,6 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
       setState(() => _error = 'Invalid number. Use 07XXXXXXXX or 254XXXXXXXXX.');
       return;
     }
-    // Update the field to show the normalized value.
     _phoneController.text = normalized;
     setState(() { _saving = true; _error = null; });
     try {
@@ -930,6 +976,40 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
     }
   }
 
+  Widget _buildHandleAndHeader(BuildContext context, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Center(
+          child: Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+        Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryAccent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Iconsax.mobile, color: AppTheme.primaryAccent, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Text('Payment Settings', style: Theme.of(context).textTheme.titleLarge),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -941,94 +1021,130 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Handle bar
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            // Header
-            Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(Iconsax.mobile, color: AppTheme.primaryAccent, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Text('Payment Settings', style: Theme.of(context).textTheme.titleLarge),
-              ],
-            ),
-            const SizedBox(height: 16),
-            // Info banner
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryAccent.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.2)),
-              ),
-              child: Row(
+        child: _unlocked ? _buildEditForm(context, isDark) : _buildLockedView(context, isDark),
+      ),
+    );
+  }
+
+  Widget _buildLockedView(BuildContext context, bool isDark) {
+    final maskedPhone = widget.currentPhone != null && widget.currentPhone!.length > 6
+        ? '${widget.currentPhone!.substring(0, 3)}••••••${widget.currentPhone!.substring(widget.currentPhone!.length - 3)}'
+        : widget.currentPhone ?? '';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildHandleAndHeader(context, isDark),
+        const SizedBox(height: 24),
+        // Current number display
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+          ),
+          child: Row(
+            children: [
+              Icon(Iconsax.mobile, size: 20,
+                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Iconsax.info_circle, size: 18, color: AppTheme.primaryAccent),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'This number is used for M-Pesa payments and payouts.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.primaryAccent),
-                    ),
-                  ),
+                  Text('M-Pesa Number',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: 2),
+                  Text(maskedPhone,
+                      style: Theme.of(context).textTheme.titleMedium),
                 ],
               ),
-            ),
-            const SizedBox(height: 20),
-            // Phone field
-            TextField(
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
-              decoration: InputDecoration(
-                labelText: 'M-Pesa Number',
-                hintText: '254XXXXXXXXX',
-                prefixIcon: const Icon(Iconsax.mobile),
-                errorText: _error,
-              ),
-              onChanged: (_) { if (_error != null) setState(() => _error = null); },
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Format: 254 followed by 9 digits (e.g. 254712345678)',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Save button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _saving ? null : _save,
-                child: _saving
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('Save Number'),
-              ),
-            ),
-          ],
+              const Spacer(),
+              Icon(Iconsax.lock, size: 18,
+                  color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
+            ],
+          ),
         ),
-      ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _authenticating ? null : _authenticate,
+            icon: _authenticating
+                ? const SizedBox(width: 18, height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Iconsax.finger_scan, size: 18),
+            label: Text(_authenticating ? 'Authenticating…' : 'Change Number'),
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Text(_error!, style: TextStyle(color: AppTheme.errorRed, fontSize: 12)),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildEditForm(BuildContext context, bool isDark) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildHandleAndHeader(context, isDark),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryAccent.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              Icon(Iconsax.info_circle, size: 18, color: AppTheme.primaryAccent),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'This number is used for M-Pesa payments and payouts.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppTheme.primaryAccent),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        TextField(
+          controller: _phoneController,
+          keyboardType: TextInputType.phone,
+          decoration: InputDecoration(
+            labelText: 'M-Pesa Number',
+            hintText: '254XXXXXXXXX',
+            prefixIcon: const Icon(Iconsax.mobile),
+            errorText: _error,
+          ),
+          onChanged: (_) { if (_error != null) setState(() => _error = null); },
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Format: 254 followed by 9 digits (e.g. 254712345678)',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+          ),
+        ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const SizedBox(width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Save Number'),
+          ),
+        ),
+      ],
     );
   }
 }

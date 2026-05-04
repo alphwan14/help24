@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/post_model.dart';
 import '../services/post_service.dart';
 import '../services/chat_service_supabase.dart';
@@ -63,8 +64,7 @@ class AppProvider extends ChangeNotifier {
   double? get minRating => _minRating;
   String? get priorityLocationCity => _priorityLocationCity;
 
-  AppProvider() {
-    // Load data from Supabase on initialization
+  AppProvider({bool initialDarkMode = true}) : _isDarkMode = initialDarkMode {
     _loadInitialData();
   }
 
@@ -607,6 +607,10 @@ class AppProvider extends ChangeNotifier {
   void toggleTheme() {
     _isDarkMode = !_isDarkMode;
     notifyListeners();
+    // Persist immediately; fire-and-forget (non-blocking).
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setBool('isDarkMode', _isDarkMode),
+    );
   }
 
   // ==================== FILTERS ====================

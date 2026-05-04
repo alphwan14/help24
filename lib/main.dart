@@ -22,6 +22,7 @@ import 'screens/web_view_screen.dart';
 import 'services/diagnostic_service.dart';
 import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
@@ -36,20 +37,24 @@ void main() async {
     anonKey: 'sb_publishable_WQYHVfGzH-VKqkM2WLT-8A_NjQ6WeZD',
   );
 
-  print('✅ Supabase initialized successfully!');
+  // Load persisted theme before first frame — prevents any dark/light flicker.
+  final prefs = await SharedPreferences.getInstance();
+  final isDark = prefs.getBool('isDarkMode') ?? true;
 
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+  SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: AppTheme.darkSurface,
-    systemNavigationBarIconBrightness: Brightness.light,
+    statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+    systemNavigationBarColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+    systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
   ));
 
-  runApp(const Help24App());
+  runApp(Help24App(initialDarkMode: isDark));
 }
 
 class Help24App extends StatefulWidget {
-  const Help24App({super.key});
+  final bool initialDarkMode;
+
+  const Help24App({super.key, this.initialDarkMode = true});
 
   @override
   State<Help24App> createState() => _Help24AppState();
@@ -131,7 +136,7 @@ class _Help24AppState extends State<Help24App> {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AppProvider()),
+        ChangeNotifierProvider(create: (_) => AppProvider(initialDarkMode: widget.initialDarkMode)),
         ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
@@ -185,44 +190,20 @@ class StartupGate extends StatefulWidget {
 }
 
 class _StartupGateState extends State<StartupGate> {
-  bool _showHome = false;
-
   @override
   void initState() {
     super.initState();
+    // Firebase + notifications bootstrap runs in background.
+    // AuthProvider is already initialized via ChangeNotifierProvider; re-init
+    // here so it picks up Firebase messaging token after bootstrap completes.
     unawaited(widget.bootstrapFuture?.then((_) async {
       if (!mounted) return;
       await context.read<AuthProvider>().initialize();
     }) ?? Future<void>.value());
-    Future<void>.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      setState(() => _showHome = true);
-    });
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (_showHome) return const HomeScreen();
-    return const _SplashScreen();
-  }
-}
-
-class _SplashScreen extends StatelessWidget {
-  const _SplashScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.darkBackground,
-      body: Center(
-        child: Image.asset(
-          'assets/help24_icon.png',
-          width: 80,
-          height: 80,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const HomeScreen();
 }
 
 class _SyncOnReconnect extends StatefulWidget {

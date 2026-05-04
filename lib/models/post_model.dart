@@ -887,6 +887,9 @@ class Message {
   final double? longitude;
   final DateTime? liveUntil;
   final String? attachmentUrl;
+  /// 'sent' | 'seen'
+  final String status;
+  final DateTime? seenAt;
 
   Message({
     required this.id,
@@ -901,6 +904,8 @@ class Message {
     this.longitude,
     this.liveUntil,
     this.attachmentUrl,
+    this.status = 'sent',
+    this.seenAt,
   });
 
   bool get isLocation => type == 'location' || type == 'live_location';
@@ -921,6 +926,10 @@ class Message {
         ? DateTime.tryParse(json['live_until'].toString())
         : null;
     final attachmentUrl = json['attachment_url']?.toString();
+    final status = (json['status'] ?? 'sent') as String;
+    final seenAt = json['seen_at'] != null
+        ? DateTime.tryParse(json['seen_at'].toString())
+        : null;
     return Message(
       id: (json['id'] ?? '').toString(),
       conversationId: (json['conversation_id'] ?? '').toString(),
@@ -936,6 +945,8 @@ class Message {
       longitude: lng,
       liveUntil: liveUntil,
       attachmentUrl: attachmentUrl,
+      status: status,
+      seenAt: seenAt,
     );
   }
 
@@ -952,6 +963,8 @@ class Message {
     double? longitude,
     DateTime? liveUntil,
     String? attachmentUrl,
+    String? status,
+    DateTime? seenAt,
   }) {
     return Message(
       id: id ?? this.id,
@@ -966,6 +979,8 @@ class Message {
       longitude: longitude ?? this.longitude,
       liveUntil: liveUntil ?? this.liveUntil,
       attachmentUrl: attachmentUrl ?? this.attachmentUrl,
+      status: status ?? this.status,
+      seenAt: seenAt ?? this.seenAt,
     );
   }
 
@@ -991,6 +1006,8 @@ class Message {
       'message': text,
       'created_at': timestamp.toIso8601String(),
       'type': type,
+      'status': status,
+      if (seenAt != null) 'seen_at': seenAt!.toIso8601String(),
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (liveUntil != null) 'live_until': liveUntil!.toIso8601String(),
@@ -1010,6 +1027,8 @@ class Conversation {
   final List<Message> messages;
   /// Optional post id when chat is scoped to a post (for navigating to post from chat).
   final String? postId;
+  /// Human-readable title of the post this chat belongs to (fetched via join).
+  final String? postTitle;
 
   Conversation({
     required this.id,
@@ -1021,6 +1040,7 @@ class Conversation {
     this.unreadCount = 0,
     this.messages = const [],
     this.postId,
+    this.postTitle,
   });
 
   Conversation copyWith({
@@ -1033,6 +1053,7 @@ class Conversation {
     int? unreadCount,
     List<Message>? messages,
     String? postId,
+    String? postTitle,
   }) {
     return Conversation(
       id: id ?? this.id,
@@ -1044,6 +1065,7 @@ class Conversation {
       unreadCount: unreadCount ?? this.unreadCount,
       messages: messages ?? this.messages,
       postId: postId ?? this.postId,
+      postTitle: postTitle ?? this.postTitle,
     );
   }
 
@@ -1058,6 +1080,7 @@ class Conversation {
       'last_message_time': lastMessageTime.toIso8601String(),
       'unread_count': unreadCount,
       'post_id': postId,
+      if (postTitle != null) 'post_title': postTitle,
     };
   }
 
@@ -1074,6 +1097,7 @@ class Conversation {
           : DateTime.now(),
       unreadCount: (map['unread_count'] is int) ? map['unread_count'] as int : 0,
       postId: map['post_id']?.toString(),
+      postTitle: map['post_title']?.toString(),
     );
   }
 }

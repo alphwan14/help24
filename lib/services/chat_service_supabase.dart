@@ -197,9 +197,11 @@ class ChatServiceSupabase {
     int limit = _conversationsPageSize,
     int offset = 0,
   }) async {
+    // Join posts(title) via the chats_post_id_fkey FK constraint.
+    // FK must exist in DB — see migration 023_chats_post_fkey.sql.
     final response = await _client
         .from('chats')
-        .select()
+        .select('*, posts!chats_post_id_fkey(title)')
         .or('user1.eq.$currentUserId,user2.eq.$currentUserId')
         .order('updated_at', ascending: false)
         .range(offset, offset + limit - 1);
@@ -211,6 +213,11 @@ class ChatServiceSupabase {
       final user2 = map['user2'] as String? ?? '';
       final otherId = user1 == currentUserId ? user2 : user1;
       final profile = await _getUserProfile(otherId);
+      // PostgREST returns the joined row as a Map when FK cardinality is many-to-one,
+      // or null when post_id is null. Handle both safely.
+      final postsRaw = map['posts'];
+      final postsData = postsRaw is Map<String, dynamic> ? postsRaw : null;
+      final postTitle = postsData?['title'] as String?;
       list.add(Conversation(
         id: (map['id'] ?? '').toString(),
         participantId: otherId,
@@ -222,6 +229,7 @@ class ChatServiceSupabase {
             : DateTime.now(),
         unreadCount: 0,
         postId: map['post_id']?.toString(),
+        postTitle: postTitle,
       ));
     }
     return list;
@@ -296,12 +304,84 @@ class ChatServiceSupabase {
       'message': content,
       'type': type,
       'created_at': createdAt.toIso8601String(),
+      'status': (row['status'] ?? 'sent').toString(),
+      if (row['seen_at'] != null) 'seen_at': row['seen_at'].toString(),
     };
     if (row['latitude'] != null) map['latitude'] = (row['latitude'] as num).toDouble();
     if (row['longitude'] != null) map['longitude'] = (row['longitude'] as num).toDouble();
     if (row['live_until'] != null) map['live_until'] = row['live_until'].toString();
     if (row['attachment_url'] != null) map['attachment_url'] = row['attachment_url'].toString();
     return Message.fromJson(map, currentUserId);
+  }
+
+  /// Mark all unread messages (not sent by current user) as seen.
+  /// Called when the recipient opens or is actively viewing the chat.
+  static Future<void> markMessagesSeen(String chatId, String currentUserId) async {
+    if (chatId.isEmpty || currentUserId.isEmpty) return;
+    try {
+      await _client
+          .from('chat_messages')
+          .update({
+            'status': 'seen',
+            'seen_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('chat_id', chatId)
+          .neq('sender_id', currentUserId)
+          .neq('status', 'seen');
+    } catch (e) {
+      debugPrint('ChatServiceSupabase markMessagesSeen: $e');
+    }
+  }
+
+  /// Broadcast that the current user is typing. Debounce in the UI — don't call on every keystroke.
+  static Future<void> setTyping(String chatId, String userId) async {
+    if (chatId.isEmpty || userId.isEmpty) return;
+    try {
+      await _client.from('chats').update({
+        'typing_user_id': userId,
+        'typing_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', chatId);
+    } catch (e) {
+      debugPrint('ChatServiceSupabase setTyping: $e');
+    }
+  }
+
+  /// Clear typing state (called on send or after idle timeout).
+  static Future<void> clearTyping(String chatId, String userId) async {
+    if (chatId.isEmpty || userId.isEmpty) return;
+    try {
+      // Only clear if this user is the one currently marked as typing.
+      await _client
+          .from('chats')
+          .update({'typing_user_id': null, 'typing_at': null})
+          .eq('id', chatId)
+          .eq('typing_user_id', userId);
+    } catch (e) {
+      debugPrint('ChatServiceSupabase clearTyping: $e');
+    }
+  }
+
+  /// Returns true when the other participant has been typing within the last 4 seconds.
+  static Future<bool> isOtherUserTyping(String chatId, String currentUserId) async {
+    if (chatId.isEmpty) return false;
+    try {
+      final r = await _client
+          .from('chats')
+          .select('typing_user_id, typing_at')
+          .eq('id', chatId)
+          .single();
+      final map = r as Map<String, dynamic>;
+      final typingUser = map['typing_user_id']?.toString();
+      final typingAt = map['typing_at'] != null
+          ? DateTime.tryParse(map['typing_at'].toString())
+          : null;
+      if (typingUser == null || typingUser.isEmpty || typingUser == currentUserId || typingAt == null) {
+        return false;
+      }
+      return DateTime.now().difference(typingAt.toLocal()).inSeconds < 4;
+    } catch (e) {
+      return false;
+    }
   }
 
   /// Send text message.
