@@ -1,0 +1,85 @@
+import { createServiceClient } from "@/lib/supabase-server";
+import DataTable from "@/components/DataTable";
+
+type OfferRow = {
+  id: string;
+  title: string;
+  category: string;
+  location: string;
+  price: number;
+  pricing_type: string;
+  author_user_id: string | null;
+  created_at: string;
+  users: { name: string | null; email: string | null; phone_number: string | null } | null;
+};
+
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+async function getOffers() {
+  const db = createServiceClient();
+  const { data } = await db
+    .from("posts")
+    .select("id, title, category, location, price, pricing_type, author_user_id, created_at, users(name, email, phone_number)")
+    .eq("type", "offer")
+    .order("created_at", { ascending: false })
+    .limit(200);
+  return (data ?? []) as unknown as OfferRow[];
+}
+
+export default async function MarketplaceOffersPage() {
+  const rows = await getOffers();
+
+  const columns = [
+    {
+      key: "title",
+      label: "Offer",
+      render: (r: OfferRow) => (
+        <div className="max-w-xs">
+          <p className="font-medium text-gray-900 truncate">{r.title}</p>
+          <p className="text-xs text-gray-400">{r.category} · {r.location}</p>
+        </div>
+      ),
+    },
+    {
+      key: "provider",
+      label: "Provider",
+      render: (r: OfferRow) => (
+        <div>
+          <p className="text-gray-800">{r.users?.name || r.users?.email || "—"}</p>
+          {r.users?.email && <p className="text-xs text-gray-400">{r.users.email}</p>}
+        </div>
+      ),
+    },
+    {
+      key: "phone",
+      label: "M-Pesa Phone",
+      render: (r: OfferRow) =>
+        r.users?.phone_number ? (
+          <span className="badge bg-green-100 text-green-700">{r.users.phone_number}</span>
+        ) : (
+          <span className="badge bg-red-100 text-red-600">Not set</span>
+        ),
+    },
+    {
+      key: "price",
+      label: "Rate",
+      render: (r: OfferRow) => (
+        <span className="font-medium">KES {r.price.toLocaleString("en-KE")} / {r.pricing_type}</span>
+      ),
+    },
+    {
+      key: "created_at",
+      label: "Posted",
+      render: (r: OfferRow) => <span className="text-gray-500">{fmtDate(r.created_at)}</span>,
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <p className="text-gray-500 text-sm">{rows.length} results</p>
+      <DataTable columns={columns} rows={rows} emptyMessage="No offers found." />
+    </div>
+  );
+}
