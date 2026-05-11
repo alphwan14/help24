@@ -16,15 +16,23 @@
   ::-webkit-scrollbar        { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track  { background: var(--scrollbar-track); }
   ::-webkit-scrollbar-thumb  { background: var(--scrollbar-thumb); border-radius: 9999px; }
+
+  /* Prevent content from scrolling behind the fixed mobile top bar */
+  html {
+    scroll-padding-top: 56px;
+  }
 }
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    /* Minimum 44px touch target */
+    min-height: 44px;
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg text-gray-600 text-sm font-medium hover:bg-gray-100 transition-colors;
+    @apply inline-flex items-center justify-center px-4 py-2.5 rounded-lg text-gray-600 text-sm font-medium hover:bg-gray-100 transition-colors;
+    min-height: 44px;
   }
 
   .badge {
@@ -36,25 +44,26 @@
   }
 
   .input {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-lg text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent;
+    @apply w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent;
+    min-height: 44px;
   }
 
   /* Section page header */
   .page-header {
-    @apply mb-7;
+    @apply mb-6 lg:mb-7;
   }
   .page-header h1 {
-    @apply text-[22px] font-bold text-gray-900 tracking-tight leading-none;
+    @apply text-xl sm:text-[22px] font-bold text-gray-900 tracking-tight leading-none;
   }
   .page-header p {
     @apply text-[13px] text-gray-400 mt-1.5;
   }
 
-  /* Chart card wrapper */
+  /* Chart card — responsive inner padding */
   .chart-card {
-    @apply bg-white rounded-xl border border-gray-100 shadow-sm px-6 pt-5 pb-6;
+    @apply bg-white rounded-xl border border-gray-100 shadow-sm px-4 pt-4 pb-5 sm:px-6 sm:pt-5 sm:pb-6;
   }
-  /* Legacy selectors kept for backward compatibility */
+  /* Legacy selectors kept for pages that use them directly */
   .chart-card-title {
     @apply text-[13.5px] font-semibold text-gray-800 leading-none mb-1;
   }

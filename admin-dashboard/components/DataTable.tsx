@@ -17,14 +17,15 @@ export default function DataTable<T extends Record<string, unknown>>({
 }: DataTableProps<T>) {
   return (
     <div className="card overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      {/* Horizontal scroll on narrow viewports */}
+      <div className="overflow-x-auto -mx-px">
+        <table className="w-full text-sm min-w-[540px]">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50">
+            <tr className="border-b border-gray-100 bg-gray-50/80">
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap"
+                  className="px-3 sm:px-4 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap"
                 >
                   {col.label}
                 </th>
@@ -34,15 +35,21 @@ export default function DataTable<T extends Record<string, unknown>>({
           <tbody className="divide-y divide-gray-50">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-10 text-center text-gray-400">
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-12 text-center text-sm text-gray-400"
+                >
                   {emptyMessage}
                 </td>
               </tr>
             ) : (
               rows.map((row, i) => (
-                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                <tr key={i} className="hover:bg-gray-50/60 transition-colors">
                   {columns.map((col) => (
-                    <td key={col.key} className="px-4 py-3 text-gray-700 whitespace-nowrap">
+                    <td
+                      key={col.key}
+                      className="px-3 sm:px-4 py-3 text-gray-700 whitespace-nowrap"
+                    >
                       {col.render ? col.render(row, i) : String(row[col.key] ?? "—")}
                     </td>
                   ))}

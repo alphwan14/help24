@@ -38,16 +38,16 @@ function CustomLegend({ payload }: { payload?: any[] }) {
 
 export function PaymentStatusChart({ data }: { data: StatusSlice[] }) {
   return (
-    <ResponsiveContainer width="100%" height={280}>
+    <ResponsiveContainer width="100%" height="100%">
       <PieChart>
         <Pie
           data={data}
           dataKey="value"
           nameKey="name"
           cx="50%"
-          cy="46%"
-          outerRadius={95}
-          innerRadius={52}
+          cy="44%"
+          outerRadius="38%"
+          innerRadius="20%"
           paddingAngle={2}
           strokeWidth={0}
         >

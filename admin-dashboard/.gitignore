@@ -1,0 +1,32 @@
+# ── Dependencies ────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# ── Next.js build output ────────────────────────────────────
+.next/
+out/
+build/
+
+# ── TypeScript ───────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Environment & secrets ────────────────────────────────────
+.env
+.env.*
+.env*.local
+!.env.example
+
+# ── Vercel ───────────────────────────────────────────────────
+.vercel
+
+# ── Testing ──────────────────────────────────────────────────
+coverage/
+
+# ── Misc ─────────────────────────────────────────────────────
+*.pem
+.DS_Store
+Thumbs.db
+*.log

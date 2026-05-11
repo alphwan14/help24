@@ -15,7 +15,7 @@ export interface ActivityPoint { date: string; requests: number; offers: number 
 
 export function RequestsOffersChart({ data }: { data: ActivityPoint[] }) {
   return (
-    <ResponsiveContainer width="100%" height={280}>
+    <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }} barCategoryGap="35%">
         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
         <XAxis

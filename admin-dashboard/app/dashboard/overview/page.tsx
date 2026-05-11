@@ -125,7 +125,6 @@ function fmtKES(n: number) {
   return `KES ${(n / 100).toLocaleString("en-KE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-/* ─── Section label ─────────────────────────────────────── */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-widest mb-3">
@@ -134,7 +133,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/* ─── Chart card header ─────────────────────────────────── */
 function ChartHeader({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="mb-5">
@@ -151,12 +149,12 @@ export default async function OverviewGeneralPage() {
   const { kpis, userGrowth, postActivity, paymentStatus, geoPoints, totalLocs } = await getData();
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 lg:space-y-8">
 
-      {/* ── Platform KPIs ── */}
+      {/* ── Platform KPIs — 1 col mobile → 2 sm → 4 lg ── */}
       <section>
         <SectionLabel>Platform</SectionLabel>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
           <MetricCard
             label="Total Users"
             value={fmtNum(kpis.totalUsers)}
@@ -184,10 +182,10 @@ export default async function OverviewGeneralPage() {
         </div>
       </section>
 
-      {/* ── Operations KPIs ── */}
+      {/* ── Operations KPIs — 1 col mobile → 2 sm → 5 lg ── */}
       <section>
         <SectionLabel>Operations &amp; Finance</SectionLabel>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-5">
           <MetricCard
             label="Active Jobs"
             value={fmtNum(kpis.activeJobs)}
@@ -222,18 +220,21 @@ export default async function OverviewGeneralPage() {
         </div>
       </section>
 
-      {/* ── User growth chart (full width) ── */}
+      {/* ── User growth chart ── */}
       {userGrowth.length > 0 && (
         <section className="chart-card">
           <ChartHeader
             title="User Signups — Last 30 Days"
             sub="New account registrations per day"
           />
-          <UserGrowthChart data={userGrowth} />
+          {/* Responsive height: shorter on mobile, taller on desktop */}
+          <div className="h-[200px] sm:h-[240px] lg:h-[280px]">
+            <UserGrowthChart data={userGrowth} />
+          </div>
         </section>
       )}
 
-      {/* ── Marketplace activity + Payment status ── */}
+      {/* ── Marketplace + Payment status ── */}
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         {postActivity.length > 0 && (
           <div className="chart-card lg:col-span-3">
@@ -241,7 +242,9 @@ export default async function OverviewGeneralPage() {
               title="Requests vs Offers — Last 30 Days"
               sub="Daily marketplace posting activity"
             />
-            <RequestsOffersChart data={postActivity} />
+            <div className="h-[200px] sm:h-[240px] lg:h-[280px]">
+              <RequestsOffersChart data={postActivity} />
+            </div>
           </div>
         )}
         {paymentStatus.length > 0 && (
@@ -250,7 +253,9 @@ export default async function OverviewGeneralPage() {
               title="Payment Status"
               sub="Distribution across last 200 transactions"
             />
-            <PaymentStatusChart data={paymentStatus} />
+            <div className="h-[200px] sm:h-[240px] lg:h-[280px]">
+              <PaymentStatusChart data={paymentStatus} />
+            </div>
           </div>
         )}
       </section>
@@ -262,24 +267,24 @@ export default async function OverviewGeneralPage() {
             title="Regional Activity — Kenya"
             sub={`Top cities by post volume · ${totalLocs.toLocaleString("en-KE")} data points`}
           />
-          <div className="space-y-4">
+          <div className="space-y-3.5">
             {geoPoints.map((g) => (
-              <div key={g.city} className="flex items-center gap-4">
-                <span className="text-[12.5px] font-medium text-gray-600 w-20 shrink-0 tabular-nums">
+              <div key={g.city} className="flex items-center gap-3 sm:gap-4">
+                <span className="text-[12.5px] font-medium text-gray-600 w-16 sm:w-20 shrink-0">
                   {g.city}
                 </span>
-                <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden min-w-0">
                   <div
                     className="bg-brand-500 h-1.5 rounded-full transition-all"
                     style={{ width: `${g.pct}%` }}
                   />
                 </div>
-                <div className="flex items-center gap-2 w-28 justify-end shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <span className="text-[12px] font-semibold text-gray-700 tabular-nums">
                     {g.count.toLocaleString("en-KE")}
                   </span>
-                  <span className="text-[11px] text-gray-400 tabular-nums w-8 text-right">
-                    {g.pct}%
+                  <span className="text-[11px] text-gray-400 tabular-nums hidden sm:inline">
+                    ({g.pct}%)
                   </span>
                 </div>
               </div>

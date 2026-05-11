@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import { useState, useEffect } from "react";
@@ -94,40 +94,31 @@ function resolveActiveId(pathname: string): string | null {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   SIDEBAR — single panel, expandable nested sections
-═══════════════════════════════════════════════════════════ */
-export default function Sidebar() {
-  const pathname    = usePathname();
-  const router      = useRouter();
-  const [openId,    setOpenId]    = useState<string | null>(null);
-  const [signingOut, setSigningOut] = useState(false);
+/* ─── Shared nav tree (used in both desktop + mobile drawer) */
+interface NavTreeProps {
+  activeId:   string | null;
+  openId:     string | null;
+  pathname:   string;
+  onToggle:   (id: string) => void;
+  onSignOut:  () => void;
+  signingOut: boolean;
+  onNavClick?: () => void;
+}
 
-  const activeId = resolveActiveId(pathname);
-
-  /* Auto-open the section that owns the current route */
-  useEffect(() => {
-    if (activeId) setOpenId(activeId);
-  }, [activeId]);
-
-  function toggle(id: string) {
-    setOpenId((prev) => (prev === id ? null : id));
-  }
-
-  async function handleSignOut() {
-    setSigningOut(true);
-    await getSupabaseBrowser().auth.signOut();
-    router.push("/login");
-    router.refresh();
-  }
-
+function NavTree({
+  activeId,
+  openId,
+  pathname,
+  onToggle,
+  onSignOut,
+  signingOut,
+  onNavClick,
+}: NavTreeProps) {
   return (
-    <nav className="w-[240px] h-screen shrink-0 flex flex-col bg-gray-950 border-r border-white/[0.06] overflow-hidden">
-
-      {/* ── Logo ── */}
+    <>
+      {/* Logo */}
       <div className="px-5 py-[17px] shrink-0 border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
-          {/* Circular logo badge */}
           <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 ring-1 ring-white/[0.12] bg-white">
             <Image
               src="/help24.png"
@@ -149,7 +140,7 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* ── Nav items ── */}
+      {/* Nav items */}
       <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-px">
         {NAV.map((item) => {
           const isActive = activeId === item.id;
@@ -157,32 +148,27 @@ export default function Sidebar() {
 
           return (
             <div key={item.id}>
-
-              {/* Section trigger */}
               <button
-                onClick={() => toggle(item.id)}
+                onClick={() => onToggle(item.id)}
                 className={[
                   "relative w-full flex items-center gap-2.5 px-3 py-[9px] rounded-lg",
                   "text-[13px] font-medium transition-colors duration-100",
+                  "min-h-[40px]", // comfortable touch target
                   isActive
                     ? "text-white bg-white/[0.09]"
                     : "text-gray-400 hover:text-gray-200 hover:bg-white/[0.05]",
                 ].join(" ")}
               >
-                {/* Left accent bar for active section */}
                 {isActive && (
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[18px] bg-brand-400 rounded-r-full" />
                 )}
-
                 <item.icon
                   className={[
                     "w-[15px] h-[15px] shrink-0 transition-colors",
                     isActive ? "text-brand-400" : "text-gray-500",
                   ].join(" ")}
                 />
-
                 <span className="flex-1 text-left">{item.label}</span>
-
                 <ChevronDownIcon
                   className={[
                     "w-[11px] h-[11px] shrink-0 text-gray-600 transition-transform duration-200",
@@ -191,7 +177,7 @@ export default function Sidebar() {
                 />
               </button>
 
-              {/* Dropdown — animated via max-height */}
+              {/* Dropdown children */}
               <div
                 className={[
                   "overflow-hidden transition-all duration-200 ease-out",
@@ -207,9 +193,11 @@ export default function Sidebar() {
                       <Link
                         key={child.href}
                         href={child.href}
+                        onClick={onNavClick}
                         className={[
-                          "flex items-center gap-2 px-2.5 py-[5px] rounded-md",
+                          "flex items-center gap-2 px-2.5 py-[7px] rounded-md",
                           "text-[12.5px] transition-colors duration-100",
+                          "min-h-[34px]", // comfortable touch target
                           isCurrent
                             ? "text-white font-medium bg-white/[0.08]"
                             : "text-gray-500 hover:text-gray-200 hover:bg-white/[0.04]",
@@ -227,24 +215,170 @@ export default function Sidebar() {
                   })}
                 </div>
               </div>
-
             </div>
           );
         })}
       </div>
 
-      {/* ── Sign out ── */}
+      {/* Sign out */}
       <div className="shrink-0 px-2.5 py-3 border-t border-white/[0.06]">
         <button
-          onClick={handleSignOut}
+          onClick={onSignOut}
           disabled={signingOut}
-          className="flex items-center gap-2.5 px-3 py-2 w-full rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-200 hover:bg-white/[0.05] transition-colors disabled:opacity-40"
+          className="flex items-center gap-2.5 px-3 py-2.5 w-full rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-200 hover:bg-white/[0.05] transition-colors disabled:opacity-40 min-h-[40px]"
         >
           <LogOutIcon className="w-[15px] h-[15px] shrink-0" />
           {signingOut ? "Signing out…" : "Sign out"}
         </button>
       </div>
-    </nav>
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SIDEBAR — desktop static + mobile drawer
+═══════════════════════════════════════════════════════════ */
+export default function Sidebar() {
+  const pathname    = usePathname();
+  const router      = useRouter();
+  const [openId,     setOpenId]     = useState<string | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  const activeId = resolveActiveId(pathname);
+
+  /* Auto-open active section */
+  useEffect(() => {
+    if (activeId) setOpenId(activeId);
+  }, [activeId]);
+
+  /* Close drawer on route change */
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  /* Lock body scroll when drawer is open */
+  useEffect(() => {
+    document.body.style.overflow = mobileOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileOpen]);
+
+  /* ESC closes drawer */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMobileOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  function toggle(id: string) {
+    setOpenId((prev) => (prev === id ? null : id));
+  }
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    await getSupabaseBrowser().auth.signOut();
+    router.push("/login");
+    router.refresh();
+  }
+
+  const sharedProps: NavTreeProps = {
+    activeId,
+    openId,
+    pathname,
+    onToggle:  toggle,
+    onSignOut: handleSignOut,
+    signingOut,
+  };
+
+  return (
+    <>
+      {/* ══════════════════════════════════════════
+          DESKTOP SIDEBAR — always in layout flow
+      ══════════════════════════════════════════ */}
+      <nav className="hidden lg:flex lg:flex-col lg:w-[240px] lg:h-screen lg:shrink-0 bg-gray-950 border-r border-white/[0.06] overflow-hidden">
+        <NavTree {...sharedProps} />
+      </nav>
+
+      {/* ══════════════════════════════════════════
+          MOBILE TOP BAR — fixed, below lg hidden
+      ══════════════════════════════════════════ */}
+      <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-gray-950 border-b border-white/[0.06] flex items-center gap-3 px-4 shrink-0">
+        {/* Hamburger */}
+        <button
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open navigation"
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.12] transition-colors"
+        >
+          <HamburgerIcon className="w-5 h-5" />
+        </button>
+
+        {/* Branding */}
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-full overflow-hidden ring-1 ring-white/[0.12] bg-white shrink-0">
+            <Image
+              src="/help24.png"
+              alt="Help24"
+              width={28}
+              height={28}
+              className="w-full h-full object-contain"
+              priority
+            />
+          </div>
+          <span className="text-white font-semibold text-[13.5px] tracking-tight">
+            Help24
+          </span>
+          <span className="text-gray-600 text-[10px] tracking-widest uppercase font-medium hidden sm:inline">
+            Operations
+          </span>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════
+          MOBILE BACKDROP
+      ══════════════════════════════════════════ */}
+      <div
+        aria-hidden
+        onClick={() => setMobileOpen(false)}
+        className={[
+          "lg:hidden fixed inset-0 z-40",
+          "bg-black/60 backdrop-blur-[2px]",
+          "transition-opacity duration-300 ease-out",
+          mobileOpen
+            ? "opacity-100 pointer-events-auto"
+            : "opacity-0 pointer-events-none",
+        ].join(" ")}
+      />
+
+      {/* ══════════════════════════════════════════
+          MOBILE DRAWER
+      ══════════════════════════════════════════ */}
+      <nav
+        className={[
+          "lg:hidden fixed inset-y-0 left-0 z-50",
+          "w-[272px] flex flex-col",
+          "bg-gray-950 border-r border-white/[0.06] overflow-hidden",
+          "transition-transform duration-300 ease-out",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+        ].join(" ")}
+        aria-label="Mobile navigation"
+      >
+        {/* Close button */}
+        <button
+          onClick={() => setMobileOpen(false)}
+          aria-label="Close navigation"
+          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-white hover:bg-white/[0.08] transition-colors"
+        >
+          <XIcon className="w-4 h-4" />
+        </button>
+
+        <NavTree
+          {...sharedProps}
+          onNavClick={() => setMobileOpen(false)}
+        />
+      </nav>
+    </>
   );
 }
 
@@ -302,6 +436,22 @@ function ChevronDownIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+    </svg>
+  );
+}
+
+function HamburgerIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+    </svg>
+  );
+}
+
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
 }
