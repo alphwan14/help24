@@ -61,13 +61,11 @@ async function getData() {
     (s: number, r: { amount: number }) => s + (r.amount ?? 0), 0
   );
 
-  // User growth by day
   const userByDay = groupByDay(userRows.data ?? []);
   const userGrowth = Object.entries(userByDay)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, rows]) => ({ date: date.slice(5), count: rows.length }));
 
-  // Posts activity by day
   const postByDay: Record<string, { date: string; requests: number; offers: number }> = {};
   for (const p of postRows.data ?? []) {
     const day = p.created_at.slice(0, 10);
@@ -77,19 +75,16 @@ async function getData() {
   }
   const postActivity = Object.values(postByDay).sort((a, b) => a.date.localeCompare(b.date));
 
-  // Payment status distribution
   const statusCounts: Record<string, number> = {};
   for (const t of txRows.data ?? []) {
     statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1;
   }
   const paymentStatus = Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
 
-  // Total revenue
   const totalRevenue = (txRows.data ?? [])
     .filter((t) => ["paid", "payout_pending", "released"].includes(t.status))
     .reduce((s, t) => s + (t.total_paid ?? 0), 0);
 
-  // Geography — top 5 cities by post count
   const cityCounts: Record<string, number> = {};
   for (const p of locRows.data ?? []) {
     const city = extractCity(p.location);
@@ -107,7 +102,7 @@ async function getData() {
 
   return {
     kpis: {
-      totalUsers:   totalUsers   ?? 0,
+      totalUsers:    totalUsers    ?? 0,
       activeUsers7d: activeUsers7d ?? 0,
       totalRequests: totalRequests ?? 0,
       totalOffers:   totalOffers   ?? 0,
@@ -130,15 +125,38 @@ function fmtKES(n: number) {
   return `KES ${(n / 100).toLocaleString("en-KE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
+/* ─── Section label ─────────────────────────────────────── */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-widest mb-3">
+      {children}
+    </p>
+  );
+}
+
+/* ─── Chart card header ─────────────────────────────────── */
+function ChartHeader({ title, sub }: { title: string; sub?: string }) {
+  return (
+    <div className="mb-5">
+      <p className="text-[13.5px] font-semibold text-gray-800 leading-none">{title}</p>
+      {sub && <p className="text-[11.5px] text-gray-400 mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE
+═══════════════════════════════════════════════════════════ */
 export default async function OverviewGeneralPage() {
   const { kpis, userGrowth, postActivity, paymentStatus, geoPoints, totalLocs } = await getData();
 
   return (
     <div className="space-y-8">
 
-      {/* ── Row 1: Primary KPIs ── */}
+      {/* ── Platform KPIs ── */}
       <section>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <SectionLabel>Platform</SectionLabel>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <MetricCard
             label="Total Users"
             value={fmtNum(kpis.totalUsers)}
@@ -163,18 +181,13 @@ export default async function OverviewGeneralPage() {
             accent="purple"
             icon="offers"
           />
-          <MetricCard
-            label="Total Revenue"
-            value={fmtKES(kpis.totalRevenue)}
-            accent="green"
-            icon="revenue"
-          />
         </div>
       </section>
 
-      {/* ── Row 1b: Secondary KPIs ── */}
+      {/* ── Operations KPIs ── */}
       <section>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <SectionLabel>Operations &amp; Finance</SectionLabel>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
           <MetricCard
             label="Active Jobs"
             value={fmtNum(kpis.activeJobs)}
@@ -200,61 +213,81 @@ export default async function OverviewGeneralPage() {
             icon="escrow"
             sub="Locked funds"
           />
+          <MetricCard
+            label="Total Revenue"
+            value={fmtKES(kpis.totalRevenue)}
+            accent="green"
+            icon="revenue"
+          />
         </div>
       </section>
 
-      {/* ── Row 2: Full-width user growth chart ── */}
+      {/* ── User growth chart (full width) ── */}
       {userGrowth.length > 0 && (
         <section className="chart-card">
-          <p className="chart-card-title">User Signups — Last 30 Days</p>
-          <p className="chart-card-sub">New account registrations per day</p>
+          <ChartHeader
+            title="User Signups — Last 30 Days"
+            sub="New account registrations per day"
+          />
           <UserGrowthChart data={userGrowth} />
         </section>
       )}
 
-      {/* ── Row 3: Requests vs Offers + Payment Status ── */}
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {/* ── Marketplace activity + Payment status ── */}
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         {postActivity.length > 0 && (
-          <div className="chart-card">
-            <p className="chart-card-title">Requests vs Offers — Last 30 Days</p>
-            <p className="chart-card-sub">Daily marketplace activity</p>
+          <div className="chart-card lg:col-span-3">
+            <ChartHeader
+              title="Requests vs Offers — Last 30 Days"
+              sub="Daily marketplace posting activity"
+            />
             <RequestsOffersChart data={postActivity} />
           </div>
         )}
         {paymentStatus.length > 0 && (
-          <div className="chart-card">
-            <p className="chart-card-title">Payment Status Distribution</p>
-            <p className="chart-card-sub">Transaction outcomes (last 200)</p>
+          <div className="chart-card lg:col-span-2">
+            <ChartHeader
+              title="Payment Status"
+              sub="Distribution across last 200 transactions"
+            />
             <PaymentStatusChart data={paymentStatus} />
           </div>
         )}
       </section>
 
-      {/* ── Row 4: Geography ── */}
+      {/* ── Kenya geography ── */}
       {geoPoints.length > 0 && (
         <section className="chart-card">
-          <p className="chart-card-title">Kenya Usage Distribution</p>
-          <p className="chart-card-sub">
-            Top cities by post activity · {totalLocs.toLocaleString("en-KE")} location data points
-          </p>
-          <div className="mt-2 space-y-3">
+          <ChartHeader
+            title="Regional Activity — Kenya"
+            sub={`Top cities by post volume · ${totalLocs.toLocaleString("en-KE")} data points`}
+          />
+          <div className="space-y-4">
             {geoPoints.map((g) => (
               <div key={g.city} className="flex items-center gap-4">
-                <span className="text-sm font-medium text-gray-700 w-24 shrink-0">{g.city}</span>
-                <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                <span className="text-[12.5px] font-medium text-gray-600 w-20 shrink-0 tabular-nums">
+                  {g.city}
+                </span>
+                <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
                   <div
-                    className="bg-brand-500 h-2 rounded-full transition-all"
+                    className="bg-brand-500 h-1.5 rounded-full transition-all"
                     style={{ width: `${g.pct}%` }}
                   />
                 </div>
-                <span className="text-sm text-gray-500 w-20 text-right tabular-nums">
-                  {g.count.toLocaleString("en-KE")} ({g.pct}%)
-                </span>
+                <div className="flex items-center gap-2 w-28 justify-end shrink-0">
+                  <span className="text-[12px] font-semibold text-gray-700 tabular-nums">
+                    {g.count.toLocaleString("en-KE")}
+                  </span>
+                  <span className="text-[11px] text-gray-400 tabular-nums w-8 text-right">
+                    {g.pct}%
+                  </span>
+                </div>
               </div>
             ))}
           </div>
         </section>
       )}
+
     </div>
   );
 }

@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 /* ─── Types ─────────────────────────────────────────────── */
 type NavChild = { label: string; href: string };
 type NavItem  = {
+  id: string;
   label: string;
   icon: (p: { className?: string }) => React.ReactElement;
   children: NavChild[];
@@ -16,6 +18,7 @@ type NavItem  = {
 /* ─── Navigation tree ──────────────────────────────────── */
 const NAV: NavItem[] = [
   {
+    id: "overview",
     label: "Overview",
     icon: GridIcon,
     children: [
@@ -26,16 +29,18 @@ const NAV: NavItem[] = [
     ],
   },
   {
+    id: "users",
     label: "Users",
     icon: UsersIcon,
     children: [
-      { label: "All Users",       href: "/dashboard/users" },
-      { label: "Active Users",    href: "/dashboard/users/active" },
-      { label: "Admins",          href: "/dashboard/users/admins" },
-      { label: "Suspended Users", href: "/dashboard/users/suspended" },
+      { label: "All Users",    href: "/dashboard/users" },
+      { label: "Active Users", href: "/dashboard/users/active" },
+      { label: "Admin Roles",  href: "/dashboard/users/admins" },
+      { label: "Suspended",    href: "/dashboard/users/suspended" },
     ],
   },
   {
+    id: "marketplace",
     label: "Marketplace",
     icon: ShoppingBagIcon,
     children: [
@@ -46,68 +51,68 @@ const NAV: NavItem[] = [
     ],
   },
   {
+    id: "payments",
     label: "Payments",
     icon: CreditCardIcon,
     children: [
-      { label: "Transactions",       href: "/dashboard/payments" },
-      { label: "Escrow Status",      href: "/dashboard/payments/escrow" },
-      { label: "Pending Payments",   href: "/dashboard/payments/pending" },
-      { label: "Completed Payments", href: "/dashboard/payments/completed" },
+      { label: "Transactions", href: "/dashboard/payments" },
+      { label: "Escrow",       href: "/dashboard/payments/escrow" },
+      { label: "Pending",      href: "/dashboard/payments/pending" },
+      { label: "Completed",    href: "/dashboard/payments/completed" },
     ],
   },
   {
+    id: "disputes",
     label: "Disputes",
     icon: ShieldIcon,
     children: [
-      { label: "Open Disputes", href: "/dashboard/disputes" },
-      { label: "Resolved",      href: "/dashboard/disputes/resolved" },
-      { label: "Refunds",       href: "/dashboard/disputes/refunds" },
-      { label: "Actions Taken", href: "/dashboard/disputes/actions" },
+      { label: "Open Cases", href: "/dashboard/disputes" },
+      { label: "Resolved",   href: "/dashboard/disputes/resolved" },
+      { label: "Refunds",    href: "/dashboard/disputes/refunds" },
     ],
   },
   {
+    id: "insights",
     label: "Insights",
     icon: ChartIcon,
     children: [
-      { label: "Analytics",        href: "/dashboard/insights/analytics" },
-      { label: "User Behavior",    href: "/dashboard/insights/behavior" },
-      { label: "Location Heatmap", href: "/dashboard/insights/heatmap" },
-      { label: "Growth Trends",    href: "/dashboard/insights/trends" },
+      { label: "Analytics", href: "/dashboard/insights/analytics" },
+      { label: "Heatmaps",  href: "/dashboard/insights/heatmap" },
+      { label: "Trends",    href: "/dashboard/insights/trends" },
     ],
   },
 ];
 
 /* ─── Helpers ───────────────────────────────────────────── */
-
-/** Returns the top-level section label that owns the current pathname. */
-function resolveSection(pathname: string): string | null {
+function resolveActiveId(pathname: string): string | null {
   return (
     NAV.find((item) =>
       item.children.some(
         (c) => pathname === c.href || pathname.startsWith(c.href + "/")
       )
-    )?.label ?? null
+    )?.id ?? null
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SIDEBAR — renders two panels as normal flex children.
-   The secondary panel's width animates 0 ↔ 220px, so the
-   flex-1 <main> shrinks / grows accordingly (no overlay).
+   SIDEBAR — single panel, expandable nested sections
 ═══════════════════════════════════════════════════════════ */
 export default function Sidebar() {
-  const pathname  = usePathname();
-  const router    = useRouter();
-  const [signingOut,    setSigningOut]    = useState(false);
-  const [hoveredSection, setHoveredSection] = useState<string | null>(null);
+  const pathname    = usePathname();
+  const router      = useRouter();
+  const [openId,    setOpenId]    = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
 
-  const activeSection  = resolveSection(pathname);
-  const displaySection = hoveredSection ?? activeSection;
-  const panelVisible   = displaySection !== null;
+  const activeId = resolveActiveId(pathname);
 
-  /* keep content rendered during close animation */
-  const panelData    = NAV.find((n) => n.label === displaySection) ?? null;
-  const PanelIcon    = panelData?.icon ?? null;
+  /* Auto-open the section that owns the current route */
+  useEffect(() => {
+    if (activeId) setOpenId(activeId);
+  }, [activeId]);
+
+  function toggle(id: string) {
+    setOpenId((prev) => (prev === id ? null : id));
+  }
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -117,175 +122,133 @@ export default function Sidebar() {
   }
 
   return (
-    /* Outer wrapper — onMouseLeave clears hover so panel reverts to active section */
-    <div
-      className="flex h-screen shrink-0"
-      onMouseLeave={() => setHoveredSection(null)}
-    >
+    <nav className="w-[240px] h-screen shrink-0 flex flex-col bg-gray-950 border-r border-white/[0.06] overflow-hidden">
 
-      {/* ══════════════════════════════════════════════
-          PRIMARY NAV — always visible, 172 px wide
-      ══════════════════════════════════════════════ */}
-      <nav className="w-[172px] h-screen shrink-0 flex flex-col bg-gray-950 border-r border-white/[0.06]">
-
-        {/* Logo */}
-        <div className="px-4 py-[18px] shrink-0 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shrink-0 shadow-sm">
-              <span className="text-white text-[13px] font-bold select-none">H</span>
-            </div>
-            <div className="min-w-0">
-              <p className="text-white font-semibold text-[13px] leading-none tracking-tight truncate">
-                Help24
-              </p>
-              <p className="text-gray-500 text-[11px] mt-[3px]">Admin</p>
-            </div>
+      {/* ── Logo ── */}
+      <div className="px-5 py-[17px] shrink-0 border-b border-white/[0.06]">
+        <div className="flex items-center gap-3">
+          {/* Circular logo badge */}
+          <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 ring-1 ring-white/[0.12] bg-white">
+            <Image
+              src="/help24.png"
+              alt="Help24 logo"
+              width={32}
+              height={32}
+              className="w-full h-full object-contain"
+              priority
+            />
+          </div>
+          <div>
+            <p className="text-white font-semibold text-[13.5px] leading-none tracking-tight">
+              Help24
+            </p>
+            <p className="text-[10px] text-gray-500 mt-[3px] tracking-widest uppercase font-medium">
+              Operations
+            </p>
           </div>
         </div>
+      </div>
 
-        {/* Nav items */}
-        <div className="flex-1 px-2 py-3 space-y-px overflow-y-auto">
-          {NAV.map((item) => {
-            const isActive  = activeSection === item.label;
-            const isHovered = hoveredSection === item.label;
-            const highlight = isActive || isHovered;
+      {/* ── Nav items ── */}
+      <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-px">
+        {NAV.map((item) => {
+          const isActive = activeId === item.id;
+          const isOpen   = openId   === item.id;
 
-            return (
+          return (
+            <div key={item.id}>
+
+              {/* Section trigger */}
               <button
-                key={item.label}
-                onMouseEnter={() => setHoveredSection(item.label)}
+                onClick={() => toggle(item.id)}
                 className={[
-                  "relative w-full flex items-center gap-2.5 px-3 py-[9px]",
-                  "rounded-lg text-[13px] font-medium transition-colors duration-100",
-                  highlight
-                    ? "text-white bg-white/[0.11]"
+                  "relative w-full flex items-center gap-2.5 px-3 py-[9px] rounded-lg",
+                  "text-[13px] font-medium transition-colors duration-100",
+                  isActive
+                    ? "text-white bg-white/[0.09]"
                     : "text-gray-400 hover:text-gray-200 hover:bg-white/[0.05]",
                 ].join(" ")}
               >
-                {/* Active accent bar */}
+                {/* Left accent bar for active section */}
                 {isActive && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-brand-400 rounded-r-full" />
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[18px] bg-brand-400 rounded-r-full" />
                 )}
 
                 <item.icon
                   className={[
-                    "w-[15px] h-[15px] shrink-0",
-                    isActive ? "text-brand-400" : "",
+                    "w-[15px] h-[15px] shrink-0 transition-colors",
+                    isActive ? "text-brand-400" : "text-gray-500",
                   ].join(" ")}
                 />
 
-                <span className="flex-1 text-left truncate">{item.label}</span>
+                <span className="flex-1 text-left">{item.label}</span>
 
-                <ChevronRightIcon
+                <ChevronDownIcon
                   className={[
-                    "w-[10px] h-[10px] shrink-0 transition-all duration-150",
-                    highlight ? "text-gray-300" : "text-gray-700",
-                    isHovered ? "translate-x-[1px]" : "",
+                    "w-[11px] h-[11px] shrink-0 text-gray-600 transition-transform duration-200",
+                    isOpen ? "rotate-180" : "",
                   ].join(" ")}
                 />
               </button>
-            );
-          })}
-        </div>
 
-        {/* Sign out */}
-        <div className="shrink-0 px-2 py-3 border-t border-white/[0.06]">
-          <button
-            onClick={handleSignOut}
-            disabled={signingOut}
-            className="flex items-center gap-2.5 px-3 py-2 w-full rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-200 hover:bg-white/[0.05] transition-colors disabled:opacity-40"
-          >
-            <LogOutIcon className="w-[15px] h-[15px] shrink-0" />
-            {signingOut ? "Signing out…" : "Sign out"}
-          </button>
-        </div>
-      </nav>
-
-      {/* ══════════════════════════════════════════════
-          SECONDARY PANEL — width transitions 0 ↔ 220 px.
-          Dark background so it layers cleanly against
-          the light content area without "white flash."
-      ══════════════════════════════════════════════ */}
-      <div
-        className={[
-          "h-screen shrink-0 overflow-hidden",
-          "transition-[width] duration-200 ease-out",
-          panelVisible ? "w-[220px]" : "w-0",
-        ].join(" ")}
-      >
-        {/* Inner — fixed 220 px so content doesn't wrap during animation */}
-        <div className="w-[220px] h-screen flex flex-col bg-[#111318] border-r border-white/[0.07]">
-
-          {/* Panel header */}
-          <div className="shrink-0 px-4 pt-5 pb-4 border-b border-white/[0.07]">
-            {panelData && PanelIcon && (
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-brand-600/[0.18] border border-brand-500/[0.25] flex items-center justify-center shrink-0">
-                  <PanelIcon className="w-3.5 h-3.5 text-brand-400" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-white text-[13px] font-semibold leading-none truncate">
-                    {panelData.label}
-                  </p>
-                  <p className="text-gray-600 text-[11px] mt-[3px]">
-                    {panelData.children.length} pages
-                  </p>
+              {/* Dropdown — animated via max-height */}
+              <div
+                className={[
+                  "overflow-hidden transition-all duration-200 ease-out",
+                  isOpen ? "max-h-[220px] opacity-100" : "max-h-0 opacity-0",
+                ].join(" ")}
+              >
+                <div className="ml-5 mr-1 mt-0.5 mb-1.5 pl-3.5 border-l border-white/[0.07] space-y-px py-0.5">
+                  {item.children.map((child) => {
+                    const isCurrent =
+                      pathname === child.href ||
+                      pathname.startsWith(child.href + "/");
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        className={[
+                          "flex items-center gap-2 px-2.5 py-[5px] rounded-md",
+                          "text-[12.5px] transition-colors duration-100",
+                          isCurrent
+                            ? "text-white font-medium bg-white/[0.08]"
+                            : "text-gray-500 hover:text-gray-200 hover:bg-white/[0.04]",
+                        ].join(" ")}
+                      >
+                        <span
+                          className={[
+                            "w-[5px] h-[5px] rounded-full shrink-0 transition-colors",
+                            isCurrent ? "bg-brand-400" : "bg-gray-700",
+                          ].join(" ")}
+                        />
+                        {child.label}
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Sub-item list — re-mounts with animation when section changes */}
-          <nav
-            key={displaySection}
-            className="flex-1 overflow-y-auto px-2.5 py-3 space-y-px nav-content-enter"
-          >
-            {panelData?.children.map((child) => {
-              const isActive = pathname === child.href;
-              return (
-                <Link
-                  key={child.href}
-                  href={child.href}
-                  className={[
-                    "group flex items-center gap-2.5 px-3 py-[7px] rounded-lg",
-                    "text-[13px] transition-colors duration-100",
-                    isActive
-                      ? "bg-white/[0.1] text-white font-semibold"
-                      : "text-gray-400 hover:text-gray-100 hover:bg-white/[0.06]",
-                  ].join(" ")}
-                >
-                  <span
-                    className={[
-                      "w-[5px] h-[5px] rounded-full shrink-0 transition-colors",
-                      isActive
-                        ? "bg-brand-400"
-                        : "bg-gray-700 group-hover:bg-gray-500",
-                    ].join(" ")}
-                  />
-                  {child.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          {/* Panel footer */}
-          <div className="shrink-0 px-4 py-3 border-t border-white/[0.06]">
-            <p className="text-[11px] text-gray-600 leading-none truncate">
-              {hoveredSection && hoveredSection !== activeSection
-                ? `Browsing ${hoveredSection}`
-                : activeSection
-                  ? `In ${activeSection}`
-                  : "Help24 Admin"}
-            </p>
-          </div>
-
-        </div>
+            </div>
+          );
+        })}
       </div>
-    </div>
+
+      {/* ── Sign out ── */}
+      <div className="shrink-0 px-2.5 py-3 border-t border-white/[0.06]">
+        <button
+          onClick={handleSignOut}
+          disabled={signingOut}
+          className="flex items-center gap-2.5 px-3 py-2 w-full rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-200 hover:bg-white/[0.05] transition-colors disabled:opacity-40"
+        >
+          <LogOutIcon className="w-[15px] h-[15px] shrink-0" />
+          {signingOut ? "Signing out…" : "Sign out"}
+        </button>
+      </div>
+    </nav>
   );
 }
 
-/* ─── SVG icons ─────────────────────────────────────────── */
+/* ─── SVG Icons ─────────────────────────────────────────── */
 
 function GridIcon({ className }: { className?: string }) {
   return (
@@ -335,10 +298,10 @@ function ChartIcon({ className }: { className?: string }) {
   );
 }
 
-function ChevronRightIcon({ className }: { className?: string }) {
+function ChevronDownIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
     </svg>
   );
 }

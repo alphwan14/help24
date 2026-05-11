@@ -41,24 +41,25 @@
 
   /* Section page header */
   .page-header {
-    @apply mb-6;
+    @apply mb-7;
   }
   .page-header h1 {
-    @apply text-2xl font-bold text-gray-900 tracking-tight;
+    @apply text-[22px] font-bold text-gray-900 tracking-tight leading-none;
   }
   .page-header p {
-    @apply text-sm text-gray-500 mt-1;
+    @apply text-[13px] text-gray-400 mt-1.5;
   }
 
-  /* Chart card wrapper — consistent inner padding */
+  /* Chart card wrapper */
   .chart-card {
-    @apply bg-white rounded-xl border border-gray-100 shadow-sm p-6;
+    @apply bg-white rounded-xl border border-gray-100 shadow-sm px-6 pt-5 pb-6;
   }
+  /* Legacy selectors kept for backward compatibility */
   .chart-card-title {
-    @apply text-sm font-semibold text-gray-800 mb-0.5;
+    @apply text-[13.5px] font-semibold text-gray-800 leading-none mb-1;
   }
   .chart-card-sub {
-    @apply text-xs text-gray-400 mb-5;
+    @apply text-[11.5px] text-gray-400 mb-5;
   }
 }
 

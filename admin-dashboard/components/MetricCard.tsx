@@ -13,12 +13,36 @@ interface MetricCardProps {
 }
 
 const accentConfig = {
-  default:  { ring: "bg-gray-100",    icon: "text-gray-500" },
-  blue:     { ring: "bg-blue-50",     icon: "text-blue-500" },
-  green:    { ring: "bg-emerald-50",  icon: "text-emerald-500" },
-  yellow:   { ring: "bg-amber-50",    icon: "text-amber-500" },
-  purple:   { ring: "bg-purple-50",   icon: "text-purple-500" },
-  red:      { ring: "bg-red-50",      icon: "text-red-500" },
+  default: {
+    topBar: "bg-gray-200",
+    ring:   "bg-gray-50 border-gray-150",
+    icon:   "text-gray-400",
+  },
+  blue: {
+    topBar: "bg-blue-400",
+    ring:   "bg-blue-50 border-blue-100",
+    icon:   "text-blue-500",
+  },
+  green: {
+    topBar: "bg-emerald-400",
+    ring:   "bg-emerald-50 border-emerald-100",
+    icon:   "text-emerald-500",
+  },
+  yellow: {
+    topBar: "bg-amber-400",
+    ring:   "bg-amber-50 border-amber-100",
+    icon:   "text-amber-500",
+  },
+  purple: {
+    topBar: "bg-purple-400",
+    ring:   "bg-purple-50 border-purple-100",
+    icon:   "text-purple-500",
+  },
+  red: {
+    topBar: "bg-red-400",
+    ring:   "bg-red-50 border-red-100",
+    icon:   "text-red-500",
+  },
 };
 
 export default function MetricCard({
@@ -32,26 +56,42 @@ export default function MetricCard({
 }: MetricCardProps) {
   const colors = accentConfig[accent];
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
-          <p className="text-[1.6rem] font-bold text-gray-900 mt-1.5 leading-none tabular-nums">{value}</p>
-          <div className="flex items-center gap-2 mt-2 min-h-[18px]">
-            {trend && (
-              <span
-                className={`text-xs font-semibold ${
-                  trendUp ? "text-emerald-600" : "text-red-500"
-                }`}
-              >
-                {trend}
-              </span>
-            )}
-            {sub && <span className="text-xs text-gray-400">{sub}</span>}
+    <div className="relative bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden">
+      {/* Colored top accent */}
+      <div className={`absolute top-0 inset-x-0 h-[2px] ${colors.topBar}`} />
+
+      <div className="pt-5 pb-4 px-5">
+        <div className="flex items-start justify-between gap-3">
+          {/* Text */}
+          <div className="min-w-0 flex-1">
+            <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-widest leading-none">
+              {label}
+            </p>
+            <p className="text-[1.55rem] font-bold text-gray-900 mt-2 leading-none tabular-nums tracking-tight">
+              {value}
+            </p>
+            <div className="flex items-center gap-1.5 mt-2 min-h-[16px]">
+              {trend && (
+                <span
+                  className={`text-[11px] font-semibold ${
+                    trendUp ? "text-emerald-600" : "text-red-500"
+                  }`}
+                >
+                  {trend}
+                </span>
+              )}
+              {sub && (
+                <span className="text-[11px] text-gray-400 leading-none">{sub}</span>
+              )}
+            </div>
           </div>
-        </div>
-        <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${colors.ring}`}>
-          <IconSvg variant={icon} className={`w-5 h-5 ${colors.icon}`} />
+
+          {/* Icon */}
+          <div
+            className={`shrink-0 w-9 h-9 rounded-lg border flex items-center justify-center ${colors.ring}`}
+          >
+            <IconSvg variant={icon} className={`w-[17px] h-[17px] ${colors.icon}`} />
+          </div>
         </div>
       </div>
     </div>

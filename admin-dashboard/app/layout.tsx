@@ -6,7 +6,12 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Help24 Admin",
-  description: "Help24 Admin Dashboard",
+  description: "Help24 Operations Dashboard",
+  icons: {
+    icon:     "/help24.png",
+    shortcut: "/help24.png",
+    apple:    "/help24.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
