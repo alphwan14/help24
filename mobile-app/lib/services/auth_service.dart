@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
-import '../config/firebase_config.dart';
+import '../config/app_firebase.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'user_profile_service.dart';
 
@@ -110,7 +110,7 @@ class PhoneVerificationState {
 class AuthService {
   static final _supabase = Supabase.instance.client;
 
-  static bool get isFirebaseConfigured => FirebaseConfig.isConfigured;
+  static bool get isFirebaseConfigured => AppFirebase.isReady;
 
   static FirebaseAuth? get _firebaseAuth {
     if (!isFirebaseConfigured) return null;

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import '../config/firebase_config.dart';
+import '../config/app_firebase.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import '../services/supabase_auth_bridge.dart';
@@ -26,7 +26,7 @@ class AuthProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isInitialized => _isInitialized;
   String? get error => _error;
-  bool get isFirebaseConfigured => FirebaseConfig.isConfigured;
+  bool get isFirebaseConfigured => AppFirebase.isReady;
   String? get currentUserId => _currentUser?.id;
   String get currentUserName => _currentUser?.displayName ?? '';
   String? get currentUserEmail => _currentUser?.email;
@@ -41,7 +41,7 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> initialize() async {
     if (_isInitialized) return;
-    if (!FirebaseConfig.isConfigured) return;
+    if (!AppFirebase.isReady) return;
     _isInitialized = true;
     notifyListeners();
     try {
@@ -80,7 +80,7 @@ class AuthProvider extends ChangeNotifier {
     }
     _currentUser = AuthService.appUserFromFirebase(firebaseUser);
     notifyListeners();
-    if (FirebaseConfig.isConfigured) {
+    if (AppFirebase.isReady) {
       NotificationService.onLogin(firebaseUser.uid);
     }
     firebaseUser.getIdToken().then((idToken) async {

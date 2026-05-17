@@ -8,7 +8,11 @@ class ApplicationService {
 
   static const _applicationsSelect = '*, users(name, email, profile_image, avatar_url)';
 
+  // PostgreSQL unique-violation error code.
+  static const _pgUniqueViolation = '23505';
+
   /// Submit an application. Requires [currentUserId]. Name/avatar come from users join on read.
+  /// Throws [DuplicateApplicationException] if the user has already applied to this post.
   static Future<Application> submitApplication({
     required String postId,
     required String currentUserId,
@@ -18,6 +22,14 @@ class ApplicationService {
     if (currentUserId.isEmpty) {
       throw ApplicationServiceException('Sign in to submit an application.');
     }
+
+    // Layer B: check before insert so the caller can show a clean message
+    // without relying solely on the DB constraint.
+    final alreadyApplied = await hasApplied(postId, currentUserId);
+    if (alreadyApplied) {
+      throw DuplicateApplicationException();
+    }
+
     try {
       final applicationData = {
         'post_id': postId,
@@ -38,6 +50,13 @@ class ApplicationService {
       debugPrint('✅ Application submitted: post=$postId applicant_user_id=$currentUserId');
       return app;
     } catch (e) {
+      // Layer B fallback: DB unique constraint fired (race condition between check and insert).
+      final eStr = e.toString();
+      if (eStr.contains(_pgUniqueViolation) ||
+          eStr.contains('uq_applications_post_applicant') ||
+          eStr.contains('duplicate key')) {
+        throw DuplicateApplicationException();
+      }
       debugPrint('❌ Application submit failed: $e');
       throw ApplicationServiceException('Failed to submit application: $e');
     }
@@ -157,7 +176,13 @@ class ApplicationService {
 class ApplicationServiceException implements Exception {
   final String message;
   ApplicationServiceException(this.message);
-  
+
   @override
   String toString() => 'ApplicationServiceException: $message';
+}
+
+/// Thrown when a user tries to apply to a post they have already applied to.
+class DuplicateApplicationException implements Exception {
+  @override
+  String toString() => 'DuplicateApplicationException: already applied to this post';
 }

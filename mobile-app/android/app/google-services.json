@@ -1,0 +1,54 @@
+﻿{
+  "project_info": {
+    "project_number": "454215745233",
+    "project_id": "help24-24410",
+    "storage_bucket": "help24-24410.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:454215745233:android:4b262becc88b5563aa4ff0",
+        "android_client_info": {
+          "package_name": "com.help24.help24"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "454215745233-baj7t28sjks3eqqaujl0rp6a7dtnu5a1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.help24.help24",
+            "certificate_hash": "de78b1af334165869d055e844ea636a699678133"
+          }
+        },
+        {
+          "client_id": "454215745233-beo1ckg5erre4hit8vvgqimchi73died.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCIzNruj2eqXtK75Y9cP6Gcf0uZZTAod9E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "454215745233-beo1ckg5erre4hit8vvgqimchi73died.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "454215745233-u5cclbv3q4o801j9qvmabva73p5tquv4.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.help24"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

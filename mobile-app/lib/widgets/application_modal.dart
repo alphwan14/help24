@@ -56,8 +56,15 @@ class _ApplicationModalState extends State<ApplicationModal> {
 
   void _submit() async {
     setState(() => _isSubmitting = true);
-    await widget.onSubmit(_messageController.text.trim());
-    if (mounted) Navigator.pop(context);
+    try {
+      await widget.onSubmit(_messageController.text.trim());
+      // onSubmit completed without error — close the modal.
+      if (mounted) Navigator.pop(context);
+    } catch (_) {
+      // onSubmit threw (e.g. DuplicateApplicationException handled upstream).
+      // Reset the spinner so the user isn't stuck; the caller already showed a message.
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override

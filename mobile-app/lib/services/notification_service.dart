@@ -2,7 +2,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../config/firebase_config.dart';
+import '../config/app_firebase.dart';
 import 'auth_service.dart';
 import 'user_profile_service.dart';
 
@@ -55,7 +55,7 @@ class NotificationService {
   /// Initialize FCM: request permission, get token, register background handler.
   /// Does not throw; logs and returns on any failure (e.g. web without service worker, permission denied).
   static Future<void> initialize() async {
-    if (!FirebaseConfig.isConfigured) return;
+    if (!AppFirebase.isReady) return;
     try {
       await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
         alert: true,
@@ -116,7 +116,7 @@ class NotificationService {
 
   /// Call after login: if notificationsEnabled, save FCM token to Supabase users.fcm_tokens.
   static Future<void> onLogin(String uid) async {
-    if (!FirebaseConfig.isConfigured || uid.isEmpty) return;
+    if (!AppFirebase.isReady || uid.isEmpty) return;
     try {
       _currentToken = await _messaging.getToken();
       if (_currentToken == null) await _requestPermissionAndToken();
@@ -137,7 +137,7 @@ class NotificationService {
   /// Call when user enables notifications in settings: update Supabase first so UI shows On,
   /// then try to get/save token (may fail on web or if permission denied).
   static Future<void> enableAndSaveToken(String uid) async {
-    if (!FirebaseConfig.isConfigured || uid.isEmpty) return;
+    if (!AppFirebase.isReady || uid.isEmpty) return;
     try {
       await UserProfileService.setNotificationsEnabled(uid, true);
       final granted = await _requestPermission();

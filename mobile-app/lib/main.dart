@@ -6,8 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/app_urls.dart';
-import 'config/firebase_config.dart';
-// import 'config/supabase_config.dart'; // REMOVE THIS - NOT NEEDED
+import 'config/app_firebase.dart';
 import 'l10n/app_localizations.dart';
 import 'models/post_model.dart';
 import 'providers/app_provider.dart';
@@ -84,8 +83,8 @@ class _Help24AppState extends State<Help24App> {
     try {
       // ✅ Supabase is already initialized in main() - don't reinitialize!
       // Just initialize Firebase
-      await FirebaseConfig.initialize();
-      if (FirebaseConfig.isConfigured) {
+      await AppFirebase.initialize();
+      if (AppFirebase.isReady) {
         await NotificationService.initialize();
       }
       if (kDebugMode) {

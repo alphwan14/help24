@@ -327,6 +327,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     // avoid waiting for a full feed reload to show the Secure Service button.
     String? localSelectedId = post.selectedProviderUserId;
 
+    // Local applied state — set true after a background hasApplied() check or
+    // after a successful offer submission. Prevents duplicate apply attempts and
+    // drives the "Applied" button UI inside this sheet.
+    bool localHasApplied = false;
+    bool appliedChecked = false; // guard: run the check only once per sheet open
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -345,6 +351,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               isAuthor &&
               localSelectedId != null &&
               post.price > 0;
+
+          // Background hasApplied check — runs once per sheet open.
+          // Updates localHasApplied so the button changes to "Applied" state.
+          if (!appliedChecked &&
+              !isAuthor &&
+              currentUserId.isNotEmpty &&
+              post.type == PostType.request) {
+            appliedChecked = true;
+            ApplicationService.hasApplied(post.id, currentUserId).then((applied) {
+              if (applied) setSheetState(() => localHasApplied = true);
+            });
+          }
 
           return Container(
             height: MediaQuery.of(sheetContext).size.height * 0.85,
@@ -594,6 +612,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           _SecureServiceButton(
                             post: post,
                             buyerUserId: currentUserId,
+                            providerUserId: localSelectedId,
                             isOffline: isOffline,
                             onTap: (normalizedPhone) {
                               final fee = calculatePlatformFee(post.price);
@@ -618,34 +637,64 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                         // Contact / action button — hidden for the post author
                         if (!isAuthor) ...[
                           const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                Navigator.pop(context);
-                                AuthGuard.requireAuth(
-                                  context,
-                                  action: post.type == PostType.request
-                                      ? 'offer service on this request'
-                                      : 'request this service',
-                                  onAuthenticated: () => post.type == PostType.request
-                                      ? _openOfferServiceModal(context, post)
-                                      : _openPrivateChat(context, post),
-                                );
-                              },
-                              icon: Icon(
-                                post.type == PostType.offer
-                                    ? Icons.handshake_outlined
-                                    : Iconsax.send_2,
+                          // Show "Applied" badge once duplicate check confirms.
+                          if (localHasApplied && post.type == PostType.request)
+                            Container(
+                              width: double.infinity,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: AppTheme.successGreen.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: AppTheme.successGreen.withValues(alpha: 0.45),
+                                ),
                               ),
-                              label: Text(
-                                post.type == PostType.offer
-                                    ? 'Request Service'
-                                    : 'Offer Service',
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check_circle_rounded,
+                                      color: AppTheme.successGreen, size: 20),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'You already applied to this request',
+                                    style: TextStyle(
+                                      color: AppTheme.successGreen,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  AuthGuard.requireAuth(
+                                    context,
+                                    action: post.type == PostType.request
+                                        ? 'offer service on this request'
+                                        : 'request this service',
+                                    onAuthenticated: () => post.type == PostType.request
+                                        ? _openOfferServiceModal(context, post)
+                                        : _openPrivateChat(context, post),
+                                  );
+                                },
+                                icon: Icon(
+                                  post.type == PostType.offer
+                                      ? Icons.handshake_outlined
+                                      : Iconsax.send_2,
+                                ),
+                                label: Text(
+                                  post.type == PostType.offer
+                                      ? 'Request Service'
+                                      : 'Offer Service',
+                                ),
                               ),
                             ),
-                          ),
                         ],
 
                         const SizedBox(height: 24),
@@ -817,6 +866,26 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       return;
     }
 
+    // Layer C (frontend): guard — prevent duplicate application before showing modal.
+    final alreadyApplied = await ApplicationService.hasApplied(post.id, currentUserId);
+    if (!context.mounted) return;
+    if (alreadyApplied) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
+              SizedBox(width: 10),
+              Flexible(child: Text('You already applied to this request.')),
+            ],
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
     // Providers must have an M-Pesa number so they can receive payment when selected.
     final phone = await UserProfileService.getMpesaPhone(currentUserId);
     if (!context.mounted) return;
@@ -851,27 +920,47 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         title: post.title,
         type: 'request',
         onSubmit: (message) async {
-          await ApplicationService.submitApplication(
-            postId: post.id,
-            currentUserId: currentUserId,
-            message: message,
-            proposedPrice: 0,
-          );
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Row(
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.white),
-                    SizedBox(width: 12),
-                    Text('Offer sent!'),
-                  ],
-                ),
-                behavior: SnackBarBehavior.floating,
-                backgroundColor: AppTheme.successGreen,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
+          try {
+            await ApplicationService.submitApplication(
+              postId: post.id,
+              currentUserId: currentUserId,
+              message: message,
+              proposedPrice: 0,
             );
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.white),
+                      SizedBox(width: 12),
+                      Text('Offer sent!'),
+                    ],
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: AppTheme.successGreen,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              );
+            }
+          } on DuplicateApplicationException {
+            // Race condition: user applied between the pre-check and the insert.
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
+                      SizedBox(width: 10),
+                      Flexible(child: Text('You already applied to this request.')),
+                    ],
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              );
+            }
+            rethrow; // Causes ApplicationModal to reset its spinner instead of popping.
           }
         },
       ),
@@ -1443,6 +1532,8 @@ enum _SecureButtonState { loading, ready, paid }
 class _SecureServiceButton extends StatefulWidget {
   final PostModel post;
   final String buyerUserId;
+  /// Effective selected-provider ID (may be a local override not yet synced to post.selectedProviderUserId).
+  final String? providerUserId;
   final bool isOffline;
   /// Called with the normalized 254XXXXXXXXX phone after preflight checks pass.
   final void Function(String normalizedPhone) onTap;
@@ -1452,6 +1543,7 @@ class _SecureServiceButton extends StatefulWidget {
     required this.buyerUserId,
     required this.isOffline,
     required this.onTap,
+    this.providerUserId,
   });
 
   @override
@@ -1500,11 +1592,23 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
 
     setState(() => _checking = true);
     try {
-      final rawPhone = await UserProfileService.getMpesaPhone(widget.buyerUserId);
+      // ── Precheck 1: buyer M-Pesa phone ───────────────────────────────────
+      String? rawPhone = await UserProfileService.getMpesaPhone(widget.buyerUserId);
       if (!mounted) return;
 
+      // Fallback: for phone-auth users the Firebase phone number is the same
+      // M-Pesa number — use it when the Supabase profile hasn't been explicitly set.
+      if ((rawPhone == null || rawPhone.isEmpty)) {
+        final fbPhone = context.read<AuthProvider>().currentUser?.phoneNumber;
+        if (fbPhone != null && fbPhone.isNotEmpty) {
+          debugPrint('[SecureBtn] DB phone missing — falling back to Firebase phone');
+          rawPhone = fbPhone;
+        }
+      }
+
+      debugPrint('[SecureBtn] buyer raw="$rawPhone"');
       final normalizedPhone = rawPhone != null ? normalizeKenyanNumber(rawPhone) : null;
-      debugPrint('[SecureBtn] raw phone="$rawPhone" normalized="$normalizedPhone"');
+      debugPrint('[SecureBtn] buyer normalized="$normalizedPhone"');
 
       if (normalizedPhone == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1512,7 +1616,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
             content: const Row(children: [
               Icon(Icons.phone_android_rounded, color: Colors.white, size: 18),
               SizedBox(width: 10),
-              Flexible(child: Text('Add a valid M-Pesa number (254XXXXXXXXX) in Profile → Payment Settings.')),
+              Flexible(child: Text('Add a valid M-Pesa number in Profile → Payment Settings.')),
             ]),
             backgroundColor: AppTheme.warningOrange,
             behavior: SnackBarBehavior.floating,
@@ -1522,6 +1626,42 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
         );
         return;
       }
+
+      // ── Precheck 2: selected provider still has an M-Pesa number ─────────
+      final providerUserId =
+          widget.providerUserId ?? widget.post.selectedProviderUserId;
+      if (providerUserId != null && providerUserId.isNotEmpty) {
+        final providerRaw = await UserProfileService.getMpesaPhone(providerUserId);
+        if (!mounted) return;
+        if (providerRaw == null || providerRaw.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    'The selected provider has not added their M-Pesa number yet. '
+                    'Ask them to add it before you can pay.',
+                  ),
+                ),
+              ]),
+              backgroundColor: AppTheme.warningOrange,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+          return;
+        }
+      }
+
+      // ── Precheck 3: post is not already paid ─────────────────────────────
+      // (pollPaymentStatus was already checked in initState; re-verify on tap
+      //  in case the user tapped "Secure Service" twice or state is stale.)
+      if (_btnState == _SecureButtonState.paid) return;
+
+      // All checks passed — proceed to payment.
       widget.onTap(normalizedPhone);
     } finally {
       if (mounted) setState(() => _checking = false);
