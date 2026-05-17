@@ -108,15 +108,37 @@ async function sendFcmV1(
   fcmToken: string,
   title: string,
   body: string,
-  chatId: string
+  chatId: string,
+  postId: string | null,
+  senderId: string
 ): Promise<{ ok: boolean; error?: string }> {
   const url = `https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`;
+  const data: Record<string, string> = {
+    // Keep both snake_case and camelCase keys for client compatibility.
+    chat_id: String(chatId),
+    chatId: String(chatId),
+    sender_id: String(senderId),
+  };
+  if (postId) {
+    data.post_id = String(postId);
+    data.postId = String(postId);
+  }
   const bodyPayload = {
     message: {
       token: fcmToken,
       notification: { title, body },
-      // Keep both snake_case and camelCase keys for client compatibility.
-      data: { chat_id: String(chatId), chatId: String(chatId) },
+      android: {
+        priority: "high",
+        notification: {
+          channel_id: "help24_messages",
+          sound: "default",
+          default_vibrate_timings: true,
+        },
+      },
+      apns: {
+        payload: { aps: { sound: "default", badge: 1 } },
+      },
+      data,
     },
   };
   const res = await fetch(url, {
@@ -196,7 +218,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const chatRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/chats?id=eq.${encodeURIComponent(chatId)}&select=user1,user2`,
+      `${SUPABASE_URL}/rest/v1/chats?id=eq.${encodeURIComponent(chatId)}&select=user1,user2,post_id`,
       { headers: supabaseHeaders }
     );
     if (!chatRes.ok) {
@@ -206,7 +228,7 @@ Deno.serve(async (req: Request) => {
         headers: { "Content-Type": "application/json" },
       });
     }
-    const chats = (await chatRes.json()) as { user1: string; user2: string }[];
+    const chats = (await chatRes.json()) as { user1: string; user2: string; post_id?: string | null }[];
     if (!chats?.length) {
       console.log("[send-chat-push] Chat not found:", chatId);
       return new Response(JSON.stringify({ ok: true, reason: "Chat not found" }), {
@@ -214,7 +236,8 @@ Deno.serve(async (req: Request) => {
         headers: { "Content-Type": "application/json" },
       });
     }
-    const { user1, user2 } = chats[0];
+    const { user1, user2, post_id: chatPostId } = chats[0];
+    const postIdForPayload = chatPostId ?? null;
     const recipientIdFromChat =
       ensureString(user1) === senderId ? ensureString(user2) : ensureString(user1);
     const recipientId =
@@ -304,7 +327,7 @@ Deno.serve(async (req: Request) => {
     let sent = 0;
     for (const token of tokens) {
       const tokenTail = token.slice(-6);
-      const result = await sendFcmV1(accessToken, token, title, body, chatId);
+      const result = await sendFcmV1(accessToken, token, title, body, chatId, postIdForPayload, senderId);
       if (result.ok) {
         sent++;
         console.log(`[send-chat-push] send result ok token_tail=${tokenTail}`);
