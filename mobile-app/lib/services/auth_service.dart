@@ -427,11 +427,17 @@ class AuthService {
     final profileImage = firebaseUser.photoURL;
     final displayName = userName.isEmpty ? (email.isNotEmpty ? email.split('@').first : '') : userName;
 
+    // Resolve the best phone number available. Prefer explicit parameter, then Firebase.
+    // Only written when non-null so we never overwrite a profile-set phone with null.
+    final resolvedPhone = phoneNumber ?? firebaseUser.phoneNumber;
+
     final row = <String, dynamic>{
       'id': firebaseUser.uid,
       'email': email,
       'name': displayName,
       'last_login': now.toIso8601String(),
+      if (resolvedPhone != null && resolvedPhone.isNotEmpty)
+        'phone_number': resolvedPhone,
     };
 
     try {

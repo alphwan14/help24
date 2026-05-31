@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/mpesa_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/format_utils.dart';
+import '../utils/payment_utils.dart';
 
 // ─── State machine ────────────────────────────────────────────────────────────
 
@@ -30,19 +32,6 @@ extension _PaymentStateX on PaymentState {
       this == PaymentState.stkSent ||
       this == PaymentState.awaitingPin ||
       this == PaymentState.processing;
-}
-
-// ─── Fee calculation (mirrors backend fee table) ─────────────────────────────
-
-double calculatePlatformFee(double amount) {
-  if (amount <= 0) return 0;
-  if (amount <= 100) return 5;
-  if (amount <= 500) return 15;
-  if (amount <= 1000) return 25;
-  if (amount <= 2500) return 45;
-  if (amount <= 5000) return 70;
-  if (amount <= 10000) return 120;
-  return (amount * 0.012).roundToDouble();
 }
 
 // ─── PaymentScreen ────────────────────────────────────────────────────────────
@@ -77,6 +66,7 @@ class _PaymentScreenState extends State<PaymentScreen>
   PaymentState _state = PaymentState.idle;
   String? _errorMessage;
   String? _mpesaReceipt;
+  String? _checkoutRequestId;
 
   // ── Polling ───────────────────────────────────────────────────────────────
   Timer? _pollTimer;
@@ -135,11 +125,13 @@ class _PaymentScreenState extends State<PaymentScreen>
     _transition(PaymentState.initiating);
 
     try {
-      await MpesaService.initiatePayment(
+      final result = await MpesaService.initiatePayment(
         postId: widget.postId,
         buyerUserId: widget.buyerUserId,
         buyerPhone: widget.buyerPhone,
       );
+      _checkoutRequestId = result.checkoutRequestId;
+      debugPrint('[PaymentSM] checkoutRequestId=$_checkoutRequestId');
       // 201 received — STK is on the way.
       _transition(PaymentState.stkSent);
       // Auto-advance to AWAITING_PIN after 2 s so user reads the confirmation.
@@ -193,7 +185,7 @@ class _PaymentScreenState extends State<PaymentScreen>
         } else if (status.isFailed) {
           _pollTimer?.cancel();
           _transition(PaymentState.failed,
-              error: 'Payment was declined or cancelled. Please try again.');
+              error: _darajaFailureMessage(status.failureReason));
         }
         // isPending → keep polling
       } catch (_) {
@@ -211,9 +203,26 @@ class _PaymentScreenState extends State<PaymentScreen>
       _state = PaymentState.idle;
       _errorMessage = null;
       _mpesaReceipt = null;
+      _checkoutRequestId = null;
       _pollCount = 0;
       _testStkResult = null;
     });
+  }
+
+  // ─── Debug: dev force-success ─────────────────────────────────────────────
+
+  Future<void> _forceSuccess() async {
+    debugPrint('[PaymentSM][DEV] force-success postId=${widget.postId}');
+    final result = await MpesaService.forceSuccess(widget.postId);
+    if (!mounted) return;
+    if (result['ok'] == true) {
+      _pollTimer?.cancel();
+      _transition(PaymentState.success, receipt: 'DEV-FORCED');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('[DEV] ${result['error'] ?? result['message'] ?? 'Force-success failed'}')),
+      );
+    }
   }
 
   // ─── Error sanitisation ───────────────────────────────────────────────────
@@ -243,6 +252,40 @@ class _PaymentScreenState extends State<PaymentScreen>
       return raw;
     }
     return 'Payment could not be started. Please try again.';
+  }
+
+  /// Maps Daraja's ResultDesc (stored in DB and returned by /status) to a
+  /// human-readable message. Known codes from Safaricom Daraja docs:
+  ///   1       — Insufficient funds
+  ///   1031    — Request cancelled by user
+  ///   1032    — Request cancelled by user
+  ///   1037    — DS timeout — user unreachable
+  ///   2001    — Wrong PIN entered
+  static String _darajaFailureMessage(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return 'Payment was not completed. Please try again.';
+    }
+    final lower = raw.toLowerCase();
+
+    // User explicitly cancelled on their phone.
+    if (lower.contains('cancel') || lower.contains('1032') || lower.contains('1031')) {
+      return 'You cancelled the M-Pesa request. Tap Pay to try again.';
+    }
+    // Wrong PIN.
+    if (lower.contains('wrong pin') || lower.contains('2001') || lower.contains('invalid pin')) {
+      return 'Incorrect M-Pesa PIN entered. Tap Pay to try again.';
+    }
+    // Insufficient funds.
+    if (lower.contains('insufficient') || raw == '1') {
+      return 'Insufficient M-Pesa balance. Top up and try again.';
+    }
+    // User unreachable / timeout from Daraja side.
+    if (lower.contains('timeout') || lower.contains('1037') || lower.contains('cannot be reached')) {
+      return 'M-Pesa request timed out. Make sure you have network and try again.';
+    }
+    // Pass through short Daraja messages verbatim.
+    if (raw.length < 120) return raw;
+    return 'Payment was not completed. Please try again.';
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────
@@ -277,11 +320,25 @@ class _PaymentScreenState extends State<PaymentScreen>
           centerTitle: true,
         ),
         body: SafeArea(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            child: _buildBody(isDark, textPrimary, textSecondary),
+          child: Stack(
+            children: [
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: _buildBody(isDark, textPrimary, textSecondary),
+              ),
+              // ⚠️  DEV-only debug overlay — never visible in release builds.
+              if (kDebugMode && _state.blocksNav)
+                Positioned(
+                  bottom: 16,
+                  right: 16,
+                  child: _DevForceSuccessButton(
+                    checkoutRequestId: _checkoutRequestId,
+                    onForceSuccess: _forceSuccess,
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -369,6 +426,7 @@ class _PaymentScreenState extends State<PaymentScreen>
           testStkLoading: _testStkLoading,
           testStkResult: _testStkResult,
           onRunTestStk: _runTestStk,
+          realTotal: _total,
           textPrimary: textPrimary,
           textSecondary: textSecondary,
           isDark: isDark,
@@ -387,11 +445,12 @@ class _PaymentScreenState extends State<PaymentScreen>
 
   // ─── Debug: sandbox test ──────────────────────────────────────────────────
 
-  Future<void> _runTestStk() async {
+  Future<void> _runTestStk({bool useRealAmount = false}) async {
     final phone = _testPhoneController.text.trim();
     if (phone.isEmpty) return;
     setState(() { _testStkLoading = true; _testStkResult = null; });
-    final result = await MpesaService.testStk(phone);
+    final double amount = useRealAmount ? _total : 1.0;
+    final result = await MpesaService.testStk(phone, amount: amount);
     if (mounted) setState(() { _testStkLoading = false; _testStkResult = result; });
   }
 }
@@ -486,7 +545,7 @@ class _IdleView extends StatelessWidget {
               children: [
                 _BreakdownRow(
                   label: 'Service cost',
-                  value: 'KES ${amount.toStringAsFixed(0)}',
+                  value: formatPriceDisplay(amount),
                   textPrimary: textPrimary,
                   textSecondary: textSecondary,
                 ),
@@ -495,7 +554,7 @@ class _IdleView extends StatelessWidget {
                 const SizedBox(height: 10),
                 _BreakdownRow(
                   label: 'Platform fee',
-                  value: 'KES ${platformFee.toStringAsFixed(0)}',
+                  value: formatPriceDisplay(platformFee),
                   textPrimary: textSecondary,
                   textSecondary: textSecondary,
                   isSmall: true,
@@ -513,7 +572,7 @@ class _IdleView extends StatelessWidget {
                             fontSize: 15,
                             fontWeight: FontWeight.w700)),
                     Text(
-                      'KES ${total.toStringAsFixed(0)}',
+                      formatPriceDisplay(total),
                       style: const TextStyle(
                           color: AppTheme.successGreen,
                           fontSize: 20,
@@ -561,7 +620,7 @@ class _IdleView extends StatelessWidget {
                   const Icon(Icons.lock_rounded, size: 18),
                   const SizedBox(width: 8),
                   Text(
-                    'Pay KES ${total.toStringAsFixed(0)} Securely',
+                    'Pay ${formatPriceDisplay(total)} Securely',
                     style: const TextStyle(
                         fontWeight: FontWeight.w700, fontSize: 15),
                   ),
@@ -764,7 +823,7 @@ class _SuccessView extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'KES ${total.toStringAsFixed(0)} is held securely in escrow.\nFunds are released when the job is completed.',
+            '${formatPriceDisplay(total)} is held securely in escrow.\nFunds are released when the job is completed.',
             textAlign: TextAlign.center,
             style: TextStyle(color: textSecondary, fontSize: 14, height: 1.55),
           ),
@@ -858,7 +917,8 @@ class _FailedView extends StatelessWidget {
   final TextEditingController testPhoneController;
   final bool testStkLoading;
   final Map<String, dynamic>? testStkResult;
-  final VoidCallback onRunTestStk;
+  final void Function({bool useRealAmount}) onRunTestStk;
+  final double realTotal;
   final Color textPrimary;
   final Color textSecondary;
   final bool isDark;
@@ -872,6 +932,7 @@ class _FailedView extends StatelessWidget {
     required this.testStkLoading,
     required this.testStkResult,
     required this.onRunTestStk,
+    required this.realTotal,
     required this.textPrimary,
     required this.textSecondary,
     required this.isDark,
@@ -955,19 +1016,38 @@ class _FailedView extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: testStkLoading ? null : onRunTestStk,
-                icon: testStkLoading
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.science_outlined, size: 16),
-                label: const Text('Run /test-stk (amount = 1)',
-                    style: TextStyle(fontSize: 11)),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: testStkLoading ? null : () => onRunTestStk(),
+                    icon: testStkLoading
+                        ? const SizedBox(width: 12, height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.science_outlined, size: 14),
+                    label: const Text('Test KES 1',
+                        style: TextStyle(fontSize: 11)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: testStkLoading
+                        ? null
+                        : () => onRunTestStk(useRealAmount: true),
+                    icon: testStkLoading
+                        ? const SizedBox(width: 12, height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.paid_outlined, size: 14),
+                    label: Text('Test ${formatPriceDisplay(realTotal)}',
+                        style: const TextStyle(fontSize: 11)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.warningOrange,
+                      side: const BorderSide(color: AppTheme.warningOrange),
+                    ),
+                  ),
+                ),
+              ],
             ),
             if (testStkResult != null) ...[
               const SizedBox(height: 10),
@@ -1104,6 +1184,53 @@ class _InfoBanner extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ⚠️  DEV ONLY — force-success overlay button (kDebugMode gate in parent).
+// This widget is compiled away in release mode by the `if (kDebugMode)` guard.
+class _DevForceSuccessButton extends StatelessWidget {
+  final String? checkoutRequestId;
+  final VoidCallback onForceSuccess;
+
+  const _DevForceSuccessButton({
+    required this.checkoutRequestId,
+    required this.onForceSuccess,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (checkoutRequestId != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              'CKO: ${checkoutRequestId!.length > 20 ? '${checkoutRequestId!.substring(0, 20)}…' : checkoutRequestId!}',
+              style: const TextStyle(
+                  color: Colors.amber, fontFamily: 'monospace', fontSize: 10),
+            ),
+          ),
+        const SizedBox(height: 6),
+        ElevatedButton.icon(
+          onPressed: onForceSuccess,
+          icon: const Icon(Icons.developer_mode_rounded, size: 14),
+          label: const Text('Force Success (DEV)', style: TextStyle(fontSize: 11)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepPurple,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        ),
+      ],
     );
   }
 }

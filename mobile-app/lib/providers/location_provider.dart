@@ -9,6 +9,7 @@ class LocationProvider extends ChangeNotifier {
   String? _city;
   double? _latitude;
   double? _longitude;
+  DateTime? _lastUpdated;
 
   PermissionStatus get status => _status;
   bool get isLoading => _isLoading;
@@ -17,10 +18,12 @@ class LocationProvider extends ChangeNotifier {
   String? get city => _city;
   double? get latitude => _latitude;
   double? get longitude => _longitude;
+  DateTime? get lastUpdated => _lastUpdated;
 
   static String _cityKey(String uid) => 'location_city_$uid';
   static String _latKey(String uid) => 'location_lat_$uid';
   static String _lngKey(String uid) => 'location_lng_$uid';
+  static String _lastUpdatedKey(String uid) => 'location_last_updated_$uid';
   static String _explainerShownKey(String uid) => 'location_explainer_shown_$uid';
 
   Future<void> initializeForUser(String uid) async {
@@ -29,6 +32,7 @@ class LocationProvider extends ChangeNotifier {
       _city = null;
       _latitude = null;
       _longitude = null;
+      _lastUpdated = null;
       notifyListeners();
       return;
     }
@@ -36,6 +40,8 @@ class LocationProvider extends ChangeNotifier {
     _city = prefs.getString(_cityKey(uid));
     _latitude = prefs.getDouble(_latKey(uid));
     _longitude = prefs.getDouble(_lngKey(uid));
+    final ts = prefs.getString(_lastUpdatedKey(uid));
+    _lastUpdated = ts != null ? DateTime.tryParse(ts) : null;
     notifyListeners();
   }
 
@@ -76,17 +82,37 @@ class LocationProvider extends ChangeNotifier {
       latitude: pos.latitude,
       longitude: pos.longitude,
     );
+    final now = DateTime.now();
     final prefs = await SharedPreferences.getInstance();
     _latitude = pos.latitude;
     _longitude = pos.longitude;
     _city = resolvedCity;
+    _lastUpdated = now;
     await prefs.setDouble(_latKey(uid), pos.latitude);
     await prefs.setDouble(_lngKey(uid), pos.longitude);
+    await prefs.setString(_lastUpdatedKey(uid), now.toIso8601String());
     if (resolvedCity != null && resolvedCity.isNotEmpty) {
       await prefs.setString(_cityKey(uid), resolvedCity);
     }
     notifyListeners();
     return true;
+  }
+
+  /// Clears cached location data without revoking OS permission.
+  /// Use from the location settings sheet when user wants to disable in-app location.
+  Future<void> disableLocation(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_cityKey(uid));
+    await prefs.remove(_latKey(uid));
+    await prefs.remove(_lngKey(uid));
+    await prefs.remove(_lastUpdatedKey(uid));
+    // Reset the explainer flag so it will be offered again if they re-enable.
+    await prefs.remove(_explainerShownKey(uid));
+    _city = null;
+    _latitude = null;
+    _longitude = null;
+    _lastUpdated = null;
+    notifyListeners();
   }
 
   Future<void> refreshPermissionStatus() async {

@@ -86,30 +86,41 @@ class _JobsScreenState extends State<JobsScreen> {
                       },
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 10,
-                        ),
+                        curve: Curves.easeInOut,
+                        height: 40,
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
                         decoration: BoxDecoration(
                           color: isSelected
                               ? AppTheme.primaryAccent
-                              : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
-                            color: isSelected
-                                ? AppTheme.primaryAccent
-                                : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-                          ),
+                              : (isDark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA)),
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                    color: AppTheme.primaryAccent
+                                        .withValues(alpha: 0.30),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                              : null,
                         ),
-                        child: Text(
-                          type,
+                        alignment: Alignment.center,
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeInOut,
                           style: TextStyle(
                             color: isSelected
                                 ? Colors.white
-                                : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
+                                : (isDark
+                                    ? AppTheme.darkTextSecondary
+                                    : AppTheme.lightTextSecondary),
+                            fontSize: 14,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.w500,
                           ),
+                          child: Text(type),
                         ),
                       ),
                     ),

@@ -42,21 +42,47 @@ class Category {
   const Category({required this.name, required this.icon});
 
   static List<Category> all = [
-    Category(name: 'Garden', icon: Icons.grass),
-    Category(name: 'Design', icon: Icons.brush),
-    Category(name: 'IT', icon: Icons.computer),
-    Category(name: 'Events', icon: Icons.celebration),
+    // Home & Property
     Category(name: 'Plumbing', icon: Icons.plumbing),
+    Category(name: 'Electrical', icon: Icons.electrical_services),
+    Category(name: 'Masonry', icon: Icons.foundation),
+    Category(name: 'Carpentry', icon: Icons.handyman),
     Category(name: 'Painting', icon: Icons.format_paint),
-    Category(name: 'Cleaning', icon: Icons.cleaning_services),
-    Category(name: 'Delivery', icon: Icons.local_shipping),
-    Category(name: 'Moving', icon: Icons.move_up),
-    Category(name: 'Repair', icon: Icons.build),
-    Category(name: 'Teaching', icon: Icons.school),
-    Category(name: 'Beauty', icon: Icons.spa),
-    Category(name: 'Cooking', icon: Icons.restaurant),
-    Category(name: 'Driving', icon: Icons.directions_car),
-    Category(name: 'Security', icon: Icons.security),
+    Category(name: 'Welding', icon: Icons.construction),
+    // Cleaning & Household
+    Category(name: 'House Cleaning', icon: Icons.cleaning_services),
+    Category(name: 'Laundry', icon: Icons.local_laundry_service),
+    Category(name: 'Gardening', icon: Icons.grass),
+    // Security & Transport
+    Category(name: 'Security Guard', icon: Icons.security),
+    Category(name: 'Driver', icon: Icons.directions_car),
+    Category(name: 'Delivery Rider', icon: Icons.delivery_dining),
+    // Automotive
+    Category(name: 'Mechanic', icon: Icons.car_repair),
+    Category(name: 'Car Wash', icon: Icons.local_car_wash),
+    // Appliance & Tech Repair
+    Category(name: 'Appliance Repair', icon: Icons.kitchen),
+    Category(name: 'AC Repair', icon: Icons.ac_unit),
+    Category(name: 'Phone Repair', icon: Icons.phone_android),
+    Category(name: 'Computer Repair', icon: Icons.computer),
+    // Creative & Digital
+    Category(name: 'Graphic Design', icon: Icons.brush),
+    Category(name: 'Software Development', icon: Icons.code),
+    Category(name: 'Photography', icon: Icons.camera_alt),
+    Category(name: 'Videography', icon: Icons.videocam),
+    // Events & Hospitality
+    Category(name: 'Event Planning', icon: Icons.celebration),
+    Category(name: 'Catering', icon: Icons.restaurant),
+    // Education & Care
+    Category(name: 'Tutoring', icon: Icons.school),
+    Category(name: 'Babysitting', icon: Icons.child_care),
+    Category(name: 'Caregiving', icon: Icons.favorite),
+    // Moving & Construction
+    Category(name: 'Moving Services', icon: Icons.move_up),
+    Category(name: 'Interior Design', icon: Icons.chair),
+    Category(name: 'Construction', icon: Icons.architecture),
+    Category(name: 'General Labour', icon: Icons.engineering),
+    // Fallback
     Category(name: 'Other', icon: Icons.more_horiz),
   ];
 

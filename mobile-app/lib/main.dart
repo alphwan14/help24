@@ -17,6 +17,7 @@ import 'providers/location_provider.dart';
 import 'widgets/loading_empty_offline.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
+import 'screens/notifications_screen.dart';
 import 'screens/web_view_screen.dart';
 import 'services/diagnostic_service.dart';
 import 'services/notification_service.dart';
@@ -99,6 +100,7 @@ class _Help24AppState extends State<Help24App> {
   void _onForegroundMessage(RemoteMessage message) {
     final data = message.data;
     final chatId = (data['chatId'] ?? data['chat_id']) as String?;
+    final type = (data['type'] as String?) ?? '';
 
     // Suppress if the user is actively viewing this chat.
     final ctx = _navigatorKey.currentContext;
@@ -118,13 +120,38 @@ class _Help24AppState extends State<Help24App> {
     final context = _navigatorKey.currentContext;
     if (context == null || !context.mounted) return;
 
+    const lifecycleTypes = {
+      'completion_requested',
+      'job_approved',
+      'dispute_opened',
+      'payout_released',
+      'payment_secured',
+      'dispute_resolved_release',
+      'dispute_resolved_refund',
+      'dispute_resolved_partial',
+    };
+
+    void Function()? onTap;
+    if (chatId != null && chatId.isNotEmpty) {
+      onTap = () => _openChat(context, chatId);
+    } else if (lifecycleTypes.contains(type)) {
+      onTap = () {
+        final uid = context.read<AuthProvider>().currentUserId;
+        if (uid != null && uid.isNotEmpty) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => NotificationsScreen(userId: uid),
+            ),
+          );
+        }
+      };
+    }
+
     NotificationBannerOverlay.show(
       context: context,
       title: title,
       body: body,
-      onTap: chatId != null && chatId.isNotEmpty
-          ? () => _openChat(context, chatId)
-          : null,
+      onTap: onTap,
     );
   }
 
@@ -150,7 +177,34 @@ class _Help24AppState extends State<Help24App> {
     final data = message.data;
     final chatId = (data['chatId'] ?? data['chat_id']) as String?;
     final postId = (data['postId'] ?? data['post_id']) as String?;
+    final type = (data['type'] as String?) ?? '';
     debugPrint('main._onNotificationTap payload: $data');
+
+    // Lifecycle notifications: route to the in-app notifications inbox
+    // so users can see the full message and then navigate from there.
+    const lifecycleTypes = {
+      'completion_requested',
+      'job_approved',
+      'dispute_opened',
+      'payout_released',
+      'payment_secured',
+      'dispute_resolved_release',
+      'dispute_resolved_refund',
+      'dispute_resolved_partial',
+    };
+
+    if (lifecycleTypes.contains(type)) {
+      final uid = context.read<AuthProvider>().currentUserId;
+      if (uid != null && uid.isNotEmpty) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => NotificationsScreen(userId: uid),
+          ),
+        );
+      }
+      return;
+    }
+
     if (chatId != null && chatId.isNotEmpty) {
       _openChat(context, chatId);
     } else if (postId != null && postId.isNotEmpty) {
@@ -223,20 +277,87 @@ class StartupGate extends StatefulWidget {
 }
 
 class _StartupGateState extends State<StartupGate> {
+  bool _ready = false;
+
   @override
   void initState() {
     super.initState();
-    // Firebase + notifications bootstrap runs in background.
-    // AuthProvider is already initialized via ChangeNotifierProvider; re-init
-    // here so it picks up Firebase messaging token after bootstrap completes.
-    unawaited(widget.bootstrapFuture?.then((_) async {
-      if (!mounted) return;
-      await context.read<AuthProvider>().initialize();
-    }) ?? Future<void>.value());
+    unawaited(_bootstrap());
+  }
+
+  Future<void> _bootstrap() async {
+    // Minimum display so the splash doesn't flash away before the first frame.
+    final minDelay = Future<void>.delayed(const Duration(milliseconds: 800));
+    await Future.wait([
+      widget.bootstrapFuture ?? Future<void>.value(),
+      minDelay,
+    ]);
+    if (!mounted) return;
+    await context.read<AuthProvider>().initialize();
+    if (mounted) setState(() => _ready = true);
   }
 
   @override
-  Widget build(BuildContext context) => const HomeScreen();
+  Widget build(BuildContext context) {
+    if (!_ready) return const _SplashScreen();
+    return const HomeScreen();
+  }
+}
+
+class _SplashScreen extends StatefulWidget {
+  const _SplashScreen();
+
+  @override
+  State<_SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<_SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _fadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? AppTheme.darkBackground : AppTheme.lightBackground;
+
+    return Scaffold(
+      backgroundColor: bg,
+      body: Center(
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Image.asset(
+              'assets/help24_icon.png',
+              width: 64,
+              height: 64,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SyncOnReconnect extends StatefulWidget {

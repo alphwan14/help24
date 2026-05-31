@@ -186,6 +186,11 @@ class _ConversationTile extends StatelessWidget {
     required this.onTap,
   });
 
+  static const _months = [
+    '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
   String _formatTime(DateTime time) {
     final now = DateTime.now();
     final diff = now.difference(time);
@@ -199,7 +204,8 @@ class _ConversationTile extends StatelessWidget {
     } else if (diff.inDays < 7) {
       return '${diff.inDays}d ago';
     } else {
-      return '${time.day}/${time.month}';
+      // e.g. "Apr 3" — unambiguous, never looks like a fraction
+      return '${_months[time.month]} ${time.day}';
     }
   }
 

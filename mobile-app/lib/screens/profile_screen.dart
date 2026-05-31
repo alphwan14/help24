@@ -189,17 +189,28 @@ class ProfileScreen extends StatelessWidget {
                       subtitle: subtitle,
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () async {
-                        await context.read<LocationProvider>().initializeForUser(uid);
-                        if (!context.mounted) return;
-                        await showModalBottomSheet<bool>(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (_) =>
-                              LocationPermissionExplainerScreen(userId: uid),
-                        );
-                        if (!context.mounted) return;
                         final locationProvider = context.read<LocationProvider>();
+                        await locationProvider.initializeForUser(uid);
+                        if (!context.mounted) return;
+                        if (locationProvider.isGranted) {
+                          // Permission already granted — show manage sheet.
+                          await showModalBottomSheet<void>(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (_) => _LocationSettingsSheet(userId: uid),
+                          );
+                        } else {
+                          // Permission not yet granted — show the explainer.
+                          await showModalBottomSheet<bool>(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (_) =>
+                                LocationPermissionExplainerScreen(userId: uid),
+                          );
+                        }
+                        if (!context.mounted) return;
                         await locationProvider.initializeForUser(uid);
                         context.read<AppProvider>().setPriorityLocationCity(locationProvider.city);
                       },
@@ -411,6 +422,9 @@ class ProfileScreen extends StatelessWidget {
           children: [
             ListTile(
               title: Text(l10n?.t('language_english') ?? 'English'),
+              trailing: localeProvider.languageCode == 'en'
+                  ? const Icon(Icons.check_rounded, color: AppTheme.primaryAccent)
+                  : null,
               onTap: () {
                 Navigator.pop(ctx);
                 localeProvider.setLanguage('en');
@@ -418,9 +432,25 @@ class ProfileScreen extends StatelessWidget {
             ),
             ListTile(
               title: Text(l10n?.t('language_swahili') ?? 'Kiswahili'),
+              subtitle: const Text('Coming soon'),
+              trailing: const Icon(Icons.lock_outline_rounded, size: 18),
               onTap: () {
                 Navigator.pop(ctx);
-                localeProvider.setLanguage('sw');
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('Coming Soon'),
+                    content: const Text(
+                      'Swahili support is currently under development and will be available in a future update.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
               },
             ),
           ],

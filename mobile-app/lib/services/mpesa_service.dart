@@ -61,9 +61,9 @@ class MpesaService {
 
   /// Initiate STK push.
   ///
-  /// [buyerPhone] is normalized to 254XXXXXXXXX and included as `buyer_phone`
-  /// so both the current deployed backend (which requires it) and the updated
-  /// backend (which ignores it) work correctly.
+  /// [buyerPhone] is validated client-side for early UX feedback but NOT sent
+  /// to the backend — the server fetches the buyer's phone from the DB using
+  /// [buyerUserId].
   static Future<PaymentInitResult> initiatePayment({
     required String postId,
     required String buyerUserId,
@@ -79,11 +79,9 @@ class MpesaService {
     final body = {
       'post_id': postId,
       'buyer_user_id': buyerUserId,
-      'buyer_phone': normalized,
     };
 
-    debugPrint('[MpesaService] POST ${ApiConfig.initiatePayment}');
-    debugPrint('[MPESA DEBUG] final payload: $body');
+    debugPrint('[MpesaService] POST ${ApiConfig.initiatePayment} post=$postId buyer=$buyerUserId');
 
     final http.Response response;
     try {
@@ -148,18 +146,38 @@ class MpesaService {
 
   /// Sandbox smoke-test — calls /mpesa/test-stk with the supplied [phone].
   /// Amount is fixed at 1 on the backend. Returns the raw response map.
-  static Future<Map<String, dynamic>> testStk(String phone) async {
+  static Future<Map<String, dynamic>> testStk(String phone, {double amount = 1}) async {
     const url = '${ApiConfig.baseUrl}/mpesa/test-stk';
-    debugPrint('[MpesaService] POST $url phone=$phone');
+    debugPrint('[MpesaService] POST $url phone=$phone amount=$amount');
     try {
       final response = await http
           .post(
             Uri.parse(url),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'phone': phone}),
+            body: jsonEncode({'phone': phone, 'amount': amount}),
           )
           .timeout(_timeout);
       debugPrint('[MpesaService] test-stk status=${response.statusCode} body=${response.body}');
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+
+  /// DEV/sandbox only — forces the pending transaction for [postId] to "paid".
+  /// The backend blocks this in production (returns 400).
+  static Future<Map<String, dynamic>> forceSuccess(String postId) async {
+    const url = '${ApiConfig.baseUrl}/mpesa/dev/force-success';
+    debugPrint('[MpesaService][DEV] POST $url postId=$postId');
+    try {
+      final response = await http
+          .post(
+            Uri.parse(url),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'post_id': postId}),
+          )
+          .timeout(_timeout);
+      debugPrint('[MpesaService][DEV] force-success ${response.statusCode} ${response.body}');
       return jsonDecode(response.body) as Map<String, dynamic>;
     } catch (e) {
       return {'ok': false, 'error': e.toString()};

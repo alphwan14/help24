@@ -23,6 +23,11 @@ import 'messages_screen.dart';
 import 'urgent_requests_screen.dart';
 import 'payment_screen.dart';
 import '../services/mpesa_service.dart';
+import '../utils/payment_utils.dart';
+import '../services/jobs_service.dart';
+import 'mark_complete_screen.dart';
+import 'approve_or_dispute_screen.dart';
+import 'notifications_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
@@ -86,13 +91,36 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               children: [
                 Text('Discover',
                     style: Theme.of(context).textTheme.headlineMedium),
-                TextButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const UrgentRequestsScreen()),
-                  ),
-                  child: const Text('Urgent'),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Consumer<AuthProvider>(
+                      builder: (_, auth, __) {
+                        final uid = auth.currentUserId ?? '';
+                        if (uid.isEmpty) return const SizedBox.shrink();
+                        return NotificationBadge(
+                          userId: uid,
+                          child: IconButton(
+                            icon: const Icon(Icons.notifications_outlined),
+                            tooltip: 'Notifications',
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => NotificationsScreen(userId: uid)),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const UrgentRequestsScreen()),
+                      ),
+                      child: const Text('Urgent'),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -332,6 +360,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     // drives the "Applied" button UI inside this sheet.
     bool localHasApplied = false;
     bool appliedChecked = false; // guard: run the check only once per sheet open
+    JobCompletionStatus? jobStatus;
+    bool jobStatusChecked = false;
 
     showModalBottomSheet(
       context: context,
@@ -352,6 +382,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               localSelectedId != null &&
               post.price > 0;
 
+          // True when the current user is the provider selected for this request.
+          final isSelectedProvider = post.type == PostType.request &&
+              currentUserId.isNotEmpty &&
+              localSelectedId != null &&
+              localSelectedId == currentUserId &&
+              !isAuthor;
+
           // Background hasApplied check — runs once per sheet open.
           // Updates localHasApplied so the button changes to "Applied" state.
           if (!appliedChecked &&
@@ -361,6 +398,16 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             appliedChecked = true;
             ApplicationService.hasApplied(post.id, currentUserId).then((applied) {
               if (applied) setSheetState(() => localHasApplied = true);
+            });
+          }
+
+          // Fetch job lifecycle status once per sheet open for request posts with a selected provider.
+          if (!jobStatusChecked &&
+              post.type == PostType.request &&
+              localSelectedId != null) {
+            jobStatusChecked = true;
+            JobsService.getJobStatus(post.id).then((s) {
+              if (s != null) setSheetState(() => jobStatus = s);
             });
           }
 
@@ -632,6 +679,84 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                               );
                             },
                           ),
+                        ],
+
+                        // ── Job lifecycle actions ──────────────────────────
+                        // Shown on request posts once a provider is selected.
+                        if (post.type == PostType.request && localSelectedId != null) ...[
+                          // Status card
+                          if (jobStatus != null) ...[
+                            const SizedBox(height: 16),
+                            _JobStatusCard(status: jobStatus!, isDark: isDark),
+                          ],
+
+                          // Provider: Mark Job Done
+                          if (isSelectedProvider && jobStatus == null) ...[
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.task_alt_rounded, size: 20),
+                                label: const Text('Mark Job Done'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppTheme.successGreen,
+                                  side: const BorderSide(color: AppTheme.successGreen),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14)),
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => MarkCompleteScreen(
+                                        postId: post.id,
+                                        postTitle: post.title,
+                                        providerUserId: currentUserId,
+                                      ),
+                                    ),
+                                  ).then((_) {
+                                    JobsService.getJobStatus(post.id).then((s) {
+                                      if (s != null) setSheetState(() => jobStatus = s);
+                                    });
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+
+                          // Client: Review Completion
+                          if (isAuthor && (jobStatus?.isPendingApproval ?? false)) ...[
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.rate_review_rounded, size: 20),
+                                label: const Text('Review Completion'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.warningOrange,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14)),
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => ApproveOrDisputeScreen(
+                                        postId: post.id,
+                                        postTitle: post.title,
+                                        clientUserId: currentUserId,
+                                        providerNote: jobStatus?.providerNote,
+                                        amount: post.price,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
                         ],
 
                         // Contact / action button — hidden for the post author
@@ -1264,6 +1389,69 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
   }
 }
 
+/// Displays the current job lifecycle stage inside the post-detail sheet.
+class _JobStatusCard extends StatelessWidget {
+  final JobCompletionStatus status;
+  final bool isDark;
+
+  const _JobStatusCard({required this.status, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, icon, bg, fg) = switch (status.status) {
+      'pending_approval' => (
+          'Awaiting your review',
+          Icons.hourglass_top_rounded,
+          AppTheme.warningOrange.withValues(alpha: 0.12),
+          AppTheme.warningOrange,
+        ),
+      'approved' => (
+          'Job completed — payment released',
+          Icons.check_circle_rounded,
+          AppTheme.successGreen.withValues(alpha: 0.12),
+          AppTheme.successGreen,
+        ),
+      'disputed' => (
+          'Dispute opened — admin reviewing',
+          Icons.gavel_rounded,
+          AppTheme.errorRed.withValues(alpha: 0.10),
+          AppTheme.errorRed,
+        ),
+      _ => (
+          'In progress',
+          Icons.construction_rounded,
+          AppTheme.primaryAccent.withValues(alpha: 0.10),
+          AppTheme.primaryAccent,
+        ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: fg.withValues(alpha: 0.30)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: fg, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: fg,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Compact badge chip used in the post-detail sheet header badges row.
 class _BadgeChip extends StatelessWidget {
   final String label;
@@ -1710,7 +1898,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
       );
     }
 
-    final total = (widget.post.price + calculatePlatformFee(widget.post.price)).toStringAsFixed(0);
+    final total = formatPriceWithCommas(widget.post.price + calculatePlatformFee(widget.post.price));
     return SizedBox(
       width: double.infinity,
       height: 52,

@@ -56,6 +56,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         UserProfileService.setOnline(uid, true);
+        // Re-check location permission in case user granted it in Settings
+        // while the app was in the background.
+        context.read<LocationProvider>().refreshPermissionStatus();
         break;
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
@@ -125,13 +128,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           Expanded(
             child: _showPostScreen
-                ? PostScreen(
-                    onComplete: () {
-                      setState(() {
-                        _showPostScreen = false;
-                        _currentIndex = 0;
-                      });
+                ? PopScope(
+                    canPop: false,
+                    onPopInvokedWithResult: (didPop, _) {
+                      if (!didPop) {
+                        setState(() {
+                          _showPostScreen = false;
+                          _currentIndex = 0;
+                        });
+                      }
                     },
+                    child: PostScreen(
+                      onComplete: () {
+                        setState(() {
+                          _showPostScreen = false;
+                          _currentIndex = 0;
+                        });
+                      },
+                    ),
                   )
                 : IndexedStack(
                     index: _currentIndex,
