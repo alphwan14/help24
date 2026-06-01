@@ -18,6 +18,7 @@ import '../services/storage_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
@@ -702,11 +703,24 @@ class _ChatScreenState extends State<ChatScreen> {
         // Realtime stream delivers the confirmed message automatically.
       }
     } catch (e) {
-      debugPrint('_sendMessage error: $e');
+      String errorDetail;
+      if (e is PostgrestException) {
+        // Supabase DB error — surface code + message for debugging.
+        errorDetail = 'DB error ${e.code ?? "?"}: ${e.message}';
+        debugPrint('[CHAT][ERROR] type=postgrest code=${e.code} detail=${e.details} hint=${e.hint} message=${e.message}');
+      } else if (e.toString().toLowerCase().contains('socketexception') ||
+                 e.toString().toLowerCase().contains('network') ||
+                 e.toString().toLowerCase().contains('connection')) {
+        errorDetail = 'Network error — check your connection.';
+        debugPrint('[CHAT][ERROR] type=network detail=$e');
+      } else {
+        errorDetail = e.toString();
+        debugPrint('[CHAT][ERROR] type=unknown detail=$e');
+      }
       if (mounted) {
         setState(() => _pendingMessages.removeWhere((m) => m.id == optimistic.id));
         _messageController.text = text;
-        _showError('Failed to send. It may sync when back online.');
+        _showError('Failed to send: $errorDetail');
       }
     }
   }
