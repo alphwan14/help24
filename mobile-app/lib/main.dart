@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'config/app_urls.dart';
 import 'config/app_firebase.dart';
 import 'l10n/app_localizations.dart';
 import 'models/post_model.dart';
@@ -14,7 +13,6 @@ import 'providers/auth_provider.dart';
 import 'providers/connectivity_provider.dart';
 import 'providers/locale_provider.dart';
 import 'providers/location_provider.dart';
-import 'widgets/loading_empty_offline.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
@@ -129,6 +127,7 @@ class _Help24AppState extends State<Help24App> {
       'dispute_resolved_release',
       'dispute_resolved_refund',
       'dispute_resolved_partial',
+      'escrow_released',  // new: payout confirmed after B2C callback
     };
 
     void Function()? onTap;
@@ -191,6 +190,7 @@ class _Help24AppState extends State<Help24App> {
       'dispute_resolved_release',
       'dispute_resolved_refund',
       'dispute_resolved_partial',
+      'escrow_released',  // new: payout confirmed after B2C callback
     };
 
     if (lifecycleTypes.contains(type)) {
@@ -277,87 +277,19 @@ class StartupGate extends StatefulWidget {
 }
 
 class _StartupGateState extends State<StartupGate> {
-  bool _ready = false;
-
   @override
   void initState() {
     super.initState();
-    unawaited(_bootstrap());
-  }
-
-  Future<void> _bootstrap() async {
-    // Minimum display so the splash doesn't flash away before the first frame.
-    final minDelay = Future<void>.delayed(const Duration(milliseconds: 800));
-    await Future.wait([
-      widget.bootstrapFuture ?? Future<void>.value(),
-      minDelay,
-    ]);
-    if (!mounted) return;
-    await context.read<AuthProvider>().initialize();
-    if (mounted) setState(() => _ready = true);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_ready) return const _SplashScreen();
-    return const HomeScreen();
-  }
-}
-
-class _SplashScreen extends StatefulWidget {
-  const _SplashScreen();
-
-  @override
-  State<_SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<_SplashScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _fadeAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    _fadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
-    _controller.forward();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? AppTheme.darkBackground : AppTheme.lightBackground;
-
-    return Scaffold(
-      backgroundColor: bg,
-      body: Center(
-        child: FadeTransition(
-          opacity: _fadeAnim,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: Image.asset(
-              'assets/help24_icon.png',
-              width: 64,
-              height: 64,
-              fit: BoxFit.cover,
-            ),
-          ),
-        ),
-      ),
+    unawaited(
+      (widget.bootstrapFuture ?? Future<void>.value()).then((_) async {
+        if (!mounted) return;
+        await context.read<AuthProvider>().initialize();
+      }),
     );
   }
+
+  @override
+  Widget build(BuildContext context) => const HomeScreen();
 }
 
 class _SyncOnReconnect extends StatefulWidget {

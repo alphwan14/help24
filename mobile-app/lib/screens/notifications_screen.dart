@@ -345,9 +345,10 @@ class _NotificationTile extends StatelessWidget {
       case 'payout_released': return Icons.payments_rounded;
       case 'dispute_opened':
       case 'dispute_opened_confirm': return Icons.flag_rounded;
-      case 'dispute_resolved_payout':
+      case 'dispute_resolved_release':
       case 'dispute_resolved_refund':
       case 'dispute_resolved_partial': return Icons.gavel_rounded;
+      case 'escrow_released': return Icons.account_balance_wallet_rounded;
       default: return Icons.notifications_rounded;
     }
   }
@@ -355,10 +356,11 @@ class _NotificationTile extends StatelessWidget {
   Color get _iconColor {
     switch (notification.type) {
       case 'payment_secured':
-      case 'payout_released': return AppTheme.successGreen;
+      case 'payout_released':
+      case 'escrow_released': return AppTheme.successGreen;
       case 'dispute_opened':
       case 'dispute_opened_confirm': return Colors.red;
-      case 'dispute_resolved_payout':
+      case 'dispute_resolved_release':
       case 'dispute_resolved_refund':
       case 'dispute_resolved_partial': return AppTheme.warningOrange;
       default: return AppTheme.primaryAccent;

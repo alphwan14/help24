@@ -13,6 +13,7 @@ import '../services/notification_service.dart';
 import '../services/user_profile_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
+import '../utils/time_utils.dart';
 import '../widgets/loading_empty_offline.dart';
 import 'auth_screen.dart';
 import 'edit_profile_screen.dart';
@@ -211,8 +212,10 @@ class ProfileScreen extends StatelessWidget {
                           );
                         }
                         if (!context.mounted) return;
+                        final appProvider = context.read<AppProvider>();
                         await locationProvider.initializeForUser(uid);
-                        context.read<AppProvider>().setPriorityLocationCity(locationProvider.city);
+                        if (!context.mounted) return;
+                        appProvider.setPriorityLocationCity(locationProvider.city);
                       },
                     );
                   },
@@ -647,7 +650,7 @@ class _LoggedInProfile extends StatelessWidget {
               final totalReviews = stats?.totalReviews ?? 0;
               final completed = stats?.completedJobsCount ?? 0;
               final ratingLabel = totalReviews > 0
-                  ? '${rating.toStringAsFixed(1)}'
+                  ? rating.toStringAsFixed(1)
                   : 'New';
               return Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1172,6 +1175,299 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
                 ? const SizedBox(width: 20, height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : const Text('Save Number'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Location Settings Sheet ──────────────────────────────────────────────────
+// Shown when location permission is already granted. Lets the user refresh
+// their stored location or disable in-app location usage.
+
+class _LocationSettingsSheet extends StatefulWidget {
+  final String userId;
+
+  const _LocationSettingsSheet({required this.userId});
+
+  @override
+  State<_LocationSettingsSheet> createState() => _LocationSettingsSheetState();
+}
+
+class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
+  bool _refreshing = false;
+  bool _disabling = false;
+  String? _feedback;
+
+  Future<void> _refreshLocation() async {
+    setState(() {
+      _refreshing = true;
+      _feedback = null;
+    });
+    try {
+      final ok = await context
+          .read<LocationProvider>()
+          .captureAndStoreCurrentLocation(widget.userId);
+      if (!mounted) return;
+      setState(() {
+        _feedback = ok ? 'Location updated.' : 'Could not get location. Try again.';
+      });
+      if (ok) {
+        context.read<AppProvider>().setPriorityLocationCity(
+              context.read<LocationProvider>().city,
+            );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _disableLocation() async {
+    setState(() {
+      _disabling = true;
+      _feedback = null;
+    });
+    try {
+      await context
+          .read<LocationProvider>()
+          .disableLocation(widget.userId);
+      if (!mounted) return;
+      context.read<AppProvider>().setPriorityLocationCity(null);
+      Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _disabling = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+
+    return Consumer<LocationProvider>(
+      builder: (context, location, _) {
+        final city = location.city;
+        final lastUpdated = location.lastUpdated;
+
+        return Container(
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.fromLTRB(
+            24,
+            20,
+            24,
+            MediaQuery.of(context).viewInsets.bottom + 32,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: borderColor,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Header row
+              Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppTheme.successGreen.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.location_on_rounded,
+                      color: AppTheme.successGreen,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Location Enabled',
+                        style: TextStyle(
+                          color: textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Location access is active',
+                        style: TextStyle(color: AppTheme.successGreen, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // Location details card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _DetailRow(
+                      icon: Icons.place_rounded,
+                      label: 'Current location',
+                      value: (city != null && city.isNotEmpty)
+                          ? city
+                          : 'Not yet detected',
+                      textPrimary: textPrimary,
+                      textSecondary: textSecondary,
+                    ),
+                    const SizedBox(height: 10),
+                    _DetailRow(
+                      icon: Icons.access_time_rounded,
+                      label: 'Last updated',
+                      value: lastUpdated != null
+                          ? formatRelativeTime(lastUpdated)
+                          : 'Never',
+                      textPrimary: textPrimary,
+                      textSecondary: textSecondary,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Inline feedback message
+              if (_feedback != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _feedback!,
+                  style: TextStyle(
+                    color: _feedback!.contains('updated')
+                        ? AppTheme.successGreen
+                        : AppTheme.warningOrange,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 20),
+
+              // Refresh location
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: FilledButton.icon(
+                  onPressed: (_refreshing || _disabling) ? null : _refreshLocation,
+                  icon: _refreshing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.my_location_rounded, size: 18),
+                  label: Text(_refreshing ? 'Updating...' : 'Refresh Location'),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Disable location
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: (_refreshing || _disabling) ? null : _disableLocation,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.errorRed,
+                    side: BorderSide(
+                      color: (_refreshing || _disabling)
+                          ? borderColor
+                          : AppTheme.errorRed,
+                    ),
+                  ),
+                  icon: _disabling
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: AppTheme.errorRed),
+                        )
+                      : const Icon(Icons.location_off_rounded, size: 18),
+                  label: Text(_disabling ? 'Disabling...' : 'Disable Location'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color textPrimary;
+  final Color textSecondary;
+
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.textPrimary,
+    required this.textSecondary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: textSecondary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: TextStyle(
+                  color: textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
         ),
       ],
