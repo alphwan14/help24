@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
+import 'applications_screen.dart';
+import 'approve_or_dispute_screen.dart';
 import 'messages_screen.dart';
 
 // ─── Model ────────────────────────────────────────────────────────────────────
@@ -228,43 +230,49 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'chat_message':
         final chatId = data['chat_id'] as String?;
         if (chatId != null && chatId.isNotEmpty) {
-          debugPrint('[NOTIFICATIONS][NAV] chat_message → ChatScreen chatId=$chatId');
+          debugPrint('[NAV][OPEN_CHAT] chat_message chatId=$chatId');
           await _openChatById(chatId: chatId, userName: n.title);
         }
         break;
 
-      // ── Provider applied → open the chat with the applicant (if exists) ────
+      // ── Provider applied → open the applications list for the post ─────────
       case 'provider_applied':
-        final postId     = data['post_id'] as String?;
-        final applicantId = data['applicant_user_id'] as String?;
-        if (postId != null && applicantId != null) {
-          debugPrint('[NOTIFICATIONS][NAV] provider_applied → find chat postId=$postId applicantId=$applicantId');
-          final chatId = await _findChatByParticipant(postId: postId, otherUserId: applicantId);
-          if (chatId != null && mounted) {
-            await _openChatById(chatId: chatId, userName: n.title);
-          } else if (mounted) {
-            _openMessages();
-          }
+        final postId = data['post_id'] as String?;
+        if (postId != null && postId.isNotEmpty) {
+          debugPrint('[NAV][OPEN_APPLICATIONS] provider_applied postId=$postId');
+          await _openApplicationsFromBell(postId: postId);
         }
         break;
 
-      // ── All job/payment lifecycle → open the job chat ──────────────────────
+      // ── Completion requested → open approve/dispute screen ─────────────────
+      case 'completion_requested':
+        final postId = data['post_id'] as String?;
+        if (postId != null && postId.isNotEmpty) {
+          debugPrint('[NAV][OPEN_APPROVAL] completion_requested postId=$postId');
+          await _openApprovalFromBell(postId: postId);
+        }
+        break;
+
+      // ── Job lifecycle → open the job chat (use chat_id if present) ─────────
       case 'provider_selected':
       case 'payment_secured':
-      case 'completion_requested':
       case 'job_approved':
       case 'payout_released':
+      case 'escrow_released':
       case 'dispute_opened':
       case 'dispute_resolved_release':
       case 'dispute_resolved_refund':
       case 'dispute_resolved_partial':
-      case 'escrow_released':
-        final postId = data['post_id'] as String?;
-        if (postId != null && postId.isNotEmpty) {
-          debugPrint('[NOTIFICATIONS][NAV] ${n.type} → find chat for postId=$postId');
-          final chatId = await _findChatByPost(postId: postId);
-          if (chatId != null && mounted) {
-            await _openChatById(chatId: chatId, userName: 'Job Chat');
+        final lcChatId = data['chat_id'] as String?;
+        final lcPostId = data['post_id'] as String?;
+        if (lcChatId != null && lcChatId.isNotEmpty) {
+          debugPrint('[NAV][OPEN_CHAT] ${n.type} chatId=$lcChatId');
+          await _openChatById(chatId: lcChatId, userName: 'Job Chat');
+        } else if (lcPostId != null && lcPostId.isNotEmpty) {
+          debugPrint('[NAV][OPEN_CHAT] ${n.type} postId=$lcPostId — looking up chat');
+          final foundId = await _findChatByPost(postId: lcPostId);
+          if (foundId != null && mounted) {
+            await _openChatById(chatId: foundId, userName: 'Job Chat');
           } else if (mounted) {
             _openMessages();
           }
@@ -302,6 +310,90 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const MessagesScreen()),
     );
+  }
+
+  /// Navigate to ApproveOrDisputeScreen, fetching required data first.
+  Future<void> _openApprovalFromBell({required String postId}) async {
+    try {
+      final results = await Future.wait([
+        Supabase.instance.client
+            .from('posts')
+            .select('id, title')
+            .eq('id', postId)
+            .maybeSingle(),
+        Supabase.instance.client
+            .from('job_completions')
+            .select('id, provider_note')
+            .eq('post_id', postId)
+            .eq('status', 'pending_approval')
+            .order('created_at', ascending: false)
+            .limit(1)
+            .maybeSingle(),
+      ]);
+
+      if (!mounted) return;
+      final post = results[0] as Map<String, dynamic>?;
+      final completion = results[1] as Map<String, dynamic>?;
+
+      if (post == null) {
+        debugPrint('[NAV][OPEN_APPROVAL] post not found postId=$postId — fallback');
+        _openMessages();
+        return;
+      }
+
+      final txRes = await Supabase.instance.client
+          .from('transactions')
+          .select('amount')
+          .eq('post_id', postId)
+          .or('status.eq.paid,status.eq.payout_pending')
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (!mounted) return;
+      final amount = (txRes?['amount'] as num?)?.toDouble() ?? 0.0;
+
+      debugPrint('[NAV][OPEN_APPROVAL] postId=$postId amount=$amount');
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ApproveOrDisputeScreen(
+          postId: postId,
+          postTitle: post['title'] as String? ?? 'Job',
+          clientUserId: widget.userId,
+          providerNote: completion?['provider_note'] as String?,
+          amount: amount,
+        ),
+      ));
+    } catch (e) {
+      debugPrint('[NAV][OPEN_APPROVAL][ERROR] _openApprovalFromBell: $e');
+      if (mounted) _openMessages();
+    }
+  }
+
+  /// Navigate to ApplicationsScreen, fetching post data first.
+  Future<void> _openApplicationsFromBell({required String postId}) async {
+    try {
+      final post = await Supabase.instance.client
+          .from('posts')
+          .select('id, title, author_user_id')
+          .eq('id', postId)
+          .maybeSingle();
+
+      if (!mounted || post == null) {
+        if (mounted) _openMessages();
+        return;
+      }
+
+      debugPrint('[NAV][OPEN_APPLICATIONS] postId=$postId');
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ApplicationsScreen(
+          postId: postId,
+          postTitle: post['title'] as String? ?? 'Job',
+          authorUserId: post['author_user_id'] as String? ?? widget.userId,
+        ),
+      ));
+    } catch (e) {
+      debugPrint('[NAV][OPEN_APPLICATIONS][ERROR] _openApplicationsFromBell: $e');
+    }
   }
 
   /// Find the chat for a given post_id where the current user is a participant.

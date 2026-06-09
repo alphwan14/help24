@@ -202,8 +202,6 @@ class NotificationService {
       return;
     }
 
-    debugPrint('[CHAT_NOTIFY][GROUPED] chatId=$chatId sender=$senderName');
-
     // Accumulate messages in cache (keep last 5 for MessagingStyle display).
     final cache = _chatMessageCache[chatId] ?? [];
     cache.add(_ChatCachedMessage(
@@ -215,7 +213,12 @@ class NotificationService {
     _chatMessageCache[chatId] = cache;
 
     final int notifId = chatId.hashCode.abs() & 0x7FFFFFFF;
-    debugPrint('[CHAT_NOTIFY][UPDATE_EXISTING] id=$notifId messages=${cache.length}');
+    final String groupKey = 'chat_$chatId';
+
+    debugPrint('[CHAT_NOTIFY][GROUP_KEY] chatId=$chatId groupKey=$groupKey');
+    debugPrint('[CHAT_NOTIFY][NOTIFICATION_ID] id=$notifId chatId=$chatId');
+    debugPrint('[CHAT_NOTIFY][MESSAGE_APPENDED] sender=$senderName count=${cache.length}');
+    debugPrint('[CHAT_NOTIFY][UPDATE_THREAD] id=$notifId messages=${cache.length}');
 
     try {
       final messages = cache
@@ -236,6 +239,8 @@ class NotificationService {
             playSound: true,
             enableVibration: true,
             icon: '@mipmap/ic_launcher',
+            groupKey: groupKey,       // groups all messages from this chat into one thread
+            setAsGroupSummary: false, // this notification is a thread member, not the summary
             styleInformation: MessagingStyleInformation(
               const Person(name: 'You'),
               messages: messages,
@@ -245,7 +250,7 @@ class NotificationService {
         ),
         payload: jsonEncode(message.data),
       );
-      debugPrint('[CHAT_NOTIFY][OPEN_CHAT] notification shown id=$notifId chatId=$chatId');
+      debugPrint('[CHAT_NOTIFY][UPDATE_THREAD] notification updated id=$notifId chatId=$chatId');
     } catch (e) {
       debugPrint('[CHAT_NOTIFY][ERROR] MessagingStyle failed, falling back: $e');
       // Fallback: plain notification so the user still gets something.

@@ -98,15 +98,25 @@ export class JobsService {
     });
 
     // 5. Notify the provider immediately.
-    this.logger.log(`[PROVIDER_SELECTED][NOTIFY] sending to provider=${dto.provider_id} post=${dto.post_id}`);
+    this.logger.log(`[PROVIDER_SELECTED][START] postId=${dto.post_id} providerId=${dto.provider_id}`);
+    // Lookup chat (created when provider applied) to include chat_id for push deep-linking.
+    const { data: selChatRow } = await this.supabase.client
+      .from('chats')
+      .select('id')
+      .eq('post_id', dto.post_id)
+      .or(`user1.eq.${dto.provider_id},user2.eq.${dto.provider_id}`)
+      .maybeSingle();
+    const selChatId = (selChatRow?.id as string | null) ?? '';
+    this.logger.log(`[PROVIDER_SELECTED][DB_INSERT] chatId=${selChatId || 'not_found'} providerId=${dto.provider_id}`);
     await this.notifications.send({
       userId: dto.provider_id,
       type: 'provider_selected',
       title: 'You\'ve been selected!',
       body: `The client selected you for "${post.title as string}". They will now secure payment to begin the job.`,
-      data: { post_id: dto.post_id },
+      data: { post_id: dto.post_id, ...(selChatId ? { chat_id: selChatId } : {}) },
     });
-    this.logger.log(`[PROVIDER_SELECTED][PUSH] sent to provider=${dto.provider_id}`);
+    this.logger.log(`[PROVIDER_SELECTED][PUSH_SENT] provider=${dto.provider_id} chatId=${selChatId || 'none'}`);
+    this.logger.log(`[PROVIDER_SELECTED][SUCCESS] post=${dto.post_id}`);
 
     this.logger.log(
       `[JOBS][SELECT_PROVIDER] SUCCESS postId=${dto.post_id} providerId=${dto.provider_id}`,
@@ -193,13 +203,20 @@ export class JobsService {
     });
 
     // Also notify inline as fast path.
-    this.logger.log(`[JOB_COMPLETE][NOTIFY] notifying client=${post.author_user_id as string} post=${dto.post_id}`);
+    const { data: cmpChatRow } = await this.supabase.client
+      .from('chats')
+      .select('id')
+      .eq('post_id', dto.post_id)
+      .or(`user1.eq.${dto.provider_user_id},user2.eq.${dto.provider_user_id}`)
+      .maybeSingle();
+    const cmpChatId = (cmpChatRow?.id as string | null) ?? '';
+    this.logger.log(`[JOB_COMPLETE][NOTIFY] notifying client=${post.author_user_id as string} post=${dto.post_id} chatId=${cmpChatId || 'none'}`);
     await this.notifications.send({
       userId: post.author_user_id as string,
       type: 'completion_requested',
       title: 'Job Marked as Done',
       body: `Your provider has marked "${post.title as string}" as complete. Review and approve or dispute.`,
-      data: { post_id: dto.post_id, completion_id: completionId },
+      data: { post_id: dto.post_id, completion_id: completionId, ...(cmpChatId ? { chat_id: cmpChatId } : {}) },
     });
     this.logger.log(`[JOB_COMPLETE][PUSH] sent to client=${post.author_user_id as string}`);
 
@@ -261,21 +278,28 @@ export class JobsService {
     });
 
     // Notify both parties inline for speed.
-    this.logger.log(`[PAYOUT_RELEASED][NOTIFY] notifying provider=${post.selected_provider_id as string} post=${dto.post_id}`);
+    const { data: apvChatRow } = await this.supabase.client
+      .from('chats')
+      .select('id')
+      .eq('post_id', dto.post_id)
+      .or(`user1.eq.${post.selected_provider_id as string},user2.eq.${post.selected_provider_id as string}`)
+      .maybeSingle();
+    const apvChatId = (apvChatRow?.id as string | null) ?? '';
+    this.logger.log(`[PAYOUT_RELEASED][NOTIFY] notifying provider=${post.selected_provider_id as string} post=${dto.post_id} chatId=${apvChatId || 'none'}`);
     await this.notifications.sendMany([
       {
         userId: post.selected_provider_id as string,
         type: 'payout_released',
         title: 'Payout Initiated!',
         body: `The client approved "${post.title as string}". Your M-Pesa payout is being processed.`,
-        data: { post_id: dto.post_id },
+        data: { post_id: dto.post_id, ...(apvChatId ? { chat_id: apvChatId } : {}) },
       },
       {
         userId: dto.client_user_id,
         type: 'job_approved',
         title: 'Job Approved',
         body: `You approved "${post.title as string}". The provider's payout has been initiated.`,
-        data: { post_id: dto.post_id },
+        data: { post_id: dto.post_id, ...(apvChatId ? { chat_id: apvChatId } : {}) },
       },
     ]);
     this.logger.log(`[PAYOUT_RELEASED][PUSH] sent to provider=${post.selected_provider_id as string} and client=${dto.client_user_id}`);
@@ -395,7 +419,7 @@ export class JobsService {
 
   async notifyApplication(dto: { post_id: string; applicant_user_id: string }): Promise<void> {
     this.logger.log(
-      `[JOBS][NOTIFY_APPLICATION] postId=${dto.post_id} applicantId=${dto.applicant_user_id}`,
+      `[APPLICATION_NOTIFY][START] postId=${dto.post_id} applicantId=${dto.applicant_user_id}`,
     );
 
     const { data: post } = await this.supabase.client
@@ -405,12 +429,17 @@ export class JobsService {
       .maybeSingle();
 
     if (!post) {
-      this.logger.warn(`[JOBS][NOTIFY_APPLICATION] Post not found: ${dto.post_id}`);
+      this.logger.warn(`[APPLICATION_NOTIFY][START] post not found postId=${dto.post_id}`);
       return;
     }
 
     const authorId = post.author_user_id as string;
-    if (!authorId || authorId === dto.applicant_user_id) return;
+    if (!authorId || authorId === dto.applicant_user_id) {
+      this.logger.warn(
+        `[APPLICATION_NOTIFY][START] skipping — authorId=${authorId} applicantId=${dto.applicant_user_id}`,
+      );
+      return;
+    }
 
     const { data: applicant } = await this.supabase.client
       .from('users')
@@ -420,6 +449,7 @@ export class JobsService {
 
     const applicantName = (applicant?.name as string | null) ?? 'Someone';
 
+    this.logger.log(`[APPLICATION_NOTIFY][DB_INSERT] authorId=${authorId} applicantName=${applicantName}`);
     await this.notifications.send({
       userId: authorId,
       type: 'provider_applied',
@@ -427,10 +457,10 @@ export class JobsService {
       body: `${applicantName} applied to "${post.title as string}". Review their application.`,
       data: { post_id: dto.post_id, applicant_user_id: dto.applicant_user_id },
     });
-
     this.logger.log(
-      `[JOBS][NOTIFY_APPLICATION] Sent to authorId=${authorId} postId=${dto.post_id}`,
+      `[APPLICATION_NOTIFY][PUSH_SENT] authorId=${authorId} postId=${dto.post_id}`,
     );
+    this.logger.log(`[APPLICATION_NOTIFY][REALTIME] notification persisted + push fired for authorId=${authorId}`);
   }
 
   // ── Status: get job completion state for a post ────────────────────────────

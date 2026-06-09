@@ -240,13 +240,21 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
     const providerId = post?.selected_provider_id as string | null;
     if (providerId) {
       const title = (post?.title as string | null) ?? 'your job';
-      this.logger.log(`[PAYMENT_SECURED][NOTIFY] notifying provider=${providerId} post=${post_id}`);
+      // Find chat for deep-link routing in the push payload.
+      const { data: psChat } = await this.supabase.client
+        .from('chats')
+        .select('id')
+        .eq('post_id', post_id)
+        .or(`user1.eq.${providerId},user2.eq.${providerId}`)
+        .maybeSingle();
+      const psChatId = (psChat?.id as string | null) ?? '';
+      this.logger.log(`[PAYMENT_SECURED][NOTIFY] notifying provider=${providerId} post=${post_id} chatId=${psChatId || 'none'}`);
       await this.notifications.send({
         userId: providerId,
         type:   'payment_secured',
         title:  'Payment Secured',
         body:   `Funds for "${title}" are secured. Complete the job to receive your payout.`,
-        data:   { post_id, transaction_id },
+        data:   { post_id, transaction_id, ...(psChatId ? { chat_id: psChatId } : {}) },
       });
       this.logger.log(`[PAYMENT_SECURED][PUSH] sent to provider=${providerId}`);
     } else {

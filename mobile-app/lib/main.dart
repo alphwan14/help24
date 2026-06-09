@@ -14,6 +14,8 @@ import 'providers/auth_provider.dart';
 import 'providers/connectivity_provider.dart';
 import 'providers/locale_provider.dart';
 import 'providers/location_provider.dart';
+import 'screens/applications_screen.dart';
+import 'screens/approve_or_dispute_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
@@ -108,6 +110,7 @@ class _Help24AppState extends State<Help24App> {
     final data = message.data;
     final chatId = (data['chatId'] ?? data['chat_id']) as String?;
     final type = (data['type'] as String?) ?? '';
+    final postId = (data['post_id'] ?? data['postId']) as String?;
 
     // Suppress if the user is actively viewing this chat.
     final ctx = _navigatorKey.currentContext;
@@ -126,38 +129,14 @@ class _Help24AppState extends State<Help24App> {
 
     final context = _navigatorKey.currentContext;
     if (context == null || !context.mounted) {
-      // The OS-level local notification was already shown by NotificationService.
       debugPrint('main: foreground context unavailable — OS notification shown by NotificationService');
       return;
     }
 
-    const lifecycleTypes = {
-      'completion_requested',
-      'job_approved',
-      'dispute_opened',
-      'payout_released',
-      'payment_secured',
-      'dispute_resolved_release',
-      'dispute_resolved_refund',
-      'dispute_resolved_partial',
-      'escrow_released',  // new: payout confirmed after B2C callback
-    };
-
-    void Function()? onTap;
-    if (chatId != null && chatId.isNotEmpty) {
-      onTap = () => _openChat(context, chatId);
-    } else if (lifecycleTypes.contains(type)) {
-      onTap = () {
-        final uid = context.read<AuthProvider>().currentUserId;
-        if (uid != null && uid.isNotEmpty) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => NotificationsScreen(userId: uid),
-            ),
-          );
-        }
-      };
-    }
+    // Banner tap → route to the exact destination (same router as push notification taps).
+    final onTap = () => unawaited(
+      _routeNotification(context, type: type, chatId: chatId, postId: postId, data: data),
+    );
 
     NotificationBannerOverlay.show(
       context: context,
@@ -170,6 +149,7 @@ class _Help24AppState extends State<Help24App> {
   void _openChat(BuildContext context, String chatId) {
     final uid = context.read<AuthProvider>().currentUserId;
     if (uid == null) return;
+    debugPrint('[NAV][OPEN_CHAT] chatId=$chatId');
     final conv = Conversation(
       id: chatId,
       userName: 'Chat',
@@ -183,53 +163,216 @@ class _Help24AppState extends State<Help24App> {
     );
   }
 
-  void _onNotificationTap(RemoteMessage message) {
-    final context = _navigatorKey.currentContext;
-    if (context == null) return;
-    final data = message.data;
-    final chatId = (data['chatId'] ?? data['chat_id']) as String?;
-    final postId = (data['postId'] ?? data['post_id']) as String?;
-    final type = (data['type'] as String?) ?? '';
-    debugPrint('main._onNotificationTap payload: $data');
+  void _openNotificationsScreen(BuildContext context) {
+    final uid = context.read<AuthProvider>().currentUserId;
+    if (uid == null || uid.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => NotificationsScreen(userId: uid)),
+    );
+  }
 
-    // Lifecycle notifications: route to the in-app notifications inbox
-    // so users can see the full message and then navigate from there.
-    const lifecycleTypes = {
-      'completion_requested',
-      'job_approved',
-      'dispute_opened',
-      'payout_released',
-      'payment_secured',
-      'dispute_resolved_release',
-      'dispute_resolved_refund',
-      'dispute_resolved_partial',
-      'escrow_released',  // new: payout confirmed after B2C callback
-    };
+  /// Centralized deep-link router. Every notification type maps to a specific screen.
+  Future<void> _routeNotification(
+    BuildContext context, {
+    required String type,
+    String? chatId,
+    String? postId,
+    required Map<String, dynamic> data,
+  }) async {
+    final uid = context.read<AuthProvider>().currentUserId;
+    if (uid == null || uid.isEmpty) return;
 
-    if (lifecycleTypes.contains(type)) {
-      final uid = context.read<AuthProvider>().currentUserId;
-      if (uid != null && uid.isNotEmpty) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => NotificationsScreen(userId: uid),
-          ),
-        );
+    switch (type) {
+      // ── Chat message → open the exact conversation ─────────────────────────
+      case 'chat_message':
+        if (chatId != null && chatId.isNotEmpty) {
+          _openChat(context, chatId);
+        }
+        break;
+
+      // ── Job lifecycle → open the job chat ──────────────────────────────────
+      case 'provider_selected':
+      case 'payment_secured':
+      case 'payout_released':
+      case 'escrow_released':
+      case 'job_approved':
+      case 'dispute_opened':
+      case 'dispute_resolved_release':
+      case 'dispute_resolved_refund':
+      case 'dispute_resolved_partial':
+        if (chatId != null && chatId.isNotEmpty) {
+          _openChat(context, chatId);
+        } else if (postId != null && postId.isNotEmpty) {
+          await _findAndOpenChat(context, postId: postId, uid: uid);
+        }
+        break;
+
+      // ── Completion requested → open approve/dispute screen ─────────────────
+      case 'completion_requested':
+        if (postId != null && postId.isNotEmpty) {
+          await _openApprovalScreen(context, postId: postId, clientUserId: uid);
+        }
+        break;
+
+      // ── Provider applied → open applications screen ────────────────────────
+      case 'provider_applied':
+        if (postId != null && postId.isNotEmpty) {
+          await _openApplicationsScreen(context, postId: postId);
+        } else {
+          _openNotificationsScreen(context);
+        }
+        break;
+
+      default:
+        debugPrint('[NAV][NOTIFICATION_OPEN] unhandled type=$type → NotificationsScreen');
+        _openNotificationsScreen(context);
+        break;
+    }
+  }
+
+  /// Find and open the chat for a post, querying Supabase if chatId not in payload.
+  Future<void> _findAndOpenChat(
+    BuildContext context, {
+    required String postId,
+    required String uid,
+  }) async {
+    try {
+      final res = await Supabase.instance.client
+          .from('chats')
+          .select('id')
+          .eq('post_id', postId)
+          .or('user1.eq.$uid,user2.eq.$uid')
+          .maybeSingle();
+      final foundChatId = res?['id'] as String?;
+      if (foundChatId != null && foundChatId.isNotEmpty && context.mounted) {
+        debugPrint('[NAV][OPEN_CHAT] resolved chatId=$foundChatId for postId=$postId');
+        _openChat(context, foundChatId);
+      } else if (context.mounted) {
+        debugPrint('[NAV][OPEN_CHAT] no chat found for postId=$postId — fallback');
+        _openNotificationsScreen(context);
       }
-      return;
+    } catch (e) {
+      debugPrint('[NAV][OPEN_CHAT][ERROR] $e');
+      if (context.mounted) _openNotificationsScreen(context);
+    }
+  }
+
+  /// Open ApproveOrDisputeScreen by fetching post + completion data for the given postId.
+  Future<void> _openApprovalScreen(
+    BuildContext context, {
+    required String postId,
+    required String clientUserId,
+  }) async {
+    try {
+      final results = await Future.wait([
+        Supabase.instance.client
+            .from('posts')
+            .select('id, title')
+            .eq('id', postId)
+            .maybeSingle(),
+        Supabase.instance.client
+            .from('job_completions')
+            .select('id, provider_note')
+            .eq('post_id', postId)
+            .eq('status', 'pending_approval')
+            .order('created_at', ascending: false)
+            .limit(1)
+            .maybeSingle(),
+      ]);
+
+      if (!context.mounted) return;
+      final post = results[0] as Map<String, dynamic>?;
+      final completion = results[1] as Map<String, dynamic>?;
+
+      if (post == null) {
+        debugPrint('[NAV][OPEN_APPROVAL] post not found postId=$postId — fallback');
+        _openNotificationsScreen(context);
+        return;
+      }
+
+      final txRes = await Supabase.instance.client
+          .from('transactions')
+          .select('amount')
+          .eq('post_id', postId)
+          .or('status.eq.paid,status.eq.payout_pending')
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (!context.mounted) return;
+      final amount = (txRes?['amount'] as num?)?.toDouble() ?? 0.0;
+
+      debugPrint('[NAV][OPEN_APPROVAL] postId=$postId amount=$amount');
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ApproveOrDisputeScreen(
+          postId: postId,
+          postTitle: post['title'] as String? ?? 'Job',
+          clientUserId: clientUserId,
+          providerNote: completion?['provider_note'] as String?,
+          amount: amount,
+        ),
+      ));
+    } catch (e) {
+      debugPrint('[NAV][OPEN_APPROVAL][ERROR] $e');
+      if (context.mounted) _openNotificationsScreen(context);
+    }
+  }
+
+  /// Open ApplicationsScreen by fetching post data for the given postId.
+  Future<void> _openApplicationsScreen(
+    BuildContext context, {
+    required String postId,
+  }) async {
+    final uid = context.read<AuthProvider>().currentUserId;
+    if (uid == null) return;
+    try {
+      final post = await Supabase.instance.client
+          .from('posts')
+          .select('id, title, author_user_id')
+          .eq('id', postId)
+          .maybeSingle();
+
+      if (!context.mounted) return;
+      if (post == null) {
+        _openNotificationsScreen(context);
+        return;
+      }
+
+      debugPrint('[NAV][OPEN_APPLICATIONS] postId=$postId');
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ApplicationsScreen(
+          postId: postId,
+          postTitle: post['title'] as String? ?? 'Job',
+          authorUserId: post['author_user_id'] as String? ?? uid,
+        ),
+      ));
+    } catch (e) {
+      debugPrint('[NAV][OPEN_APPLICATIONS][ERROR] $e');
+      if (context.mounted) _openNotificationsScreen(context);
+    }
+  }
+
+  void _onNotificationTap(RemoteMessage message) {
+    final data = message.data;
+    final type = (data['type'] as String?) ?? '';
+    final chatId = (data['chat_id'] ?? data['chatId']) as String?;
+    final postId = (data['post_id'] ?? data['postId']) as String?;
+    debugPrint('[NAV][NOTIFICATION_OPEN] type=$type chatId=$chatId postId=$postId');
+
+    // Defer navigation until the navigator context is available.
+    // getInitialMessage() fires before the widget tree is built on terminated-app launches.
+    void navigate() {
+      final context = _navigatorKey.currentContext;
+      if (context == null || !context.mounted) {
+        debugPrint('[NAV][NOTIFICATION_OPEN] context not ready — deferring to next frame');
+        WidgetsBinding.instance.addPostFrameCallback((_) => navigate());
+        return;
+      }
+      debugPrint('[NAV][ROUTE_RESOLVED] type=$type');
+      unawaited(_routeNotification(context, type: type, chatId: chatId, postId: postId, data: data));
     }
 
-    if (chatId != null && chatId.isNotEmpty) {
-      _openChat(context, chatId);
-    } else if (postId != null && postId.isNotEmpty) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => WebViewScreen(
-            title: 'Post',
-            url: 'https://help24-24410.web.app/post.html?id=$postId',
-          ),
-        ),
-      );
-    }
+    navigate();
   }
 
   @override
