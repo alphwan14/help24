@@ -203,7 +203,9 @@ export class DarajaService {
       Occasion:           params.jobId,
     };
 
-    this.logger.log(`[Daraja] POST ${this.baseUrl}${B2C_PATH}`);
+    this.logger.log(
+      `[PAYOUT][DARAJA_REQUEST] POST ${this.baseUrl}${B2C_PATH} phone=${params.phone} amount=${params.amount} jobId=${params.jobId}`,
+    );
 
     let data: Record<string, unknown>;
     try {
@@ -214,9 +216,15 @@ export class DarajaService {
       this.handleAxiosError('B2C payout', err);
     }
 
+    this.logger.log(`[PAYOUT][DARAJA_RESPONSE] raw: ${JSON.stringify(data)}`);
+
     if (data.ResponseCode !== '0') {
       throw new Error(`B2C payout rejected by Daraja: ${data.ResponseDescription}`);
     }
+
+    this.logger.log(
+      `[PAYOUT][DARAJA_RESPONSE] accepted conversationId=${data.ConversationID as string} originatorConversationId=${data.OriginatorConversationID as string}`,
+    );
 
     return {
       conversationId:              data.ConversationID as string,

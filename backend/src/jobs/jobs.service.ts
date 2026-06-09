@@ -12,6 +12,7 @@ import { EventsService } from '../events/events.service';
 import { EVENT_TYPES } from '../events/event.types';
 import { MarkCompleteDto } from './dto/mark-complete.dto';
 import { ApproveDto, DisputeDto } from './dto/client-decision.dto';
+import { SelectProviderDto } from './dto/select-provider.dto';
 
 @Injectable()
 export class JobsService {
@@ -22,6 +23,94 @@ export class JobsService {
     private readonly notifications: NotificationsService,
     private readonly events: EventsService,
   ) {}
+
+  // ── Client: select a provider ─────────────────────────────────────────────
+
+  async selectProvider(dto: SelectProviderDto): Promise<{ post_id: string; provider_id: string }> {
+    this.logger.log(
+      `[JOBS][SELECT_PROVIDER] postId=${dto.post_id} providerId=${dto.provider_id} clientUserId=${dto.client_user_id}`,
+    );
+
+    // 1. Validate post exists and caller is the owner.
+    const { data: post, error: postErr } = await this.supabase.client
+      .from('posts')
+      .select('id, title, author_user_id, selected_provider_id, status')
+      .eq('id', dto.post_id)
+      .single();
+
+    if (postErr || !post) {
+      this.logger.warn(`[JOBS][SELECT_PROVIDER] Post not found: ${dto.post_id}`);
+      throw new NotFoundException(`Post ${dto.post_id} not found.`);
+    }
+
+    if (post.author_user_id !== dto.client_user_id) {
+      this.logger.warn(
+        `[JOBS][SELECT_PROVIDER] Forbidden: caller ${dto.client_user_id} is not author ${post.author_user_id as string}`,
+      );
+      throw new ForbiddenException('Only the post author can select a provider.');
+    }
+
+    if (post.status !== 'open') {
+      this.logger.warn(
+        `[JOBS][SELECT_PROVIDER] Post ${dto.post_id} is not open (status=${post.status as string})`,
+      );
+      throw new ConflictException(`Cannot select a provider — post status is '${post.status as string}'.`);
+    }
+
+    // 2. Validate the provider has actually applied to this post.
+    const { data: application } = await this.supabase.client
+      .from('applications')
+      .select('id')
+      .eq('post_id', dto.post_id)
+      .eq('applicant_user_id', dto.provider_id)
+      .maybeSingle();
+
+    if (!application) {
+      this.logger.warn(
+        `[JOBS][SELECT_PROVIDER] Provider ${dto.provider_id} has no application on post ${dto.post_id}`,
+      );
+      throw new BadRequestException('The selected provider has not applied to this post.');
+    }
+
+    // 3. Update post: assign provider and mark as assigned.
+    const { error: updateErr } = await this.supabase.client
+      .from('posts')
+      .update({ selected_provider_id: dto.provider_id, status: 'assigned' })
+      .eq('id', dto.post_id);
+
+    if (updateErr) {
+      this.logger.error(`[JOBS][SELECT_PROVIDER] Failed to update post: ${updateErr.message}`);
+      throw new BadRequestException('Failed to assign provider to post.');
+    }
+
+    // 4. Emit event — EventProcessorService handles downstream side effects.
+    void this.events.emit({
+      type: EVENT_TYPES.POST_PROVIDER_SELECTED,
+      actorUserId: dto.client_user_id,
+      entityType: 'post',
+      entityId: dto.post_id,
+      payload: {
+        post_id:    dto.post_id,
+        post_title: post.title as string,
+        provider_id: dto.provider_id,
+        client_user_id: dto.client_user_id,
+      },
+    });
+
+    // 5. Notify the provider immediately.
+    await this.notifications.send({
+      userId: dto.provider_id,
+      type: 'provider_selected',
+      title: 'You\'ve been selected!',
+      body: `The client selected you for "${post.title as string}". They will now secure payment to begin the job.`,
+      data: { post_id: dto.post_id },
+    });
+
+    this.logger.log(
+      `[JOBS][SELECT_PROVIDER] SUCCESS postId=${dto.post_id} providerId=${dto.provider_id}`,
+    );
+    return { post_id: dto.post_id, provider_id: dto.provider_id };
+  }
 
   // ── Provider: mark job as done ─────────────────────────────────────────────
 
@@ -295,6 +384,48 @@ export class JobsService {
 
     this.logger.log(`[JOBS] Dispute ${disputeId} opened for post ${dto.post_id}`);
     return { dispute_id: disputeId };
+  }
+
+  // ── Notify post author when a provider applies ─────────────────────────────
+
+  async notifyApplication(dto: { post_id: string; applicant_user_id: string }): Promise<void> {
+    this.logger.log(
+      `[JOBS][NOTIFY_APPLICATION] postId=${dto.post_id} applicantId=${dto.applicant_user_id}`,
+    );
+
+    const { data: post } = await this.supabase.client
+      .from('posts')
+      .select('id, title, author_user_id')
+      .eq('id', dto.post_id)
+      .maybeSingle();
+
+    if (!post) {
+      this.logger.warn(`[JOBS][NOTIFY_APPLICATION] Post not found: ${dto.post_id}`);
+      return;
+    }
+
+    const authorId = post.author_user_id as string;
+    if (!authorId || authorId === dto.applicant_user_id) return;
+
+    const { data: applicant } = await this.supabase.client
+      .from('users')
+      .select('name')
+      .eq('id', dto.applicant_user_id)
+      .maybeSingle();
+
+    const applicantName = (applicant?.name as string | null) ?? 'Someone';
+
+    await this.notifications.send({
+      userId: authorId,
+      type: 'provider_applied',
+      title: 'New Application',
+      body: `${applicantName} applied to "${post.title as string}". Review their application.`,
+      data: { post_id: dto.post_id, applicant_user_id: dto.applicant_user_id },
+    });
+
+    this.logger.log(
+      `[JOBS][NOTIFY_APPLICATION] Sent to authorId=${authorId} postId=${dto.post_id}`,
+    );
   }
 
   // ── Status: get job completion state for a post ────────────────────────────

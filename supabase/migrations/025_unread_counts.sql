@@ -11,8 +11,8 @@ ALTER TABLE chats
 CREATE OR REPLACE FUNCTION increment_unread_count()
 RETURNS TRIGGER AS $$
 DECLARE
-  v_user1 UUID;
-  v_user2 UUID;
+  v_user1 TEXT;
+  v_user2 TEXT;
 BEGIN
   SELECT user1, user2
     INTO v_user1, v_user2

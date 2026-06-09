@@ -271,6 +271,8 @@ export class MpesaService {
   // ── Release payout (B2C) ───────────────────────────────────────────────────
 
   async releasePayout(dto: ReleasePayoutDto) {
+    this.logger.log(`[PAYOUT][START] postId=${dto.post_id}`);
+
     const { data: post, error: postError } = await this.supabase.client
       .from('posts')
       .select('id, title, selected_provider_id')
@@ -293,6 +295,10 @@ export class MpesaService {
     if (transaction.status === 'released') throw new ConflictException('Payout already released.');
     if (transaction.status === 'payout_pending') throw new ConflictException('Payout is already in progress.');
 
+    this.logger.log(
+      `[PAYOUT][START] postId=${dto.post_id} txId=${transaction.id as string} amount=${transaction.amount as number}`,
+    );
+
     const { data: providerUser } = await this.supabase.client
       .from('users')
       .select('phone_number')
@@ -303,17 +309,34 @@ export class MpesaService {
 
     const providerPhone = normalizePhone(providerUser.phone_number);
     this.logger.log(
-      `[PAYOUT] Provider phone raw="${providerUser.phone_number ?? ''}" normalized="${providerPhone ?? 'null'}"`,
+      `[PAYOUT][START] providerPhone raw="${providerUser.phone_number ?? ''}" normalized="${providerPhone ?? 'null'}"`,
     );
     if (!providerPhone) {
       throw new BadRequestException('Provider has not added a valid M-Pesa payout number.');
     }
 
-    const b2cResult = await this.daraja.b2cPayout({
-      phone: providerPhone,
-      amount: transaction.amount as number,
-      jobId: dto.post_id,
-    });
+    this.logger.log(
+      `[PAYOUT][DARAJA_REQUEST] postId=${dto.post_id} txId=${transaction.id as string} amount=${transaction.amount as number} providerPhone=${providerPhone}`,
+    );
+
+    let b2cResult: Awaited<ReturnType<typeof this.daraja.b2cPayout>>;
+    try {
+      b2cResult = await this.daraja.b2cPayout({
+        phone: providerPhone,
+        amount: transaction.amount as number,
+        jobId: dto.post_id,
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `[PAYOUT][FAILED] postId=${dto.post_id} txId=${transaction.id as string} — ${detail}`,
+      );
+      throw err;
+    }
+
+    this.logger.log(
+      `[PAYOUT][DARAJA_RESPONSE] postId=${dto.post_id} txId=${transaction.id as string} conversationId=${b2cResult.conversationId} originatorConversationId=${b2cResult.originatorConversationId}`,
+    );
 
     await this.transactions.update(transaction.id as string, {
       status: 'payout_pending',
@@ -326,7 +349,13 @@ export class MpesaService {
       .eq('transaction_id', transaction.id as string);
 
     if (escrowError) {
-      this.logger.error(`Failed to update escrow for tx ${transaction.id as string}: ${escrowError.message}`);
+      this.logger.error(
+        `[PAYOUT][FAILED] escrow update failed for txId=${transaction.id as string}: ${escrowError.message}`,
+      );
+    } else {
+      this.logger.log(
+        `[PAYOUT][SUCCESS] postId=${dto.post_id} txId=${transaction.id as string} status=payout_pending conversationId=${b2cResult.conversationId}`,
+      );
     }
 
     void this.events.emit({
@@ -353,6 +382,10 @@ export class MpesaService {
     const resultCode = result.ResultCode as number;
     const resultDesc = result.ResultDesc as string;
     const conversationId = result.ConversationID as string;
+
+    this.logger.log(
+      `[PAYOUT][CALLBACK_RECEIVED] conversationId=${conversationId} resultCode=${resultCode} resultDesc="${resultDesc}"`,
+    );
 
     const transaction = await this.transactions.findByConversationId(conversationId);
     if (!transaction) {
@@ -381,7 +414,7 @@ export class MpesaService {
         );
       }
 
-      this.logger.log(`Payout released: transaction ${transaction.id}`);
+      this.logger.log(`[PAYOUT][SUCCESS] conversationId=${conversationId} txId=${transaction.id} status=released`);
 
       // Fetch post data for the escrow.released event payload.
       const { data: post } = await this.supabase.client
@@ -423,7 +456,7 @@ export class MpesaService {
         payload: { reverted: true, result_code: resultCode, result_desc: resultDesc },
       });
 
-      this.logger.warn(`B2C payout failed for tx ${transaction.id}: ${resultDesc}`);
+      this.logger.warn(`[PAYOUT][FAILED] conversationId=${conversationId} txId=${transaction.id} resultCode=${resultCode} resultDesc="${resultDesc}" — escrow reverted to locked`);
     }
   }
 

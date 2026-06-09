@@ -291,51 +291,22 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleJobCompletionRequested(payload: Record<string, unknown>): Promise<void> {
-    const { client_user_id, post_title, post_id, completion_id } = payload as {
-      client_user_id: string;
-      post_title: string;
-      post_id: string;
-      completion_id: string;
-    };
-
-    this.logger.log(`[PROCESSOR][HANDLE] job.completion_requested: notifying client=${client_user_id}`);
-
-    await this.notifications.send({
-      userId: client_user_id,
-      type: 'completion_requested',
-      title: 'Job Marked as Done',
-      body: `Your provider has marked "${post_title}" as complete. Review and approve or dispute.`,
-      data: { post_id, completion_id },
-    });
+    // Notification sent inline by jobs.service.markComplete() — EventProcessor
+    // handles this event for audit/retry only, not for notification dispatch.
+    const { post_id, completion_id } = payload as { post_id: string; completion_id: string };
+    this.logger.log(
+      `[PROCESSOR][HANDLE] job.completion_requested: audit-only post=${post_id} completion=${completion_id}`,
+    );
   }
 
   private async handleJobApproved(payload: Record<string, unknown>): Promise<void> {
-    const { post_id, post_title, provider_id, buyer_id } = payload as {
-      post_id: string;
-      post_title: string;
-      provider_id: string;
-      buyer_id: string;
-    };
+    const { post_id } = payload as { post_id: string };
 
-    this.logger.log(`[PROCESSOR][HANDLE] job.approved: initiating payout + notifications post=${post_id}`);
+    // Notifications sent inline by jobs.service.approve() — EventProcessor only
+    // handles the payout initiation here (retryable B2C call).
+    this.logger.log(`[PROCESSOR][HANDLE] job.approved: initiating payout post=${post_id}`);
     await this.handlePayoutRequested({ post_id });
-
-    await this.notifications.sendMany([
-      {
-        userId: provider_id,
-        type: 'payout_released',
-        title: 'Payout Initiated!',
-        body: `The client approved "${post_title}". Your M-Pesa payout is being processed.`,
-        data: { post_id },
-      },
-      {
-        userId: buyer_id,
-        type: 'job_approved',
-        title: 'Job Approved',
-        body: `You approved "${post_title}". The provider's payout has been initiated.`,
-        data: { post_id },
-      },
-    ]);
+    this.logger.log(`[PROCESSOR][HANDLE] job.approved: payout initiated post=${post_id}`);
   }
 
   private async handleJobDisputed(payload: Record<string, unknown>): Promise<void> {

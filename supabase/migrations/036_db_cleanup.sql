@@ -74,7 +74,7 @@ UPDATE public.posts p
 -- ---------------------------------------------------------------------------
 INSERT INTO public.escrow (post_id, transaction_id, amount, status)
 SELECT
-  t.post_id,
+  t.post_id::text,
   t.id,
   t.amount,
   CASE
@@ -88,6 +88,9 @@ FROM public.transactions t
 WHERE t.status IN ('paid','payout_pending','released','disputed','refunded')
   AND NOT EXISTS (
     SELECT 1 FROM public.escrow e WHERE e.transaction_id = t.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM public.escrow e WHERE e.post_id = t.post_id::text
   );
 
 -- ---------------------------------------------------------------------------

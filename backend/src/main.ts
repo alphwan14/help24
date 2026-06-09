@@ -4,6 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { EventProcessorService } from './events/event-processor.service';
+import { JobsService } from './jobs/jobs.service';
 import { DevService } from './dev/dev.service';
 
 async function bootstrap(): Promise<void> {
@@ -36,6 +37,11 @@ async function bootstrap(): Promise<void> {
       label: 'EventProcessorModule',
       routes: 'GET /health/events, GET /admin/events/*, POST /admin/events/replay',
       token: EventProcessorService,
+    },
+    {
+      label: 'JobsModule',
+      routes: 'POST /jobs/select-provider, POST /jobs/mark-complete, POST /jobs/approve, POST /jobs/notify-application',
+      token: JobsService,
     },
     {
       label: 'DevModule',

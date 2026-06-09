@@ -8,6 +8,7 @@ import { SupabaseService } from '../supabase/supabase.service';
  * (_onForegroundMessage / _onNotificationTap lifecycleTypes sets).
  */
 export type NotificationType =
+  | 'provider_applied'           // post author notified when someone applies
   | 'provider_selected'
   | 'payment_secured'
   | 'completion_requested'
@@ -40,6 +41,7 @@ export class NotificationsService {
    * Both are best-effort — failures are logged but never bubble up.
    */
   async send(payload: NotificationPayload): Promise<void> {
+    this.logger.log(`[NOTIFY][EVENT_RECEIVED] type=${payload.type} userId=${payload.userId}`);
     await Promise.all([
       this.persistInApp(payload),
       this.sendFcm(payload),
@@ -54,6 +56,7 @@ export class NotificationsService {
   // ── Internal ──────────────────────────────────────────────────────────────
 
   private async persistInApp(payload: NotificationPayload): Promise<void> {
+    this.logger.log(`[NOTIFY][DB_INSERT] type=${payload.type} userId=${payload.userId}`);
     const { error } = await this.supabase.client
       .from('notifications')
       .insert({
@@ -66,15 +69,17 @@ export class NotificationsService {
 
     if (error) {
       this.logger.error(
-        `[NOTIF] Failed to persist in-app notification for user ${payload.userId}: ${error.message}`,
+        `[NOTIFY][DB_ERROR] type=${payload.type} userId=${payload.userId} — ${error.message}`,
       );
+    } else {
+      this.logger.log(`[NOTIFY][DB_SUCCESS] type=${payload.type} userId=${payload.userId}`);
     }
   }
 
   private async sendFcm(payload: NotificationPayload): Promise<void> {
     const serverKey = process.env.FCM_SERVER_KEY;
     if (!serverKey) {
-      this.logger.warn('[FCM] FCM_SERVER_KEY not set — push skipped');
+      this.logger.warn('[NOTIFY][FCM_SKIP] FCM_SERVER_KEY not configured — push skipped');
       return;
     }
 
@@ -89,7 +94,10 @@ export class NotificationsService {
         ? (user.fcm_tokens as string[])
         : [];
 
-      if (tokens.length === 0) return;
+      if (tokens.length === 0) {
+        this.logger.log(`[NOTIFY][FCM_SKIP] no tokens for userId=${payload.userId} type=${payload.type}`);
+        return;
+      }
 
       await axios.post(
         'https://fcm.googleapis.com/fcm/send',
@@ -106,10 +114,10 @@ export class NotificationsService {
         },
       );
 
-      this.logger.log(`[FCM] Sent "${payload.type}" to user ${payload.userId}`);
+      this.logger.log(`[NOTIFY][FCM_SENT] type=${payload.type} userId=${payload.userId} tokens=${tokens.length}`);
     } catch (err) {
       this.logger.error(
-        `[FCM] Push failed for user ${payload.userId}: ${err instanceof Error ? err.message : String(err)}`,
+        `[NOTIFY][FCM_ERROR] type=${payload.type} userId=${payload.userId} — ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

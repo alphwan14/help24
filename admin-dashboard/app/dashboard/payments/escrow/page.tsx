@@ -22,14 +22,16 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-const ESCROW_STATUSES = ["paid", "in_escrow", "payout_pending"];
+// Transaction statuses that represent funds currently held in escrow.
+// 'paid' = STK confirmed, locked; 'payout_pending' = B2C in-flight; 'disputed' = frozen.
+const ESCROW_STATUSES = ["paid", "payout_pending", "disputed"];
 
 async function getData() {
   const db = createServiceClient();
   const { data } = await db
     .from("transactions")
-    .select("id, post_id, buyer_user_id, amount, total_paid, status, mpesa_receipt, created_at, updated_at, posts(title)")
-    .in("status", ESCROW_STATUSES)
+    .select("id, post_id, buyer_user_id, amount, total_paid, status, mpesa_receipt, created_at, posts(title)")
+    .in("status", ["paid", "payout_pending", "disputed"])
     .order("created_at", { ascending: false })
     .limit(300);
   return (data ?? []) as unknown as TxRow[];
@@ -37,8 +39,8 @@ async function getData() {
 
 const STATUS_COLORS: Record<string, string> = {
   paid: "bg-blue-100 text-blue-700",
-  in_escrow: "bg-yellow-100 text-yellow-700",
   payout_pending: "bg-orange-100 text-orange-700",
+  disputed: "bg-red-100 text-red-700",
 };
 
 export default async function EscrowStatusPage() {
