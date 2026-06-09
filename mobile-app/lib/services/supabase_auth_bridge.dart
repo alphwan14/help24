@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_service.dart';
+import 'dart:async';
 
 /// Bridges Firebase Auth to Supabase so RLS (auth.jwt()->>'user_id') works.
 /// Exchanges Firebase ID token for a Supabase JWT and injects it via custom HTTP client.
@@ -84,6 +85,13 @@ class SupabaseAuthBridge {
       if (accessToken == null || accessToken.isEmpty) return false;
       _accessToken = accessToken;
       _tokenExchangedAt = DateTime.now();
+
+      // Update the Supabase Realtime WebSocket connection so that realtime
+      // subscriptions (postgres_changes) also use the authenticated JWT.
+      // Without this the WebSocket stays on the anon role and RLS-filtered
+      // realtime events are blocked.
+      unawaited(_updateRealtimeAuth(accessToken));
+
       return true;
     } catch (_) {
       if (!_loggedExchangeUnavailable) {
@@ -94,10 +102,23 @@ class SupabaseAuthBridge {
     }
   }
 
+  static Future<void> _updateRealtimeAuth(String token) async {
+    try {
+      Supabase.instance.client.realtime.setAuth(token);
+      debugPrint('SupabaseAuthBridge: realtime auth token updated');
+    } catch (e) {
+      debugPrint('SupabaseAuthBridge: realtime setAuth failed: $e');
+    }
+  }
+
   /// Clear stored token (call on Firebase sign out).
   static void clearSupabaseSession() {
     _accessToken = null;
     _tokenExchangedAt = null;
     _loggedExchangeUnavailable = false;
+    // Revert realtime to anon on logout.
+    try {
+      Supabase.instance.client.realtime.setAuth(null);
+    } catch (_) {}
   }
 }

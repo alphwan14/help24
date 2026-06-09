@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/app_firebase.dart';
+import 'http_client_with_token.dart';
 import 'l10n/app_localizations.dart';
 import 'models/post_model.dart';
 import 'providers/app_provider.dart';
@@ -35,10 +36,13 @@ String? _activeChatId;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Supabase
+  // Initialize Supabase with the custom HTTP client so Firebase-exchanged JWTs
+  // are injected into every PostgREST request — this gives the `authenticated`
+  // role after login (required for RLS-protected tables like notifications).
   await Supabase.initialize(
     url: 'https://taohzhnvaitrpxcyjflq.supabase.co',
     anonKey: 'sb_publishable_WQYHVfGzH-VKqkM2WLT-8A_NjQ6WeZD',
+    httpClient: HttpClientWithToken(),
   );
 
   // Load persisted theme before first frame — prevents any dark/light flicker.
