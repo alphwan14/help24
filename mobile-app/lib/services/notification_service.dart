@@ -157,7 +157,7 @@ class NotificationService {
       return;
     }
 
-    final id = ((message.messageId ?? type.isNotEmpty ? type : 'fcm').hashCode).abs() & 0x7FFFFFFF;
+    final id = ((message.messageId ?? (type.isNotEmpty ? type : 'fcm')).hashCode).abs() & 0x7FFFFFFF;
     final title = notification.title ?? 'Help24';
     final body  = notification.body  ?? '';
 
