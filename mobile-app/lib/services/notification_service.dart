@@ -17,6 +17,18 @@ const String _kChannelId   = 'help24_high_importance';
 const String _kChannelName = 'Help24 Notifications';
 const String _kChannelDesc = 'Job updates, payments, and messages';
 
+// ── Chat message cache for MessagingStyle grouping ───────────────────────────
+// Maps chatId → last N messages for grouped Android notification display.
+// Lives for the app session; cleared when the app is killed (acceptable).
+final Map<String, List<_ChatCachedMessage>> _chatMessageCache = {};
+
+class _ChatCachedMessage {
+  final String senderName;
+  final String text;
+  final DateTime timestamp;
+  _ChatCachedMessage({required this.senderName, required this.text, required this.timestamp});
+}
+
 // ── Module-level singletons ───────────────────────────────────────────────────
 // flutter_local_notifications requires a single plugin instance for the
 // entire app lifetime. Creating it here (not inside a class) avoids accidental
@@ -130,19 +142,26 @@ class NotificationService {
   /// app is in the foreground. FCM does NOT auto-display on Android when the
   /// app is open — this is the required replacement.
   static Future<void> _showLocalNotification(RemoteMessage message) async {
+    final type = message.data['type'] as String? ?? '';
+
+    // Chat messages use MessagingStyle — same notification ID per conversation
+    // so messages stack instead of spawning separate cards.
+    if (type == 'chat_message') {
+      await _showGroupedChatNotification(message);
+      return;
+    }
+
     final notification = message.notification;
     if (notification == null) {
       debugPrint('[FCM][LOCAL_NOTIFICATION] no notification payload — nothing to show');
       return;
     }
 
-    // Use messageId as notification ID (stable, deduplicates if delivered twice).
-    // Fall back to a hash of the type string. Clamp to valid int32 range.
-    final id = ((message.messageId ?? message.data['type'] ?? 'fcm').hashCode).abs() & 0x7FFFFFFF;
+    final id = ((message.messageId ?? type.isNotEmpty ? type : 'fcm').hashCode).abs() & 0x7FFFFFFF;
     final title = notification.title ?? 'Help24';
     final body  = notification.body  ?? '';
 
-    debugPrint('[FCM][LOCAL_NOTIFICATION] id=$id type=${message.data['type'] ?? ''} title="$title"');
+    debugPrint('[FCM][LOCAL_NOTIFICATION] id=$id type=$type title="$title"');
 
     try {
       await _localNotifications.show(
@@ -166,6 +185,89 @@ class NotificationService {
       debugPrint('[FCM][FOREGROUND_SHOWN] local notification displayed id=$id');
     } catch (e) {
       debugPrint('[FCM][LOCAL_NOTIFICATION][ERROR] $e');
+    }
+  }
+
+  /// Show a grouped conversation notification using Android MessagingStyle.
+  /// All messages from the same chat accumulate under the same notification ID
+  /// (chatId.hashCode) so the user sees one card per conversation, not one per message.
+  static Future<void> _showGroupedChatNotification(RemoteMessage message) async {
+    final chatId     = message.data['chat_id'] as String?;
+    final senderName = message.notification?.title ?? 'Someone';
+    final body       = message.notification?.body ?? '';
+
+    if (chatId == null) {
+      // No chatId — fall back to plain notification.
+      await _showLocalNotification(message);
+      return;
+    }
+
+    debugPrint('[CHAT_NOTIFY][GROUPED] chatId=$chatId sender=$senderName');
+
+    // Accumulate messages in cache (keep last 5 for MessagingStyle display).
+    final cache = _chatMessageCache[chatId] ?? [];
+    cache.add(_ChatCachedMessage(
+      senderName: senderName,
+      text: body,
+      timestamp: DateTime.now(),
+    ));
+    if (cache.length > 5) cache.removeAt(0);
+    _chatMessageCache[chatId] = cache;
+
+    final int notifId = chatId.hashCode.abs() & 0x7FFFFFFF;
+    debugPrint('[CHAT_NOTIFY][UPDATE_EXISTING] id=$notifId messages=${cache.length}');
+
+    try {
+      final messages = cache
+          .map((m) => Message(m.text, m.timestamp, Person(name: m.senderName)))
+          .toList();
+
+      await _localNotifications.show(
+        notifId,
+        senderName,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _kChannelId,
+            _kChannelName,
+            channelDescription: _kChannelDesc,
+            importance: Importance.max,
+            priority: Priority.high,
+            playSound: true,
+            enableVibration: true,
+            icon: '@mipmap/ic_launcher',
+            styleInformation: MessagingStyleInformation(
+              const Person(name: 'You'),
+              messages: messages,
+              groupConversation: false,
+            ),
+          ),
+        ),
+        payload: jsonEncode(message.data),
+      );
+      debugPrint('[CHAT_NOTIFY][OPEN_CHAT] notification shown id=$notifId chatId=$chatId');
+    } catch (e) {
+      debugPrint('[CHAT_NOTIFY][ERROR] MessagingStyle failed, falling back: $e');
+      // Fallback: plain notification so the user still gets something.
+      final notification = message.notification;
+      if (notification != null) {
+        await _localNotifications.show(
+          notifId,
+          notification.title ?? 'Help24',
+          notification.body ?? '',
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              _kChannelId, _kChannelName,
+              channelDescription: _kChannelDesc,
+              importance: Importance.max,
+              priority: Priority.high,
+              playSound: true,
+              enableVibration: true,
+            ),
+          ),
+          payload: jsonEncode(message.data),
+        );
+      }
     }
   }
 

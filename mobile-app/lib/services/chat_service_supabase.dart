@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/api_config.dart';
 import '../models/post_model.dart';
 
 /// Supabase-only messaging: chats + chat_messages.
@@ -576,11 +579,13 @@ class ChatServiceSupabase {
       };
       final res = await _client.from('chat_messages').insert(insert).select().single();
       final row = res as Map<String, dynamic>;
-      debugPrint('ChatServiceSupabase sendMessage: inserted chat_message id=${row['id']} chat_id=$chatIdParam sender_id=$senderId');
+      debugPrint('[CHAT_NOTIFY][SEND] chat_id=$chatIdParam sender_id=$senderId');
       await _client.from('chats').update({
         'last_message': _truncate(text),
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', chatIdParam);
+      // Fire-and-forget push notification to recipient.
+      unawaited(_notifyBackend(chatId: chatIdParam, senderId: senderId, preview: text));
       return _messageFromRow(row, chatIdParam, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendMessage: $e');
@@ -608,11 +613,12 @@ class ChatServiceSupabase {
       };
       final res = await _client.from('chat_messages').insert(insert).select().single();
       final row = res as Map<String, dynamic>;
-      debugPrint('ChatServiceSupabase sendAttachmentMessage: inserted chat_message id=${row['id']} type=$type chat_id=$chatIdParam sender_id=$senderId');
+      debugPrint('[CHAT_NOTIFY][SEND] attachment type=$type chat_id=$chatIdParam sender_id=$senderId');
       await _client.from('chats').update({
         'last_message': content,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', chatIdParam);
+      unawaited(_notifyBackend(chatId: chatIdParam, senderId: senderId, preview: content));
       return _messageFromRow(row, chatIdParam, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendAttachmentMessage: $e');
@@ -739,6 +745,31 @@ class ChatServiceSupabase {
       debugPrint('ChatServiceSupabase _getUserProfile: $e');
     }
     return (name: '?', avatarUrl: '');
+  }
+
+  /// Fire-and-forget: tell the backend to push a notification to the
+  /// recipient of this chat message. Non-blocking — errors are logged only.
+  static Future<void> _notifyBackend({
+    required String chatId,
+    required String senderId,
+    required String preview,
+  }) async {
+    try {
+      debugPrint('[CHAT_NOTIFY][GROUPED] posting to backend chatId=$chatId');
+      final response = await http.post(
+        Uri.parse(ApiConfig.chatNotify),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'chatId':          chatId,
+          'senderId':        senderId,
+          'messagePreview':  preview.length > 100 ? '${preview.substring(0, 100)}…' : preview,
+        }),
+      ).timeout(const Duration(seconds: 8));
+      debugPrint('[CHAT_NOTIFY][UPDATE_EXISTING] backend status=${response.statusCode}');
+    } catch (e) {
+      // Never let notification failure affect the message send.
+      debugPrint('[CHAT_NOTIFY][ERROR] $e');
+    }
   }
 }
 

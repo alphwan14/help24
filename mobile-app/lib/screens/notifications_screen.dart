@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/post_model.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
+import 'messages_screen.dart';
 
 // ─── Model ────────────────────────────────────────────────────────────────────
 
@@ -197,27 +199,144 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _tapNotification(AppNotification n) async {
+    // Mark read immediately (optimistic — don't wait for DB).
     if (!n.read) {
-      await NotificationsDb.markRead(n.id);
+      unawaited(NotificationsDb.markRead(n.id));
       if (mounted) {
         setState(() {
           _notifications = _notifications
               .map((x) => x.id == n.id
                   ? AppNotification(
-                      id: x.id,
-                      type: x.type,
-                      title: x.title,
-                      body: x.body,
-                      data: x.data,
-                      read: true,
-                      createdAt: x.createdAt,
-                    )
+                      id: x.id, type: x.type, title: x.title, body: x.body,
+                      data: x.data, read: true, createdAt: x.createdAt)
                   : x)
               .toList();
         });
       }
     }
-    // Navigation based on type can be added here in a future iteration.
+    if (mounted) await _navigateFromNotification(n);
+  }
+
+  // ── Centralised notification router ─────────────────────────────────────────
+
+  Future<void> _navigateFromNotification(AppNotification n) async {
+    final data = n.data;
+    debugPrint('[NOTIFICATIONS][NAV] type=${n.type} data=$data');
+
+    switch (n.type) {
+      // ── Chat message → open the exact conversation ─────────────────────────
+      case 'chat_message':
+        final chatId = data['chat_id'] as String?;
+        if (chatId != null && chatId.isNotEmpty) {
+          debugPrint('[NOTIFICATIONS][NAV] chat_message → ChatScreen chatId=$chatId');
+          await _openChatById(chatId: chatId, userName: n.title);
+        }
+        break;
+
+      // ── Provider applied → open the chat with the applicant (if exists) ────
+      case 'provider_applied':
+        final postId     = data['post_id'] as String?;
+        final applicantId = data['applicant_user_id'] as String?;
+        if (postId != null && applicantId != null) {
+          debugPrint('[NOTIFICATIONS][NAV] provider_applied → find chat postId=$postId applicantId=$applicantId');
+          final chatId = await _findChatByParticipant(postId: postId, otherUserId: applicantId);
+          if (chatId != null && mounted) {
+            await _openChatById(chatId: chatId, userName: n.title);
+          } else if (mounted) {
+            _openMessages();
+          }
+        }
+        break;
+
+      // ── All job/payment lifecycle → open the job chat ──────────────────────
+      case 'provider_selected':
+      case 'payment_secured':
+      case 'completion_requested':
+      case 'job_approved':
+      case 'payout_released':
+      case 'dispute_opened':
+      case 'dispute_resolved_release':
+      case 'dispute_resolved_refund':
+      case 'dispute_resolved_partial':
+      case 'escrow_released':
+        final postId = data['post_id'] as String?;
+        if (postId != null && postId.isNotEmpty) {
+          debugPrint('[NOTIFICATIONS][NAV] ${n.type} → find chat for postId=$postId');
+          final chatId = await _findChatByPost(postId: postId);
+          if (chatId != null && mounted) {
+            await _openChatById(chatId: chatId, userName: 'Job Chat');
+          } else if (mounted) {
+            _openMessages();
+          }
+        }
+        break;
+
+      default:
+        debugPrint('[NOTIFICATIONS][NAV] unknown type=${n.type} — no navigation');
+        break;
+    }
+  }
+
+  /// Open ChatScreen given a chatId. Uses minimal Conversation to avoid DB round-trip.
+  Future<void> _openChatById({required String chatId, String userName = 'Chat'}) async {
+    if (!mounted) return;
+    debugPrint('[NOTIFICATIONS][NAV] opening ChatScreen chatId=$chatId');
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          conversation: Conversation(
+            id: chatId,
+            userName: userName,
+            lastMessage: '',
+            lastMessageTime: DateTime.now(),
+          ),
+          currentUserId: widget.userId,
+        ),
+      ),
+    );
+  }
+
+  /// Navigate to Messages tab (fall-back when no specific chat is found).
+  void _openMessages() {
+    debugPrint('[NOTIFICATIONS][NAV] falling back to MessagesScreen');
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const MessagesScreen()),
+    );
+  }
+
+  /// Find the chat for a given post_id where the current user is a participant.
+  Future<String?> _findChatByPost({required String postId}) async {
+    try {
+      final res = await Supabase.instance.client
+          .from('chats')
+          .select('id')
+          .eq('post_id', postId)
+          .or('user1.eq.${widget.userId},user2.eq.${widget.userId}')
+          .maybeSingle();
+      return res?['id'] as String?;
+    } catch (e) {
+      debugPrint('[NOTIFICATIONS][NAV][ERROR] _findChatByPost: $e');
+      return null;
+    }
+  }
+
+  /// Find the chat for a post_id where otherUserId is a participant.
+  Future<String?> _findChatByParticipant({
+    required String postId,
+    required String otherUserId,
+  }) async {
+    try {
+      final res = await Supabase.instance.client
+          .from('chats')
+          .select('id')
+          .eq('post_id', postId)
+          .or('user1.eq.$otherUserId,user2.eq.$otherUserId')
+          .maybeSingle();
+      return res?['id'] as String?;
+    } catch (e) {
+      debugPrint('[NOTIFICATIONS][NAV][ERROR] _findChatByParticipant: $e');
+      return null;
+    }
   }
 
   @override
@@ -359,6 +478,7 @@ class _NotificationTile extends StatelessWidget {
 
   IconData get _icon {
     switch (notification.type) {
+      case 'chat_message': return Icons.chat_bubble_rounded;
       case 'provider_applied': return Icons.person_add_rounded;
       case 'payment_secured': return Icons.lock_rounded;
       case 'provider_selected': return Icons.how_to_reg_rounded;
@@ -377,6 +497,7 @@ class _NotificationTile extends StatelessWidget {
 
   Color get _iconColor {
     switch (notification.type) {
+      case 'chat_message': return AppTheme.primaryAccent;
       case 'provider_applied': return AppTheme.primaryAccent;
       case 'payment_secured':
       case 'payout_released':
