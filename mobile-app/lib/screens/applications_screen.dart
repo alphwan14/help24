@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/application_service.dart';
@@ -36,30 +37,66 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
   // Once a provider is accepted we lock the entire list.
   String? _acceptedProviderId;
 
+  RealtimeChannel? _realtimeChannel;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _subscribeRealtime();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  @override
+  void dispose() {
+    _realtimeChannel?.unsubscribe();
+    super.dispose();
+  }
+
+  void _subscribeRealtime() {
+    _realtimeChannel = Supabase.instance.client
+        .channel('applications:${widget.postId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'applications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'post_id',
+            value: widget.postId,
+          ),
+          callback: (payload) {
+            debugPrint('[APPLICATIONS][REALTIME] New application on postId=${widget.postId}');
+            _load(silent: true);
+          },
+        )
+        .subscribe();
+    debugPrint('[APPLICATIONS][REFRESH] Realtime subscribed for postId=${widget.postId}');
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final apps = await ApplicationService.getApplicationsForPost(widget.postId);
       if (!mounted) return;
       setState(() {
         _applications = apps;
         _loading = false;
+        if (!silent) _error = null;
       });
+      if (silent) debugPrint('[APPLICATIONS][REFRESH] Reloaded ${apps.length} applications');
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = 'Failed to load applications. Pull down to retry.';
-        _loading = false;
-      });
+      if (!silent) {
+        setState(() {
+          _error = 'Failed to load applications. Pull down to retry.';
+          _loading = false;
+        });
+      }
     }
   }
 

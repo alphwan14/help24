@@ -338,6 +338,7 @@ class _NotificationTile extends StatelessWidget {
 
   IconData get _icon {
     switch (notification.type) {
+      case 'provider_applied': return Icons.person_add_rounded;
       case 'payment_secured': return Icons.lock_rounded;
       case 'provider_selected': return Icons.how_to_reg_rounded;
       case 'completion_requested': return Icons.check_circle_outline_rounded;
@@ -355,6 +356,7 @@ class _NotificationTile extends StatelessWidget {
 
   Color get _iconColor {
     switch (notification.type) {
+      case 'provider_applied': return AppTheme.primaryAccent;
       case 'payment_secured':
       case 'payout_released':
       case 'escrow_released': return AppTheme.successGreen;

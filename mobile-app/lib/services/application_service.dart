@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/api_config.dart';
 import '../models/post_model.dart';
 
 /// Service for handling job/post applications with Supabase. Uses real user ids.
@@ -47,7 +50,11 @@ class ApplicationService {
           .single();
 
       final app = Application.fromJson(response);
-      debugPrint('✅ Application submitted: post=$postId applicant_user_id=$currentUserId');
+      debugPrint('[APPLICATIONS][INSERT] postId=$postId applicantId=$currentUserId');
+
+      // Fire-and-forget: notify post author that someone applied.
+      _notifyApplication(postId: postId, applicantUserId: currentUserId);
+
       return app;
     } catch (e) {
       // Layer B fallback: DB unique constraint fired (race condition between check and insert).
@@ -60,6 +67,30 @@ class ApplicationService {
       debugPrint('❌ Application submit failed: $e');
       throw ApplicationServiceException('Failed to submit application: $e');
     }
+  }
+
+  /// Fire-and-forget: tells the backend to send a notification to the post author.
+  /// Failures are swallowed — the application was already submitted successfully.
+  static void _notifyApplication({
+    required String postId,
+    required String applicantUserId,
+  }) {
+    http
+        .post(
+          Uri.parse('${ApiConfig.baseUrl}/jobs/notify-application'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'post_id': postId,
+            'applicant_user_id': applicantUserId,
+          }),
+        )
+        .timeout(const Duration(seconds: 10))
+        .then((res) {
+          debugPrint('[APPLICATIONS][REALTIME] notify-application status=${res.statusCode}');
+        })
+        .catchError((e) {
+          debugPrint('[APPLICATIONS][REALTIME] notify-application error: $e');
+        });
   }
 
   /// Get all applications for a post (with applicant name/avatar from users join).
