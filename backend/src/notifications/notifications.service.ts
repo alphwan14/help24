@@ -91,27 +91,42 @@ export class NotificationsService {
     }
 
     // 1. Read tokens from the dedicated fcm_tokens table.
-    const { data: tokenRows } = await this.supabase.client
+    const { data: tokenRows, error: tokenErr } = await this.supabase.client
       .from('fcm_tokens')
       .select('token')
       .eq('user_id', payload.userId);
+
+    if (tokenErr) {
+      this.logger.error(
+        `[FCM][TOKEN_QUERY_ERROR] fcm_tokens query failed for userId=${payload.userId} — ${tokenErr.message} (code=${tokenErr.code})`,
+      );
+    }
 
     let tokens: string[] = (tokenRows ?? [])
       .map((r: { token: string }) => r.token)
       .filter(Boolean);
 
+    this.logger.log(
+      `[FCM][TOKENS_TABLE] userId=${payload.userId} rows=${tokenRows?.length ?? 0} valid=${tokens.length}`,
+    );
+
     // 2. Fallback: legacy users.fcm_tokens JSONB (for devices that haven't updated yet).
     if (tokens.length === 0) {
-      const { data: user } = await this.supabase.client
+      const { data: user, error: legacyErr } = await this.supabase.client
         .from('users')
         .select('fcm_tokens')
         .eq('id', payload.userId)
         .single();
+      if (legacyErr) {
+        this.logger.warn(
+          `[FCM][LEGACY_QUERY_ERROR] users.fcm_tokens query failed for userId=${payload.userId} — ${legacyErr.message}`,
+        );
+      }
       const legacy = Array.isArray(user?.fcm_tokens) ? (user.fcm_tokens as string[]) : [];
       tokens = legacy.filter(Boolean);
-      if (tokens.length > 0) {
-        this.logger.log(`[FCM][TOKEN_COUNT] userId=${payload.userId} source=legacy_jsonb count=${tokens.length}`);
-      }
+      this.logger.log(
+        `[FCM][LEGACY_TOKENS] userId=${payload.userId} legacy_count=${legacy.length} valid=${tokens.length}`,
+      );
     }
 
     this.logger.log(

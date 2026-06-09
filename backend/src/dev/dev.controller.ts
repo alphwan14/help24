@@ -28,6 +28,24 @@ export class DevController {
   }
 
   /**
+   * FCM isolation test — bypass the full notification pipeline and send a test
+   * push directly to the user's registered tokens (or to a raw token string).
+   *
+   * Body: { "userId": "string", "token"?: "raw FCM token" }
+   *
+   * If token is omitted: queries fcm_tokens table then falls back to
+   * users.fcm_tokens JSONB and logs exactly what it finds.
+   * If token is provided: skips DB lookup and sends to that token directly.
+   */
+  @Post('test-fcm')
+  @HttpCode(HttpStatus.OK)
+  async testFcm(@Body() body: { userId?: string; token?: string }) {
+    if (!body?.userId) throw new BadRequestException('userId is required');
+    this.logger.warn(`[DEV] POST /dev/test-fcm — userId=${body.userId}`);
+    return this.dev.testFcm(body.userId, body.token);
+  }
+
+  /**
    * Inject any canonical event and process it immediately.
    * Body: { "event": "payment.success", "postId": "uuid", "payload": {} }
    *

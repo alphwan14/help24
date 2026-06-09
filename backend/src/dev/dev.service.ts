@@ -3,6 +3,8 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { EventsService } from '../events/events.service';
 import { EventProcessorService } from '../events/event-processor.service';
 import { EVENT_TYPES, EventType } from '../events/event.types';
+import { FirebaseAdminService } from '../notifications/firebase-admin.service';
+import { MulticastMessage } from 'firebase-admin/messaging';
 
 function isDevEnv(): boolean {
   return (process.env.MPESA_ENV ?? 'sandbox') !== 'production';
@@ -27,6 +29,7 @@ export class DevService {
     private readonly supabase: SupabaseService,
     private readonly events: EventsService,
     private readonly processor: EventProcessorService,
+    private readonly firebaseAdmin: FirebaseAdminService,
   ) {}
 
   /**
@@ -165,5 +168,166 @@ export class DevService {
     }
 
     return { ok: true, cleared: count };
+  }
+
+  /**
+   * Isolation test: send a test FCM push directly to a user's registered tokens
+   * (or to a raw token string if provided).  This bypasses the full notification
+   * pipeline so you can confirm that Firebase Admin SDK + device tokens work
+   * independently of the event/notification service.
+   *
+   * POST /dev/test-fcm
+   * Body: { "userId": "string", "token"?: "raw FCM token to bypass DB lookup" }
+   */
+  async testFcm(
+    userId: string,
+    rawToken?: string,
+  ): Promise<{
+    ok: boolean;
+    firebaseReady: boolean;
+    tokensSource: string;
+    tokens: string[];
+    successCount: number;
+    failureCount: number;
+    results: Array<{ token: string; success: boolean; errorCode?: string; errorMessage?: string }>;
+    message: string;
+  }> {
+    guardDev(this.logger, 'test-fcm');
+    this.logger.warn(`[DEV][TEST_FCM] userId=${userId} rawToken=${rawToken ? rawToken.slice(0, 16) + '…' : 'none'}`);
+
+    const firebaseReady = this.firebaseAdmin.isReady;
+    if (!firebaseReady) {
+      this.logger.error('[DEV][TEST_FCM] Firebase Admin not initialized — check FIREBASE_* env vars on Render');
+      return {
+        ok: false,
+        firebaseReady: false,
+        tokensSource: 'none',
+        tokens: [],
+        successCount: 0,
+        failureCount: 0,
+        results: [],
+        message: 'Firebase Admin not initialized. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY in Render env vars.',
+      };
+    }
+
+    let tokens: string[] = [];
+    let tokensSource = 'raw';
+
+    if (rawToken && rawToken.trim().length > 0) {
+      tokens = [rawToken.trim()];
+      this.logger.log(`[DEV][TEST_FCM] using raw token provided in request body`);
+    } else {
+      // 1. Query fcm_tokens table.
+      const { data: rows, error: rowErr } = await this.supabase.client
+        .from('fcm_tokens')
+        .select('token, platform, updated_at')
+        .eq('user_id', userId);
+
+      if (rowErr) {
+        this.logger.error(`[DEV][TEST_FCM] fcm_tokens query error — ${rowErr.message} (code=${rowErr.code})`);
+      } else {
+        this.logger.log(`[DEV][TEST_FCM] fcm_tokens rows for userId=${userId}: ${JSON.stringify(rows ?? [])}`);
+      }
+
+      tokens = (rows ?? []).map((r: { token: string }) => r.token).filter(Boolean);
+
+      // 2. Fallback: legacy users.fcm_tokens JSONB.
+      if (tokens.length === 0) {
+        const { data: user, error: legErr } = await this.supabase.client
+          .from('users')
+          .select('fcm_tokens')
+          .eq('id', userId)
+          .single();
+
+        if (legErr) {
+          this.logger.warn(`[DEV][TEST_FCM] users.fcm_tokens query error — ${legErr.message}`);
+        } else {
+          this.logger.log(`[DEV][TEST_FCM] users.fcm_tokens for userId=${userId}: ${JSON.stringify(user?.fcm_tokens)}`);
+        }
+
+        const legacy = Array.isArray(user?.fcm_tokens) ? (user.fcm_tokens as string[]) : [];
+        tokens = legacy.filter(Boolean);
+        tokensSource = tokens.length > 0 ? 'legacy_jsonb' : 'none';
+      } else {
+        tokensSource = 'fcm_tokens_table';
+      }
+    }
+
+    this.logger.log(`[DEV][TEST_FCM] tokens found: ${tokens.length} (source=${tokensSource})`);
+
+    if (tokens.length === 0) {
+      return {
+        ok: false,
+        firebaseReady: true,
+        tokensSource: 'none',
+        tokens: [],
+        successCount: 0,
+        failureCount: 0,
+        results: [],
+        message: `No FCM tokens found for userId=${userId}. Pass "token" in the body to test with a raw token, or ensure the device has registered.`,
+      };
+    }
+
+    const messaging = this.firebaseAdmin.getMessaging()!;
+    const message: MulticastMessage = {
+      tokens,
+      notification: {
+        title: '🔔 TEST PUSH',
+        body: 'If you see this, FCM is working end-to-end.',
+      },
+      data: { type: 'test', userId },
+      android: { priority: 'high' },
+      apns: { payload: { aps: { sound: 'default', badge: 1 } } },
+    };
+
+    this.logger.log(`[DEV][TEST_FCM] sending to ${tokens.length} token(s) via sendEachForMulticast`);
+
+    try {
+      const response = await messaging.sendEachForMulticast(message);
+      this.logger.log(
+        `[DEV][TEST_FCM] done — successCount=${response.successCount} failureCount=${response.failureCount}`,
+      );
+
+      const results = response.responses.map((r, idx) => {
+        const entry = {
+          token: tokens[idx].slice(0, 20) + '…',
+          success: r.success,
+          errorCode: r.error?.code,
+          errorMessage: r.error?.message,
+        };
+        if (!r.success) {
+          this.logger.warn(
+            `[DEV][TEST_FCM] token[${idx}] FAILED — code=${entry.errorCode} msg=${entry.errorMessage}`,
+          );
+        }
+        return entry;
+      });
+
+      return {
+        ok: response.successCount > 0,
+        firebaseReady: true,
+        tokensSource,
+        tokens: tokens.map((t) => t.slice(0, 20) + '…'),
+        successCount: response.successCount,
+        failureCount: response.failureCount,
+        results,
+        message: response.successCount > 0
+          ? `Push sent to ${response.successCount}/${tokens.length} device(s). Check your physical device.`
+          : `All ${tokens.length} send(s) failed — see results[].errorCode for details.`,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[DEV][TEST_FCM] sendEachForMulticast threw — ${msg}`);
+      return {
+        ok: false,
+        firebaseReady: true,
+        tokensSource,
+        tokens: tokens.map((t) => t.slice(0, 20) + '…'),
+        successCount: 0,
+        failureCount: tokens.length,
+        results: tokens.map((t) => ({ token: t.slice(0, 20) + '…', success: false, errorCode: 'exception', errorMessage: msg })),
+        message: `sendEachForMulticast threw: ${msg}`,
+      };
+    }
   }
 }

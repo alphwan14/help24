@@ -4,6 +4,7 @@ import { DevController } from './dev.controller';
 import { SupabaseModule } from '../supabase/supabase.module';
 import { EventsModule } from '../events/events.module';
 import { EventProcessorModule } from '../events/event-processor.module';
+import { FirebaseAdminModule } from '../notifications/firebase-admin.module';
 
 /**
  * Dev/test harness module.
@@ -11,7 +12,7 @@ import { EventProcessorModule } from '../events/event-processor.module';
  * All routes return 403 ForbiddenException when MPESA_ENV=production.
  */
 @Module({
-  imports: [SupabaseModule, EventsModule, EventProcessorModule],
+  imports: [SupabaseModule, EventsModule, EventProcessorModule, FirebaseAdminModule],
   providers: [DevService],
   controllers: [DevController],
 })
