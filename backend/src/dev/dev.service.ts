@@ -276,7 +276,10 @@ export class DevService {
         body: 'If you see this, FCM is working end-to-end.',
       },
       data: { type: 'test', userId },
-      android: { priority: 'high' },
+      android: {
+        priority: 'high',
+        notification: { channelId: 'help24_high_importance', sound: 'default' },
+      },
       apns: { payload: { aps: { sound: 'default', badge: 1 } } },
     };
 

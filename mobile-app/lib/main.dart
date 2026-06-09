@@ -79,6 +79,11 @@ class _Help24AppState extends State<Help24App> {
       onForegroundMessage: _onForegroundMessage,
       onNotificationTap: _onNotificationTap,
     );
+    // Route taps on local notifications (produced while app is in foreground)
+    // through the same handler as FCM opened-app taps.
+    NotificationService.setOnLocalNotificationTap((data) {
+      _onNotificationTap(RemoteMessage(data: data));
+    });
     _bootstrapFuture = _runBackgroundBootstrap();
   }
 
@@ -120,7 +125,11 @@ class _Help24AppState extends State<Help24App> {
         'You have a new message';
 
     final context = _navigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
+    if (context == null || !context.mounted) {
+      // The OS-level local notification was already shown by NotificationService.
+      debugPrint('main: foreground context unavailable — OS notification shown by NotificationService');
+      return;
+    }
 
     const lifecycleTypes = {
       'completion_requested',

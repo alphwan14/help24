@@ -36,6 +36,17 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!--
+            FCM default channel — CRITICAL for sound on Android 8+.
+            Without this, FCM uses the system "miscellaneous" channel which
+            is IMPORTANCE_DEFAULT (no sound). This must match:
+              MainActivity.kt  → NotificationChannel id
+              notification_service.dart → _kChannelId
+              backend → android.notification.channelId
+        -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="help24_high_importance" />
         <!-- Google Maps: set com.google.android.geo.API_KEY to your key (e.g. in build.gradle from local.properties) -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"

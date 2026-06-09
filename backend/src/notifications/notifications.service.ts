@@ -143,7 +143,15 @@ export class NotificationsService {
         tokens,
         notification: { title: payload.title, body: payload.body },
         data: { type: payload.type, ...(payload.data ?? {}) },
-        android: { priority: 'high' },
+        android: {
+          priority: 'high',
+          notification: {
+            // Must match the channel created in MainActivity.kt and declared
+            // in AndroidManifest.xml as default_notification_channel_id.
+            channelId: 'help24_high_importance',
+            sound: 'default',
+          },
+        },
         apns: { payload: { aps: { sound: 'default', badge: 1 } } },
       };
 
