@@ -98,6 +98,7 @@ export class JobsService {
     });
 
     // 5. Notify the provider immediately.
+    this.logger.log(`[PROVIDER_SELECTED][NOTIFY] sending to provider=${dto.provider_id} post=${dto.post_id}`);
     await this.notifications.send({
       userId: dto.provider_id,
       type: 'provider_selected',
@@ -105,6 +106,7 @@ export class JobsService {
       body: `The client selected you for "${post.title as string}". They will now secure payment to begin the job.`,
       data: { post_id: dto.post_id },
     });
+    this.logger.log(`[PROVIDER_SELECTED][PUSH] sent to provider=${dto.provider_id}`);
 
     this.logger.log(
       `[JOBS][SELECT_PROVIDER] SUCCESS postId=${dto.post_id} providerId=${dto.provider_id}`,
@@ -191,6 +193,7 @@ export class JobsService {
     });
 
     // Also notify inline as fast path.
+    this.logger.log(`[JOB_COMPLETE][NOTIFY] notifying client=${post.author_user_id as string} post=${dto.post_id}`);
     await this.notifications.send({
       userId: post.author_user_id as string,
       type: 'completion_requested',
@@ -198,6 +201,7 @@ export class JobsService {
       body: `Your provider has marked "${post.title as string}" as complete. Review and approve or dispute.`,
       data: { post_id: dto.post_id, completion_id: completionId },
     });
+    this.logger.log(`[JOB_COMPLETE][PUSH] sent to client=${post.author_user_id as string}`);
 
     this.logger.log(`[JOBS] Completion ${completionId} created for post ${dto.post_id}`);
     return { completion_id: completionId };
@@ -256,8 +260,8 @@ export class JobsService {
       },
     });
 
-    // Notify both parties inline for speed (event processor will also send — but
-    // notifications.service deduplication is not implemented, so we only notify inline).
+    // Notify both parties inline for speed.
+    this.logger.log(`[PAYOUT_RELEASED][NOTIFY] notifying provider=${post.selected_provider_id as string} post=${dto.post_id}`);
     await this.notifications.sendMany([
       {
         userId: post.selected_provider_id as string,
@@ -274,6 +278,7 @@ export class JobsService {
         data: { post_id: dto.post_id },
       },
     ]);
+    this.logger.log(`[PAYOUT_RELEASED][PUSH] sent to provider=${post.selected_provider_id as string} and client=${dto.client_user_id}`);
 
     this.logger.log(`[JOBS] Post ${dto.post_id} approved — payout queued via event.`);
     return { message: 'Job approved. Payout is being processed.' };

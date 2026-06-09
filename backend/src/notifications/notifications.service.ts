@@ -12,6 +12,7 @@ export type NotificationType =
   | 'provider_applied'           // post author notified when someone applies
   | 'provider_selected'
   | 'payment_secured'
+  | 'chat_message'               // new message in a chat conversation
   | 'completion_requested'
   | 'job_approved'
   | 'payout_released'
@@ -27,6 +28,9 @@ export interface NotificationPayload {
   title: string;
   body: string;
   data?: Record<string, string>;
+  /** Android notification tag — messages with the same tag replace the existing
+   *  notification instead of stacking (use chatId to group per conversation). */
+  androidTag?: string;
 }
 
 @Injectable()
@@ -146,10 +150,11 @@ export class NotificationsService {
         android: {
           priority: 'high',
           notification: {
-            // Must match the channel created in MainActivity.kt and declared
-            // in AndroidManifest.xml as default_notification_channel_id.
             channelId: 'help24_high_importance',
             sound: 'default',
+            // androidTag groups messages — same tag replaces existing notification
+            // instead of stacking. Used for chat conversations (tag = chatId).
+            ...(payload.androidTag ? { tag: payload.androidTag } : {}),
           },
         },
         apns: { payload: { aps: { sound: 'default', badge: 1 } } },
@@ -197,5 +202,79 @@ export class NotificationsService {
         `[FCM][ERROR] type=${payload.type} userId=${payload.userId} — ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  // ── Chat message notifications ─────────────────────────────────────────────
+
+  /**
+   * Called by NotificationsController POST /notifications/chat-message.
+   * Looks up the chat's participants, resolves the recipient, inserts a bell
+   * notification, and fires an FCM push tagged with chatId (Android groups all
+   * messages from the same conversation into a single notification slot).
+   */
+  async sendChatNotification(params: {
+    chatId: string;
+    senderId: string;
+    messagePreview: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    this.logger.log(
+      `[NOTIFY][CHAT_DB_INSERT] chatId=${params.chatId} senderId=${params.senderId}`,
+    );
+
+    // 1. Resolve recipient from chat participants.
+    const { data: chat, error: chatErr } = await this.supabase.client
+      .from('chats')
+      .select('user1, user2, post_id')
+      .eq('id', params.chatId)
+      .single();
+
+    if (chatErr || !chat) {
+      this.logger.warn(`[NOTIFY][CHAT_DB_INSERT] chat not found chatId=${params.chatId} — ${chatErr?.message ?? 'null row'}`);
+      return { ok: false, message: 'Chat not found' };
+    }
+
+    const user1 = chat.user1 as string;
+    const user2 = chat.user2 as string;
+
+    if (params.senderId !== user1 && params.senderId !== user2) {
+      this.logger.warn(
+        `[NOTIFY][CHAT_DB_INSERT] sender=${params.senderId} is not a participant of chat=${params.chatId}`,
+      );
+      return { ok: false, message: 'Sender is not a participant of this chat' };
+    }
+
+    const recipientId = params.senderId === user1 ? user2 : user1;
+    const postId      = chat.post_id as string | null;
+
+    // 2. Resolve sender display name.
+    const { data: sender } = await this.supabase.client
+      .from('users')
+      .select('name')
+      .eq('id', params.senderId)
+      .maybeSingle();
+
+    const senderName = (sender?.name as string | null) ?? 'Someone';
+
+    // 3. Send bell notification + FCM push to recipient.
+    const preview = params.messagePreview.slice(0, 100);
+
+    this.logger.log(
+      `[NOTIFY][CHAT_BELL_CREATED] recipientId=${recipientId} senderName=${senderName} chatId=${params.chatId}`,
+    );
+
+    await this.send({
+      userId: recipientId,
+      type:   'chat_message',
+      title:  senderName,
+      body:   preview,
+      data: {
+        chat_id:   params.chatId,
+        sender_id: params.senderId,
+        ...(postId ? { post_id: postId } : {}),
+      },
+      androidTag: params.chatId, // same tag → Android replaces existing notification
+    });
+
+    return { ok: true, message: 'Chat notification sent' };
   }
 }

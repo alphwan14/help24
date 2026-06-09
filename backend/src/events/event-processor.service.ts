@@ -214,6 +214,7 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
       amount: number;
     };
 
+    // 1. Lock escrow.
     const { error } = await this.supabase.client
       .from('escrow')
       .upsert(
@@ -225,7 +226,34 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Escrow upsert failed for tx ${transaction_id}: ${error.message}`);
     }
 
-    this.logger.log(`[PROCESSOR][HANDLE] payment.success: escrow confirmed locked tx=${transaction_id}`);
+    this.logger.log(`[PAYMENT_SECURED][EVENT] escrow locked tx=${transaction_id} post=${post_id}`);
+
+    // 2. Notify the provider that funds are secured — this was previously missing.
+    // The provider cannot start working until payment is locked, so this
+    // notification is critical for the provider to know the job is funded.
+    const { data: post } = await this.supabase.client
+      .from('posts')
+      .select('title, selected_provider_id')
+      .eq('id', post_id)
+      .maybeSingle();
+
+    const providerId = post?.selected_provider_id as string | null;
+    if (providerId) {
+      const title = (post?.title as string | null) ?? 'your job';
+      this.logger.log(`[PAYMENT_SECURED][NOTIFY] notifying provider=${providerId} post=${post_id}`);
+      await this.notifications.send({
+        userId: providerId,
+        type:   'payment_secured',
+        title:  'Payment Secured',
+        body:   `Funds for "${title}" are secured. Complete the job to receive your payout.`,
+        data:   { post_id, transaction_id },
+      });
+      this.logger.log(`[PAYMENT_SECURED][PUSH] sent to provider=${providerId}`);
+    } else {
+      this.logger.warn(
+        `[PAYMENT_SECURED][NOTIFY] no selected_provider_id on post=${post_id} — payment_secured push skipped`,
+      );
+    }
   }
 
   private async handlePayoutRequested(payload: Record<string, unknown>): Promise<void> {
