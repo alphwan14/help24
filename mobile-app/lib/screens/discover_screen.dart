@@ -28,6 +28,7 @@ import '../services/jobs_service.dart';
 import 'mark_complete_screen.dart';
 import 'approve_or_dispute_screen.dart';
 import 'notifications_screen.dart';
+import 'applications_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
@@ -1183,6 +1184,30 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
                 ),
               ),
             ),
+            const Spacer(),
+            // Navigate to dedicated Applications management screen.
+            TextButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ApplicationsScreen(
+                      postId: widget.post.id,
+                      postTitle: widget.post.title,
+                      authorUserId: context.read<AuthProvider>().currentUserId ?? '',
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.open_in_full_rounded, size: 13),
+              label: const Text('Manage'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 10),
@@ -1333,11 +1358,14 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
                           child: FilledButton(
                             onPressed: canSelect
                                 ? () async {
+                                    final clientUserId = context.read<AuthProvider>().currentUserId ?? '';
+                                    if (clientUserId.isEmpty) return;
                                     setState(() => _selecting = app.applicantUserId);
                                     try {
-                                      await PostService.selectProvider(
-                                        widget.post.id,
-                                        app.applicantUserId,
+                                      await JobsService.selectProvider(
+                                        postId: widget.post.id,
+                                        providerId: app.applicantUserId,
+                                        clientUserId: clientUserId,
                                       );
                                       if (mounted) {
                                         setState(() => _selecting = null);

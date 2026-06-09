@@ -115,6 +115,38 @@ class JobsService {
     throw JobsException(_extractMessage(json), statusCode: response.statusCode);
   }
 
+  /// Client selects a provider — the ONLY supported path for provider assignment.
+  /// Replaces any prior direct-Supabase writes for selected_provider_id.
+  static Future<void> selectProvider({
+    required String postId,
+    required String providerId,
+    required String clientUserId,
+  }) async {
+    debugPrint('[JOBS][SELECT_PROVIDER][REQUEST] postId=$postId providerId=$providerId');
+
+    final response = await http
+        .post(
+          Uri.parse('${ApiConfig.baseUrl}/jobs/select-provider'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'post_id': postId,
+            'provider_id': providerId,
+            'client_user_id': clientUserId,
+          }),
+        )
+        .timeout(_timeout);
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      debugPrint('[JOBS][SELECT_PROVIDER][SUCCESS] postId=$postId providerId=$providerId');
+      return;
+    }
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final msg = _extractMessage(json);
+    debugPrint('[JOBS][SELECT_PROVIDER][ERROR] postId=$postId status=${response.statusCode} msg=$msg');
+    throw JobsException(msg, statusCode: response.statusCode);
+  }
+
   /// Poll the latest job completion status for a post.
   static Future<JobCompletionStatus?> getJobStatus(String postId) async {
     try {

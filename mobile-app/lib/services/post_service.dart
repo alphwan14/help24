@@ -433,33 +433,6 @@ class PostService {
     }
   }
 
-  /// Mark a provider as selected for a request post.
-  /// Updates `selected_provider_id` on the post row and verifies the write succeeded.
-  static Future<void> selectProvider(String postId, String providerUserId) async {
-    assert(postId.isNotEmpty, 'postId must not be empty');
-    assert(providerUserId.isNotEmpty, 'providerUserId must not be empty');
-    debugPrint('[SelectProvider] post=$postId provider=$providerUserId');
-    try {
-      final rows = await _client
-          .from('posts')
-          .update({'selected_provider_id': providerUserId})
-          .eq('id', postId)
-          .select('id, selected_provider_id');
-      debugPrint('[SelectProvider] result rows: $rows');
-      if ((rows as List).isEmpty) {
-        // RLS blocked or post not found — update returned 0 rows with no error.
-        throw PostServiceException(
-          'Update returned 0 rows — check RLS policies and that post $postId exists.',
-        );
-      }
-      debugPrint('[SelectProvider] SUCCESS — post=$postId now has selected_provider_id=$providerUserId');
-    } catch (e) {
-      debugPrint('[SelectProvider] FAILED — $e');
-      if (e is PostServiceException) rethrow;
-      throw PostServiceException('Failed to select provider: $e');
-    }
-  }
-
   /// Check whether a user has any active offer posts.
   static Future<bool> hasOfferPosts(String userId) async {
     if (userId.isEmpty) return false;

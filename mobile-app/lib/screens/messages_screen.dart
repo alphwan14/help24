@@ -23,6 +23,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../widgets/loading_empty_offline.dart';
+import '../widgets/job_status_card.dart';
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key});
@@ -693,14 +694,20 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
     try {
       await SupabaseAuthBridge.ensureSessionAsync();
-      await ChatServiceSupabase.sendMessage(
+      final confirmed = await ChatServiceSupabase.sendMessage(
         chatIdParam: _chatId,
         senderId: widget.currentUserId,
         content: text,
       );
       if (mounted) {
-        setState(() => _pendingMessages.removeWhere((m) => m.id == optimistic.id));
-        // Realtime stream delivers the confirmed message automatically.
+        setState(() {
+          _pendingMessages.removeWhere((m) => m.id == optimistic.id);
+          // Add the confirmed row directly — don't rely on realtime for own messages.
+          if (!_messages.any((m) => m.id == confirmed.id)) {
+            _messages = [..._messages, confirmed];
+          }
+        });
+        _scrollToBottom();
       }
     } catch (e) {
       String errorDetail;
@@ -1099,6 +1106,13 @@ class _ChatScreenState extends State<ChatScreen> {
                 onTap: widget.conversation.postId != null && widget.conversation.postId!.isNotEmpty
                     ? () => _openPostFromChat(widget.conversation.postId!)
                     : null,
+              ),
+            // Escrow workflow card — shows job/payment state and action buttons.
+            // Only renders when this chat is scoped to a post with a selected provider.
+            if (widget.conversation.postId != null && widget.conversation.postId!.isNotEmpty)
+              JobStatusCard(
+                postId: widget.conversation.postId!,
+                currentUserId: widget.currentUserId,
               ),
             // Messages: fetch on load, re-fetch after send, poll every 4s (no Realtime)
             Expanded(
