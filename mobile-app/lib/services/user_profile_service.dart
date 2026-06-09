@@ -211,39 +211,48 @@ class UserProfileService {
     }
   }
 
+  /// Upsert FCM token into the dedicated fcm_tokens table.
+  /// Uses ON CONFLICT(token) to handle cross-user device re-registration.
   static Future<void> addFcmToken(String uid, String token) async {
     if (!_isAvailable || uid.isEmpty || token.isEmpty) return;
     try {
-      final r = await _client.from('users').select('fcm_tokens').eq('id', uid).maybeSingle();
-      final list = <dynamic>[];
-      if (r != null && r['fcm_tokens'] != null) {
-        final current = r['fcm_tokens'];
-        if (current is List) list.addAll(current.map((e) => e.toString()));
-      }
-      if (!list.contains(token)) list.add(token);
-      await _client.from('users').update({'fcm_tokens': list}).eq('id', uid);
+      final platform = _detectPlatform();
+      debugPrint('[FCM][TOKEN_SAVE] upsert token for uid=$uid platform=$platform');
+      await _client.from('fcm_tokens').upsert(
+        {
+          'user_id':    uid,
+          'token':      token,
+          'platform':   platform,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        onConflict: 'token',
+      );
+      debugPrint('[FCM][TOKEN_SAVE] token upserted for uid=$uid');
     } catch (e) {
-      debugPrint('UserProfileService addFcmToken: $e');
+      debugPrint('[FCM][TOKEN_ERROR] addFcmToken: $e');
     }
+  }
+
+  static String _detectPlatform() {
+    // Using Platform detection via dart:io would require an import; keep it
+    // simple with the flutter foundation default.
+    if (defaultTargetPlatform == TargetPlatform.iOS) return 'ios';
+    if (defaultTargetPlatform == TargetPlatform.android) return 'android';
+    return 'web';
   }
 
   static Future<void> removeFcmToken(String uid, String token) async {
     if (!_isAvailable || uid.isEmpty || token.isEmpty) return;
     try {
-      final r = await _client.from('users').select('fcm_tokens').eq('id', uid).maybeSingle();
-      final list = <String>[];
-      if (r != null && r['fcm_tokens'] != null) {
-        final current = r['fcm_tokens'];
-        if (current is List) {
-          for (final e in current) {
-            final s = e.toString();
-            if (s != token) list.add(s);
-          }
-        }
-      }
-      await _client.from('users').update({'fcm_tokens': list}).eq('id', uid);
+      debugPrint('[FCM][TOKEN_SAVE] removing token for uid=$uid');
+      await _client
+          .from('fcm_tokens')
+          .delete()
+          .eq('user_id', uid)
+          .eq('token', token);
+      debugPrint('[FCM][TOKEN_SAVE] token removed for uid=$uid');
     } catch (e) {
-      debugPrint('UserProfileService removeFcmToken: $e');
+      debugPrint('[FCM][TOKEN_ERROR] removeFcmToken: $e');
     }
   }
 

@@ -53,9 +53,13 @@ class NotificationService {
   }
 
   /// Initialize FCM: request permission, get token, register background handler.
-  /// Does not throw; logs and returns on any failure (e.g. web without service worker, permission denied).
+  /// Does not throw; logs and returns on any failure.
   static Future<void> initialize() async {
-    if (!AppFirebase.isReady) return;
+    if (!AppFirebase.isReady) {
+      debugPrint('[FCM][INIT] Firebase not ready — skipping FCM initialization');
+      return;
+    }
+    debugPrint('[FCM][INIT] starting FCM initialization');
     try {
       await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
         alert: true,
@@ -65,24 +69,27 @@ class NotificationService {
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
       await _requestPermissionAndToken();
       _attachTokenRefreshListener();
+      debugPrint('[FCM][INIT] FCM initialization complete');
     } catch (e, st) {
-      debugPrint('NotificationService initialize: $e');
+      debugPrint('[FCM][INIT][ERROR] $e');
       if (kDebugMode) debugPrint(st.toString());
     }
   }
 
   static Future<bool> _requestPermission() async {
+    debugPrint('[FCM][PERMISSION_REQUEST] requesting notification permission');
     try {
       final settings = await _messaging.requestPermission(
         alert: true,
         badge: true,
         sound: true,
       );
-      debugPrint('NotificationService permission status: ${settings.authorizationStatus}');
-      return settings.authorizationStatus == AuthorizationStatus.authorized ||
-          settings.authorizationStatus == AuthorizationStatus.provisional;
+      final status = settings.authorizationStatus;
+      debugPrint('[FCM][PERMISSION_RESULT] status=$status');
+      return status == AuthorizationStatus.authorized ||
+          status == AuthorizationStatus.provisional;
     } catch (e) {
-      debugPrint('NotificationService permission: $e');
+      debugPrint('[FCM][PERMISSION_REQUEST][ERROR] $e');
       return false;
     }
   }
@@ -90,77 +97,96 @@ class NotificationService {
   static Future<void> _requestPermissionAndToken() async {
     final granted = await _requestPermission();
     if (!granted) {
-      debugPrint('NotificationService: permission not granted, skipping token registration');
+      debugPrint('[FCM][TOKEN_REQUEST] permission not granted — token registration skipped');
       return;
     }
+    debugPrint('[FCM][TOKEN_REQUEST] requesting FCM token');
     try {
-      // Android notification channel "help24_messages" is created in MainActivity.kt
       _currentToken = await _messaging.getToken();
-      debugPrint('NotificationService token fetch: ${_currentToken != null ? "ok" : "null"}');
+      if (_currentToken == null) {
+        debugPrint('[FCM][TOKEN_ERROR] getToken() returned null');
+        return;
+      }
+      // Log only prefix for security — never log full tokens in production.
+      final preview = _currentToken!.length > 16
+          ? '${_currentToken!.substring(0, 16)}…'
+          : _currentToken!;
+      debugPrint('[FCM][TOKEN_RECEIVED] token=$preview');
+
       final uid = AuthService.currentUserId;
-      if (uid != null && _currentToken != null) {
+      if (uid != null) {
         final prefs = await UserProfileService.getNotificationPrefs(uid);
         if (prefs.notificationsEnabled) {
+          debugPrint('[FCM][TOKEN_SAVE] saving token for uid=$uid');
           await UserProfileService.addFcmToken(uid, _currentToken!);
-          debugPrint('NotificationService: token saved to users.fcm_tokens for uid=$uid');
+          debugPrint('[FCM][TOKEN_SAVE] token saved for uid=$uid');
         } else {
-          debugPrint('NotificationService: notifications disabled for uid=$uid, token not saved');
+          debugPrint('[FCM][TOKEN_SAVE] notifications disabled for uid=$uid — token not saved');
         }
       } else {
-        debugPrint('NotificationService: token save skipped (uid=${uid ?? "null"}, token=${_currentToken == null ? "null" : "set"})');
+        debugPrint('[FCM][TOKEN_SAVE] no logged-in user — token not saved (will be saved on login)');
       }
     } catch (e) {
-      debugPrint('NotificationService getToken: $e');
+      debugPrint('[FCM][TOKEN_ERROR] $e');
     }
   }
 
-  /// Call after login: if notificationsEnabled, save FCM token to Supabase users.fcm_tokens.
+  /// Call after login: save FCM token so the backend can send push notifications.
   static Future<void> onLogin(String uid) async {
     if (!AppFirebase.isReady || uid.isEmpty) return;
+    debugPrint('[FCM][TOKEN_SAVE] onLogin uid=$uid — saving token');
     try {
       _currentToken = await _messaging.getToken();
-      if (_currentToken == null) await _requestPermissionAndToken();
-      _currentToken ??= await _messaging.getToken();
-      if (_currentToken == null) return;
+      if (_currentToken == null) {
+        debugPrint('[FCM][TOKEN_REQUEST] no cached token — requesting fresh token');
+        await _requestPermissionAndToken();
+        return;
+      }
       final prefs = await UserProfileService.getNotificationPrefs(uid);
       if (prefs.notificationsEnabled) {
         await UserProfileService.addFcmToken(uid, _currentToken!);
-        debugPrint('NotificationService onLogin: token saved for uid=$uid');
+        debugPrint('[FCM][TOKEN_SAVE] token saved on login for uid=$uid');
       } else {
-        debugPrint('NotificationService onLogin: notifications disabled for uid=$uid');
+        debugPrint('[FCM][TOKEN_SAVE] notifications disabled for uid=$uid — token not saved');
       }
     } catch (e) {
-      debugPrint('NotificationService onLogin: $e');
+      debugPrint('[FCM][TOKEN_ERROR] onLogin: $e');
     }
   }
 
-  /// Call when user enables notifications in settings: update Supabase first so UI shows On,
-  /// then try to get/save token (may fail on web or if permission denied).
+  /// Call when user enables notifications in settings.
   static Future<void> enableAndSaveToken(String uid) async {
     if (!AppFirebase.isReady || uid.isEmpty) return;
+    debugPrint('[FCM][TOKEN_SAVE] enableAndSaveToken uid=$uid');
     try {
       await UserProfileService.setNotificationsEnabled(uid, true);
       final granted = await _requestPermission();
-      if (!granted) return;
+      if (!granted) {
+        debugPrint('[FCM][TOKEN_SAVE] permission not granted — token not saved');
+        return;
+      }
       _currentToken = await _messaging.getToken();
       if (_currentToken != null) {
         await UserProfileService.addFcmToken(uid, _currentToken!);
+        debugPrint('[FCM][TOKEN_SAVE] token saved after enable for uid=$uid');
       }
     } catch (e) {
-      debugPrint('NotificationService enableAndSaveToken: $e');
+      debugPrint('[FCM][TOKEN_ERROR] enableAndSaveToken: $e');
     }
   }
 
-  /// Call when user disables notifications: update Supabase first so UI shows Off, then remove token.
+  /// Call when user disables notifications: remove token from Supabase.
   static Future<void> disableAndRemoveToken(String uid) async {
     if (uid.isEmpty) return;
+    debugPrint('[FCM][TOKEN_SAVE] disableAndRemoveToken uid=$uid');
     try {
       await UserProfileService.setNotificationsEnabled(uid, false);
       if (_currentToken != null) {
         await UserProfileService.removeFcmToken(uid, _currentToken!);
+        debugPrint('[FCM][TOKEN_SAVE] token removed for uid=$uid');
       }
     } catch (e) {
-      debugPrint('NotificationService disableAndRemoveToken: $e');
+      debugPrint('[FCM][TOKEN_ERROR] disableAndRemoveToken: $e');
     }
   }
 
@@ -198,22 +224,22 @@ class NotificationService {
     if (_tokenRefreshListenerAttached) return;
     _tokenRefreshListenerAttached = true;
     FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
+      debugPrint('[FCM][TOKEN_REFRESH] new token received from Firebase');
       _currentToken = token;
       final uid = AuthService.currentUserId;
-      debugPrint('NotificationService onTokenRefresh: received new token');
       if (uid == null || uid.isEmpty) {
-        debugPrint('NotificationService onTokenRefresh: no logged-in user, skipping save');
+        debugPrint('[FCM][TOKEN_REFRESH] no logged-in user — token not saved');
         return;
       }
       final prefs = await UserProfileService.getNotificationPrefs(uid);
       if (!prefs.notificationsEnabled) {
-        debugPrint('NotificationService onTokenRefresh: notifications disabled, skipping save');
+        debugPrint('[FCM][TOKEN_REFRESH] notifications disabled for uid=$uid — token not saved');
         return;
       }
       await UserProfileService.addFcmToken(uid, token);
-      debugPrint('NotificationService onTokenRefresh: token saved for uid=$uid');
+      debugPrint('[FCM][TOKEN_REFRESH] token saved for uid=$uid');
     }, onError: (e) {
-      debugPrint('NotificationService onTokenRefresh error: $e');
+      debugPrint('[FCM][TOKEN_ERROR] onTokenRefresh: $e');
     });
   }
 

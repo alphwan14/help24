@@ -113,6 +113,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   void _subscribeRealtime() {
+    debugPrint('[NOTIFICATIONS][REALTIME] Subscribing for userId=${widget.userId}');
     _subscription = Supabase.instance.client
         .channel('notifications:${widget.userId}')
         .onPostgresChanges(
@@ -125,31 +126,51 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             value: widget.userId,
           ),
           callback: (payload) {
+            debugPrint(
+              '[NOTIFICATIONS][REALTIME] INSERT received — '
+              'table=${payload.table} schema=${payload.schema}',
+            );
             try {
               final newNotification =
                   AppNotification.fromJson(payload.newRecord);
+              debugPrint(
+                '[NOTIFICATIONS][REALTIME] parsed type=${newNotification.type} '
+                'title="${newNotification.title}"',
+              );
               if (mounted) {
                 setState(() {
                   _notifications = [newNotification, ..._notifications];
                 });
               }
             } catch (e) {
-              debugPrint('notifications realtime parse error: $e');
+              debugPrint('[NOTIFICATIONS][ERROR] realtime parse error: $e');
             }
           },
         )
-        .subscribe();
+        .subscribe((status, [error]) {
+          debugPrint('[NOTIFICATIONS][REALTIME] status=$status error=$error');
+        });
   }
 
   Future<void> _load() async {
+    debugPrint('[NOTIFICATIONS][AUTH] userId=${widget.userId}');
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
+      debugPrint('[NOTIFICATIONS][QUERY] fetching notifications for userId=${widget.userId}');
       final data = await NotificationsDb.fetchForUser(widget.userId);
+      debugPrint('[NOTIFICATIONS][RESULT] loaded ${data.length} notifications');
+      for (final n in data) {
+        debugPrint(
+          '[NOTIFICATIONS][ITEM] id=${n.id} type=${n.type} read=${n.read} '
+          'title="${n.title}"',
+        );
+      }
       if (mounted) setState(() => _notifications = data);
     } catch (e) {
+      debugPrint('[NOTIFICATIONS][ERROR] load failed: $e');
       if (mounted) setState(() => _error = 'Failed to load notifications.');
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -485,6 +506,7 @@ class _NotificationBadgeState extends State<NotificationBadge>
   }
 
   void _subscribeRealtime() {
+    debugPrint('[NOTIFICATIONS][BADGE] Subscribing realtime for userId=${widget.userId}');
     _subscription = Supabase.instance.client
         .channel('notification_badge:${widget.userId}')
         .onPostgresChanges(
@@ -496,16 +518,24 @@ class _NotificationBadgeState extends State<NotificationBadge>
             column: 'user_id',
             value: widget.userId,
           ),
-          callback: (_) => _refresh(),
+          callback: (_) {
+            debugPrint('[NOTIFICATIONS][BADGE] Realtime event → refreshing count');
+            _refresh();
+          },
         )
-        .subscribe();
+        .subscribe((status, [error]) {
+          debugPrint('[NOTIFICATIONS][BADGE] subscription status=$status error=$error');
+        });
   }
 
   Future<void> _refresh() async {
     try {
       final count = await NotificationsDb.unreadCount(widget.userId);
+      debugPrint('[NOTIFICATIONS][BADGE] unread=$count for userId=${widget.userId}');
       if (mounted) setState(() => _unread = count);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[NOTIFICATIONS][BADGE][ERROR] $e');
+    }
   }
 
   @override
