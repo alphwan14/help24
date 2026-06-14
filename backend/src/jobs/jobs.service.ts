@@ -99,15 +99,34 @@ export class JobsService {
 
     // 5. Notify the provider immediately.
     this.logger.log(`[PROVIDER_SELECTED][START] postId=${dto.post_id} providerId=${dto.provider_id}`);
-    // Lookup chat (created when provider applied) to include chat_id for push deep-linking.
-    const { data: selChatRow } = await this.supabase.client
+
+    // Ensure a chat exists between client and provider for deep-link routing.
+    // A chat may not yet exist if the client selected the provider without chatting first.
+    let { data: selChatRow } = await this.supabase.client
       .from('chats')
       .select('id')
       .eq('post_id', dto.post_id)
       .or(`user1.eq.${dto.provider_id},user2.eq.${dto.provider_id}`)
       .maybeSingle();
+
+    if (!selChatRow) {
+      // Create chat so the "you've been selected" tap always lands in a real conversation.
+      this.logger.log(`[PROVIDER_SELECTED][CHAT_CREATE] no existing chat — creating post=${dto.post_id}`);
+      const { data: newChat, error: chatErr } = await this.supabase.client
+        .from('chats')
+        .insert({ post_id: dto.post_id, user1: dto.client_user_id, user2: dto.provider_id })
+        .select('id')
+        .maybeSingle();
+      if (chatErr) {
+        this.logger.warn(`[PROVIDER_SELECTED][CHAT_CREATE] failed: ${chatErr.message} — notification sent without chat_id`);
+      } else {
+        selChatRow = newChat;
+        this.logger.log(`[PROVIDER_SELECTED][CHAT_CREATE] created chatId=${newChat?.id as string}`);
+      }
+    }
+
     const selChatId = (selChatRow?.id as string | null) ?? '';
-    this.logger.log(`[PROVIDER_SELECTED][DB_INSERT] chatId=${selChatId || 'not_found'} providerId=${dto.provider_id}`);
+    this.logger.log(`[PROVIDER_SELECTED][DB_INSERT] chatId=${selChatId || 'none'} providerId=${dto.provider_id}`);
     await this.notifications.send({
       userId: dto.provider_id,
       type: 'provider_selected',
@@ -393,21 +412,30 @@ export class JobsService {
       },
     });
 
+    // Look up chat for deep-link routing.
+    const providerId = post.selected_provider_id as string;
+    const { data: dispChatRow } = await this.supabase.client
+      .from('chats').select('id')
+      .eq('post_id', dto.post_id)
+      .or(`user1.eq.${providerId},user2.eq.${providerId}`)
+      .maybeSingle();
+    const dispChatId = (dispChatRow?.id as string | null) ?? '';
+
     // Notify inline as fast path.
     await this.notifications.sendMany([
       {
-        userId: post.selected_provider_id as string,
+        userId: providerId,
         type: 'dispute_opened',
         title: 'Dispute Opened',
         body: `The client has raised a dispute on "${post.title as string}". Funds are frozen pending admin review.`,
-        data: { post_id: dto.post_id, dispute_id: disputeId },
+        data: { post_id: dto.post_id, dispute_id: disputeId, ...(dispChatId ? { chat_id: dispChatId } : {}) },
       },
       {
         userId: dto.client_user_id,
         type: 'dispute_opened',
         title: 'Dispute Submitted',
         body: `Your dispute on "${post.title as string}" has been submitted. Admin will review within 24-48 hours.`,
-        data: { post_id: dto.post_id, dispute_id: disputeId },
+        data: { post_id: dto.post_id, dispute_id: disputeId, ...(dispChatId ? { chat_id: dispChatId } : {}) },
       },
     ]);
 

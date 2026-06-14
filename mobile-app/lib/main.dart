@@ -120,12 +120,26 @@ class _Help24AppState extends State<Help24App> {
       return;
     }
 
-    final title = message.notification?.title ??
-        (data['title'] as String?) ??
-        'Help24';
-    final body = message.notification?.body ??
-        (data['body'] as String?) ??
-        'You have a new message';
+    // Chat data-only payloads carry sender_name / message_preview — not
+    // title / body — because the notification field is intentionally absent
+    // (we want MessagingStyle, not FCM auto-display).  Use the right keys.
+    final String title;
+    final String body;
+    if (type == 'chat_message') {
+      title = (data['sender_name'] as String?) ??
+              message.notification?.title ??
+              'New message';
+      body  = (data['message_preview'] as String?) ??
+              message.notification?.body ??
+              '';
+    } else {
+      title = message.notification?.title ??
+              (data['title'] as String?) ??
+              'Help24';
+      body  = message.notification?.body ??
+              (data['body'] as String?) ??
+              'You have a new notification';
+    }
 
     final context = _navigatorKey.currentContext;
     if (context == null || !context.mounted) {
@@ -146,13 +160,45 @@ class _Help24AppState extends State<Help24App> {
     );
   }
 
-  void _openChat(BuildContext context, String chatId) {
+  Future<void> _openChat(BuildContext context, String chatId) async {
     final uid = context.read<AuthProvider>().currentUserId;
     if (uid == null) return;
     debugPrint('[NAV][OPEN_CHAT] chatId=$chatId');
+
+    // Load the partner's name and avatar so the chat header shows the real user.
+    String userName = 'Chat';
+    String userAvatar = '';
+    String participantId = '';
+    try {
+      final chatRow = await Supabase.instance.client
+          .from('chats')
+          .select('user1, user2, post_id')
+          .eq('id', chatId)
+          .maybeSingle();
+      if (chatRow != null) {
+        final u1 = chatRow['user1'] as String? ?? '';
+        final u2 = chatRow['user2'] as String? ?? '';
+        participantId = (u1 == uid) ? u2 : u1;
+        if (participantId.isNotEmpty) {
+          final userRow = await Supabase.instance.client
+              .from('users')
+              .select('name, profile_picture_url')
+              .eq('id', participantId)
+              .maybeSingle();
+          userName = (userRow?['name'] as String?) ?? 'Chat';
+          userAvatar = (userRow?['profile_picture_url'] as String?) ?? '';
+        }
+      }
+    } catch (e) {
+      debugPrint('[NAV][OPEN_CHAT] partner name load failed: $e');
+    }
+
+    if (!context.mounted) return;
     final conv = Conversation(
       id: chatId,
-      userName: 'Chat',
+      participantId: participantId,
+      userName: userName,
+      userAvatar: userAvatar,
       lastMessage: '',
       lastMessageTime: DateTime.now(),
     );
@@ -186,7 +232,7 @@ class _Help24AppState extends State<Help24App> {
       // ── Chat message → open the exact conversation ─────────────────────────
       case 'chat_message':
         if (chatId != null && chatId.isNotEmpty) {
-          _openChat(context, chatId);
+          await _openChat(context, chatId);
         }
         break;
 
@@ -201,7 +247,7 @@ class _Help24AppState extends State<Help24App> {
       case 'dispute_resolved_refund':
       case 'dispute_resolved_partial':
         if (chatId != null && chatId.isNotEmpty) {
-          _openChat(context, chatId);
+          await _openChat(context, chatId);
         } else if (postId != null && postId.isNotEmpty) {
           await _findAndOpenChat(context, postId: postId, uid: uid);
         }
@@ -246,7 +292,7 @@ class _Help24AppState extends State<Help24App> {
       final foundChatId = res?['id'] as String?;
       if (foundChatId != null && foundChatId.isNotEmpty && context.mounted) {
         debugPrint('[NAV][OPEN_CHAT] resolved chatId=$foundChatId for postId=$postId');
-        _openChat(context, foundChatId);
+        await _openChat(context, foundChatId);
       } else if (context.mounted) {
         debugPrint('[NAV][OPEN_CHAT] no chat found for postId=$postId — fallback');
         _openNotificationsScreen(context);

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -19,7 +20,6 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../widgets/loading_empty_offline.dart';
@@ -416,7 +416,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
   final List<Message> _pendingMessages = []; // Optimistic until send completes
@@ -440,6 +440,19 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _typingDebounce;
   Timer? _typingClearTimer;
 
+  // Online status (shown in AppBar subtitle)
+  String _onlineStatus = '';
+  Timer? _onlineStatusTimer;
+
+  // Scroll-to-bottom FAB
+  bool _isNearBottom = true;
+  // Set to true after the first successful jump to bottom on load.
+  // Used to distinguish initial instant-jump from subsequent smooth-scrolls.
+  bool _initialScrollDone = false;
+
+  // Non-null while user has selected a message to reply to.
+  Message? _replyToMessage;
+
   // Mutable chat ID — empty string = pending (no DB row yet).
   // Populated on first message send via _ensureChatCreated().
   late String _activeChatId;
@@ -449,6 +462,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _activeChatId = widget.conversation.id;
     _scrollController.addListener(_onScroll);
     _messageController.addListener(_onTypingChanged);
@@ -466,16 +480,23 @@ class _ChatScreenState extends State<ChatScreen> {
       // Pending chat: show empty state, no realtime until first send.
       setState(() => _loadingMessages = false);
     }
+    // Load online/last-seen status for the other participant.
+    _loadOnlineStatus();
+    _onlineStatusTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _loadOnlineStatus();
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // Clear active chat so notifications resume for other chats.
     context.read<AppProvider>().setActiveChatId(null);
     _realtimeSubscription?.cancel();
     _typingPollTimer?.cancel();
     _typingDebounce?.cancel();
     _typingClearTimer?.cancel();
+    _onlineStatusTimer?.cancel();
     _liveLocationSubscription?.cancel();
     _liveEndTimer?.cancel();
     _scrollController.removeListener(_onScroll);
@@ -484,6 +505,19 @@ class _ChatScreenState extends State<ChatScreen> {
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Called by WidgetsBinding whenever the window metrics change — most
+  /// importantly when the soft keyboard slides in or out.  If the user is
+  /// already at the bottom we keep them pinned to the latest message.
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    if (!mounted || !_isNearBottom) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('[CHAT_SCROLL][KEYBOARD_ADJUST]');
+      _doScroll(instant: false);
+    });
   }
 
   /// Subscribe to Supabase Realtime for this chat. Messages arrive instantly.
@@ -512,10 +546,17 @@ class _ChatScreenState extends State<ChatScreen> {
       if (messages.isNotEmpty) {
         CacheService.saveMessages(_chatId, merged);
       }
-      if (hadNew || _lastMessageCount == 0) {
+      if (_lastMessageCount == 0) {
+        // Initial load: instant jump so the user lands on the latest message,
+        // not the top of the history.
         _lastMessageCount = messages.length;
-        _scrollToBottom();
-        // Mark seen when new messages arrive while chat is open.
+        _scrollToBottom(instant: true);
+        _markSeenNow();
+      } else if (hadNew) {
+        _lastMessageCount = messages.length;
+        // Only auto-scroll if user is already near the bottom — don't hijack
+        // their scroll position when they're reading older messages.
+        if (_isNearBottom) _scrollToBottom();
         _markSeenNow();
       }
     }, onError: (e) {
@@ -540,6 +581,46 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted && typing != _otherIsTyping) {
         setState(() => _otherIsTyping = typing);
       }
+    } catch (_) {}
+  }
+
+  Future<void> _loadOnlineStatus() async {
+    final participantId = widget.conversation.participantId;
+    if (participantId.isEmpty) return;
+    try {
+      final row = await Supabase.instance.client
+          .from('users')
+          .select('is_online, last_seen')
+          .eq('id', participantId)
+          .maybeSingle();
+      if (!mounted || row == null) return;
+      final isOnline = row['is_online'] as bool? ?? false;
+      if (isOnline) {
+        setState(() => _onlineStatus = 'online');
+        return;
+      }
+      final lastSeenStr = row['last_seen'] as String?;
+      if (lastSeenStr == null) {
+        setState(() => _onlineStatus = '');
+        return;
+      }
+      final lastSeen = DateTime.tryParse(lastSeenStr)?.toLocal();
+      if (lastSeen == null) {
+        setState(() => _onlineStatus = '');
+        return;
+      }
+      final diff = DateTime.now().difference(lastSeen);
+      String label;
+      if (diff.inMinutes < 2) {
+        label = 'last seen just now';
+      } else if (diff.inMinutes < 60) {
+        label = 'last seen ${diff.inMinutes} min ago';
+      } else if (diff.inHours < 24) {
+        label = 'last seen ${diff.inHours}h ago';
+      } else {
+        label = 'last seen ${diff.inDays}d ago';
+      }
+      setState(() => _onlineStatus = label);
     } catch (_) {}
   }
 
@@ -609,17 +690,63 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_scrollController.position.pixels < 120 && _hasMoreOlder && !_loadingOlder) {
       _loadOlderMessages();
     }
+    final maxExtent = _scrollController.position.maxScrollExtent;
+    if (maxExtent > 0) {
+      final nearBottom = _scrollController.position.pixels >= maxExtent - 200;
+      if (nearBottom != _isNearBottom) {
+        setState(() => _isNearBottom = nearBottom);
+      }
+    }
   }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
+  /// Inner scroll executor with capped retry.
+  ///
+  /// If `maxScrollExtent == 0` and messages are present, the ListView layout
+  /// may not have settled yet — retry up to [_kScrollRetryLimit] frames.
+  /// After that, if extent is still 0, the content genuinely fits the viewport
+  /// (no scroll needed) and we mark initialScroll done to unblock future calls.
+  ///
+  /// First-ever scroll uses `jumpTo` (instant) to avoid the "flash-from-top"
+  /// artifact; subsequent calls use `animateTo` for smooth follow-along.
+  static const int _kScrollRetryLimit = 4;
+
+  void _doScroll({required bool instant, int retries = 0}) {
+    if (!mounted || !_scrollController.hasClients) return;
+    final extent = _scrollController.position.maxScrollExtent;
+    debugPrint('[CHAT_SCROLL][FRAME_READY] extent=$extent retries=$retries instant=$instant');
+    if (extent <= 0) {
+      if (_messages.isNotEmpty && retries < _kScrollRetryLimit) {
+        // Layout hasn't settled — retry next frame.
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _doScroll(instant: instant, retries: retries + 1));
+        return;
       }
+      // Content fits the viewport (no scrolling required) or retries exhausted.
+      debugPrint('[CHAT_SCROLL][AUTO_SCROLL] extent=0 content_fits_viewport — marking done');
+      _initialScrollDone = true;
+      return;
+    }
+    debugPrint('[CHAT_SCROLL][MAX_EXTENT] extent=$extent');
+    debugPrint('[CHAT_SCROLL][AUTO_SCROLL] instant=${instant || !_initialScrollDone}');
+    if (instant || !_initialScrollDone) {
+      _scrollController.jumpTo(extent);
+      _initialScrollDone = true;
+      debugPrint('[CHAT_SCROLL][MESSAGES_LOADED] jumped to bottom extent=$extent');
+    } else {
+      _scrollController.animateTo(
+        extent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  /// Public entry point.  Schedules a post-frame callback so it is safe to
+  /// call during build/setState without triggering a mid-frame layout call.
+  void _scrollToBottom({bool instant = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('[CHAT_SCROLL][LOAD_COMPLETE] hasClients=${_scrollController.hasClients} messages=${_messages.length}');
+      _doScroll(instant: instant);
     });
   }
 
@@ -675,6 +802,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     _messageController.clear();
+    // Capture reply state before clearing it (cleared after optimistic insert).
+    final replyingTo = _replyToMessage;
     // Cancel pending typing timers and clear flag immediately on send.
     _typingDebounce?.cancel();
     _typingClearTimer?.cancel();
@@ -689,8 +818,18 @@ class _ChatScreenState extends State<ChatScreen> {
       timestamp: DateTime.now(),
       isMe: true,
       type: 'text',
+      replyToId: replyingTo?.id,
+      replyToSender: replyingTo == null
+          ? null
+          : (replyingTo.isMe ? 'You' : widget.conversation.userName),
+      replyToPreview: replyingTo?.text.isEmpty == false
+          ? replyingTo!.text.substring(0, replyingTo.text.length.clamp(0, 120))
+          : null,
     );
-    setState(() => _pendingMessages.add(optimistic));
+    setState(() {
+      _pendingMessages.add(optimistic);
+      _replyToMessage = null; // clear reply preview immediately on send
+    });
     _scrollToBottom();
     try {
       await SupabaseAuthBridge.ensureSessionAsync();
@@ -698,6 +837,13 @@ class _ChatScreenState extends State<ChatScreen> {
         chatIdParam: _chatId,
         senderId: widget.currentUserId,
         content: text,
+        replyToId:      replyingTo?.id,
+        replyToSender:  replyingTo == null
+            ? null
+            : (replyingTo.isMe ? 'You' : widget.conversation.userName),
+        replyToPreview: replyingTo?.text.isEmpty == false
+            ? replyingTo!.text.substring(0, replyingTo.text.length.clamp(0, 120))
+            : null,
       );
       if (mounted) {
         setState(() {
@@ -1022,6 +1168,114 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// Scrolls the list so the message whose [id] equals [targetId] is visible.
+  /// Used when user taps the quoted block in a reply bubble.
+  void _scrollToMessage(String targetId) {
+    final allItems = _buildItemsList(
+      List<Message>.of(_messages)..sort((a, b) => a.timestamp.compareTo(b.timestamp)),
+    );
+    // Find position: each item in `allItems` corresponds to one ListView index
+    // (plus the optional "load older" row at index 0).
+    final showLoadMore = _hasMoreOlder || _loadingOlder;
+    final offset = showLoadMore ? 1 : 0;
+    for (int i = 0; i < allItems.length; i++) {
+      final item = allItems[i];
+      if (item is _ChatMessageItem && item.message.id == targetId) {
+        // Estimate item height — accurate enough for scrolling to approximate position.
+        const estimatedItemH = 60.0;
+        final targetOffset = (i + offset) * estimatedItemH;
+        _scrollController.animateTo(
+          targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeInOut,
+        );
+        return;
+      }
+    }
+  }
+
+  // ── Message actions (Part 3 + 4) ──────────────────────────────────────────
+
+  void _showMessageActions(Message message) {
+    HapticFeedback.mediumImpact();
+    final canDeleteForEveryone = message.isMe &&
+        DateTime.now().difference(message.timestamp).inMinutes <= 15;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _MessageActionsSheet(
+        message: message,
+        canDeleteForEveryone: canDeleteForEveryone,
+        onCopy: message.text.isNotEmpty
+            ? () {
+                Navigator.pop(context);
+                Clipboard.setData(ClipboardData(text: message.text));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Message copied'),
+                    duration: Duration(seconds: 1),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            : null,
+        onReply: () {
+          Navigator.pop(context);
+          setState(() => _replyToMessage = message);
+        },
+        onDeleteForMe: () {
+          Navigator.pop(context);
+          _deleteForMe(message);
+        },
+        onDeleteForEveryone: canDeleteForEveryone
+            ? () {
+                Navigator.pop(context);
+                _deleteForEveryone(message);
+              }
+            : null,
+      ),
+    );
+  }
+
+  void _deleteForMe(Message message) {
+    setState(() {
+      _messages = _messages.where((m) => m.id != message.id).toList();
+    });
+  }
+
+  Future<void> _deleteForEveryone(Message message) async {
+    // Optimistic update — show tombstone immediately on sender's device.
+    // The Realtime UPDATE propagates the change to the receiver's device.
+    setState(() {
+      final idx = _messages.indexWhere((m) => m.id == message.id);
+      if (idx != -1) {
+        final updated = List<Message>.of(_messages);
+        updated[idx] = _messages[idx].copyWith(deletedForEveryone: true);
+        _messages = updated;
+      }
+    });
+
+    final success = await ChatServiceSupabase.deleteMessageForEveryone(
+      message.id,
+      message.timestamp,
+    );
+    if (!mounted) return;
+    if (!success) {
+      // Revert the optimistic update.
+      setState(() {
+        final idx = _messages.indexWhere((m) => m.id == message.id);
+        if (idx != -1) {
+          final updated = List<Message>.of(_messages);
+          updated[idx] = message; // restore original
+          _messages = updated;
+        }
+      });
+      _showError('Cannot delete — message is older than 15 minutes or permission denied.');
+    }
+    // If success: Realtime UPDATE in watchMessages propagates tombstone to receiver.
+  }
+
   void _openFullScreenMap(Message message) {
     if (!message.hasValidCoordinates) return;
     Navigator.push<void>(
@@ -1037,6 +1291,41 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
+  }
+
+  // ── Build flat display list (date dividers + grouped message items) ────────
+  List<_ChatListItem> _buildItemsList(List<Message> messages) {
+    final items = <_ChatListItem>[];
+    DateTime? lastDate;
+
+    for (int i = 0; i < messages.length; i++) {
+      final msg = messages[i];
+      final prevMsg = i > 0 ? messages[i - 1] : null;
+      final nextMsg = i < messages.length - 1 ? messages[i + 1] : null;
+
+      // Insert a date divider whenever the calendar day changes.
+      final msgDate = DateTime(msg.timestamp.year, msg.timestamp.month, msg.timestamp.day);
+      if (lastDate == null || msgDate != lastDate) {
+        items.add(_ChatDateDivider(msgDate));
+        lastDate = msgDate;
+      }
+
+      // Two messages are in the same group when: same sender, ≤2 minutes apart.
+      final isFirstInGroup = prevMsg == null ||
+          prevMsg.isMe != msg.isMe ||
+          msg.timestamp.difference(prevMsg.timestamp).inMinutes >= 2;
+      final isLastInGroup = nextMsg == null ||
+          nextMsg.isMe != msg.isMe ||
+          nextMsg.timestamp.difference(msg.timestamp).inMinutes >= 2;
+
+      items.add(_ChatMessageItem(
+        message: msg,
+        isPending: msg.id.startsWith('pending_'),
+        isFirstInGroup: isFirstInGroup,
+        isLastInGroup: isLastInGroup,
+      ));
+    }
+    return items;
   }
 
   @override
@@ -1081,10 +1370,29 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  widget.conversation.userName,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.conversation.userName,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                    if (_onlineStatus.isNotEmpty)
+                      Text(
+                        _onlineStatus,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: _onlineStatus == 'online'
+                              ? AppTheme.successGreen
+                              : Colors.white.withValues(alpha: 0.6),
+                          fontWeight: _onlineStatus == 'online'
+                              ? FontWeight.w600
+                              : FontWeight.normal,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
@@ -1116,7 +1424,9 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             // Messages: fetch on load, re-fetch after send, poll every 4s (no Realtime)
             Expanded(
-              child: Builder(
+              child: Stack(
+                children: [
+                Builder(
                 builder: (context) {
                   final combined = List<Message>.from(_messages);
                   for (final p in _pendingMessages) {
@@ -1159,10 +1469,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     );
                   }
                   final showLoadMore = _hasMoreOlder || _loadingOlder;
+                  final items = _buildItemsList(combined);
                   return ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    itemCount: combined.length + (showLoadMore ? 1 : 0),
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+                    itemCount: items.length + (showLoadMore ? 1 : 0),
                     itemBuilder: (context, index) {
                       if (showLoadMore && index == 0) {
                         return Padding(
@@ -1182,26 +1493,78 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                         );
                       }
-                      final msg = combined[showLoadMore ? index - 1 : index];
-                      final isPending = msg.id.startsWith('pending_');
+                      final item = items[showLoadMore ? index - 1 : index];
+                      if (item is _ChatDateDivider) {
+                        return _DateDivider(date: item.date);
+                      }
+                      final msgItem = item as _ChatMessageItem;
                       return _MessageBubble(
-                        message: msg,
+                        message: msgItem.message,
                         currentUserId: widget.currentUserId,
-                        isPending: isPending,
-                        isLiveSharing: _liveMessageId == msg.id,
-                        onStopLiveSharing: msg.id == _liveMessageId ? _stopLiveSharing : null,
-                        onTapLocation: msg.hasValidCoordinates ? () => _openFullScreenMap(msg) : null,
+                        senderAvatar: widget.conversation.userAvatar,
+                        senderInitial: widget.conversation.userName.isNotEmpty
+                            ? widget.conversation.userName.substring(0, 1).toUpperCase()
+                            : '?',
+                        isPending: msgItem.isPending,
+                        isFirstInGroup: msgItem.isFirstInGroup,
+                        isLastInGroup: msgItem.isLastInGroup,
+                        isLiveSharing: _liveMessageId == msgItem.message.id,
+                        onStopLiveSharing: msgItem.message.id == _liveMessageId ? _stopLiveSharing : null,
+                        onTapLocation: msgItem.message.hasValidCoordinates ? () => _openFullScreenMap(msgItem.message) : null,
+                        onLongPressMessage: msgItem.isPending || msgItem.message.deletedForEveryone
+                            ? null
+                            : _showMessageActions,
+                        onTapReplyQuote: _scrollToMessage,
                       );
                     },
                   );
                 },
               ),
+              // Scroll-to-bottom button — appears when scrolled away from latest messages
+              if (!_isNearBottom)
+                Positioned(
+                  bottom: 12,
+                  right: 12,
+                  child: GestureDetector(
+                    onTap: _scrollToBottom,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryAccent,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             ),
             // Typing indicator — sits between message list and input bar
             if (_otherIsTyping)
               _TypingIndicator(
                 isDark: isDark,
                 userName: widget.conversation.userName,
+              ),
+            // Reply preview bar — visible when user long-pressed a message to reply.
+            if (_replyToMessage != null)
+              _ReplyPreviewBar(
+                replyTo: _replyToMessage!,
+                isDark: isDark,
+                partnerName: widget.conversation.userName,
+                onCancel: () => setState(() => _replyToMessage = null),
               ),
             // Input bar — resizeToAvoidBottomInset moves the whole body up when keyboard opens;
             // SafeArea covers the home-indicator gap on notched devices.
@@ -1217,7 +1580,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -1406,19 +1769,56 @@ class _LiveOption extends StatelessWidget {
 class _MessageBubble extends StatelessWidget {
   final Message message;
   final String currentUserId;
+  final String senderAvatar;
+  final String senderInitial;
   final bool isPending;
   final bool isLiveSharing;
   final VoidCallback? onStopLiveSharing;
   final VoidCallback? onTapLocation;
+  final bool isFirstInGroup;
+  final bool isLastInGroup;
+  final void Function(Message)? onLongPressMessage;
+  final void Function(String replyToId)? onTapReplyQuote;
 
   const _MessageBubble({
     required this.message,
     required this.currentUserId,
+    this.senderAvatar = '',
+    this.senderInitial = '?',
     this.isPending = false,
     this.isLiveSharing = false,
     this.onStopLiveSharing,
     this.onTapLocation,
+    this.isFirstInGroup = true,
+    this.isLastInGroup = true,
+    this.onLongPressMessage,
+    this.onTapReplyQuote,
   });
+
+  // Computes bubble corner radii based on message position within a sender group.
+  // The "tail" (flat corner, r=4) appears only on the last message of a group,
+  // pointing toward the avatar side. Mid-group messages use a tighter inner radius (r=6).
+  BorderRadius _buildBorderRadius() {
+    const r = Radius.circular(18);
+    const tail = Radius.circular(4);
+    const inner = Radius.circular(6);
+
+    if (message.isMe) {
+      return BorderRadius.only(
+        topLeft: r,
+        topRight: isFirstInGroup ? r : inner,
+        bottomLeft: r,
+        bottomRight: isLastInGroup ? tail : inner,
+      );
+    } else {
+      return BorderRadius.only(
+        topLeft: isFirstInGroup ? r : inner,
+        topRight: r,
+        bottomLeft: isLastInGroup ? tail : inner,
+        bottomRight: r,
+      );
+    }
+  }
 
   String _formatTime(DateTime time) {
     final now = DateTime.now();
@@ -1444,36 +1844,108 @@ class _MessageBubble extends StatelessWidget {
     return d.inMinutes + (d.inSeconds % 60 > 0 ? 1 : 0);
   }
 
+  Widget _buildTombstone(BuildContext context, bool isDark) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLastInGroup ? 6 : 2),
+      child: Row(
+        mainAxisAlignment: message.isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!message.isMe) const SizedBox(width: 32),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.darkCard.withValues(alpha: 0.6) : AppTheme.lightCard,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                width: 0.5,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.block_rounded,
+                  size: 13,
+                  color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  'This message was deleted',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (message.isMe) const SizedBox(width: 4),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Tombstone — replaces full bubble for deleted messages.
+    if (message.deletedForEveryone) {
+      return _buildTombstone(context, isDark).animate().fadeIn(duration: 200.ms);
+    }
+
     final isLocation = message.isLocation && message.hasValidCoordinates;
     final isImage = message.isImage && (message.attachmentUrl != null && message.attachmentUrl!.isNotEmpty);
     final isFile = message.isFile && (message.attachmentUrl != null && message.attachmentUrl!.isNotEmpty);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(
+        bottom: isLastInGroup ? 6 : 2,
+        top: isFirstInGroup ? 0 : 0,
+      ),
       child: Row(
         mainAxisAlignment:
             message.isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!message.isMe) const SizedBox(width: 4),
-          Container(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.75,
+          // Sender avatar — shown on the left for received messages
+          if (!message.isMe) ...[
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: isLastInGroup
+                  ? CircleAvatar(
+                      radius: 14,
+                      backgroundColor: AppTheme.primaryAccent,
+                      backgroundImage: senderAvatar.isNotEmpty
+                          ? CachedNetworkImageProvider(senderAvatar)
+                          : null,
+                      child: senderAvatar.isEmpty
+                          ? Text(
+                              senderInitial,
+                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            )
+                          : null,
+                    )
+                  : null,
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            const SizedBox(width: 4),
+          ],
+          GestureDetector(
+            onLongPress: onLongPressMessage != null ? () => onLongPressMessage!(message) : null,
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.72,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: message.isMe
                   ? AppTheme.primaryAccent
                   : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(18),
-                topRight: const Radius.circular(18),
-                bottomLeft: Radius.circular(message.isMe ? 18 : 4),
-                bottomRight: Radius.circular(message.isMe ? 4 : 18),
-              ),
+              borderRadius: _buildBorderRadius(),
               border: message.isMe
                   ? null
                   : Border.all(
@@ -1487,6 +1959,62 @@ class _MessageBubble extends StatelessWidget {
               crossAxisAlignment: message.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Quoted reply block — shown when this message is a reply to another.
+                if (message.replyToId != null && message.replyToPreview != null) ...[
+                  GestureDetector(
+                    onTap: onTapReplyQuote != null ? () => onTapReplyQuote!(message.replyToId!) : null,
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: message.isMe
+                            ? Colors.white.withValues(alpha: 0.18)
+                            : (isDark
+                                ? AppTheme.darkSurface.withValues(alpha: 0.8)
+                                : AppTheme.lightBorder.withValues(alpha: 0.5)),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border(
+                          left: BorderSide(
+                            color: message.isMe
+                                ? Colors.white.withValues(alpha: 0.7)
+                                : AppTheme.primaryAccent,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            message.replyToSender ?? 'Unknown',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                              color: message.isMe
+                                  ? Colors.white
+                                  : AppTheme.primaryAccent,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            message.replyToPreview!.length > 100
+                                ? '${message.replyToPreview!.substring(0, 100)}…'
+                                : message.replyToPreview!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: message.isMe
+                                  ? Colors.white.withValues(alpha: 0.8)
+                                  : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 if (isImage) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
@@ -1517,7 +2045,7 @@ class _MessageBubble extends StatelessWidget {
                         color: message.isMe
                             ? Colors.white
                             : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                        fontSize: 14,
+                        fontSize: 15,
                       ),
                     ),
                   ],
@@ -1544,7 +2072,7 @@ class _MessageBubble extends StatelessWidget {
                               color: message.isMe
                                   ? Colors.white
                                   : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                              fontSize: 14,
+                              fontSize: 15,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -1609,7 +2137,7 @@ class _MessageBubble extends StatelessWidget {
                       color: message.isMe
                           ? Colors.white
                           : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                      fontSize: 14,
+                      fontSize: 15,
                     ),
                   ),
                 const SizedBox(height: 2),
@@ -1622,7 +2150,7 @@ class _MessageBubble extends StatelessWidget {
                         color: message.isMe
                             ? Colors.white.withValues(alpha: 0.7)
                             : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
-                        fontSize: 10,
+                        fontSize: 11,
                       ),
                     ),
                     if (message.isMe) ...[
@@ -1637,6 +2165,7 @@ class _MessageBubble extends StatelessWidget {
               ],
             ),
           ),
+          ), // GestureDetector
           if (message.isMe) const SizedBox(width: 4),
         ],
       ),
@@ -1648,17 +2177,18 @@ class _MessageBubble extends StatelessWidget {
 }
 
 /// Tick-style delivery/read indicator for sent messages.
-/// pending → clock  |  sent → ✓  |  seen → ✓✓ (blue)
+/// pending → spinner  |  sent → ✓  |  seen → ✓✓ (blue)
+/// State transitions are cross-faded via AnimatedSwitcher.
 class _MessageStatusIcon extends StatelessWidget {
   final bool isPending;
   final String status;
 
   const _MessageStatusIcon({required this.isPending, required this.status});
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _icon() {
     if (isPending) {
       return SizedBox(
+        key: const ValueKey('pending'),
         width: 12,
         height: 12,
         child: CircularProgressIndicator(
@@ -1668,10 +2198,31 @@ class _MessageStatusIcon extends StatelessWidget {
       );
     }
     if (status == 'seen') {
-      return const Icon(Icons.done_all_rounded, size: 14, color: Colors.lightBlueAccent);
+      return const Icon(
+        Icons.done_all_rounded,
+        size: 14,
+        color: Colors.lightBlueAccent,
+        key: ValueKey('seen'),
+      );
     }
-    // 'sent' (default)
-    return Icon(Icons.done_rounded, size: 14, color: Colors.white.withValues(alpha: 0.65));
+    return Icon(
+      Icons.done_rounded,
+      size: 14,
+      color: Colors.white.withValues(alpha: 0.65),
+      key: const ValueKey('sent'),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(scale: animation, child: child),
+      ),
+      child: _icon(),
+    );
   }
 }
 
@@ -1711,10 +2262,13 @@ class _TypingIndicatorState extends State<_TypingIndicator>
     final bgColor = widget.isDark ? AppTheme.darkCard : AppTheme.lightCard;
     final borderColor = widget.isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
 
+    // Left-align to match received message bubbles:
+    // ListView has 12px left padding, avatar column is 28px + 4px gap = 44px total.
     return Padding(
-      padding: const EdgeInsets.only(left: 16, bottom: 6),
+      padding: const EdgeInsets.only(left: 44, bottom: 6),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        // mainAxisSize defaults to max — fills width so the bubble anchors left
+        // instead of being centred by the parent Column.
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Container(
@@ -1759,6 +2313,92 @@ class _TypingIndicatorState extends State<_TypingIndicator>
     );
   }
 }
+
+// ── Chat list item types ───────────────────────────────────────────────────
+
+abstract class _ChatListItem {}
+
+class _ChatDateDivider extends _ChatListItem {
+  final DateTime date;
+  _ChatDateDivider(this.date);
+}
+
+class _ChatMessageItem extends _ChatListItem {
+  final Message message;
+  final bool isPending;
+  final bool isFirstInGroup;
+  final bool isLastInGroup;
+
+  _ChatMessageItem({
+    required this.message,
+    required this.isPending,
+    required this.isFirstInGroup,
+    required this.isLastInGroup,
+  });
+}
+
+// ── Date divider widget ────────────────────────────────────────────────────
+
+class _DateDivider extends StatelessWidget {
+  final DateTime date;
+
+  const _DateDivider({required this.date});
+
+  String _label() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final d = DateTime(date.year, date.month, date.day);
+    if (d == today) return 'Today';
+    if (d == yesterday) return 'Yesterday';
+    if (today.difference(d).inDays < 7) {
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      return days[date.weekday - 1];
+    }
+    const months = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[date.month]} ${date.day}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dividerColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final labelBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final labelColor = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          Expanded(child: Divider(color: dividerColor, height: 1)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: labelBg,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: dividerColor, width: 0.5),
+              ),
+              child: Text(
+                _label(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: labelColor,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ),
+          ),
+          Expanded(child: Divider(color: dividerColor, height: 1)),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Map preview helpers ────────────────────────────────────────────────────
 
 class _LocationMapPreview extends StatelessWidget {
   final double latitude;
@@ -1929,6 +2569,236 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
             ),
         ],
       ),
+    );
+  }
+}
+
+// ── Message long-press action sheet ─────────────────────────────────────────
+
+class _MessageActionsSheet extends StatelessWidget {
+  final Message message;
+  final bool canDeleteForEveryone;
+  final VoidCallback? onCopy;
+  final VoidCallback onReply;
+  final VoidCallback onDeleteForMe;
+  final VoidCallback? onDeleteForEveryone;
+
+  const _MessageActionsSheet({
+    required this.message,
+    required this.canDeleteForEveryone,
+    required this.onCopy,
+    required this.onReply,
+    required this.onDeleteForMe,
+    this.onDeleteForEveryone,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+
+    final preview = message.text.isNotEmpty
+        ? (message.text.length > 80 ? '${message.text.substring(0, 80)}…' : message.text)
+        : message.isImage
+            ? 'Photo'
+            : message.isFile
+                ? 'File'
+                : 'Location';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                preview,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontStyle: message.text.isEmpty ? FontStyle.italic : FontStyle.normal,
+                  color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+            ),
+            Divider(
+              height: 1,
+              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+            ),
+            if (onCopy != null)
+              _ActionTile(
+                icon: Icons.content_copy_rounded,
+                label: 'Copy',
+                onTap: onCopy!,
+              ),
+            _ActionTile(
+              icon: Icons.reply_rounded,
+              label: 'Reply',
+              onTap: onReply,
+            ),
+            _ActionTile(
+              icon: Icons.delete_outline_rounded,
+              label: 'Delete for me',
+              onTap: onDeleteForMe,
+              color: AppTheme.errorRed,
+            ),
+            if (onDeleteForEveryone != null)
+              _ActionTile(
+                icon: Icons.delete_forever_rounded,
+                label: 'Delete for everyone',
+                onTap: onDeleteForEveryone!,
+                color: AppTheme.errorRed,
+              ),
+            if (!message.isMe)
+              _ActionTile(
+                icon: Icons.flag_outlined,
+                label: 'Report',
+                onTap: () => Navigator.pop(context),
+                color: AppTheme.warningOrange,
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Reply preview bar (shown above the text input when replying) ──────────────
+
+class _ReplyPreviewBar extends StatelessWidget {
+  final Message replyTo;
+  final bool isDark;
+  final String partnerName;
+  final VoidCallback onCancel;
+
+  const _ReplyPreviewBar({
+    required this.replyTo,
+    required this.isDark,
+    required this.partnerName,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor = AppTheme.primaryAccent;
+    final bg = isDark
+        ? AppTheme.darkCard.withValues(alpha: 0.95)
+        : AppTheme.lightCard;
+    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+
+    final preview = replyTo.text.isNotEmpty
+        ? replyTo.text.substring(0, replyTo.text.length.clamp(0, 120))
+        : replyTo.isImage
+            ? 'Photo'
+            : replyTo.isFile
+                ? 'File'
+                : 'Location';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border(
+          top: BorderSide(color: borderColor, width: 0.5),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 36,
+            decoration: BoxDecoration(
+              color: accentColor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  replyTo.isMe ? 'You' : partnerName,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    color: accentColor,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  preview,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: onCancel,
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Icon(
+                Icons.close_rounded,
+                size: 18,
+                color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color? color;
+
+  const _ActionTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = color ?? (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary);
+    return ListTile(
+      leading: Icon(icon, color: c, size: 22),
+      title: Text(label, style: TextStyle(color: c, fontSize: 15)),
+      dense: true,
+      onTap: onTap,
     );
   }
 }

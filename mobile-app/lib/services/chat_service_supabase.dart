@@ -377,6 +377,12 @@ class ChatServiceSupabase {
     if (row['longitude'] != null) map['longitude'] = (row['longitude'] as num).toDouble();
     if (row['live_until'] != null) map['live_until'] = row['live_until'].toString();
     if (row['attachment_url'] != null) map['attachment_url'] = row['attachment_url'].toString();
+    if (row['deleted_for_everyone'] != null) {
+      map['deleted_for_everyone'] = row['deleted_for_everyone'] as bool;
+    }
+    if (row['reply_to_id']      != null) map['reply_to_id']      = row['reply_to_id'].toString();
+    if (row['reply_to_sender']  != null) map['reply_to_sender']  = row['reply_to_sender'].toString();
+    if (row['reply_to_preview'] != null) map['reply_to_preview'] = row['reply_to_preview'].toString();
     return Message.fromJson(map, currentUserId);
   }
 
@@ -567,15 +573,21 @@ class ChatServiceSupabase {
     required String chatIdParam,
     required String senderId,
     required String content,
+    String? replyToId,
+    String? replyToSender,
+    String? replyToPreview,
   }) async {
     final text = content.trim();
     if (text.isEmpty) throw ChatServiceException('Message cannot be empty');
     try {
-      final insert = {
+      final insert = <String, dynamic>{
         'chat_id': chatIdParam,
         'sender_id': senderId,
         'content': text,
         'type': 'text',
+        if (replyToId      != null) 'reply_to_id':      replyToId,
+        if (replyToSender  != null) 'reply_to_sender':  replyToSender,
+        if (replyToPreview != null) 'reply_to_preview': replyToPreview,
       };
       final res = await _client.from('chat_messages').insert(insert).select().single();
       final row = res as Map<String, dynamic>;
@@ -649,6 +661,8 @@ class ChatServiceSupabase {
         'last_message': 'Location',
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', chatId);
+      // Fire-and-forget push to recipient (NestJS — same path as text/attachments).
+      unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '📍 Location'));
       return _messageFromRow(row, chatId, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendLocation: $e');
@@ -682,6 +696,8 @@ class ChatServiceSupabase {
         'last_message': 'Live location',
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', chatId);
+      // Fire-and-forget push to recipient (NestJS — same path as text/attachments).
+      unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '📍 Live location'));
       return _messageFromRow(row, chatId, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendLiveLocation: $e');
@@ -715,6 +731,31 @@ class ChatServiceSupabase {
     } catch (e) {
       debugPrint('ChatServiceSupabase stopLiveLocation: $e');
       rethrow;
+    }
+  }
+
+  /// Soft-delete a message for everyone.
+  /// Returns false if the 15-minute sender window has passed.
+  static Future<bool> deleteMessageForEveryone(
+    String messageId,
+    DateTime messageTimestamp,
+  ) async {
+    if (DateTime.now().difference(messageTimestamp).inMinutes > 15) return false;
+    try {
+      // .select() after .update() returns the rows that were actually mutated.
+      // An empty list means 0 rows updated — RLS blocked the write silently.
+      final rows = await _client.from('chat_messages').update({
+        'deleted_for_everyone': true,
+        'deleted_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', messageId).select();
+      if ((rows as List).isEmpty) {
+        debugPrint('ChatServiceSupabase deleteMessageForEveryone: 0 rows updated (RLS?)');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      debugPrint('ChatServiceSupabase deleteMessageForEveryone: $e');
+      return false;
     }
   }
 

@@ -3,6 +3,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_firebase.dart';
 import 'auth_service.dart';
@@ -17,43 +18,244 @@ const String _kChannelId   = 'help24_high_importance';
 const String _kChannelName = 'Help24 Notifications';
 const String _kChannelDesc = 'Job updates, payments, and messages';
 
-// ── Chat message cache for MessagingStyle grouping ───────────────────────────
-// Maps chatId → last N messages for grouped Android notification display.
-// Lives for the app session; cleared when the app is killed (acceptable).
-final Map<String, List<_ChatCachedMessage>> _chatMessageCache = {};
+// ── Persistent chat notification cache ───────────────────────────────────────
+// SharedPreferences-backed so the cache survives process kills and is readable
+// by both the main isolate (foreground) and the background handler isolate.
+// Key: 'help24_cn_<chatId>'  Value: JSON array of {sn, t, ts}
+const String _kCachePrefix = 'help24_cn_';
+const int    _kMaxCachedMessages = 7;
 
-class _ChatCachedMessage {
+class _CachedMsg {
   final String senderName;
   final String text;
   final DateTime timestamp;
-  _ChatCachedMessage({required this.senderName, required this.text, required this.timestamp});
+  _CachedMsg({required this.senderName, required this.text, required this.timestamp});
+}
+
+Future<List<_CachedMsg>> _loadCache(String chatId) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    // reload() forces a disk re-read, bypassing the in-memory cache.
+    // Without this, the main isolate never sees writes made by the
+    // background handler isolate (they write to the same XML file but
+    // each isolate holds its own in-memory snapshot).
+    await prefs.reload();
+    final raw   = prefs.getString('$_kCachePrefix$chatId');
+    if (raw == null) return [];
+    final list  = jsonDecode(raw) as List;
+    return list.map<_CachedMsg>((m) => _CachedMsg(
+      senderName: (m['sn'] as String?) ?? '',
+      text:       (m['t']  as String?) ?? '',
+      timestamp:  DateTime.fromMillisecondsSinceEpoch((m['ts'] as int?) ?? 0),
+    )).toList();
+  } catch (_) {
+    return [];
+  }
+}
+
+Future<void> _saveCache(String chatId, List<_CachedMsg> msgs) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final json  = jsonEncode(msgs.map((m) => {
+      'sn': m.senderName,
+      't':  m.text,
+      'ts': m.timestamp.millisecondsSinceEpoch,
+    }).toList());
+    await prefs.setString('$_kCachePrefix$chatId', json);
+  } catch (_) {}
+}
+
+/// Parse the backend-supplied `thread` payload (JSON array of {s,t,ts}).
+/// This is the AUTHORITATIVE thread source — the backend builds it from the DB
+/// on every push, so MessagingStyle renders deterministically regardless of
+/// whether the cross-isolate SharedPreferences cache persisted.
+List<_CachedMsg> _parseThread(String raw) {
+  try {
+    final list = jsonDecode(raw) as List;
+    return list.map<_CachedMsg>((m) => _CachedMsg(
+      senderName: (m['s'] as String?) ?? 'Someone',
+      text:       (m['t'] as String?) ?? '',
+      timestamp:  DateTime.fromMillisecondsSinceEpoch((m['ts'] as int?) ?? 0),
+    )).toList();
+  } catch (_) {
+    return [];
+  }
 }
 
 // ── Module-level singletons ───────────────────────────────────────────────────
-// flutter_local_notifications requires a single plugin instance for the
-// entire app lifetime. Creating it here (not inside a class) avoids accidental
-// double-initialisation.
 final FlutterLocalNotificationsPlugin _localNotifications =
     FlutterLocalNotificationsPlugin();
 
-// AndroidNotificationChannel must be const so it can be used in show() details
-// and in createNotificationChannel() — both places require the same id.
 const AndroidNotificationChannel _androidChannel = AndroidNotificationChannel(
   _kChannelId,
   _kChannelName,
   description: _kChannelDesc,
-  importance: Importance.max,  // maps to NotificationManager.IMPORTANCE_HIGH on Android 8+
+  importance: Importance.max,
   playSound: true,
   enableVibration: true,
 );
 
 // ── Background handler ────────────────────────────────────────────────────────
-// Must be a top-level function annotated @pragma('vm:entry-point').
-// FCM handles display automatically in background/terminated state using the
-// channel declared in AndroidManifest. This handler only does logging.
+// Called by FCM when the app is backgrounded/terminated AND the message is
+// data-only (no `notification` field).  Chat messages are sent data-only from
+// the backend so we can build MessagingStyle here instead of getting the plain
+// replacement behaviour that FCM auto-display with `android.notification.tag`
+// would produce.
+//
+// This runs in a SEPARATE Dart isolate — no access to main-isolate globals.
+// SharedPreferences provides the cross-isolate persistent cache.
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  debugPrint('[FCM][BACKGROUND] id=${message.messageId} type=${message.data['type']}');
+  final type    = message.data['type']    as String? ?? '';
+  final chatId  = message.data['chat_id'] as String?;
+  final emitter = message.data['emitter'] as String?;
+  final hasNotif = message.notification != null;
+
+  // Full lifecycle trace — identifies the EXACT push shape and origin.
+  debugPrint('[FCM][REMOTE_RECEIVED] bg id=${message.messageId} type=$type '
+      'emitter=$emitter hasNotification=$hasNotif');
+  debugPrint('[FCM][FULL_PAYLOAD] ${message.data}');
+  debugPrint('[FCM][HAS_NOTIFICATION] ${message.notification != null} '
+      'title=${message.notification?.title} body=${message.notification?.body}');
+  debugPrint('[FCM][EMITTER_FINGERPRINT] emitter=$emitter '
+      'version=${message.data['emitter_version']} service=${message.data['emitter_service']}');
+  debugPrint('[FCM][BACKGROUND_HANDLER] id=${message.messageId} type=$type chatId=$chatId');
+
+  // A legitimate chat push is data-only (hasNotification=false) and stamped
+  // emitter='nestjs'. Anything else is a FOREIGN emitter (legacy edge function,
+  // stale webhook, DB trigger) — log it loudly so the duplicate source is named.
+  if (type == 'chat_message' && emitter != 'nestjs') {
+    debugPrint('[FCM][FOREIGN_EMITTER] chat push without emitter=nestjs '
+        '(emitter=$emitter hasNotification=$hasNotif) — THIS is the duplicate source. '
+        'title=${message.notification?.title} body=${message.notification?.body}');
+  }
+  if (hasNotif) {
+    // Data-only chat pushes never carry a notification block. If one does, the
+    // OS may also auto-display it → duplicate. Name it.
+    debugPrint('[FCM][AUTO_NOTIFICATION_RISK] push carries a notification block '
+        'title=${message.notification?.title} — OS may auto-display a second card');
+  }
+
+  if (type != 'chat_message' || chatId == null) return;
+
+  // flutter_local_notifications requires bindings + channel setup in every isolate.
+  WidgetsFlutterBinding.ensureInitialized();
+  await _localNotifications
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(_androidChannel);
+  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  await _localNotifications.initialize(
+    const InitializationSettings(android: androidInit),
+  );
+
+  final senderName = message.data['sender_name']      as String? ?? 'Someone';
+  final body       = message.data['message_preview']  as String? ?? '';
+  final threadRaw  = message.data['thread']           as String?;
+
+  // Prefer the backend-supplied thread (authoritative, DB-built). Fall back to
+  // the local cross-isolate cache only when the payload omits it (older backend).
+  List<_CachedMsg> cache;
+  if (threadRaw != null && threadRaw.isNotEmpty) {
+    cache = _parseThread(threadRaw);
+    debugPrint('[CHAT_NOTIFY][THREAD_FROM_BACKEND] chatId=$chatId count=${cache.length}');
+    // Mirror to local cache so foreground history stays consistent.
+    await _saveCache(chatId, cache);
+  } else {
+    cache = await _loadCache(chatId);
+    final isNewThread = cache.isEmpty;
+    debugPrint('[CHAT_NOTIFY][${isNewThread ? 'THREAD_CREATED' : 'THREAD_FOUND'}] chatId=$chatId historyCount=${cache.length}');
+    cache.add(_CachedMsg(senderName: senderName, text: body, timestamp: DateTime.now()));
+    if (cache.length > _kMaxCachedMessages) cache.removeAt(0);
+    await _saveCache(chatId, cache);
+    debugPrint('[CHAT_NOTIFY][MESSAGE_APPENDED] chatId=$chatId totalCount=${cache.length}');
+  }
+
+  await _showMessagingStyleNotif(
+    chatId: chatId,
+    latestSender: senderName,
+    latestBody:   body,
+    cache:        cache,
+    data:         Map<String, dynamic>.from(message.data),
+  );
+  debugPrint('[CHAT_NOTIFY][THREAD_REBUILT] chatId=$chatId totalMessages=${cache.length}');
+}
+
+// ── Shared notification builder ───────────────────────────────────────────────
+// Used by both the foreground handler and the background handler so both paths
+// produce identical MessagingStyle notifications.
+Future<void> _showMessagingStyleNotif({
+  required String chatId,
+  required String latestSender,
+  required String latestBody,
+  required List<_CachedMsg> cache,
+  required Map<String, dynamic> data,
+}) async {
+  final int    notifId  = chatId.hashCode.abs() & 0x7FFFFFFF;
+  final String groupKey = 'chat_$chatId';
+
+  debugPrint('[CHAT_NOTIFY][THREAD_REUSED] chatId=$chatId notifId=$notifId groupKey=$groupKey');
+  debugPrint('[CHAT_NOTIFY][THREAD_HISTORY_COUNT] chatId=$chatId count=${cache.length}');
+  debugPrint('[CHAT_NOTIFY][APPEND_MESSAGE] chatId=$chatId sender=$latestSender preview=$latestBody');
+  // The ONLY place chat notifications are rendered. If you ever see TWO cards but
+  // only ONE [FCM][LOCAL_RENDER] per message, the second card is an OS auto-display
+  // from a foreign emitter (push with a notification block), not this code.
+  debugPrint('[FCM][LOCAL_RENDER] chatId=$chatId notifId=$notifId sender=$latestSender messages=${cache.length}');
+
+  try {
+    final messages = cache.map((m) => Message(
+      m.text,
+      m.timestamp,
+      Person(name: m.senderName, key: m.senderName),
+    )).toList();
+
+    await _localNotifications.show(
+      notifId,
+      latestSender,
+      latestBody,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _kChannelId,
+          _kChannelName,
+          channelDescription: _kChannelDesc,
+          importance:      Importance.max,
+          priority:        Priority.high,
+          playSound:       true,
+          enableVibration: true,
+          icon: '@mipmap/ic_launcher',
+          groupKey:        groupKey,
+          setAsGroupSummary: false,
+          styleInformation: MessagingStyleInformation(
+            const Person(name: 'You'),
+            conversationTitle: latestSender,
+            groupConversation: false,
+            messages:          messages,
+          ),
+        ),
+      ),
+      payload: jsonEncode(data),
+    );
+  } catch (e) {
+    // MessagingStyle is unavailable (old device / missing dependency).
+    // Show a plain notification rather than silently dropping it.
+    // We log this so it's easy to spot during QA.
+    debugPrint('[CHAT_NOTIFY][FALLBACK_BLOCKED] MessagingStyle failed — falling back to plain: $e');
+    try {
+      await _localNotifications.show(
+        notifId, latestSender, latestBody,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _kChannelId, _kChannelName,
+            channelDescription: _kChannelDesc,
+            importance: Importance.max,
+            priority:   Priority.high,
+            playSound:       true,
+            enableVibration: true,
+          ),
+        ),
+        payload: jsonEncode(data),
+      );
+    } catch (_) {}
+  }
 }
 
 // ── NotificationService ───────────────────────────────────────────────────────
@@ -63,9 +265,12 @@ class NotificationService {
   static String? _currentToken;
   static GlobalKey<NavigatorState>? _navigatorKey;
   static bool _tokenRefreshListenerAttached = false;
+  // Idempotency guards — prevent double listener attachment after hot restart
+  // or an accidental second initialize()/setupMessageHandlers() call, which
+  // would make onMessage fire (and render) twice per push.
+  static bool _initialized = false;
+  static bool _handlersAttached = false;
 
-  // Callback registered from main.dart to handle taps on local notifications
-  // (produced by _showLocalNotification while app is in foreground).
   static void Function(Map<String, dynamic> data)? _onLocalTapCallback;
 
   static String? get currentToken => _currentToken;
@@ -74,9 +279,6 @@ class NotificationService {
     _navigatorKey = key;
   }
 
-  /// Register a callback that receives the FCM data payload when the user taps
-  /// a local notification shown while the app is in the foreground.
-  /// Call from main.dart before runApp.
   static void setOnLocalNotificationTap(
       void Function(Map<String, dynamic> data) callback) {
     _onLocalTapCallback = callback;
@@ -84,248 +286,126 @@ class NotificationService {
 
   // ── Initialisation ──────────────────────────────────────────────────────────
 
-  /// One-time startup. Call after Firebase is ready and before any FCM work.
-  /// Order matters:
-  ///   1. createNotificationChannel  — registers channel with OS (idempotent)
-  ///   2. flutter_local_notifications.initialize — must be before first show()
-  ///   3. setForegroundNotificationPresentationOptions — iOS only
-  ///   4. FirebaseMessaging.onBackgroundMessage — registers isolate entry point
-  ///   5. requestPermission + getToken
   static Future<void> initialize() async {
     if (!AppFirebase.isReady) {
-      debugPrint('[FCM][INIT] Firebase not ready — skipping FCM initialization');
+      debugPrint('[FCM][INIT] Firebase not ready — skipping');
       return;
     }
-    debugPrint('[FCM][INIT] starting FCM initialization');
+    if (_initialized) {
+      debugPrint('[FCM][INIT] already initialized — skipping (idempotency guard)');
+      return;
+    }
+    _initialized = true;
+    debugPrint('[FCM][INIT] starting');
     try {
-      // Step 1: create the Android notification channel.
-      // This is idempotent — Android silently ignores duplicate channel creation.
-      // Must happen BEFORE any notification is posted so the channel exists.
+      // Create notification channel (idempotent on Android).
       await _localNotifications
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(_androidChannel);
-      debugPrint('[FCM][CHANNEL_CREATED] id=$_kChannelId importance=max playSound=true');
+      debugPrint('[FCM][CHANNEL] created id=$_kChannelId');
 
-      // Step 2: initialise flutter_local_notifications.
+      // Initialise flutter_local_notifications.
       const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-      const initSettings = InitializationSettings(android: androidInit);
       await _localNotifications.initialize(
-        initSettings,
+        const InitializationSettings(android: androidInit),
         onDidReceiveNotificationResponse: _onLocalNotificationTap,
       );
-      debugPrint('[FCM][SOUND_ENABLED] flutter_local_notifications initialized');
 
-      // Step 3: iOS foreground presentation (no-op on Android).
+      // iOS: suppress OS banner in foreground; in-app overlay handles display.
       await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-        alert: true,
+        alert: false,
         badge: true,
-        sound: true,
+        sound: false,
       );
 
-      // Step 4: background handler — must be registered before messages arrive.
+      // Background handler — must be registered early.
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-      // Step 5: permission + token.
       await _requestPermissionAndToken();
       _attachTokenRefreshListener();
 
-      debugPrint('[FCM][INIT] FCM initialization complete');
+      debugPrint('[FCM][INIT] complete');
     } catch (e, st) {
       debugPrint('[FCM][INIT][ERROR] $e');
       if (kDebugMode) debugPrint(st.toString());
     }
   }
 
-  // ── Foreground message presentation ────────────────────────────────────────
+  // ── Foreground message display ──────────────────────────────────────────────
+  //
+  // NOTE: there is intentionally NO foreground OS-notification path for chat.
+  // Foreground → in-app banner only (main.dart). Background/terminated → the
+  // background isolate (_firebaseMessagingBackgroundHandler) is the SOLE OS
+  // renderer. The former _showLocalNotification / _showGroupedChatNotification
+  // helpers were removed — they were unreferenced and contained a second
+  // _localNotifications.show() path plus a "Someone" fallback that could emit a
+  // duplicate card. Do not reintroduce a second render path here.
 
-  /// Show an OS-level local notification for a message that arrived while the
-  /// app is in the foreground. FCM does NOT auto-display on Android when the
-  /// app is open — this is the required replacement.
-  static Future<void> _showLocalNotification(RemoteMessage message) async {
-    final type = message.data['type'] as String? ?? '';
-
-    // Chat messages use MessagingStyle — same notification ID per conversation
-    // so messages stack instead of spawning separate cards.
-    if (type == 'chat_message') {
-      await _showGroupedChatNotification(message);
-      return;
-    }
-
-    final notification = message.notification;
-    if (notification == null) {
-      debugPrint('[FCM][LOCAL_NOTIFICATION] no notification payload — nothing to show');
-      return;
-    }
-
-    final id = ((message.messageId ?? (type.isNotEmpty ? type : 'fcm')).hashCode).abs() & 0x7FFFFFFF;
-    final title = notification.title ?? 'Help24';
-    final body  = notification.body  ?? '';
-
-    debugPrint('[FCM][LOCAL_NOTIFICATION] id=$id type=$type title="$title"');
-
-    try {
-      await _localNotifications.show(
-        id,
-        title,
-        body,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            _kChannelId,
-            _kChannelName,
-            channelDescription: _kChannelDesc,
-            importance: Importance.max,
-            priority: Priority.high,
-            playSound: true,
-            enableVibration: true,
-            icon: '@mipmap/ic_launcher',
-          ),
-        ),
-        payload: jsonEncode(message.data),
-      );
-      debugPrint('[FCM][FOREGROUND_SHOWN] local notification displayed id=$id');
-    } catch (e) {
-      debugPrint('[FCM][LOCAL_NOTIFICATION][ERROR] $e');
-    }
-  }
-
-  /// Show a grouped conversation notification using Android MessagingStyle.
-  /// All messages from the same chat accumulate under the same notification ID
-  /// (chatId.hashCode) so the user sees one card per conversation, not one per message.
-  static Future<void> _showGroupedChatNotification(RemoteMessage message) async {
-    final chatId     = message.data['chat_id'] as String?;
-    final senderName = message.notification?.title ?? 'Someone';
-    final body       = message.notification?.body ?? '';
-
-    if (chatId == null) {
-      // No chatId — fall back to plain notification.
-      await _showLocalNotification(message);
-      return;
-    }
-
-    // Accumulate messages in cache (keep last 5 for MessagingStyle display).
-    final cache = _chatMessageCache[chatId] ?? [];
-    cache.add(_ChatCachedMessage(
-      senderName: senderName,
-      text: body,
-      timestamp: DateTime.now(),
-    ));
-    if (cache.length > 5) cache.removeAt(0);
-    _chatMessageCache[chatId] = cache;
-
-    final int notifId = chatId.hashCode.abs() & 0x7FFFFFFF;
-    final String groupKey = 'chat_$chatId';
-
-    debugPrint('[CHAT_NOTIFY][GROUP_KEY] chatId=$chatId groupKey=$groupKey');
-    debugPrint('[CHAT_NOTIFY][NOTIFICATION_ID] id=$notifId chatId=$chatId');
-    debugPrint('[CHAT_NOTIFY][MESSAGE_APPENDED] sender=$senderName count=${cache.length}');
-    debugPrint('[CHAT_NOTIFY][UPDATE_THREAD] id=$notifId messages=${cache.length}');
-
-    try {
-      final messages = cache
-          .map((m) => Message(m.text, m.timestamp, Person(name: m.senderName)))
-          .toList();
-
-      await _localNotifications.show(
-        notifId,
-        senderName,
-        body,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            _kChannelId,
-            _kChannelName,
-            channelDescription: _kChannelDesc,
-            importance: Importance.max,
-            priority: Priority.high,
-            playSound: true,
-            enableVibration: true,
-            icon: '@mipmap/ic_launcher',
-            groupKey: groupKey,       // groups all messages from this chat into one thread
-            setAsGroupSummary: false, // this notification is a thread member, not the summary
-            styleInformation: MessagingStyleInformation(
-              const Person(name: 'You'),
-              messages: messages,
-              groupConversation: false,
-            ),
-          ),
-        ),
-        payload: jsonEncode(message.data),
-      );
-      debugPrint('[CHAT_NOTIFY][UPDATE_THREAD] notification updated id=$notifId chatId=$chatId');
-    } catch (e) {
-      debugPrint('[CHAT_NOTIFY][ERROR] MessagingStyle failed, falling back: $e');
-      // Fallback: plain notification so the user still gets something.
-      final notification = message.notification;
-      if (notification != null) {
-        await _localNotifications.show(
-          notifId,
-          notification.title ?? 'Help24',
-          notification.body ?? '',
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              _kChannelId, _kChannelName,
-              channelDescription: _kChannelDesc,
-              importance: Importance.max,
-              priority: Priority.high,
-              playSound: true,
-              enableVibration: true,
-            ),
-          ),
-          payload: jsonEncode(message.data),
-        );
-      }
-    }
-  }
-
-  /// Called when the user taps a local notification produced by _showLocalNotification.
   static void _onLocalNotificationTap(NotificationResponse response) {
-    debugPrint('[FCM][TAP] local notification tapped payload=${response.payload}');
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
     try {
       final data = jsonDecode(payload) as Map<String, dynamic>;
-      debugPrint('[FCM][TAP] decoded data=$data');
+      debugPrint('[FCM][TAP] local notification tapped data=$data');
       _onLocalTapCallback?.call(data);
     } catch (e) {
-      debugPrint('[FCM][TAP][ERROR] decode failed: $e');
+      debugPrint('[FCM][TAP][ERROR] $e');
     }
   }
 
   // ── Message listeners ───────────────────────────────────────────────────────
 
-  /// Wire up all FCM message listeners. Call once from main.dart (in initState
-  /// or during bootstrap), before the app is fully built so no messages are missed.
   static void setupMessageHandlers({
     required void Function(RemoteMessage message) onForegroundMessage,
     required void Function(RemoteMessage message) onNotificationTap,
   }) {
+    if (_handlersAttached) {
+      debugPrint('[FCM][SETUP] handlers already attached — skipping (idempotency guard)');
+      return;
+    }
+    _handlersAttached = true;
     try {
-      // Foreground: FCM delivers but does NOT display on Android.
-      // We show a local notification first, then call the app's in-app banner.
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        debugPrint('[FCM][ON_MESSAGE] foreground message type=${message.data['type'] ?? 'unknown'} id=${message.messageId}');
-        _showLocalNotification(message);  // OS notification with sound
-        onForegroundMessage(message);     // in-app banner (supplementary)
-      }, onError: (e) {
-        debugPrint('[FCM][ON_MESSAGE][ERROR] $e');
-      });
+        final type     = message.data['type'] as String? ?? '';
+        final emitter  = message.data['emitter'] as String?;
+        final hasNotif = message.notification != null;
 
-      // Tapped while app was in background (not terminated).
+        // Full lifecycle trace. In FOREGROUND, EVERY push (even ones with a
+        // notification block) is delivered here — so this is the definitive
+        // place to count emitters. Send one message with the app open: if you
+        // see TWO [FCM][FOREGROUND_HANDLER] logs, there are two emitters, and
+        // the one with emitter≠nestjs / hasNotification=true is the duplicate.
+        debugPrint('[FCM][REMOTE_RECEIVED] fg id=${message.messageId} type=$type '
+            'emitter=$emitter hasNotification=$hasNotif data=${message.data}');
+        debugPrint('[FCM][FOREGROUND_HANDLER] type=$type emitter=$emitter '
+            'hasNotification=$hasNotif id=${message.messageId}');
+
+        if (type == 'chat_message' && emitter != 'nestjs') {
+          debugPrint('[FCM][FOREIGN_EMITTER] foreground chat push without emitter=nestjs '
+              '(emitter=$emitter hasNotification=$hasNotif '
+              'title=${message.notification?.title} body=${message.notification?.body}) '
+              '— THIS is the duplicate source.');
+        }
+
+        // Foreground path: the in-app banner is the ONLY notification shown.
+        // No _localNotifications.show() here — the OS tray notification is
+        // exclusively the background isolate's job. (Showing one here was the
+        // original double-notification bug.)
+        debugPrint('[FCM][AUTO_NOTIFICATION_BLOCKED] type=$type foreground=true — OS notification suppressed; in-app banner only');
+        onForegroundMessage(message);
+      }, onError: (e) => debugPrint('[FCM][FG][ERROR] $e'));
+
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-        debugPrint('[FCM][OPENED_APP] notification tapped from background data=${message.data}');
+        debugPrint('[FCM][OPENED] data=${message.data}');
         onNotificationTap(message);
-      }, onError: (e) {
-        debugPrint('[FCM][OPENED_APP][ERROR] $e');
-      });
+      }, onError: (e) => debugPrint('[FCM][OPENED][ERROR] $e'));
 
-      // Tapped when app was fully terminated.
       FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
         if (message != null) {
-          debugPrint('[FCM][INITIAL_MESSAGE] app opened from terminated state data=${message.data}');
+          debugPrint('[FCM][INITIAL] data=${message.data}');
           onNotificationTap(message);
         }
-      }).catchError((e) {
-        debugPrint('[FCM][INITIAL_MESSAGE][ERROR] $e');
-      });
+      }).catchError((e) => debugPrint('[FCM][INITIAL][ERROR] $e'));
     } catch (e) {
       debugPrint('[FCM][SETUP][ERROR] $e');
     }
@@ -334,56 +414,36 @@ class NotificationService {
   // ── Permission + Token ──────────────────────────────────────────────────────
 
   static Future<bool> _requestPermission() async {
-    debugPrint('[FCM][PERMISSION_REQUEST] requesting notification permission');
     try {
       final settings = await _messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
+        alert: true, badge: true, sound: true,
       );
       final status = settings.authorizationStatus;
-      debugPrint('[FCM][PERMISSION_RESULT] status=$status');
+      debugPrint('[FCM][PERMISSION] status=$status');
       return status == AuthorizationStatus.authorized ||
-          status == AuthorizationStatus.provisional;
+             status == AuthorizationStatus.provisional;
     } catch (e) {
-      debugPrint('[FCM][PERMISSION_REQUEST][ERROR] $e');
+      debugPrint('[FCM][PERMISSION][ERROR] $e');
       return false;
     }
   }
 
   static Future<void> _requestPermissionAndToken() async {
     final granted = await _requestPermission();
-    if (!granted) {
-      debugPrint('[FCM][TOKEN_REQUEST] permission not granted — token registration skipped');
-      return;
-    }
-    debugPrint('[FCM][TOKEN_REQUEST] requesting FCM token');
+    if (!granted) return;
     try {
       _currentToken = await _messaging.getToken();
-      if (_currentToken == null) {
-        debugPrint('[FCM][TOKEN_ERROR] getToken() returned null');
-        return;
-      }
-      final preview = _currentToken!.length > 16
-          ? '${_currentToken!.substring(0, 16)}…'
-          : _currentToken!;
-      debugPrint('[FCM][TOKEN_RECEIVED] token=$preview');
-
+      if (_currentToken == null) return;
       final uid = AuthService.currentUserId;
       if (uid != null) {
         final prefs = await UserProfileService.getNotificationPrefs(uid);
         if (prefs.notificationsEnabled) {
-          debugPrint('[FCM][TOKEN_SAVE] saving token for uid=$uid');
           await UserProfileService.addFcmToken(uid, _currentToken!);
-          debugPrint('[FCM][TOKEN_SAVE] token saved for uid=$uid');
-        } else {
-          debugPrint('[FCM][TOKEN_SAVE] notifications disabled for uid=$uid — token not saved');
+          debugPrint('[FCM][TOKEN] saved for uid=$uid');
         }
-      } else {
-        debugPrint('[FCM][TOKEN_SAVE] no logged-in user — token will be saved on login');
       }
     } catch (e) {
-      debugPrint('[FCM][TOKEN_ERROR] $e');
+      debugPrint('[FCM][TOKEN][ERROR] $e');
     }
   }
 
@@ -391,83 +451,60 @@ class NotificationService {
     if (_tokenRefreshListenerAttached) return;
     _tokenRefreshListenerAttached = true;
     FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
-      debugPrint('[FCM][TOKEN_REFRESH] new token from Firebase');
       _currentToken = token;
       final uid = AuthService.currentUserId;
-      if (uid == null || uid.isEmpty) {
-        debugPrint('[FCM][TOKEN_REFRESH] no logged-in user — token not saved');
-        return;
-      }
+      if (uid == null || uid.isEmpty) return;
       final prefs = await UserProfileService.getNotificationPrefs(uid);
-      if (!prefs.notificationsEnabled) {
-        debugPrint('[FCM][TOKEN_REFRESH] notifications disabled for uid=$uid — token not saved');
-        return;
-      }
+      if (!prefs.notificationsEnabled) return;
       await UserProfileService.addFcmToken(uid, token);
-      debugPrint('[FCM][TOKEN_REFRESH] token saved for uid=$uid');
-    }, onError: (e) {
-      debugPrint('[FCM][TOKEN_ERROR] onTokenRefresh: $e');
-    });
+      debugPrint('[FCM][TOKEN_REFRESH] saved for uid=$uid');
+    }, onError: (e) => debugPrint('[FCM][TOKEN_REFRESH][ERROR] $e'));
   }
 
   // ── Login / logout token lifecycle ─────────────────────────────────────────
 
-  /// Call after Firebase login: ensure the FCM token is registered for this user.
   static Future<void> onLogin(String uid) async {
     if (!AppFirebase.isReady || uid.isEmpty) return;
-    debugPrint('[FCM][TOKEN_SAVE] onLogin uid=$uid — saving token');
     try {
       _currentToken = await _messaging.getToken();
       if (_currentToken == null) {
-        debugPrint('[FCM][TOKEN_REQUEST] no cached token — requesting fresh token');
         await _requestPermissionAndToken();
         return;
       }
       final prefs = await UserProfileService.getNotificationPrefs(uid);
       if (prefs.notificationsEnabled) {
         await UserProfileService.addFcmToken(uid, _currentToken!);
-        debugPrint('[FCM][TOKEN_SAVE] token saved on login for uid=$uid');
-      } else {
-        debugPrint('[FCM][TOKEN_SAVE] notifications disabled for uid=$uid — token not saved');
+        debugPrint('[FCM][LOGIN] token saved for uid=$uid');
       }
     } catch (e) {
-      debugPrint('[FCM][TOKEN_ERROR] onLogin: $e');
+      debugPrint('[FCM][LOGIN][ERROR] $e');
     }
   }
 
-  /// Call when user enables notifications in settings.
   static Future<void> enableAndSaveToken(String uid) async {
     if (!AppFirebase.isReady || uid.isEmpty) return;
-    debugPrint('[FCM][TOKEN_SAVE] enableAndSaveToken uid=$uid');
     try {
       await UserProfileService.setNotificationsEnabled(uid, true);
       final granted = await _requestPermission();
-      if (!granted) {
-        debugPrint('[FCM][TOKEN_SAVE] permission not granted — token not saved');
-        return;
-      }
+      if (!granted) return;
       _currentToken = await _messaging.getToken();
       if (_currentToken != null) {
         await UserProfileService.addFcmToken(uid, _currentToken!);
-        debugPrint('[FCM][TOKEN_SAVE] token saved after enable for uid=$uid');
       }
     } catch (e) {
-      debugPrint('[FCM][TOKEN_ERROR] enableAndSaveToken: $e');
+      debugPrint('[FCM][ENABLE][ERROR] $e');
     }
   }
 
-  /// Call when user disables notifications: remove token from Supabase.
   static Future<void> disableAndRemoveToken(String uid) async {
     if (uid.isEmpty) return;
-    debugPrint('[FCM][TOKEN_SAVE] disableAndRemoveToken uid=$uid');
     try {
       await UserProfileService.setNotificationsEnabled(uid, false);
       if (_currentToken != null) {
         await UserProfileService.removeFcmToken(uid, _currentToken!);
-        debugPrint('[FCM][TOKEN_SAVE] token removed for uid=$uid');
       }
     } catch (e) {
-      debugPrint('[FCM][TOKEN_ERROR] disableAndRemoveToken: $e');
+      debugPrint('[FCM][DISABLE][ERROR] $e');
     }
   }
 }

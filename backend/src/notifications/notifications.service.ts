@@ -106,9 +106,13 @@ export class NotificationsService {
       );
     }
 
-    let tokens: string[] = (tokenRows ?? [])
-      .map((r: { token: string }) => r.token)
-      .filter(Boolean);
+    // Dedupe: a device that re-registered can leave duplicate token rows, which
+    // would send the same push twice. Set() collapses them to one delivery.
+    let tokens: string[] = [
+      ...new Set(
+        (tokenRows ?? []).map((r: { token: string }) => r.token).filter(Boolean),
+      ),
+    ];
 
     this.logger.log(
       `[FCM][TOKENS_TABLE] userId=${payload.userId} rows=${tokenRows?.length ?? 0} valid=${tokens.length}`,
@@ -143,22 +147,76 @@ export class NotificationsService {
     }
 
     try {
+      // Chat messages use data-only on Android so the Flutter background isolate
+      // can display MessagingStyle (accumulated thread).  If we include an
+      // android.notification field, the FCM SDK auto-displays using `tag`
+      // replacement — each new message wipes the previous one from the tray.
+      // Data-only messages trigger onBackgroundMessage() where Flutter builds
+      // the full MessagingStyle notification from its persistent cache.
+      //
+      // iOS still needs a visible push; we supply it via apns.payload.aps.alert
+      // so the user receives a banner regardless of app state.
+      const isChatMessage = payload.type === 'chat_message';
+
       const message: MulticastMessage = {
         tokens,
-        notification: { title: payload.title, body: payload.body },
-        data: { type: payload.type, ...(payload.data ?? {}) },
+
+        // Top-level notification: used by iOS and as fallback for non-chat events.
+        // Omitted for chat on Android (handled by background isolate instead).
+        ...(!isChatMessage
+          ? { notification: { title: payload.title, body: payload.body } }
+          : {}),
+
+        data: {
+          type: payload.type,
+          // Embed human-readable fields in data so the background isolate can
+          // read them without a separate DB query.
+          ...(isChatMessage
+            ? { sender_name: payload.title, message_preview: payload.body }
+            : {}),
+          ...(payload.data ?? {}),
+        },
+
         android: {
           priority: 'high',
-          notification: {
-            channelId: 'help24_high_importance',
-            sound: 'default',
-            // androidTag groups messages — same tag replaces existing notification
-            // instead of stacking. Used for chat conversations (tag = chatId).
-            ...(payload.androidTag ? { tag: payload.androidTag } : {}),
+          // Chat: no android.notification → no auto-display → background isolate takes over.
+          // Other events: standard channel + optional tag-based replacement.
+          ...(!isChatMessage
+            ? {
+                notification: {
+                  channelId: 'help24_high_importance',
+                  sound: 'default',
+                  ...(payload.androidTag ? { tag: payload.androidTag } : {}),
+                },
+              }
+            : {}),
+        },
+
+        apns: {
+          payload: {
+            aps: {
+              // iOS banner for all notification types including chat.
+              alert: { title: payload.title, body: payload.body },
+              sound: 'default',
+              badge: 1,
+              // content-available lets iOS wake the app for background processing.
+              ...(isChatMessage ? { 'content-available': 1 } : {}),
+            },
           },
         },
-        apns: { payload: { aps: { sound: 'default', badge: 1 } } },
       };
+
+      // For chat, assert the payload carries NO notification block on any layer —
+      // Android must never auto-display; the Flutter background isolate is the
+      // sole renderer. This log makes a regression here obvious in production.
+      if (isChatMessage) {
+        this.logger.log(
+          `[FCM][CHAT_DATA_ONLY] userId=${payload.userId} ` +
+          `topLevelNotification=${'notification' in message} ` +
+          `androidNotification=${!!(message.android && 'notification' in message.android)} ` +
+          `emitter=nestjs`,
+        );
+      }
 
       this.logger.log(
         `[FCM][SEND] type=${payload.type} userId=${payload.userId} tokens=${tokens.length}`,
@@ -246,20 +304,58 @@ export class NotificationsService {
     const recipientId = params.senderId === user1 ? user2 : user1;
     const postId      = chat.post_id as string | null;
 
-    // 2. Resolve sender display name.
-    const { data: sender } = await this.supabase.client
+    // 2. Resolve BOTH participant display names in one query so we can label
+    //    every message in the thread (not just the latest sender).
+    const { data: participants } = await this.supabase.client
       .from('users')
-      .select('name')
-      .eq('id', params.senderId)
-      .maybeSingle();
+      .select('id, name')
+      .in('id', [user1, user2]);
 
-    const senderName = (sender?.name as string | null) ?? 'Someone';
+    const nameById: Record<string, string> = {};
+    for (const p of participants ?? []) {
+      nameById[p.id as string] = ((p.name as string | null) ?? '').trim() || 'Someone';
+    }
+    const senderName = nameById[params.senderId] ?? 'Someone';
 
-    // 3. Send bell notification + FCM push to recipient.
+    // 3. Build the recent thread server-side and ship it in the payload.
+    //    This makes Android MessagingStyle threading DETERMINISTIC — the
+    //    background isolate renders the thread straight from this array
+    //    instead of an unreliable cross-isolate SharedPreferences cache
+    //    (which silently fails to accumulate on many devices, causing each
+    //    new push to replace the previous one instead of expanding it).
+    const previewFor = (content: unknown, mtype: unknown): string => {
+      const c = typeof content === 'string' ? content.trim() : '';
+      if (c) return c.slice(0, 100);
+      switch (mtype) {
+        case 'image':    return '📷 Photo';
+        case 'file':     return '📎 File';
+        case 'location': return '📍 Location';
+        default:         return 'Message';
+      }
+    };
+
+    const { data: recent } = await this.supabase.client
+      .from('chat_messages')
+      .select('sender_id, content, type, created_at, deleted_for_everyone')
+      .eq('chat_id', params.chatId)
+      .order('created_at', { ascending: false })
+      .limit(7);
+
+    // Oldest→newest, skip soft-deleted, denormalise sender name + epoch ms.
+    const thread = (recent ?? [])
+      .filter((m) => m.deleted_for_everyone !== true)
+      .reverse()
+      .map((m) => ({
+        s:  nameById[m.sender_id as string] ?? 'Someone',
+        t:  previewFor(m.content, m.type),
+        ts: new Date(m.created_at as string).getTime(),
+      }));
+
+    // 4. Send bell notification + FCM push to recipient.
     const preview = params.messagePreview.slice(0, 100);
 
     this.logger.log(
-      `[NOTIFY][CHAT_BELL_CREATED] recipientId=${recipientId} senderName=${senderName} chatId=${params.chatId}`,
+      `[NOTIFY][CHAT_BELL_CREATED] recipientId=${recipientId} senderName=${senderName} chatId=${params.chatId} threadLen=${thread.length}`,
     );
 
     await this.send({
@@ -270,6 +366,16 @@ export class NotificationsService {
       data: {
         chat_id:   params.chatId,
         sender_id: params.senderId,
+        // Full recent thread for MessagingStyle (JSON, ~1KB — well under FCM's 4KB).
+        thread:    JSON.stringify(thread),
+        // Emitter fingerprint: lets the Flutter client tell a legitimate push
+        // (this backend, current build) apart from any push emitted by STALE
+        // code — e.g. a Render deployment still running the pre-data-only build,
+        // which sends a notification block and no emitter. A chat push missing
+        // these fields is logged client-side as [FCM][FOREIGN_EMITTER].
+        emitter:         'nestjs',
+        emitter_version: 'v2',
+        emitter_service: 'help24-api',
         ...(postId ? { post_id: postId } : {}),
       },
       androidTag: params.chatId, // same tag → Android replaces existing notification

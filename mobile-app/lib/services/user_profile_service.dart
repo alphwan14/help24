@@ -211,12 +211,18 @@ class UserProfileService {
     }
   }
 
-  /// Upsert FCM token into the dedicated fcm_tokens table.
-  /// Uses ON CONFLICT(token) to handle cross-user device re-registration.
+  /// Upsert FCM token and remove all stale tokens for this user+platform.
+  ///
+  /// Runs on every app launch. One device = one valid token; extras accumulate
+  /// silently from reinstalls or FCM rotations. The backend sends to ALL tokens
+  /// for a user, so extras cause duplicate pushes. Upsert first (no zero-token
+  /// window), then wipe every other token for this platform.
   static Future<void> addFcmToken(String uid, String token) async {
     if (!_isAvailable || uid.isEmpty || token.isEmpty) return;
     try {
       final platform = _detectPlatform();
+
+      // Step 1: upsert current token so user always has at least one valid token.
       debugPrint('[FCM][TOKEN_SAVE] upsert token for uid=$uid platform=$platform');
       await _client.from('fcm_tokens').upsert(
         {
@@ -227,7 +233,23 @@ class UserProfileService {
         },
         onConflict: 'token',
       );
-      debugPrint('[FCM][TOKEN_SAVE] token upserted for uid=$uid');
+
+      // Step 2: delete every OTHER token for this user+platform.
+      // Runs unconditionally so pre-existing stale tokens are always purged,
+      // even if this is the first run after a reinstall or the fix deployment.
+      try {
+        await _client
+            .from('fcm_tokens')
+            .delete()
+            .eq('user_id', uid)
+            .eq('platform', platform)
+            .neq('token', token);
+        debugPrint('[FCM][TOKEN_CLEANUP] stale tokens removed for uid=$uid platform=$platform');
+      } catch (cleanupErr) {
+        debugPrint('[FCM][TOKEN_CLEANUP][WARN] $cleanupErr');
+      }
+
+      debugPrint('[FCM][TOKEN_SAVE] done uid=$uid');
     } catch (e) {
       debugPrint('[FCM][TOKEN_ERROR] addFcmToken: $e');
     }

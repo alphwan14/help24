@@ -306,7 +306,15 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
     }
 
     const title = post_title ?? 'your job';
-    this.logger.log(`[PROCESSOR][HANDLE] escrow_released: notifying provider=${provider_id} buyer=${buyer_id}`);
+
+    // Look up chat for deep-link routing (both parties share the same chat).
+    const { data: erChat } = await this.supabase.client
+      .from('chats').select('id')
+      .eq('post_id', post_id)
+      .or(`user1.eq.${provider_id},user2.eq.${provider_id}`)
+      .maybeSingle();
+    const erChatId = (erChat?.id as string | null) ?? '';
+    this.logger.log(`[PROCESSOR][HANDLE] escrow_released: notifying provider=${provider_id} buyer=${buyer_id} chatId=${erChatId || 'none'}`);
 
     await this.notifications.sendMany([
       {
@@ -314,14 +322,14 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
         type: 'escrow_released',
         title: 'Payout Confirmed!',
         body: `Your M-Pesa payout for "${title}" has been sent. Check your M-Pesa messages.`,
-        data: { post_id, transaction_id },
+        data: { post_id, transaction_id, ...(erChatId ? { chat_id: erChatId } : {}) },
       },
       {
         userId: buyer_id,
         type: 'escrow_released',
         title: 'Payment Complete',
         body: `The payment for "${title}" has been released to the provider.`,
-        data: { post_id, transaction_id },
+        data: { post_id, transaction_id, ...(erChatId ? { chat_id: erChatId } : {}) },
       },
     ]);
   }
@@ -346,32 +354,15 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleJobDisputed(payload: Record<string, unknown>): Promise<void> {
-    const { post_id, post_title, provider_id, client_user_id, dispute_id } = payload as {
-      post_id: string;
-      post_title: string;
-      provider_id: string;
-      client_user_id: string;
-      dispute_id: string;
+    // Notifications sent inline by jobs.service.dispute() — EventProcessor handles
+    // this event for audit/retry only, not for notification dispatch.
+    // (Dispatching here would duplicate the inline notification already sent.)
+    const { post_id, provider_id, client_user_id } = payload as {
+      post_id: string; provider_id: string; client_user_id: string;
     };
-
-    this.logger.log(`[PROCESSOR][HANDLE] job.disputed: notifying provider=${provider_id} client=${client_user_id}`);
-
-    await this.notifications.sendMany([
-      {
-        userId: provider_id,
-        type: 'dispute_opened',
-        title: 'Dispute Opened',
-        body: `The client has raised a dispute on "${post_title}". Funds are frozen pending admin review.`,
-        data: { post_id, dispute_id },
-      },
-      {
-        userId: client_user_id,
-        type: 'dispute_opened',
-        title: 'Dispute Submitted',
-        body: `Your dispute on "${post_title}" has been submitted. Admin will review within 24-48 hours.`,
-        data: { post_id, dispute_id },
-      },
-    ]);
+    this.logger.log(
+      `[PROCESSOR][HANDLE] job.disputed: audit-only post=${post_id} provider=${provider_id} client=${client_user_id}`,
+    );
   }
 
   private async handleDisputeOpened(_payload: Record<string, unknown>): Promise<void> {
@@ -383,20 +374,27 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
       post_id: string; post_title: string; provider_id: string; buyer_id: string;
     };
 
+    const { data: drrChat } = await this.supabase.client
+      .from('chats').select('id')
+      .eq('post_id', post_id)
+      .or(`user1.eq.${provider_id},user2.eq.${provider_id}`)
+      .maybeSingle();
+    const drrChatId = (drrChat?.id as string | null) ?? '';
+
     await this.notifications.sendMany([
       {
         userId: provider_id,
         type: 'dispute_resolved_release',
         title: 'Dispute Resolved — Payout Approved',
         body: `Admin reviewed "${post_title}" and released the full payment to you.`,
-        data: { post_id },
+        data: { post_id, ...(drrChatId ? { chat_id: drrChatId } : {}) },
       },
       {
         userId: buyer_id,
         type: 'dispute_resolved_release',
         title: 'Dispute Resolved',
         body: `Admin reviewed "${post_title}" and released payment to the provider.`,
-        data: { post_id },
+        data: { post_id, ...(drrChatId ? { chat_id: drrChatId } : {}) },
       },
     ]);
   }
@@ -406,20 +404,27 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
       post_id: string; post_title: string; provider_id: string; buyer_id: string;
     };
 
+    const { data: drfChat } = await this.supabase.client
+      .from('chats').select('id')
+      .eq('post_id', post_id)
+      .or(`user1.eq.${provider_id},user2.eq.${provider_id}`)
+      .maybeSingle();
+    const drfChatId = (drfChat?.id as string | null) ?? '';
+
     await this.notifications.sendMany([
       {
         userId: buyer_id,
         type: 'dispute_resolved_refund',
         title: 'Refund Approved',
         body: `Admin reviewed "${post_title}" and approved a full refund. You will receive your M-Pesa refund shortly.`,
-        data: { post_id },
+        data: { post_id, ...(drfChatId ? { chat_id: drfChatId } : {}) },
       },
       {
         userId: provider_id,
         type: 'dispute_resolved_refund',
         title: 'Dispute Resolved',
         body: `Admin reviewed "${post_title}" and issued a full refund to the client.`,
-        data: { post_id },
+        data: { post_id, ...(drfChatId ? { chat_id: drfChatId } : {}) },
       },
     ]);
   }
@@ -430,20 +435,27 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
       provider_amount: number; buyer_refund: number;
     };
 
+    const { data: drpChat } = await this.supabase.client
+      .from('chats').select('id')
+      .eq('post_id', post_id)
+      .or(`user1.eq.${provider_id},user2.eq.${provider_id}`)
+      .maybeSingle();
+    const drpChatId = (drpChat?.id as string | null) ?? '';
+
     await this.notifications.sendMany([
       {
         userId: provider_id,
         type: 'dispute_resolved_partial',
         title: 'Dispute Resolved — Partial Payment',
         body: `Admin split the payment for "${post_title}". You will receive KES ${provider_amount.toLocaleString()} via M-Pesa.`,
-        data: { post_id, amount: String(provider_amount) },
+        data: { post_id, amount: String(provider_amount), ...(drpChatId ? { chat_id: drpChatId } : {}) },
       },
       {
         userId: buyer_id,
         type: 'dispute_resolved_partial',
         title: 'Dispute Resolved — Partial Refund',
         body: `Admin split the payment for "${post_title}". You will receive a refund of KES ${buyer_refund.toLocaleString()} via M-Pesa.`,
-        data: { post_id, amount: String(buyer_refund) },
+        data: { post_id, amount: String(buyer_refund), ...(drpChatId ? { chat_id: drpChatId } : {}) },
       },
     ]);
   }

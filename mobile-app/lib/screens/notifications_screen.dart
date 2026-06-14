@@ -54,6 +54,7 @@ class NotificationsDb {
         .from('notifications')
         .select()
         .eq('user_id', userId)
+        .neq('type', 'chat_message')   // chat messages belong in the Messages tab, not the bell
         .order('created_at', ascending: false)
         .limit(limit);
     return (res as List<dynamic>)
@@ -66,6 +67,7 @@ class NotificationsDb {
         .from('notifications')
         .select('id')
         .eq('user_id', userId)
+        .neq('type', 'chat_message')   // exclude chat_message from bell badge
         .eq('read', false);
     return (res as List<dynamic>).length;
   }
@@ -141,6 +143,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 '[NOTIFICATIONS][REALTIME] parsed type=${newNotification.type} '
                 'title="${newNotification.title}"',
               );
+              // Chat messages are surfaced in the Messages tab, not the bell.
+              if (newNotification.type == 'chat_message') return;
               if (mounted) {
                 setState(() {
                   _notifications = [newNotification, ..._notifications];
@@ -285,16 +289,48 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
-  /// Open ChatScreen given a chatId. Uses minimal Conversation to avoid DB round-trip.
+  /// Open ChatScreen for a given chatId. Loads the partner's name/avatar so the
+  /// chat header always shows the real user's name rather than a generic placeholder.
   Future<void> _openChatById({required String chatId, String userName = 'Chat'}) async {
     if (!mounted) return;
     debugPrint('[NOTIFICATIONS][NAV] opening ChatScreen chatId=$chatId');
+
+    String resolvedName = userName;
+    String resolvedAvatar = '';
+    String participantId = '';
+    try {
+      final chatRow = await Supabase.instance.client
+          .from('chats')
+          .select('user1, user2')
+          .eq('id', chatId)
+          .maybeSingle();
+      if (chatRow != null) {
+        final u1 = chatRow['user1'] as String? ?? '';
+        final u2 = chatRow['user2'] as String? ?? '';
+        participantId = (u1 == widget.userId) ? u2 : u1;
+        if (participantId.isNotEmpty) {
+          final userRow = await Supabase.instance.client
+              .from('users')
+              .select('name, profile_picture_url')
+              .eq('id', participantId)
+              .maybeSingle();
+          resolvedName = (userRow?['name'] as String?) ?? userName;
+          resolvedAvatar = (userRow?['profile_picture_url'] as String?) ?? '';
+        }
+      }
+    } catch (e) {
+      debugPrint('[NOTIFICATIONS][NAV] partner name load failed: $e');
+    }
+
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ChatScreen(
           conversation: Conversation(
             id: chatId,
-            userName: userName,
+            participantId: participantId,
+            userName: resolvedName,
+            userAvatar: resolvedAvatar,
             lastMessage: '',
             lastMessageTime: DateTime.now(),
           ),

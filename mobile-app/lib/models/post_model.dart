@@ -303,6 +303,8 @@ class PostModel {
   final String? selectedProviderUserId;
   /// True if the offer author has a verified M-Pesa phone on file.
   final bool authorHasPhone;
+  /// Lifecycle state of the post: open | assigned | completed | disputed.
+  final String status;
 
   PostModel({
     required this.id,
@@ -331,6 +333,7 @@ class PostModel {
     this.applications = const [],
     this.selectedProviderUserId,
     this.authorHasPhone = false,
+    this.status = 'open',
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Whether to show a numeric rating (has at least one review). Otherwise show "New".
@@ -390,6 +393,7 @@ class PostModel {
       applications: applications,
       selectedProviderUserId: json['selected_provider_id']?.toString(),
       authorHasPhone: _userHasPhone(authorUsers),
+      status: json['status']?.toString() ?? 'open',
     );
   }
 
@@ -442,6 +446,7 @@ class PostModel {
       'applications': applications.map((a) => a.toCacheMap()).toList(),
       'users': {'name': authorName, 'profile_image': authorAvatar, if (authorHasPhone) 'phone_number': '1'},
       if (selectedProviderUserId != null) 'selected_provider_id': selectedProviderUserId,
+      'status': status,
     };
   }
 
@@ -548,6 +553,7 @@ class PostModel {
     List<Application>? applications,
     String? selectedProviderUserId,
     bool? authorHasPhone,
+    String? status,
   }) {
     return PostModel(
       id: id ?? this.id,
@@ -576,6 +582,7 @@ class PostModel {
       applications: applications ?? this.applications,
       selectedProviderUserId: selectedProviderUserId ?? this.selectedProviderUserId,
       authorHasPhone: authorHasPhone ?? this.authorHasPhone,
+      status: status ?? this.status,
     );
   }
 
@@ -916,6 +923,16 @@ class Message {
   /// 'sent' | 'seen'
   final String status;
   final DateTime? seenAt;
+  /// True when the sender deleted this message for everyone.
+  /// Row is kept in DB; UI renders a tombstone instead of the content.
+  final bool deletedForEveryone;
+
+  /// Reply threading — null when this message is not a reply.
+  final String? replyToId;
+  /// Denormalised: display name of the sender of the quoted message.
+  final String? replyToSender;
+  /// Denormalised: first ~200 chars of the quoted message text.
+  final String? replyToPreview;
 
   Message({
     required this.id,
@@ -932,6 +949,10 @@ class Message {
     this.attachmentUrl,
     this.status = 'sent',
     this.seenAt,
+    this.deletedForEveryone = false,
+    this.replyToId,
+    this.replyToSender,
+    this.replyToPreview,
   });
 
   bool get isLocation => type == 'location' || type == 'live_location';
@@ -956,6 +977,10 @@ class Message {
     final seenAt = json['seen_at'] != null
         ? DateTime.tryParse(json['seen_at'].toString())
         : null;
+    final deletedForEveryone = json['deleted_for_everyone'] as bool? ?? false;
+    final replyToId      = json['reply_to_id']?.toString();
+    final replyToSender  = json['reply_to_sender']?.toString();
+    final replyToPreview = json['reply_to_preview']?.toString();
     return Message(
       id: (json['id'] ?? '').toString(),
       conversationId: (json['conversation_id'] ?? '').toString(),
@@ -973,6 +998,10 @@ class Message {
       attachmentUrl: attachmentUrl,
       status: status,
       seenAt: seenAt,
+      deletedForEveryone: deletedForEveryone,
+      replyToId: replyToId,
+      replyToSender: replyToSender,
+      replyToPreview: replyToPreview,
     );
   }
 
@@ -991,6 +1020,10 @@ class Message {
     String? attachmentUrl,
     String? status,
     DateTime? seenAt,
+    bool? deletedForEveryone,
+    String? replyToId,
+    String? replyToSender,
+    String? replyToPreview,
   }) {
     return Message(
       id: id ?? this.id,
@@ -1007,6 +1040,10 @@ class Message {
       attachmentUrl: attachmentUrl ?? this.attachmentUrl,
       status: status ?? this.status,
       seenAt: seenAt ?? this.seenAt,
+      deletedForEveryone: deletedForEveryone ?? this.deletedForEveryone,
+      replyToId: replyToId ?? this.replyToId,
+      replyToSender: replyToSender ?? this.replyToSender,
+      replyToPreview: replyToPreview ?? this.replyToPreview,
     );
   }
 

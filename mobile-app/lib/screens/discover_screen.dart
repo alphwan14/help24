@@ -341,7 +341,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                               _openOfferServiceModal(context, post),
                         );
                       }
-                    : null,
+                    : () {
+                        // Offer post: "Enquire" opens a direct chat with the provider.
+                        AuthGuard.requireAuth(
+                          context,
+                          action: 'enquire about this service',
+                          onAuthenticated: () => _openPrivateChat(context, post),
+                        );
+                      },
               );
             },
           ),
