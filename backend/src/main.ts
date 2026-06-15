@@ -11,7 +11,7 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
   // CORS is environment-driven: set CORS_ORIGINS to a comma-separated allowlist
-  // in production (e.g. https://admin.help24.app). Unset → allow all (dev).
+  // in production (e.g. https://help24-admin-dashboard.vercel.app). Unset → allow all (dev).
   const corsOrigins = process.env.CORS_ORIGINS?.split(',')
     .map((o) => o.trim())
     .filter(Boolean);

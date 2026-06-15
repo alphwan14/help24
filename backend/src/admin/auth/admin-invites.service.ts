@@ -63,7 +63,7 @@ export class AdminInvitesService {
    * resolve to /accept-invite. This is the FRONTEND origin, never the backend —
    * a misconfig here is the classic "Cannot GET /admin/invite/:token" symptom.
    *   dev:  http://localhost:3001
-   *   prod: https://admin.help24.app
+   *   prod: https://help24-admin-dashboard.vercel.app
    */
   private get dashboardUrl(): string {
     const configured = this.config.get<string>('ADMIN_DASHBOARD_URL');
@@ -71,11 +71,11 @@ export class AdminInvitesService {
       this.warnedNoDashboardUrl = true;
       this.logger.warn(
         '[INVITE] ADMIN_DASHBOARD_URL is not set — invite links default to ' +
-          'https://admin.help24.app. In dev set ADMIN_DASHBOARD_URL=http://localhost:3001 ' +
+          'https://help24-admin-dashboard.vercel.app. In dev set ADMIN_DASHBOARD_URL=http://localhost:3001 ' +
           'so links open the running dashboard, not production.',
       );
     }
-    return (configured ?? 'https://admin.help24.app').replace(/\/+$/, '');
+    return (configured ?? 'https://help24-admin-dashboard.vercel.app').replace(/\/+$/, '');
   }
 
   // ── Create ─────────────────────────────────────────────────────────────────
