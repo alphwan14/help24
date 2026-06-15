@@ -15,13 +15,14 @@ import { cookies } from "next/headers";
  * imported into a Client Component.
  */
 
-// Backend origin is environment-driven. In production (Vercel) set
-// NEXT_PUBLIC_BACKEND_URL to the Render API URL; the localhost value is only a
-// dev fallback when no env var is provided.
+// Backend origin is environment-driven. Vercel/production set
+// NEXT_PUBLIC_BACKEND_URL; this default points at the deployed Render backend so
+// requests work even if the env var is missing. For local dev, override with
+// NEXT_PUBLIC_BACKEND_URL=http://localhost:3000 in .env.local.
 const BACKEND =
   process.env.BACKEND_URL ??
   process.env.NEXT_PUBLIC_BACKEND_URL ??
-  "http://localhost:3000";
+  "https://help24-backend.onrender.com";
 
 export const ADMIN_TOKEN_COOKIE = "h24_admin_token";
 
