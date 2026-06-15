@@ -1,48 +1,37 @@
-import { createServiceClient } from "@/lib/supabase-server";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { ApiError, getCurrentAdmin, getDispute, getRecommendation } from "@/lib/api";
+import type { DisputeRecommendation } from "@/lib/api";
 import DisputeDetailClient from "./DisputeDetailClient";
 
-// Next.js 15: params is a Promise that must be awaited.
+export const dynamic = "force-dynamic";
+
 type PageProps = { params: Promise<{ id: string }> };
 
 export default async function DisputeDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const db = createServiceClient();
-  const { data, error } = await db
-    .from("disputes")
-    .select(
-      `id, status, reason, admin_notes, resolved_by, provider_amount, buyer_refund,
-       created_at, resolved_at,
-       posts(id, title, price, author_user_id, selected_provider_id, status),
-       transactions(id, amount, fee, total_paid, status, mpesa_receipt, created_at),
-       job_completions(id, status, provider_note, created_at)`
-    )
-    .eq("id", id)
-    .single();
 
-  if (error || !data) notFound();
+  // Authenticate against the backend; bounce to the queue (which shows the
+  // connect gate) if no valid admin token.
+  const admin = await getCurrentAdmin();
+  if (!admin) redirect("/dashboard/disputes");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const raw = data as any;
-
-  // Supabase returns joined rows as arrays — grab the first element.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const posts = (Array.isArray(raw.posts) ? raw.posts[0] : raw.posts) as {
-    author_user_id: string;
-    selected_provider_id: string;
-  } | null;
-
-  let buyer = null;
-  let provider = null;
-
-  if (posts) {
-    const [br, pr] = await Promise.all([
-      db.from("users").select("id, name, phone_number").eq("id", posts.author_user_id).single(),
-      db.from("users").select("id, name, phone_number").eq("id", posts.selected_provider_id).single(),
-    ]);
-    buyer = br.data;
-    provider = pr.data;
+  let dispute;
+  try {
+    dispute = await getDispute(id);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) notFound();
+    throw err;
   }
 
-  return <DisputeDetailClient dispute={{ ...raw, posts, buyer, provider }} />;
+  // Advisory recommendation is best-effort — never block the case view on it.
+  let recommendation: DisputeRecommendation | null = null;
+  try {
+    recommendation = await getRecommendation(id);
+  } catch {
+    recommendation = null;
+  }
+
+  return (
+    <DisputeDetailClient dispute={dispute} recommendation={recommendation} admin={admin} />
+  );
 }
