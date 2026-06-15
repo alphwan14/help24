@@ -19,7 +19,7 @@ export default async function DisputeDetailPage({ params }: PageProps) {
   try {
     dispute = await getDispute(id);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) notFound();
+    if (err instanceof ApiError && (err.status === 404 || err.status === 400)) notFound();
     throw err;
   }
 

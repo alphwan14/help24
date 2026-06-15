@@ -5,6 +5,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import { useState, useEffect } from "react";
+import { clearArbitrationToken } from "@/lib/admin-actions";
+import type { ArbitrationIdentity } from "@/lib/arbitration-client";
+import type { AdminRole } from "@/lib/api";
 
 /* ─── Types ─────────────────────────────────────────────── */
 type NavChild = { label: string; href: string };
@@ -13,6 +16,22 @@ type NavItem  = {
   label: string;
   icon: (p: { className?: string }) => React.ReactElement;
   children: NavChild[];
+};
+
+// Resolved by the AdminShell and passed in — the sidebar no longer fetches it.
+type ArbitrationState = ArbitrationIdentity;
+
+/* ─── Role display ──────────────────────────────────────── */
+const ROLE_LABELS: Record<AdminRole, string> = {
+  support_agent: "Support Agent",
+  senior_admin: "Senior Admin",
+  super_admin: "Super Admin",
+};
+
+const ROLE_BADGE: Record<AdminRole, string> = {
+  super_admin:   "bg-indigo-900/60 text-indigo-300 border border-indigo-800/50",
+  senior_admin:  "bg-blue-900/60 text-blue-300 border border-blue-800/50",
+  support_agent: "bg-gray-800 text-gray-400 border border-gray-700/50",
 };
 
 /* ─── Navigation tree ──────────────────────────────────── */
@@ -94,15 +113,106 @@ function resolveActiveId(pathname: string): string | null {
   );
 }
 
-/* ─── Shared nav tree (used in both desktop + mobile drawer) */
+/* ─── Dev debug panel ───────────────────────────────────── */
+function DebugPanel({
+  supabaseEmail,
+  arbitration,
+}: {
+  supabaseEmail: string | null;
+  arbitration: ArbitrationState;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-1">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="text-[10px] text-gray-700 hover:text-gray-500 px-3 py-1 w-full text-left transition-colors"
+      >
+        {open ? "▾" : "▸"} Auth debug
+      </button>
+      {open && (
+        <div className="mx-3 mb-1 p-2 rounded bg-gray-900 border border-gray-800/80 text-[10px] font-mono text-gray-500 space-y-0.5">
+          <div>
+            <span className="text-gray-700">session: </span>
+            {supabaseEmail ?? "none"}
+          </div>
+          <div>
+            <span className="text-gray-700">arbiter: </span>
+            {arbitration.connected ? (arbitration.email ?? "—") : "—"}
+          </div>
+          <div>
+            <span className="text-gray-700">role:    </span>
+            {arbitration.connected ? (arbitration.role ?? "—") : "—"}
+          </div>
+          <div>
+            <span className="text-gray-700">status:  </span>
+            {arbitration.connected ? "connected" : "disconnected"}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Identity card ─────────────────────────────────────── */
+function IdentityCard({
+  supabaseEmail,
+  arbitration,
+}: {
+  supabaseEmail: string | null;
+  arbitration: ArbitrationState;
+}) {
+  const initial = supabaseEmail ? supabaseEmail[0].toUpperCase() : "?";
+
+  return (
+    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+      {/* Avatar */}
+      <div className="w-7 h-7 rounded-full bg-gray-800 ring-1 ring-white/[0.08] flex items-center justify-center text-[11px] font-semibold text-gray-300 shrink-0 select-none">
+        {initial}
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <p className="text-[11.5px] text-gray-300 truncate leading-tight font-medium">
+          {supabaseEmail ?? "…"}
+        </p>
+
+        <div className="mt-[3px]">
+          {arbitration.connected && arbitration.role ? (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span
+                className={`text-[10px] px-1.5 py-px rounded font-medium ${ROLE_BADGE[arbitration.role]}`}
+              >
+                {ROLE_LABELS[arbitration.role]}
+              </span>
+              <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                Connected
+              </span>
+            </div>
+          ) : (
+            <span className="flex items-center gap-1 text-[10px] text-gray-600">
+              <span className="w-1.5 h-1.5 rounded-full bg-gray-700 shrink-0" />
+              No arbitration access
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Shared nav tree ───────────────────────────────────── */
 interface NavTreeProps {
-  activeId:   string | null;
-  openId:     string | null;
-  pathname:   string;
-  onToggle:   (id: string) => void;
-  onSignOut:  () => void;
-  signingOut: boolean;
-  onNavClick?: () => void;
+  activeId:      string | null;
+  openId:        string | null;
+  pathname:      string;
+  onToggle:      (id: string) => void;
+  onSignOut:     () => void;
+  signingOut:    boolean;
+  onNavClick?:   () => void;
+  supabaseEmail: string | null;
+  arbitration:   ArbitrationState;
 }
 
 function NavTree({
@@ -113,7 +223,11 @@ function NavTree({
   onSignOut,
   signingOut,
   onNavClick,
+  supabaseEmail,
+  arbitration,
 }: NavTreeProps) {
+  const isDev = process.env.NODE_ENV === "development";
+
   return (
     <>
       {/* Logo */}
@@ -153,7 +267,7 @@ function NavTree({
                 className={[
                   "relative w-full flex items-center gap-2.5 px-3 py-[9px] rounded-lg",
                   "text-[13px] font-medium transition-colors duration-100",
-                  "min-h-[40px]", // comfortable touch target
+                  "min-h-[40px]",
                   isActive
                     ? "text-white bg-white/[0.09]"
                     : "text-gray-400 hover:text-gray-200 hover:bg-white/[0.05]",
@@ -177,7 +291,6 @@ function NavTree({
                 />
               </button>
 
-              {/* Dropdown children */}
               <div
                 className={[
                   "overflow-hidden transition-all duration-200 ease-out",
@@ -197,7 +310,7 @@ function NavTree({
                         className={[
                           "flex items-center gap-2 px-2.5 py-[7px] rounded-md",
                           "text-[12.5px] transition-colors duration-100",
-                          "min-h-[34px]", // comfortable touch target
+                          "min-h-[34px]",
                           isCurrent
                             ? "text-white font-medium bg-white/[0.08]"
                             : "text-gray-500 hover:text-gray-200 hover:bg-white/[0.04]",
@@ -220,12 +333,19 @@ function NavTree({
         })}
       </div>
 
-      {/* Sign out */}
-      <div className="shrink-0 px-2.5 py-3 border-t border-white/[0.06]">
+      {/* Identity + sign-out footer — kept compact so the primary nav above
+          keeps maximum vertical space and rarely needs scrolling. */}
+      <div className="shrink-0 px-2.5 pt-2 pb-2 border-t border-white/[0.06] space-y-0.5">
+        <IdentityCard supabaseEmail={supabaseEmail} arbitration={arbitration} />
+
+        {isDev && (
+          <DebugPanel supabaseEmail={supabaseEmail} arbitration={arbitration} />
+        )}
+
         <button
           onClick={onSignOut}
           disabled={signingOut}
-          className="flex items-center gap-2.5 px-3 py-2.5 w-full rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-200 hover:bg-white/[0.05] transition-colors disabled:opacity-40 min-h-[40px]"
+          className="flex items-center gap-2.5 px-2.5 py-1.5 w-full rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-200 hover:bg-white/[0.05] transition-colors disabled:opacity-40 min-h-[34px]"
         >
           <LogOutIcon className="w-[15px] h-[15px] shrink-0" />
           {signingOut ? "Signing out…" : "Sign out"}
@@ -238,7 +358,13 @@ function NavTree({
 /* ═══════════════════════════════════════════════════════════
    SIDEBAR — desktop static + mobile drawer
 ═══════════════════════════════════════════════════════════ */
-export default function Sidebar() {
+export default function Sidebar({
+  supabaseEmail,
+  arbitration,
+}: {
+  supabaseEmail: string | null;
+  arbitration: ArbitrationState;
+}) {
   const pathname    = usePathname();
   const router      = useRouter();
   const [openId,     setOpenId]     = useState<string | null>(null);
@@ -247,23 +373,20 @@ export default function Sidebar() {
 
   const activeId = resolveActiveId(pathname);
 
-  /* Auto-open active section */
+  // ── Nav helpers ─────────────────────────────────────────
   useEffect(() => {
     if (activeId) setOpenId(activeId);
   }, [activeId]);
 
-  /* Close drawer on route change */
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
 
-  /* Lock body scroll when drawer is open */
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [mobileOpen]);
 
-  /* ESC closes drawer */
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setMobileOpen(false);
@@ -276,20 +399,31 @@ export default function Sidebar() {
     setOpenId((prev) => (prev === id ? null : id));
   }
 
+  /**
+   * Unified sign-out: clears the arbitration bearer cookie first (server action),
+   * then invalidates the Supabase Auth session. Both must be cleared — clearing
+   * only one leaves the other identity still active, causing split-brain state.
+   */
   async function handleSignOut() {
     setSigningOut(true);
-    await getSupabaseBrowser().auth.signOut();
-    router.push("/login");
-    router.refresh();
+    try {
+      await clearArbitrationToken();
+      await getSupabaseBrowser().auth.signOut();
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
   }
 
   const sharedProps: NavTreeProps = {
     activeId,
     openId,
     pathname,
-    onToggle:  toggle,
-    onSignOut: handleSignOut,
+    onToggle:      toggle,
+    onSignOut:     handleSignOut,
     signingOut,
+    supabaseEmail,
+    arbitration,
   };
 
   return (
@@ -305,7 +439,6 @@ export default function Sidebar() {
           MOBILE TOP BAR — fixed, below lg hidden
       ══════════════════════════════════════════ */}
       <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-gray-950 border-b border-white/[0.06] flex items-center gap-3 px-4 shrink-0">
-        {/* Hamburger */}
         <button
           onClick={() => setMobileOpen(true)}
           aria-label="Open navigation"
@@ -314,7 +447,6 @@ export default function Sidebar() {
           <HamburgerIcon className="w-5 h-5" />
         </button>
 
-        {/* Branding */}
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-full overflow-hidden ring-1 ring-white/[0.12] bg-white shrink-0">
             <Image
@@ -364,7 +496,6 @@ export default function Sidebar() {
         ].join(" ")}
         aria-label="Mobile navigation"
       >
-        {/* Close button */}
         <button
           onClick={() => setMobileOpen(false)}
           aria-label="Close navigation"

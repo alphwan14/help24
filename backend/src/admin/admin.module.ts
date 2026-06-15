@@ -9,7 +9,9 @@ import { EventsModule } from '../events/events.module';
 // ── Arbitration (Disputes Centre) ──────────────────────────────────────────────
 import { AdminAuthService } from './auth/admin-auth.service';
 import { AdminAuthGuard } from './auth/admin-auth.guard';
+import { AdminInvitesService } from './auth/admin-invites.service';
 import { AdminUsersController } from './admin-users.controller';
+import { AdminInvitesPublicController } from './admin-invites-public.controller';
 import { DisputesService } from './disputes/disputes.service';
 import { DecisionsService } from './disputes/decisions.service';
 import { DisputeRecommendationService } from './disputes/recommendation.service';
@@ -22,6 +24,7 @@ import { DisputesPublicController } from './disputes/disputes-public.controller'
   controllers: [
     AdminController, // legacy dispute resolver (kept for compatibility)
     AdminUsersController,
+    AdminInvitesPublicController,
     DisputesPublicController,
     DisputesController,
   ],
@@ -30,6 +33,7 @@ import { DisputesPublicController } from './disputes/disputes-public.controller'
     // RBAC
     AdminAuthService,
     AdminAuthGuard,
+    AdminInvitesService,
     // Arbitration
     DisputesService,
     DecisionsService,

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import DataTable from "@/components/DataTable";
-import ConnectAccess from "./ConnectAccess";
+import RestoringAccess from "./RestoringAccess";
 import { getCurrentAdmin, getOpenDisputes, type DisputeListItem } from "@/lib/api";
 import { disconnectArbitration } from "@/lib/disputes-actions";
 import {
@@ -30,9 +30,10 @@ const FILTERS = ["open", "reviewing", "resolved", "escalated"] as const;
 type PageProps = { searchParams: Promise<{ status?: string }> };
 
 export default async function DisputesPage({ searchParams }: PageProps) {
-  // 1. Authenticate against the backend (token in httpOnly cookie).
+  // 1. Authenticate against the backend (token in httpOnly cookie). If not yet
+  //    connected, try to silently restore from the Supabase session first.
   const admin = await getCurrentAdmin();
-  if (!admin) return <ConnectAccess />;
+  if (!admin) return <RestoringAccess />;
 
   // 2. Load the queue from NestJS (no direct DB access).
   const { status } = await searchParams;

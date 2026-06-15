@@ -35,6 +35,13 @@ desktop.ini
 .envrc
 secrets.json
 credentials.json
+# ...but DO commit the templates (no real values in them):
+!.env.example
+!**/.env.example
+# Local scratch files that may hold real admin tokens / credentials.
+help24-admin-token.txt
+*-token.txt
+*.secret
 
 # ── Firebase client config ────────────────────────────────
 # google-services.json and GoogleService-Info.plist are intentionally
@@ -151,6 +158,8 @@ node_modules/
 **/node_modules/
 .next/
 **/.next/
+out/
+**/out/
 dist/
 **/dist/
 *.tsbuildinfo

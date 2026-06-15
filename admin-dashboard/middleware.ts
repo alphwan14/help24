@@ -12,7 +12,9 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // ── Public routes ─────────────────────────────────────────────────────────
-  if (pathname === "/login" || pathname === "/signup") {
+  // Note: /accept-invite is public and intentionally NOT matched below, so it
+  // is reachable without a session (the invite token is the authorization).
+  if (pathname === "/login") {
     // Redirect already-logged-in admins straight to dashboard
     if (user) {
       const role = await fetchRoleFromDB(supabase, user.email);
@@ -76,5 +78,5 @@ async function fetchRoleFromDB(
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login", "/signup"],
+  matcher: ["/dashboard/:path*", "/login"],
 };

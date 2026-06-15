@@ -1,74 +1,49 @@
-import { createServiceClient } from "@/lib/supabase-server";
-import DataTable from "@/components/DataTable";
+import RestoringAccess from "@/app/dashboard/disputes/RestoringAccess";
+import {
+  getCurrentAdmin,
+  getAdminUsers,
+  getPendingInvites,
+} from "@/lib/api";
+import AdminsManager from "./AdminsManager";
 
-type UserRow = {
-  id: string;
-  name: string | null;
-  email: string | null;
-  phone_number: string | null;
-  created_at: string;
-  last_login: string | null;
-};
-
-function fmtDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-async function getAdmins() {
-  const db = createServiceClient();
-  const { data, error } = await db
-    .from("users")
-    .select("id, name, email, phone_number, created_at, last_login")
-    .eq("role", "admin")
-    .order("created_at", { ascending: false });
-
-  if (error) console.error("[Users/admins] ERROR:", error.message);
-  return (data ?? []) as UserRow[];
-}
+// Admin management is served by the secured NestJS backend (single source of
+// truth). No direct Supabase access here.
+export const dynamic = "force-dynamic";
 
 export default async function AdminsPage() {
-  const rows = await getAdmins();
+  // 1. Authenticate against the backend (token in httpOnly cookie). If not yet
+  //    connected, silently restore from the Supabase session before any prompt.
+  const admin = await getCurrentAdmin();
+  if (!admin) return <RestoringAccess />;
 
-  const columns = [
-    {
-      key: "name",
-      label: "Admin",
-      render: (r: UserRow) => (
-        <div>
-          <p className="font-medium text-gray-900">{r.name || "—"}</p>
-          <p className="text-xs text-gray-400">{r.email || r.id.slice(0, 12)}</p>
-        </div>
-      ),
-    },
-    {
-      key: "phone_number",
-      label: "Phone",
-      render: (r: UserRow) => <span>{r.phone_number || "—"}</span>,
-    },
-    {
-      key: "role",
-      label: "Role",
-      render: () => (
-        <span className="badge bg-indigo-100 text-indigo-700">admin</span>
-      ),
-    },
-    {
-      key: "last_login",
-      label: "Last Active",
-      render: (r: UserRow) => <span className="text-gray-500">{fmtDate(r.last_login)}</span>,
-    },
-    {
-      key: "created_at",
-      label: "Joined",
-      render: (r: UserRow) => <span className="text-gray-500">{fmtDate(r.created_at)}</span>,
-    },
-  ];
+  // 2. Only super_admins manage admins / invites.
+  if (admin.role !== "super_admin") {
+    return (
+      <div className="card p-6 max-w-md">
+        <h2 className="text-base font-bold text-gray-900">Restricted</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Admin management requires the <span className="font-mono">super_admin</span> role.
+          You are connected as{" "}
+          <span className="font-semibold">{admin.email}</span>{" "}
+          (<span className="font-mono">{admin.role}</span>).
+        </p>
+      </div>
+    );
+  }
+
+  // 3. Load admins + pending invites from the backend.
+  const [admins, invites] = await Promise.all([
+    getAdminUsers(),
+    getPendingInvites(),
+  ]);
 
   return (
-    <div className="space-y-4">
-      <p className="text-gray-500 text-sm">{rows.length} admin{rows.length !== 1 ? "s" : ""}</p>
-      <DataTable columns={columns} rows={rows} emptyMessage="No admins yet. Promote a user from the All Users tab." />
-    </div>
+    <AdminsManager
+      currentAdminId={admin.id}
+      currentAdminEmail={admin.email}
+      currentAdminRole={admin.role}
+      admins={admins}
+      invites={invites}
+    />
   );
 }

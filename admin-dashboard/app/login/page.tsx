@@ -2,38 +2,79 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 
-const MESSAGES: Record<string, { text: string; type: "info" | "error" }> = {
-  "account-created": {
-    text: "Account created. Sign in below — an admin must grant you access first.",
-    type: "info",
-  },
+/** URL-param messages (set by middleware / redirects). */
+const URL_MESSAGES: Record<string, { text: string; type: "info" | "error" }> = {
   unauthorized: {
-    text: "Access denied. Your account does not have admin privileges.",
+    text: "Access denied — your account does not have admin privileges.",
     type: "error",
   },
+  disabled: {
+    text: "This account has been disabled. Contact a system administrator.",
+    type: "error",
+  },
+  "session-expired": {
+    text: "Your session expired. Please sign in again.",
+    type: "info",
+  },
+  "password-updated": {
+    text: "Password updated. Sign in with your new password.",
+    type: "info",
+  },
+  "invite-accepted": {
+    text: "Welcome aboard! Your admin account is ready — sign in to continue.",
+    type: "info",
+  },
 };
+
+/** Map raw Supabase auth errors to clean, user-facing copy. */
+function friendlyAuthError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("invalid login") || m.includes("invalid credentials"))
+    return "Invalid email or password.";
+  if (m.includes("email not confirmed"))
+    return "Your email is not confirmed yet. Check your inbox.";
+  if (m.includes("banned") || m.includes("disabled"))
+    return "This account has been disabled. Contact a system administrator.";
+  if (m.includes("rate") || m.includes("too many"))
+    return "Too many attempts. Please wait a moment and try again.";
+  return "Could not sign you in. Please try again.";
+}
+
+function EyeIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.243 4.243L9.88 9.88" />
+    </svg>
+  );
+}
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [resetMode, setResetMode] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   useEffect(() => {
     const errorParam = params.get("error");
     const messageParam = params.get("message");
-
-    if (errorParam && MESSAGES[errorParam]) {
-      setError(MESSAGES[errorParam].text);
-    }
-    if (messageParam && MESSAGES[messageParam]) {
-      setInfo(MESSAGES[messageParam].text);
+    const key = errorParam ?? messageParam;
+    if (key && URL_MESSAGES[key]) {
+      const { text, type } = URL_MESSAGES[key];
+      if (type === "error") setError(text);
+      else setInfo(text);
     }
   }, [params]);
 
@@ -44,16 +85,42 @@ function LoginForm() {
     setInfo(null);
 
     const supabase = getSupabaseBrowser();
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
     if (authError) {
-      setError(authError.message);
+      setError(friendlyAuthError(authError.message));
       setLoading(false);
       return;
     }
 
     router.push("/dashboard");
     router.refresh();
+  }
+
+  async function handleReset(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setInfo(null);
+    if (!email.trim()) {
+      setError("Enter your email address to reset your password.");
+      return;
+    }
+    setLoading(true);
+    const supabase = getSupabaseBrowser();
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+      email.trim(),
+      { redirectTo: `${window.location.origin}/login?message=password-updated` },
+    );
+    setLoading(false);
+    if (resetError) {
+      setError("Could not send the reset email. Try again later.");
+      return;
+    }
+    setResetSent(true);
+    setInfo("If that email has an admin account, a reset link is on its way.");
   }
 
   return (
@@ -65,20 +132,19 @@ function LoginForm() {
             <span className="text-2xl font-bold text-white">H</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Help24 Admin</h1>
-          <p className="text-brand-200 text-sm mt-1">Sign in to access the dashboard</p>
+          <p className="text-brand-200 text-sm mt-1">
+            {resetMode ? "Reset your password" : "Sign in to the operations console"}
+          </p>
         </div>
 
         <div className="card p-6">
-          <form onSubmit={handleLogin} className="space-y-4">
-            {/* Info banner */}
+          <form onSubmit={resetMode ? handleReset : handleLogin} className="space-y-4">
             {info && (
               <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-sm flex gap-2">
                 <span>ℹ</span>
                 <span>{info}</span>
               </div>
             )}
-
-            {/* Error banner */}
             {error && (
               <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex gap-2">
                 <span>✕</span>
@@ -95,39 +161,83 @@ function LoginForm() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="input"
-                placeholder="you@example.com"
+                placeholder="you@help24.app"
                 required
                 autoComplete="email"
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="input"
-                placeholder="••••••••"
-                required
-                autoComplete="current-password"
-              />
-            </div>
+            {!resetMode && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetMode(true);
+                      setError(null);
+                      setInfo(null);
+                    }}
+                    className="text-xs text-brand-600 hover:text-brand-800 hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="input pr-10"
+                    placeholder="••••••••"
+                    required
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((s) => !s)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600"
+                  >
+                    <EyeIcon open={showPassword} />
+                  </button>
+                </div>
+              </div>
+            )}
 
-            <button type="submit" disabled={loading} className="btn-primary w-full">
-              {loading ? "Signing in…" : "Sign in"}
+            <button type="submit" disabled={loading || resetSent} className="btn-primary w-full">
+              {loading
+                ? resetMode
+                  ? "Sending…"
+                  : "Signing in…"
+                : resetMode
+                  ? "Send reset link"
+                  : "Sign in"}
             </button>
+
+            {resetMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  setResetMode(false);
+                  setResetSent(false);
+                  setError(null);
+                  setInfo(null);
+                }}
+                className="w-full text-center text-xs text-gray-500 hover:text-gray-700"
+              >
+                ← Back to sign in
+              </button>
+            )}
           </form>
         </div>
 
-        <p className="text-center text-brand-300 text-xs mt-4">
-          No account?{" "}
-          <Link href="/signup" className="text-white underline hover:text-brand-100">
-            Create one
-          </Link>{" "}
-          then ask a developer to promote you.
+        <p className="text-center text-brand-200/80 text-xs mt-5 leading-relaxed">
+          Admins are invited by system administrators.
+          <br />
+          There is no public sign-up.
         </p>
       </div>
     </div>

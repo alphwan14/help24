@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -43,9 +44,24 @@ export class AdminAuthGuard implements CanActivate {
     const token = header.slice(7).trim();
     if (!token) throw new UnauthorizedException('Empty admin bearer token.');
 
-    const admin = await this.auth.resolveToken(token);
-    if (!admin) throw new UnauthorizedException('Invalid or inactive admin token.');
+    const result = await this.auth.authenticate(token);
+    if (!result.ok) {
+      // Distinct responses so a backend/schema fault is never mistaken for a
+      // bad token (the bug that made this layer undebuggable).
+      switch (result.reason) {
+        case 'db_error':
+          throw new ServiceUnavailableException(
+            'Admin auth backend error — token could not be verified. Check server logs.',
+          );
+        case 'inactive':
+          throw new UnauthorizedException('This admin account is inactive.');
+        case 'not_found':
+        default:
+          throw new UnauthorizedException('Invalid admin token.');
+      }
+    }
 
+    const admin = result.admin as AdminContext;
     req.admin = admin;
 
     // Authorization: enforce minimum role if the route declares one.

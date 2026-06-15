@@ -10,8 +10,13 @@ import { DevService } from './dev/dev.service';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
+  // CORS is environment-driven: set CORS_ORIGINS to a comma-separated allowlist
+  // in production (e.g. https://admin.help24.app). Unset → allow all (dev).
+  const corsOrigins = process.env.CORS_ORIGINS?.split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: '*',
+    origin: corsOrigins && corsOrigins.length > 0 ? corsOrigins : '*',
   });
 
   app.useGlobalPipes(
@@ -24,9 +29,10 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalFilters(new AllExceptionsFilter());
 
+  // Bind 0.0.0.0 so the container/host (Render) can route external traffic.
   const port = process.env.PORT || 3000;
-  await app.listen(port);
-  console.log(`[Help24] Backend running on :${port}`);
+  await app.listen(port, '0.0.0.0');
+  console.log(`[Help24] Backend running on 0.0.0.0:${port}`);
 
   // ── Startup route verification ─────────────────────────────────────────────
   // Resolving each service proves the module loaded and its controller routes

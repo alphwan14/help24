@@ -15,10 +15,13 @@ import { cookies } from "next/headers";
  * imported into a Client Component.
  */
 
+// Backend origin is environment-driven. In production (Vercel) set
+// NEXT_PUBLIC_BACKEND_URL to the Render API URL; the localhost value is only a
+// dev fallback when no env var is provided.
 const BACKEND =
   process.env.BACKEND_URL ??
   process.env.NEXT_PUBLIC_BACKEND_URL ??
-  "https://help24-backend.onrender.com";
+  "http://localhost:3000";
 
 export const ADMIN_TOKEN_COOKIE = "h24_admin_token";
 
@@ -73,6 +76,35 @@ export async function adminRequest<T>(
         Authorization: `Bearer ${token}`,
         ...(init?.headers ?? {}),
       },
+      cache: "no-store",
+    });
+  } catch {
+    throw new ApiError(503, "Cannot reach the arbitration backend.");
+  }
+
+  const text = await res.text();
+  const json = text ? safeParse(text) : null;
+
+  if (!res.ok) {
+    throw new ApiError(res.status, extractMessage(json) ?? `Request failed (${res.status}).`);
+  }
+  return json as T;
+}
+
+/**
+ * Unauthenticated request to the backend, for PUBLIC endpoints where the
+ * authorization is something other than the admin bearer token (e.g. the
+ * single-use invite token carried in the path/body). No cookie is read.
+ */
+export async function publicRequest<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
       cache: "no-store",
     });
   } catch {
@@ -209,7 +241,84 @@ export interface DisputeRecommendation {
   signals: Record<string, unknown>;
 }
 
+// ── Admin / invite management types ─────────────────────────────────────────
+
+export type AdminUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: AdminRole;
+  active: boolean;
+  created_at: string;
+  last_login_at: string | null;
+};
+
+export type PendingInvite = {
+  id: string;
+  email: string;
+  role: AdminRole;
+  status: "pending";
+  created_at: string;
+  expires_at: string;
+};
+
+export interface InviteMetadata {
+  email: string;
+  role: AdminRole;
+  status: "validated";
+  expires_at: string;
+}
+
+export interface AcceptInviteResult {
+  email: string;
+  role: AdminRole;
+  token: string;
+  notice: string;
+}
+
+export interface RestoreSessionResult {
+  email: string;
+  name: string;
+  role: AdminRole;
+  token: string;
+}
+
+export interface CreateInviteResult {
+  inviteLink: string;
+  email: string;
+  role: AdminRole;
+  expires_at: string;
+}
+
 // ── Readers (Server Components) ──────────────────────────────────────────────
+
+/** Public: validate an invite token (no auth). Throws ApiError on invalid/expired. */
+export function getInvite(token: string): Promise<InviteMetadata> {
+  return publicRequest<InviteMetadata>(`/admin/invite/${encodeURIComponent(token)}`);
+}
+
+/**
+ * Exchange a verified Supabase access-token (JWT) for a fresh arbitration token.
+ * The backend re-verifies the JWT, so this is forge-proof. Throws ApiError with
+ * a meaningful status on the genuine recovery cases (401/403/404).
+ */
+export function restoreAdminSession(accessToken: string): Promise<RestoreSessionResult> {
+  return publicRequest<RestoreSessionResult>("/admin/session/restore", {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  });
+}
+
+/** super_admin: list all admin_users via the backend. */
+export function getAdminUsers(): Promise<AdminUser[]> {
+  return adminRequest<AdminUser[]>("/admin/users");
+}
+
+/** super_admin: list pending invites. */
+export function getPendingInvites(): Promise<PendingInvite[]> {
+  return adminRequest<PendingInvite[]>("/admin/invites");
+}
+
 
 /**
  * Returns the admin for the active (or supplied) token, or null if the token is

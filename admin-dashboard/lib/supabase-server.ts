@@ -21,3 +21,19 @@ export async function getSessionUser() {
   const { data: { user } } = await client.auth.getUser();
   return user;
 }
+
+/**
+ * Read the current Supabase access-token (JWT) from cookies, server-side. The
+ * backend verifies it independently, so this is used to forward proof-of-session
+ * when restoring arbitration access. Returns null when there is no session.
+ */
+export async function getServerAccessToken(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const client = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } }
+  );
+  const { data: { session } } = await client.auth.getSession();
+  return session?.access_token ?? null;
+}
