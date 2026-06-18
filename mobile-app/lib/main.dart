@@ -17,6 +17,7 @@ import 'providers/location_provider.dart';
 import 'screens/applications_screen.dart';
 import 'screens/approve_or_dispute_screen.dart';
 import 'screens/job_lifecycle_screen.dart';
+import 'screens/review_submission_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
@@ -266,6 +267,16 @@ class _Help24AppState extends State<Help24App> {
       case 'completion_requested':
         if (postId != null && postId.isNotEmpty) {
           await _openApprovalScreen(context, postId: postId, clientUserId: uid);
+        }
+        break;
+
+      // ── Review requested → open review submission (entry point 3) ──────────
+      case 'review_requested':
+        if (postId != null && postId.isNotEmpty) {
+          debugPrint('[NAV][OPEN_REVIEW] postId=$postId');
+          await Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ReviewSubmissionScreen(postId: postId, clientUserId: uid),
+          ));
         }
         break;
 

@@ -7,6 +7,7 @@ import '../utils/time_utils.dart';
 import 'applications_screen.dart';
 import 'approve_or_dispute_screen.dart';
 import 'job_lifecycle_screen.dart';
+import 'review_submission_screen.dart';
 import 'messages_screen.dart';
 
 // ─── Model ────────────────────────────────────────────────────────────────────
@@ -255,6 +256,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         if (postId != null && postId.isNotEmpty) {
           debugPrint('[NAV][OPEN_APPROVAL] completion_requested postId=$postId');
           await _openApprovalFromBell(postId: postId);
+        }
+        break;
+
+      // ── Review requested → open review submission (entry point 3) ──────────
+      case 'review_requested':
+        final rvPostId = data['post_id'] as String?;
+        if (rvPostId != null && rvPostId.isNotEmpty && mounted) {
+          debugPrint('[NAV][OPEN_REVIEW] review_requested postId=$rvPostId');
+          await Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ReviewSubmissionScreen(postId: rvPostId, clientUserId: widget.userId),
+          ));
         }
         break;
 

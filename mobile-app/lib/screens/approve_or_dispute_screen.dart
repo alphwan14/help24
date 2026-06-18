@@ -3,6 +3,7 @@ import '../models/job_lifecycle.dart';
 import '../services/jobs_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
+import 'review_submission_screen.dart';
 
 enum _DecisionState { idle, approving, disputing, approved, disputed, error }
 
@@ -335,10 +336,21 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
         iconColor: AppTheme.successGreen,
         title: 'Payment Released!',
         subtitle:
-            'You approved the job. The provider\'s M-Pesa payout has been initiated.',
-        buttonLabel: 'Done',
+            'You approved the job. The provider\'s M-Pesa payout has been initiated.\n\nLeave a review to help others hire with confidence.',
+        // Entry point 1: review CTA on the approval success screen.
+        buttonLabel: 'Leave Review',
         textPrimary: textPrimary,
-        onPressed: () => Navigator.pop(context, 'approved'),
+        onPressed: () {
+          Navigator.of(context).pushReplacement(MaterialPageRoute(
+            builder: (_) => ReviewSubmissionScreen(
+              postId: widget.postId,
+              clientUserId: widget.clientUserId,
+              postTitle: _title.isEmpty ? null : _title,
+            ),
+          ));
+        },
+        secondaryLabel: 'Done',
+        onSecondary: () => Navigator.pop(context, 'approved'),
       );
     }
 
@@ -546,6 +558,8 @@ class _OutcomeView extends StatelessWidget {
   final String buttonLabel;
   final Color textPrimary;
   final VoidCallback onPressed;
+  final String? secondaryLabel;
+  final VoidCallback? onSecondary;
 
   const _OutcomeView({
     required this.icon,
@@ -555,6 +569,8 @@ class _OutcomeView extends StatelessWidget {
     required this.buttonLabel,
     required this.textPrimary,
     required this.onPressed,
+    this.secondaryLabel,
+    this.onSecondary,
   });
 
   @override
@@ -602,6 +618,14 @@ class _OutcomeView extends StatelessWidget {
                         fontWeight: FontWeight.w700, fontSize: 15)),
               ),
             ),
+            if (secondaryLabel != null) ...[
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: onSecondary,
+                child: Text(secondaryLabel!,
+                    style: TextStyle(color: textPrimary.withOpacity(0.6))),
+              ),
+            ],
           ],
         ),
       ),

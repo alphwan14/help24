@@ -4,9 +4,11 @@ import 'package:provider/provider.dart';
 import '../models/job_lifecycle.dart';
 import '../providers/auth_provider.dart';
 import '../services/jobs_service.dart';
+import '../services/review_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import 'approve_or_dispute_screen.dart';
+import 'review_submission_screen.dart';
 
 /// Job Lifecycle Detail — the single, unified surface for a job's progress:
 /// payment, completion, dispute and payout, plus a chronological timeline.
@@ -28,6 +30,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
   JobLifecycle? _data;
   bool _loading = true;
   String? _error;
+  ReviewEligibility? _reviewEligibility;
 
   @override
   void initState() {
@@ -52,6 +55,10 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
         _loading = false;
         _error = null;
       });
+      // Best-effort review eligibility (drives the "Leave Review" button — entry 2).
+      final elig = await ReviewService.checkEligibility(postId: widget.postId, userId: uid);
+      if (!mounted) return;
+      setState(() => _reviewEligibility = elig);
     } on JobsException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -116,8 +123,58 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
           const SizedBox(height: 20),
           _reviewCta(d),
         ],
+        _reviewProviderSection(d),
       ],
     );
+  }
+
+  // ── Leave-a-review CTA (client, completed + approved + eligible) ────────────
+
+  Widget _reviewProviderSection(JobLifecycle d) {
+    final e = _reviewEligibility;
+    if (e == null) return const SizedBox.shrink();
+    if (e.alreadyReviewed) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 20),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle, size: 18, color: AppTheme.successGreen),
+            const SizedBox(width: 6),
+            const Text('Review submitted', style: TextStyle(fontWeight: FontWeight.w600)),
+          ],
+        ),
+      );
+    }
+    if (e.canReview) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 20),
+        child: SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _openLeaveReview,
+            icon: const Icon(Icons.star_rounded),
+            label: const Text('Leave Review'),
+            style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+          ),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Future<void> _openLeaveReview() async {
+    final uid = context.read<AuthProvider>().currentUserId ?? '';
+    final d = _data;
+    if (d == null) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ReviewSubmissionScreen(
+        postId: d.post.id,
+        clientUserId: uid,
+        postTitle: d.post.title,
+      ),
+    ));
+    if (mounted) _load(); // refresh eligibility (now reviewed)
   }
 
   // ── Sections ────────────────────────────────────────────────────────────────
