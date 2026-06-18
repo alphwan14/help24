@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/job_lifecycle.dart';
 import '../services/jobs_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
@@ -8,18 +9,23 @@ enum _DecisionState { idle, approving, disputing, approved, disputed, error }
 /// Client screen: review a completion request — approve (releases funds) or dispute (freezes escrow).
 class ApproveOrDisputeScreen extends StatefulWidget {
   final String postId;
-  final String postTitle;
   final String clientUserId;
+
+  /// Optional initial values, used only as placeholders while the screen loads
+  /// its own data from GET /jobs/:postId/lifecycle. The screen is SELF-LOADING:
+  /// callers (especially notification routing) only need [postId] + [clientUserId],
+  /// so navigation never depends on direct Supabase reads / RLS.
+  final String? postTitle;
   final String? providerNote;
-  final double amount;
+  final double? amount;
 
   const ApproveOrDisputeScreen({
     super.key,
     required this.postId,
-    required this.postTitle,
     required this.clientUserId,
+    this.postTitle,
     this.providerNote,
-    required this.amount,
+    this.amount,
   });
 
   @override
@@ -30,6 +36,49 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
   _DecisionState _state = _DecisionState.idle;
   String? _errorMessage;
   final _disputeReasonController = TextEditingController();
+
+  // Approval details loaded from the backend lifecycle endpoint (single source
+  // of truth). No direct table reads — failures stay inside this screen.
+  bool _loading = true;
+  bool _loadFailed = false;
+  String _title = '';
+  String? _providerNote;
+  double _amount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = widget.postTitle ?? '';
+    _providerNote = widget.providerNote;
+    _amount = widget.amount ?? 0;
+    _loadDetails();
+  }
+
+  Future<void> _loadDetails() async {
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+    });
+    try {
+      final JobLifecycle lc = await JobsService.getLifecycle(
+        postId: widget.postId,
+        userId: widget.clientUserId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _title = lc.post.title;
+        _amount = lc.payment?.amount ?? 0;
+        _providerNote = lc.completion?.providerNote;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadFailed = true;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -239,6 +288,47 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
     required Color textPrimary,
     required Color textSecondary,
   }) {
+    // Initial self-load gates. Failure stays inside the approval flow — it never
+    // routes to Messages or Notifications.
+    if (_loading) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text('Loading approval details...',
+                style: TextStyle(color: textSecondary, fontSize: 14)),
+          ],
+        ),
+      );
+    }
+
+    if (_loadFailed) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline_rounded, color: AppTheme.errorRed, size: 48),
+              const SizedBox(height: 12),
+              Text('Unable to load approval details',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _loadDetails,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (_state == _DecisionState.approved) {
       return _OutcomeView(
         icon: Icons.check_circle_rounded,
@@ -297,7 +387,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(widget.postTitle,
+                          Text(_title.isEmpty ? 'Job' : _title,
                               style: TextStyle(
                                   color: textPrimary,
                                   fontWeight: FontWeight.w700,
@@ -306,7 +396,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                               overflow: TextOverflow.ellipsis),
                           const SizedBox(height: 2),
                           Text(
-                            '${formatPriceDisplay(widget.amount)} in escrow',
+                            '${formatPriceDisplay(_amount)} in escrow',
                             style: TextStyle(
                                 color: AppTheme.primaryAccent,
                                 fontWeight: FontWeight.w600,
@@ -317,8 +407,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                     ),
                   ],
                 ),
-                if (widget.providerNote != null &&
-                    widget.providerNote!.isNotEmpty) ...[
+                if (_providerNote != null && _providerNote!.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   const Divider(height: 1),
                   const SizedBox(height: 14),
@@ -328,7 +417,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                           fontSize: 12,
                           fontWeight: FontWeight.w600)),
                   const SizedBox(height: 4),
-                  Text(widget.providerNote!,
+                  Text(_providerNote!,
                       style: TextStyle(
                           color: textPrimary, fontSize: 14, height: 1.4)),
                 ],

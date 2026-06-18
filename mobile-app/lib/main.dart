@@ -321,65 +321,22 @@ class _Help24AppState extends State<Help24App> {
     }
   }
 
-  /// Open ApproveOrDisputeScreen by fetching post + completion data for the given postId.
+  /// Open the self-loading ApproveOrDisputeScreen. Routing requires only post_id
+  /// + current user; the screen loads its own data from GET /jobs/:postId/lifecycle.
+  /// No Supabase reads here, so navigation never depends on RLS and never falls
+  /// back to Messages/Notifications.
   Future<void> _openApprovalScreen(
     BuildContext context, {
     required String postId,
     required String clientUserId,
   }) async {
-    try {
-      final results = await Future.wait([
-        Supabase.instance.client
-            .from('posts')
-            .select('id, title')
-            .eq('id', postId)
-            .maybeSingle(),
-        Supabase.instance.client
-            .from('job_completions')
-            .select('id, provider_note')
-            .eq('post_id', postId)
-            .eq('status', 'pending_approval')
-            .order('created_at', ascending: false)
-            .limit(1)
-            .maybeSingle(),
-      ]);
-
-      if (!context.mounted) return;
-      final post = results[0] as Map<String, dynamic>?;
-      final completion = results[1] as Map<String, dynamic>?;
-
-      if (post == null) {
-        debugPrint('[NAV][OPEN_APPROVAL] post not found postId=$postId — fallback');
-        _openNotificationsScreen(context);
-        return;
-      }
-
-      final txRes = await Supabase.instance.client
-          .from('transactions')
-          .select('amount')
-          .eq('post_id', postId)
-          .or('status.eq.paid,status.eq.payout_pending')
-          .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      if (!context.mounted) return;
-      final amount = (txRes?['amount'] as num?)?.toDouble() ?? 0.0;
-
-      debugPrint('[NAV][OPEN_APPROVAL] postId=$postId amount=$amount');
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ApproveOrDisputeScreen(
-          postId: postId,
-          postTitle: post['title'] as String? ?? 'Job',
-          clientUserId: clientUserId,
-          providerNote: completion?['provider_note'] as String?,
-          amount: amount,
-        ),
-      ));
-    } catch (e) {
-      debugPrint('[NAV][OPEN_APPROVAL][ERROR] $e');
-      if (context.mounted) _openNotificationsScreen(context);
-    }
+    debugPrint('[NAV][OPEN_APPROVAL] postId=$postId');
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ApproveOrDisputeScreen(
+        postId: postId,
+        clientUserId: clientUserId,
+      ),
+    ));
   }
 
   /// Open ApplicationsScreen by fetching post data for the given postId.

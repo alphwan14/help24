@@ -357,61 +357,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  /// Navigate to ApproveOrDisputeScreen, fetching required data first.
+  /// Open the self-loading ApproveOrDisputeScreen. Requires only post_id + the
+  /// current user; the screen loads its own data from the backend. No Supabase
+  /// reads, no RLS dependency, and no Messages fallback.
   Future<void> _openApprovalFromBell({required String postId}) async {
-    try {
-      final results = await Future.wait([
-        Supabase.instance.client
-            .from('posts')
-            .select('id, title')
-            .eq('id', postId)
-            .maybeSingle(),
-        Supabase.instance.client
-            .from('job_completions')
-            .select('id, provider_note')
-            .eq('post_id', postId)
-            .eq('status', 'pending_approval')
-            .order('created_at', ascending: false)
-            .limit(1)
-            .maybeSingle(),
-      ]);
-
-      if (!mounted) return;
-      final post = results[0] as Map<String, dynamic>?;
-      final completion = results[1] as Map<String, dynamic>?;
-
-      if (post == null) {
-        debugPrint('[NAV][OPEN_APPROVAL] post not found postId=$postId — fallback');
-        _openMessages();
-        return;
-      }
-
-      final txRes = await Supabase.instance.client
-          .from('transactions')
-          .select('amount')
-          .eq('post_id', postId)
-          .or('status.eq.paid,status.eq.payout_pending')
-          .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      if (!mounted) return;
-      final amount = (txRes?['amount'] as num?)?.toDouble() ?? 0.0;
-
-      debugPrint('[NAV][OPEN_APPROVAL] postId=$postId amount=$amount');
-      await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ApproveOrDisputeScreen(
-          postId: postId,
-          postTitle: post['title'] as String? ?? 'Job',
-          clientUserId: widget.userId,
-          providerNote: completion?['provider_note'] as String?,
-          amount: amount,
-        ),
-      ));
-    } catch (e) {
-      debugPrint('[NAV][OPEN_APPROVAL][ERROR] _openApprovalFromBell: $e');
-      if (mounted) _openMessages();
-    }
+    debugPrint('[NAV][OPEN_APPROVAL] postId=$postId');
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ApproveOrDisputeScreen(
+        postId: postId,
+        clientUserId: widget.userId,
+      ),
+    ));
   }
 
   /// Navigate to ApplicationsScreen, fetching post data first.
