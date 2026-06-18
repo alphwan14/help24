@@ -615,13 +615,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                 value: post.difficultyText,
                                 valueColor: post.difficultyColor,
                               ),
-                              const Divider(height: 24),
-                              _DetailRow(
-                                icon: Icons.star_outline,
-                                label: 'Rating',
-                                value: '${post.rating} / 5.0',
-                                valueColor: AppTheme.warningOrange,
-                              ),
+                              // Fake "Rating: X / 5.0" row removed (Phase 3.2C):
+                              // PostModel.rating was fabricated. Real provider
+                              // reputation is shown via ReputationCompact on cards.
                             ],
                           ),
                         ),

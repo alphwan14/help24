@@ -8,6 +8,7 @@ import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
+import 'reputation_widgets.dart';
 import 'marketplace_card_components.dart';
 import 'feed_card_tokens.dart';
 
@@ -160,10 +161,10 @@ class JobCard extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                _UserRatingChip(
-                                  averageRating: job.rating,
-                                  reviewCount: job.authorReviewCount,
-                                  mutedColor: textTertiary,
+                                // Backend-sourced provider trust (no fake rating).
+                                ReputationCompact(
+                                  providerId: job.authorUserId,
+                                  textColor: textTertiary,
                                 ),
                               ],
                             ),
@@ -377,46 +378,5 @@ class _SmallTag extends StatelessWidget {
   }
 }
 
-/// Rating or "New" — same as PostCard. Re-export from post_card would require circular dependency; duplicate minimal widget here.
-class _UserRatingChip extends StatelessWidget {
-  final double averageRating;
-  final int reviewCount;
-  final Color mutedColor;
-
-  const _UserRatingChip({
-    required this.averageRating,
-    required this.reviewCount,
-    required this.mutedColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final hasRatings = reviewCount > 0;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        if (hasRatings) ...[
-          Icon(Icons.star_rounded, size: 13, color: mutedColor),
-          const SizedBox(width: 2),
-          Text(
-            '${averageRating.toStringAsFixed(1)} ($reviewCount)',
-            style: TextStyle(
-              fontSize: 10.5,
-              color: mutedColor,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ] else
-          Text(
-            'New',
-            style: TextStyle(
-              fontSize: 10.5,
-              color: mutedColor,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-      ],
-    );
-  }
-}
+// _UserRatingChip removed (Phase 3.2C): replaced by ReputationCompact, sourced
+// from the backend reputation endpoint instead of the fake PostModel.rating.

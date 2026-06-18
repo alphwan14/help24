@@ -15,6 +15,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
 import '../widgets/loading_empty_offline.dart';
+import '../widgets/reputation_widgets.dart';
 import 'auth_screen.dart';
 import 'edit_profile_screen.dart';
 import 'help_center_screen.dart';
@@ -629,50 +630,35 @@ class _LoggedInProfile extends StatelessWidget {
         ],
         const SizedBox(height: 8),
 
-        // Stats Row (live: posts count, rating or "New", completed jobs)
-        Container(
-          margin: const EdgeInsets.symmetric(vertical: 20),
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-            ),
-          ),
-          child: FutureBuilder<
-              ({int postsCount, double averageRating, int totalReviews, int completedJobsCount})>(
-            future: UserProfileService.getProfileStats(profile?.uid ?? authUser.uid),
-            builder: (context, snap) {
-              final stats = snap.data;
-              final postsCount = stats?.postsCount ?? 0;
-              final rating = stats?.averageRating ?? 0.0;
-              final totalReviews = stats?.totalReviews ?? 0;
-              final completed = stats?.completedJobsCount ?? 0;
-              final ratingLabel = totalReviews > 0
-                  ? rating.toStringAsFixed(1)
-                  : 'New';
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+        // Posts count (authored requests). Rating / completed jobs / tier come
+        // from the backend reputation section below — no orphan users.* reads.
+        FutureBuilder<int>(
+          future: UserProfileService.getAuthoredPostsCount(profile?.uid ?? authUser.uid),
+          builder: (context, snap) {
+            final postsCount = snap.data ?? 0;
+            return Container(
+              margin: const EdgeInsets.only(top: 20),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+              decoration: BoxDecoration(
+                color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   _StatItem(value: '$postsCount', label: 'Posts'),
-                  Container(
-                    width: 1,
-                    height: 40,
-                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                  ),
-                  _StatItem(value: ratingLabel, label: 'Rating'),
-                  Container(
-                    width: 1,
-                    height: 40,
-                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                  ),
-                  _StatItem(value: '$completed', label: 'Completed'),
                 ],
-              );
-            },
-          ),
+              ),
+            );
+          },
         ),
+
+        // Backend-sourced reputation: rating, completed jobs, completion rate,
+        // dispute rate, open disputes, tier, member since.
+        ReputationProfileSection(providerId: profile?.uid ?? authUser.uid),
       ],
     );
   }

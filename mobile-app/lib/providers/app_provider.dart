@@ -739,10 +739,10 @@ class AppProvider extends ChangeNotifier {
         return false;
       }
 
-      // Rating filter
-      if (_minRating != null && post.rating < _minRating!) {
-        return false;
-      }
+      // Rating filter REMOVED (Phase 3.2C): PostModel.rating was fabricated and is
+      // no longer a trust source. Reputation is per-provider and served by the
+      // backend, so a min-rating filter would need a server-side query (future
+      // work) — it can't be applied synchronously against a fake post field.
 
       return true;
     }).toList();

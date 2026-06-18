@@ -8,6 +8,7 @@ import '../services/jobs_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
+import '../widgets/reputation_widgets.dart';
 import 'messages_screen.dart';
 
 /// Dedicated screen for a post owner to view and manage applications.
@@ -411,6 +412,11 @@ class _ApplicationCard extends StatelessWidget {
                 ),
               ],
             ),
+
+            // Provider trust block — the highest-priority trust surface (the
+            // client is choosing whom to hire). Backend-sourced, never fabricated.
+            const SizedBox(height: 12),
+            ReputationTrustBlock(providerId: application.applicantUserId),
 
             // Message
             if (application.message.isNotEmpty) ...[

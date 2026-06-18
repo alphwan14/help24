@@ -302,22 +302,25 @@ class UserProfileService {
     }
   }
 
-  /// Profile stats: posts count (author_user_id == uid), average_rating, total_reviews, completed_jobs_count from users table.
-  static Future<({int postsCount, double averageRating, int totalReviews, int completedJobsCount})> getProfileStats(String uid) async {
-    if (!_isAvailable || uid.isEmpty) {
-      return (postsCount: 0, averageRating: 0.0, totalReviews: 0, completedJobsCount: 0);
-    }
+  /// Count of non-job posts authored by this user (the profile "Posts" stat).
+  ///
+  /// Reputation (rating / reviews / completed jobs / tier) is NO LONGER read from
+  /// users.average_rating / users.total_reviews / users.completed_jobs_count —
+  /// those orphan columns are dead. Reputation is served exclusively by the
+  /// backend reputation endpoint (GET /reputation/:id) via ReputationService.
+  static Future<int> getAuthoredPostsCount(String uid) async {
+    if (!_isAvailable || uid.isEmpty) return 0;
     try {
-      final r = await _client.from('users').select('average_rating, total_reviews, completed_jobs_count').eq('id', uid).maybeSingle();
-      final postsList = await _client.from('posts').select('id').eq('author_user_id', uid).neq('type', 'job').limit(10000);
-      final postsCount = (postsList is List) ? postsList.length : 0;
-      final rating = (r?['average_rating'] is num) ? (r!['average_rating'] as num).toDouble() : 0.0;
-      final reviews = (r?['total_reviews'] is int) ? r!['total_reviews'] as int : ((r?['total_reviews'] is num) ? (r!['total_reviews'] as num).toInt() : 0);
-      final completed = (r?['completed_jobs_count'] is int) ? r!['completed_jobs_count'] as int : ((r?['completed_jobs_count'] is num) ? (r!['completed_jobs_count'] as num).toInt() : 0);
-      return (postsCount: postsCount, averageRating: rating, totalReviews: reviews, completedJobsCount: completed);
+      final postsList = await _client
+          .from('posts')
+          .select('id')
+          .eq('author_user_id', uid)
+          .neq('type', 'job')
+          .limit(10000);
+      return (postsList is List) ? postsList.length : 0;
     } catch (e) {
-      debugPrint('UserProfileService getProfileStats: $e');
-      return (postsCount: 0, averageRating: 0.0, totalReviews: 0, completedJobsCount: 0);
+      debugPrint('UserProfileService getAuthoredPostsCount: $e');
+      return 0;
     }
   }
 

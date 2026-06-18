@@ -10,6 +10,7 @@ import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
+import '../widgets/reputation_widgets.dart';
 import '../services/location_service.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/post_service.dart';
@@ -1391,6 +1392,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                               ? FontWeight.w600
                               : FontWeight.normal,
                         ),
+                      ),
+                    // Compact backend-sourced trust badge for the chat partner.
+                    if (widget.conversation.participantId.isNotEmpty)
+                      ReputationCompact(
+                        providerId: widget.conversation.participantId,
+                        textColor: Colors.white.withValues(alpha: 0.85),
                       ),
                   ],
                 ),
