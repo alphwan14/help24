@@ -691,7 +691,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           // Status card
                           if (jobStatus != null) ...[
                             const SizedBox(height: 16),
-                            _JobStatusCard(status: jobStatus!, isDark: isDark),
+                            _JobStatusCard(
+                              status: jobStatus!,
+                              isDark: isDark,
+                              isAuthor: isAuthor,
+                              postStatus: post.status,
+                            ),
                           ],
 
                           // Provider: Mark Job Done
@@ -793,6 +798,26 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                     ),
                                   ),
                                 ],
+                              ),
+                            )
+                          else if (post.type == PostType.request && post.status != 'open')
+                            // Request already has a provider / is in progress —
+                            // never show "Offer Service" to anyone (Issue 2).
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryAccent.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                post.status == 'completed'
+                                    ? 'This job is completed'
+                                    : post.status == 'disputed'
+                                        ? 'This job is in dispute'
+                                        : 'This request already has a selected provider',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
                               ),
                             )
                           else
@@ -1424,14 +1449,25 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
 class _JobStatusCard extends StatelessWidget {
   final JobCompletionStatus status;
   final bool isDark;
+  // Role-aware wording: the CLIENT reviews/approves; the PROVIDER waits on them.
+  final bool isAuthor;
+  // Canonical post status — lets a resolved dispute (post 'completed') override a
+  // stale job_completions='disputed' so this card agrees with the discover card.
+  final String postStatus;
 
-  const _JobStatusCard({required this.status, required this.isDark});
+  const _JobStatusCard({
+    required this.status,
+    required this.isDark,
+    required this.isAuthor,
+    required this.postStatus,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final bool resolved = postStatus == 'completed';
     final (label, icon, bg, fg) = switch (status.status) {
       'pending_approval' => (
-          'Awaiting your review',
+          isAuthor ? 'Awaiting your review' : 'Awaiting client review',
           Icons.hourglass_top_rounded,
           AppTheme.warningOrange.withValues(alpha: 0.12),
           AppTheme.warningOrange,
@@ -1442,12 +1478,21 @@ class _JobStatusCard extends StatelessWidget {
           AppTheme.successGreen.withValues(alpha: 0.12),
           AppTheme.successGreen,
         ),
-      'disputed' => (
-          'Dispute opened — admin reviewing',
-          Icons.gavel_rounded,
-          AppTheme.errorRed.withValues(alpha: 0.10),
-          AppTheme.errorRed,
-        ),
+      // A resolved dispute leaves the post 'completed'; don't keep showing
+      // "admin reviewing" once the case is closed.
+      'disputed' => resolved
+          ? (
+              'Dispute resolved — job completed',
+              Icons.check_circle_rounded,
+              AppTheme.successGreen.withValues(alpha: 0.12),
+              AppTheme.successGreen,
+            )
+          : (
+              'Dispute opened — admin reviewing',
+              Icons.gavel_rounded,
+              AppTheme.errorRed.withValues(alpha: 0.10),
+              AppTheme.errorRed,
+            ),
       _ => (
           'In progress',
           Icons.construction_rounded,
@@ -1779,11 +1824,16 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
     _checkPaymentStatus();
   }
 
+  // A transaction in any post-payment state means the service is already secured;
+  // "Secure Service" must never reappear once payment has been made (Issue 5).
+  static const _securedStatuses = {'paid', 'payout_pending', 'released', 'disputed', 'refunded'};
+
   Future<void> _checkPaymentStatus() async {
     try {
       final status = await MpesaService.pollPaymentStatus(widget.post.id);
       if (!mounted) return;
-      setState(() => _btnState = status.isPaid ? _SecureButtonState.paid : _SecureButtonState.ready);
+      final secured = _securedStatuses.contains(status.status);
+      setState(() => _btnState = secured ? _SecureButtonState.paid : _SecureButtonState.ready);
     } catch (_) {
       // 404 = no transaction yet — show the button.
       if (mounted) setState(() => _btnState = _SecureButtonState.ready);

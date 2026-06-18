@@ -315,15 +315,18 @@ class PostCard extends StatelessWidget {
                       alignment: Alignment.centerRight,
                       child: isCurrentUser
                           ? _OwnerCta(post: post, onTap: onTap, isDark: isDark)
-                          : FilledButton(
-                              onPressed: onRespond ?? onTap,
-                              style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                                minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: Text(isRequest ? 'Offer Service' : 'Enquire'),
-                            ),
+                          : (isRequest && post.status != 'open')
+                              // Request already has a provider — never show "Offer Service".
+                              ? _RequestTakenChip(status: post.status, isDark: isDark)
+                              : FilledButton(
+                                  onPressed: onRespond ?? onTap,
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                                    minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: Text(isRequest ? 'Offer Service' : 'Enquire'),
+                                ),
                     ),
                   ),
                 ],
@@ -567,3 +570,32 @@ class _OwnerCta extends StatelessWidget {
 
 // _UserRatingChip removed (Phase 3.2C): replaced by ReputationCompact, which is
 // sourced from the backend reputation endpoint instead of the fake PostModel.rating.
+
+/// Shown instead of "Offer Service" once a request is no longer open (a provider
+/// has been selected / the job is in progress, completed, or disputed).
+class _RequestTakenChip extends StatelessWidget {
+  final String status;
+  final bool isDark;
+  const _RequestTakenChip({required this.status, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = switch (status) {
+      'completed' => ('Completed', AppTheme.successGreen),
+      'disputed' => ('In Dispute', AppTheme.errorRed),
+      'cancelled' => ('Closed', AppTheme.lightTextTertiary),
+      _ => ('In Progress', AppTheme.primaryAccent),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+      ),
+    );
+  }
+}

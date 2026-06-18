@@ -265,6 +265,9 @@ class JobCard extends StatelessWidget {
                   Expanded(
                     child: Align(
                       alignment: Alignment.centerRight,
+                      // Note: JobModel is an employment-job posting (not a service
+                      // request with a selected-provider escrow lifecycle), so the
+                      // Issue-2 "already taken" gate does not apply here.
                       child: FilledButton(
                         onPressed: job.hasApplied ? null : onApply,
                         style: job.hasApplied
