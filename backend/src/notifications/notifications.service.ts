@@ -20,7 +20,9 @@ export type NotificationType =
   | 'dispute_resolved_release'
   | 'dispute_resolved_refund'
   | 'dispute_resolved_partial'
-  | 'escrow_released';
+  | 'escrow_released'
+  | 'review_requested'           // client prompted to review after approval
+  | 'review_received';           // provider notified a review arrived
 
 export interface NotificationPayload {
   userId: string;

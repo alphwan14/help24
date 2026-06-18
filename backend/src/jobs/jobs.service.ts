@@ -320,6 +320,16 @@ export class JobsService {
         body: `You approved "${post.title as string}". The provider's payout has been initiated.`,
         data: { post_id: dto.post_id, ...(apvChatId ? { chat_id: apvChatId } : {}) },
       },
+      // Review prompt to the client — one of three review entry points (the
+      // others are the approval success screen + the lifecycle "Leave Review"
+      // button). Routed to the review submission screen by post_id.
+      {
+        userId: dto.client_user_id,
+        type: 'review_requested',
+        title: 'Rate your experience',
+        body: `How was "${post.title as string}"? Leave a review for the provider.`,
+        data: { post_id: dto.post_id },
+      },
     ]);
     this.logger.log(`[PAYOUT_RELEASED][PUSH] sent to provider=${post.selected_provider_id as string} and client=${dto.client_user_id}`);
 
