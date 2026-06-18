@@ -321,16 +321,11 @@ class UserProfileService {
     }
   }
 
-  static Future<void> incrementCompletedJobsCount(String uid) async {
-    if (!_isAvailable || uid.isEmpty) return;
-    try {
-      final r = await _client.from('users').select('completed_jobs_count').eq('id', uid).maybeSingle();
-      final current = (r?['completed_jobs_count'] is int) ? r!['completed_jobs_count'] as int : 0;
-      await _client.from('users').update({'completed_jobs_count': current + 1}).eq('id', uid);
-    } catch (e) {
-      debugPrint('UserProfileService incrementCompletedJobsCount: $e');
-    }
-  }
+  // REMOVED (Phase 3.2B): incrementCompletedJobsCount — a client-side "current + 1"
+  // counter that wrote users.completed_jobs_count. Reputation is now derived
+  // server-side from canonical data (provider_reputation via
+  // fn_recompute_provider_reputation); there is exactly one authority and no
+  // client-maintained counters.
 
   static Future<String> getLanguage(String uid) async {
     if (!_isAvailable || uid.isEmpty) return 'en';

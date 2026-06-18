@@ -10,6 +10,7 @@ import { EventProcessorModule } from './events/event-processor.module';
 import { MpesaModule } from './mpesa/mpesa.module';
 import { JobsModule } from './jobs/jobs.module';
 import { AdminModule } from './admin/admin.module';
+import { ReputationModule } from './reputation/reputation.module';
 import { HealthController, RootController } from './health.controller';
 import { DevModule } from './dev/dev.module';
 
@@ -29,6 +30,8 @@ import { DevModule } from './dev/dev.module';
     MpesaModule,
     JobsModule,
     AdminModule,
+    // Reputation engine: provider_reputation reads + recompute (server-authoritative).
+    ReputationModule,
     // EventProcessorModule is registered last: it imports MpesaModule + EventsModule.
     // Nothing imports EventProcessorModule — it is a leaf that starts the retry loop.
     EventProcessorModule,

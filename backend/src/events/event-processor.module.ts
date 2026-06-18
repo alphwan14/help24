@@ -6,6 +6,7 @@ import { EventsModule } from './events.module';
 import { SupabaseModule } from '../supabase/supabase.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { MpesaModule } from '../mpesa/mpesa.module';
+import { ReputationModule } from '../reputation/reputation.module';
 
 /**
  * Standalone module for event processing + observability.
@@ -20,7 +21,7 @@ import { MpesaModule } from '../mpesa/mpesa.module';
  *   POST /admin/events/replay — manual event replay
  */
 @Module({
-  imports: [EventsModule, SupabaseModule, NotificationsModule, MpesaModule],
+  imports: [EventsModule, SupabaseModule, NotificationsModule, MpesaModule, ReputationModule],
   providers: [EventProcessorService],
   controllers: [EventsAdminController, EventsHealthController],
   exports: [EventProcessorService],

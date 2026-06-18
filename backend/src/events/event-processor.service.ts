@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } 
 import { SupabaseService } from '../supabase/supabase.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MpesaService } from '../mpesa/mpesa.service';
+import { ReputationService } from '../reputation/reputation.service';
 import { EventsService, SystemEventRow } from './events.service';
 import { EVENT_TYPES, EventType } from './event.types';
 
@@ -37,6 +38,7 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
     private readonly supabase: SupabaseService,
     private readonly notifications: NotificationsService,
     private readonly mpesa: MpesaService,
+    private readonly reputation: ReputationService,
   ) {}
 
   onModuleInit() {
@@ -344,12 +346,15 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleJobApproved(payload: Record<string, unknown>): Promise<void> {
-    const { post_id } = payload as { post_id: string };
+    const { post_id, provider_id } = payload as { post_id: string; provider_id?: string };
 
     // Notifications sent inline by jobs.service.approve() — EventProcessor only
     // handles the payout initiation here (retryable B2C call).
     this.logger.log(`[PROCESSOR][HANDLE] job.approved: initiating payout post=${post_id}`);
     await this.handlePayoutRequested({ post_id });
+    // Reputation: a successful completion changes completed-jobs + completion-rate.
+    // Recompute from canonical data (idempotent, non-fatal).
+    void this.reputation.recompute(provider_id);
     this.logger.log(`[PROCESSOR][HANDLE] job.approved: payout initiated post=${post_id}`);
   }
 
@@ -372,18 +377,24 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
   // Dispute-resolution notifications are sent INLINE by DecisionsService.notifyParties()
   // (the same convention as job.approved / job.disputed). These handlers are therefore
   // AUDIT-ONLY — dispatching here would double-notify both parties for every ruling.
+  // Dispute resolution changes the provider's dispute/open-dispute metrics, so each
+  // handler recomputes reputation (idempotent, non-fatal). Notifications remain
+  // inline in DecisionsService.notifyParties — these stay otherwise audit-only.
   private async handleDisputeResolvedRelease(payload: Record<string, unknown>): Promise<void> {
-    const { post_id } = payload as { post_id: string };
+    const { post_id, provider_id } = payload as { post_id: string; provider_id?: string };
+    void this.reputation.recompute(provider_id);
     this.logger.log(`[PROCESSOR][HANDLE] dispute.resolved_release: audit-only post=${post_id}`);
   }
 
   private async handleDisputeResolvedRefund(payload: Record<string, unknown>): Promise<void> {
-    const { post_id } = payload as { post_id: string };
+    const { post_id, provider_id } = payload as { post_id: string; provider_id?: string };
+    void this.reputation.recompute(provider_id);
     this.logger.log(`[PROCESSOR][HANDLE] dispute.resolved_refund: audit-only post=${post_id}`);
   }
 
   private async handleDisputeResolvedPartial(payload: Record<string, unknown>): Promise<void> {
-    const { post_id } = payload as { post_id: string };
+    const { post_id, provider_id } = payload as { post_id: string; provider_id?: string };
+    void this.reputation.recompute(provider_id);
     this.logger.log(`[PROCESSOR][HANDLE] dispute.resolved_partial: audit-only post=${post_id}`);
   }
 }

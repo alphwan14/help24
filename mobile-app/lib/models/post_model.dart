@@ -318,7 +318,7 @@ class PostModel {
     this.pricingType = PricingType.task,
     this.employmentType,
     this.difficulty = Difficulty.medium,
-    this.rating = 4.5,
+    this.rating = 0,
     this.authorReviewCount = 0,
     this.authorName = '?',
     this.authorAvatar = '',
@@ -374,7 +374,9 @@ class PostModel {
       pricingType: _parsePricingType(json['pricing_type']),
       employmentType: _parseEmploymentType(json['employment_type']),
       difficulty: _parseDifficulty(json['difficulty']),
-      rating: (json['rating'] ?? 4.5).toDouble(),
+      // No fabricated rating: default 0. Real ratings come from the reputation
+      // endpoint; with no reviews the UI shows "New" (gated by reviewCount).
+      rating: (json['rating'] ?? 0).toDouble(),
       authorReviewCount: _parseInt(json['author_review_count'] ?? json['authorReviewCount'], 0),
       authorName: _userDisplayName(authorUsers),
       authorAvatar: _userAvatarUrl(authorUsers),

@@ -10,7 +10,6 @@ import '../services/chat_service_supabase.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
 import '../services/cache_service.dart';
-import '../services/user_profile_service.dart';
 import '../services/supabase_auth_bridge.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -329,24 +328,11 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Mark a job/post as completed (owner only). Updates backend, increments user completed_jobs_count, removes from list.
-  Future<bool> markJobCompleted(String postId, String? currentUserId) async {
-    if (currentUserId == null || currentUserId.isEmpty) return false;
-    final idx = _jobs.indexWhere((j) => j.id == postId);
-    if (idx == -1) return false;
-    if (_jobs[idx].authorUserId != currentUserId) return false;
-    try {
-      await PostService.updatePost(postId, {'status': 'completed'});
-      await UserProfileService.incrementCompletedJobsCount(currentUserId);
-      _jobs.removeWhere((j) => j.id == postId);
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _error = 'Failed to mark as completed: $e';
-      debugPrint(_error);
-      return false;
-    }
-  }
+  // NOTE: A direct "mark job completed" path was removed here (Sprint 1, Phase 1.2).
+  // It wrote posts.status='completed' straight to the DB, bypassing escrow, payout
+  // and notifications, which could desync job state from payment state. Completion
+  // now flows exclusively through the backend escrow lifecycle:
+  //   provider → POST /jobs/mark-complete  →  client → POST /jobs/approve.
 
   // ==================== APPLICATIONS ====================
 

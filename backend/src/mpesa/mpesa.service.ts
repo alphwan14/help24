@@ -14,6 +14,7 @@ import { EVENT_TYPES } from '../events/event.types';
 import { calculateFee, calculateTotal } from './fee';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { ReleasePayoutDto } from './dto/release-payout.dto';
+import { randomUUID } from 'crypto';
 
 const PHONE_RE = /^254\d{9}$/;
 
@@ -32,13 +33,70 @@ function normalizePhone(raw: string | null | undefined): string | null {
 export class MpesaService {
   private readonly logger = new Logger(MpesaService.name);
 
+  /**
+   * DEV-ONLY payment simulation. When enabled, STK push / B2C payout initiation
+   * skips the external Daraja API and instead feeds a simulated SUCCESS callback
+   * into the REAL handlers — so escrow/transaction transitions, events and
+   * notifications all run exactly as in production. It bypasses ONLY the external
+   * HTTP call, never any business logic. Defaults to false and is hard-blocked in
+   * production (see constructor).
+   */
+  private readonly devForceSuccess: boolean;
+
   constructor(
     private readonly daraja: DarajaService,
     private readonly transactions: TransactionsService,
     private readonly supabase: SupabaseService,
     private readonly notifications: NotificationsService,
     private readonly events: EventsService,
-  ) {}
+  ) {
+    // NON-NEGOTIABLE hard block: dev payment simulation must never run in production.
+    if (process.env.MPESA_DEV_FORCE_SUCCESS === 'true' && process.env.NODE_ENV === 'production') {
+      throw new Error('Dev payment mode is not allowed in production');
+    }
+    // Only active outside production AND when explicitly opted in. Default: false.
+    this.devForceSuccess =
+      process.env.MPESA_DEV_FORCE_SUCCESS === 'true' && process.env.NODE_ENV !== 'production';
+    if (this.devForceSuccess) {
+      this.logger.warn(
+        '[MPESA][DEV MODE ACTIVE] Payment is being simulated — no real Daraja API calls will be made',
+      );
+    }
+  }
+
+  // ── DEV-ONLY payment simulation helpers ─────────────────────────────────────
+  // Build the exact Daraja callback shapes the real handlers parse, so the
+  // simulated success path runs the full business pipeline. Only the external
+  // Daraja HTTP call is skipped — no business logic is bypassed.
+
+  private buildSimulatedStkCallback(checkoutRequestId: string, amount: number): Record<string, unknown> {
+    return {
+      Body: {
+        stkCallback: {
+          CheckoutRequestID: checkoutRequestId,
+          ResultCode: 0,
+          ResultDesc: 'DEV SIMULATED SUCCESS',
+          CallbackMetadata: {
+            Item: [
+              { Name: 'Amount', Value: amount },
+              { Name: 'MpesaReceiptNumber', Value: `DEV${randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}` },
+              { Name: 'PhoneNumber', Value: 254700000000 },
+            ],
+          },
+        },
+      },
+    };
+  }
+
+  private buildSimulatedB2cCallback(conversationId: string): Record<string, unknown> {
+    return {
+      Result: {
+        ResultCode: 0,
+        ResultDesc: 'DEV SIMULATED SUCCESS',
+        ConversationID: conversationId,
+      },
+    };
+  }
 
   // ── Initiate STK push ──────────────────────────────────────────────────────
 
@@ -130,14 +188,21 @@ export class MpesaService {
       payload: { post_id: dto.post_id, transaction_id: transaction.id, amount },
     });
 
-    let stkResult;
-    try {
-      stkResult = await this.daraja.stkPush({ phone: buyerPhone, amount: totalPaid, postId: dto.post_id });
-    } catch (err) {
-      await this.transactions.update(transaction.id, { status: 'failed' });
-      const detail = err instanceof Error ? err.message : String(err);
-      this.logger.error(`[PAY] STK push failed — ${detail}`);
-      throw new BadRequestException(detail);
+    let stkResult: { checkoutRequestId: string; customerMessage: string };
+    if (this.devForceSuccess) {
+      // DEV MODE: skip Daraja entirely. A simulated SUCCESS callback is fired
+      // below (after escrow is created) so the real pipeline runs end-to-end.
+      stkResult = { checkoutRequestId: `DEV_${randomUUID()}`, customerMessage: 'DEV SIMULATED SUCCESS' };
+      this.logger.warn(`[MPESA][DEV MODE ACTIVE] Simulating STK success for post=${dto.post_id} (no Daraja call)`);
+    } else {
+      try {
+        stkResult = await this.daraja.stkPush({ phone: buyerPhone, amount: totalPaid, postId: dto.post_id });
+      } catch (err) {
+        await this.transactions.update(transaction.id, { status: 'failed' });
+        const detail = err instanceof Error ? err.message : String(err);
+        this.logger.error(`[PAY] STK push failed — ${detail}`);
+        throw new BadRequestException(detail);
+      }
     }
 
     await this.transactions.update(transaction.id, {
@@ -162,6 +227,13 @@ export class MpesaService {
       this.logger.error(
         `[PAY] Escrow insert failed for tx ${transaction.id} — processor will fix on callback: ${escrowError.message}`,
       );
+    }
+
+    // DEV MODE: feed a simulated SUCCESS callback into the REAL handler so the
+    // transaction → paid, payment.success event and payment_secured notification
+    // all run exactly as production would on the Daraja STK callback.
+    if (this.devForceSuccess) {
+      await this.handleStkCallback(this.buildSimulatedStkCallback(stkResult.checkoutRequestId, amount));
     }
 
     return {
@@ -336,18 +408,29 @@ export class MpesaService {
     );
 
     let b2cResult: Awaited<ReturnType<typeof this.daraja.b2cPayout>>;
-    try {
-      b2cResult = await this.daraja.b2cPayout({
-        phone: providerPhone,
-        amount: transaction.amount as number,
-        jobId: dto.post_id,
-      });
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      this.logger.error(
-        `[PAYOUT][FAILED] postId=${dto.post_id} txId=${transaction.id as string} — ${detail}`,
-      );
-      throw err;
+    if (this.devForceSuccess) {
+      // DEV MODE: skip Daraja B2C. The simulated SUCCESS callback fired below runs
+      // the real settlement pipeline (tx → released, escrow → released, event +
+      // payout-confirmed notification).
+      b2cResult = {
+        conversationId: `DEV_${randomUUID()}`,
+        originatorConversationId: `DEV_${randomUUID()}`,
+      } as Awaited<ReturnType<typeof this.daraja.b2cPayout>>;
+      this.logger.warn(`[MPESA][DEV MODE ACTIVE] Simulating B2C payout for post=${dto.post_id} (no Daraja call)`);
+    } else {
+      try {
+        b2cResult = await this.daraja.b2cPayout({
+          phone: providerPhone,
+          amount: transaction.amount as number,
+          jobId: dto.post_id,
+        });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `[PAYOUT][FAILED] postId=${dto.post_id} txId=${transaction.id as string} — ${detail}`,
+        );
+        throw err;
+      }
     }
 
     this.logger.log(
@@ -380,6 +463,13 @@ export class MpesaService {
       entityId: transaction.id as string,
       payload: { post_id: dto.post_id, transaction_id: transaction.id, conversation_id: b2cResult.conversationId },
     });
+
+    // DEV MODE: feed a simulated SUCCESS callback into the REAL handler so the
+    // settlement pipeline (tx → released, escrow → released, escrow_released event
+    // + payout-confirmed notification) runs exactly as production.
+    if (this.devForceSuccess) {
+      await this.handleB2cCallback(this.buildSimulatedB2cCallback(b2cResult.conversationId));
+    }
 
     return { message: 'Payout initiated.', transaction_id: transaction.id };
   }
