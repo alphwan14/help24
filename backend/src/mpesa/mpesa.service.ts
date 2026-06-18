@@ -270,8 +270,8 @@ export class MpesaService {
 
   // ── Release payout (B2C) ───────────────────────────────────────────────────
 
-  async releasePayout(dto: ReleasePayoutDto) {
-    this.logger.log(`[PAYOUT][START] postId=${dto.post_id}`);
+  async releasePayout(dto: ReleasePayoutDto, opts: { allowFromDisputed?: boolean } = {}) {
+    this.logger.log(`[PAYOUT][START] postId=${dto.post_id}${opts.allowFromDisputed ? ' (dispute-release)' : ''}`);
 
     const { data: post, error: postError } = await this.supabase.client
       .from('posts')
@@ -282,18 +282,34 @@ export class MpesaService {
     if (postError || !post) throw new NotFoundException(`Post ${dto.post_id} not found.`);
     if (!post.selected_provider_id) throw new BadRequestException('No provider has been selected for this post.');
 
+    // Normal (approve) flow releases a 'paid' transaction. Arbitration releases a
+    // transaction that was frozen to 'disputed' at dispute creation, so the caller
+    // must opt in with allowFromDisputed. We select only from releasable source
+    // states so an already 'released'/'payout_pending' tx is treated as a conflict
+    // below rather than being paid out twice.
+    const allowedSourceStatuses = opts.allowFromDisputed ? ['paid', 'disputed'] : ['paid'];
     const { data: transaction } = await this.supabase.client
       .from('transactions')
       .select('*')
       .eq('post_id', dto.post_id)
-      .eq('status', 'paid')
+      .in('status', allowedSourceStatuses)
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
 
-    if (!transaction) throw new NotFoundException('No confirmed payment found for this post.');
-    if (transaction.status === 'released') throw new ConflictException('Payout already released.');
-    if (transaction.status === 'payout_pending') throw new ConflictException('Payout is already in progress.');
+    if (!transaction) {
+      // Disambiguate "already paid out" from "nothing to pay" for a clear error.
+      const { data: latest } = await this.supabase.client
+        .from('transactions')
+        .select('status')
+        .eq('post_id', dto.post_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      if (latest?.status === 'released') throw new ConflictException('Payout already released.');
+      if (latest?.status === 'payout_pending') throw new ConflictException('Payout is already in progress.');
+      throw new NotFoundException('No releasable payment found for this post.');
+    }
 
     this.logger.log(
       `[PAYOUT][START] postId=${dto.post_id} txId=${transaction.id as string} amount=${transaction.amount as number}`,

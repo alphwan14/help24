@@ -190,19 +190,15 @@ export class DecisionsService {
     admin: AdminContext,
   ): Promise<void> {
     if (type === 'FULL_RELEASE') {
-      // Automated B2C to provider. Falls back to a DB-only release on B2C error
-      // so escrow never gets stuck (mirrors the existing approve() path).
-      try {
-        await this.mpesa.releasePayout({ post_id: postId });
-      } catch (err) {
-        this.logger.error(
-          `[DECISION] B2C failed for release on post ${postId}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        await this.supabase.client
-          .from('escrow')
-          .update({ status: 'released', released_at: new Date().toISOString() })
-          .eq('transaction_id', txId);
-      }
+      // Release escrow to the provider via real B2C. The transaction was frozen
+      // to 'disputed' at dispute creation, so we explicitly allow releasing from
+      // that state. We do NOT swallow B2C failures: if the payout cannot be
+      // initiated the error propagates, the dispute is left open for retry, and
+      // none of the resolve/notify steps below run — so the provider is never
+      // told "payout approved" while receiving nothing. Final settlement still
+      // arrives asynchronously via the B2C callback → escrow.released event,
+      // which also flips the transaction from 'payout_pending' to 'released'.
+      await this.mpesa.releasePayout({ post_id: postId }, { allowFromDisputed: true });
     } else {
       // FULL_REFUND / PARTIAL_SPLIT — recorded immutably; cash settled manually.
       await this.supabase.client.from('transactions').update({ status: 'refunded' }).eq('id', txId);

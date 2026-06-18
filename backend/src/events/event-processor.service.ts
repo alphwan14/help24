@@ -369,94 +369,21 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
     // Audit-only — notifications handled by job.disputed.
   }
 
+  // Dispute-resolution notifications are sent INLINE by DecisionsService.notifyParties()
+  // (the same convention as job.approved / job.disputed). These handlers are therefore
+  // AUDIT-ONLY — dispatching here would double-notify both parties for every ruling.
   private async handleDisputeResolvedRelease(payload: Record<string, unknown>): Promise<void> {
-    const { post_id, post_title, provider_id, buyer_id } = payload as {
-      post_id: string; post_title: string; provider_id: string; buyer_id: string;
-    };
-
-    const { data: drrChat } = await this.supabase.client
-      .from('chats').select('id')
-      .eq('post_id', post_id)
-      .or(`user1.eq.${provider_id},user2.eq.${provider_id}`)
-      .maybeSingle();
-    const drrChatId = (drrChat?.id as string | null) ?? '';
-
-    await this.notifications.sendMany([
-      {
-        userId: provider_id,
-        type: 'dispute_resolved_release',
-        title: 'Dispute Resolved — Payout Approved',
-        body: `Admin reviewed "${post_title}" and released the full payment to you.`,
-        data: { post_id, ...(drrChatId ? { chat_id: drrChatId } : {}) },
-      },
-      {
-        userId: buyer_id,
-        type: 'dispute_resolved_release',
-        title: 'Dispute Resolved',
-        body: `Admin reviewed "${post_title}" and released payment to the provider.`,
-        data: { post_id, ...(drrChatId ? { chat_id: drrChatId } : {}) },
-      },
-    ]);
+    const { post_id } = payload as { post_id: string };
+    this.logger.log(`[PROCESSOR][HANDLE] dispute.resolved_release: audit-only post=${post_id}`);
   }
 
   private async handleDisputeResolvedRefund(payload: Record<string, unknown>): Promise<void> {
-    const { post_id, post_title, provider_id, buyer_id } = payload as {
-      post_id: string; post_title: string; provider_id: string; buyer_id: string;
-    };
-
-    const { data: drfChat } = await this.supabase.client
-      .from('chats').select('id')
-      .eq('post_id', post_id)
-      .or(`user1.eq.${provider_id},user2.eq.${provider_id}`)
-      .maybeSingle();
-    const drfChatId = (drfChat?.id as string | null) ?? '';
-
-    await this.notifications.sendMany([
-      {
-        userId: buyer_id,
-        type: 'dispute_resolved_refund',
-        title: 'Refund Approved',
-        body: `Admin reviewed "${post_title}" and approved a full refund. You will receive your M-Pesa refund shortly.`,
-        data: { post_id, ...(drfChatId ? { chat_id: drfChatId } : {}) },
-      },
-      {
-        userId: provider_id,
-        type: 'dispute_resolved_refund',
-        title: 'Dispute Resolved',
-        body: `Admin reviewed "${post_title}" and issued a full refund to the client.`,
-        data: { post_id, ...(drfChatId ? { chat_id: drfChatId } : {}) },
-      },
-    ]);
+    const { post_id } = payload as { post_id: string };
+    this.logger.log(`[PROCESSOR][HANDLE] dispute.resolved_refund: audit-only post=${post_id}`);
   }
 
   private async handleDisputeResolvedPartial(payload: Record<string, unknown>): Promise<void> {
-    const { post_id, post_title, provider_id, buyer_id, provider_amount, buyer_refund } = payload as {
-      post_id: string; post_title: string; provider_id: string; buyer_id: string;
-      provider_amount: number; buyer_refund: number;
-    };
-
-    const { data: drpChat } = await this.supabase.client
-      .from('chats').select('id')
-      .eq('post_id', post_id)
-      .or(`user1.eq.${provider_id},user2.eq.${provider_id}`)
-      .maybeSingle();
-    const drpChatId = (drpChat?.id as string | null) ?? '';
-
-    await this.notifications.sendMany([
-      {
-        userId: provider_id,
-        type: 'dispute_resolved_partial',
-        title: 'Dispute Resolved — Partial Payment',
-        body: `Admin split the payment for "${post_title}". You will receive KES ${provider_amount.toLocaleString()} via M-Pesa.`,
-        data: { post_id, amount: String(provider_amount), ...(drpChatId ? { chat_id: drpChatId } : {}) },
-      },
-      {
-        userId: buyer_id,
-        type: 'dispute_resolved_partial',
-        title: 'Dispute Resolved — Partial Refund',
-        body: `Admin split the payment for "${post_title}". You will receive a refund of KES ${buyer_refund.toLocaleString()} via M-Pesa.`,
-        data: { post_id, amount: String(buyer_refund), ...(drpChatId ? { chat_id: drpChatId } : {}) },
-      },
-    ]);
+    const { post_id } = payload as { post_id: string };
+    this.logger.log(`[PROCESSOR][HANDLE] dispute.resolved_partial: audit-only post=${post_id}`);
   }
 }
