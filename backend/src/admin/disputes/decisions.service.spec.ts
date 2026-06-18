@@ -21,12 +21,15 @@ function makeSupabaseMock() {
     from(table: string) {
       return {
         update(obj: any) {
-          return {
+          // Chainable + awaitable: supports `.eq(...)` and `.eq(...).eq(...)`.
+          const chain: any = {
             eq: (col: string, val: any) => {
               (updates[table] ??= []).push({ obj, col, val });
-              return Promise.resolve({ error: null });
+              return chain;
             },
+            then: (resolve: (v: any) => any) => resolve({ error: null }),
           };
+          return chain;
         },
       };
     },

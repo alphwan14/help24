@@ -222,6 +222,21 @@ export class DecisionsService {
 
     await this.supabase.client.from('posts').update({ status: 'completed' }).eq('id', postId);
 
+    // Keep job_completions consistent with the ruling (single source of truth).
+    // FULL_RELEASE = the work was accepted and the provider was paid, so the
+    // completion is 'approved'. This (a) stops the post-detail status card from
+    // showing a stale "admin reviewing", (b) makes the job count toward the
+    // provider's completed_jobs, and (c) unblocks the client's review eligibility
+    // (which requires an approved completion). FULL_REFUND / PARTIAL_SPLIT leave
+    // the completion as 'disputed' (work was not accepted).
+    if (type === 'FULL_RELEASE') {
+      await this.supabase.client
+        .from('job_completions')
+        .update({ status: 'approved', reviewed_at: new Date().toISOString() })
+        .eq('post_id', postId)
+        .eq('status', 'disputed');
+    }
+
     // Audit event (drives the existing notification handlers too).
     const eventType: EventType =
       type === 'FULL_RELEASE'
@@ -327,6 +342,11 @@ export class DecisionsService {
           body: `Admin released the full payment for "${postTitle}" to you.`, data: { post_id: postId } },
         { userId: buyerId, type: 'dispute_resolved_release', title: 'Dispute Resolved',
           body: `Admin released payment for "${postTitle}" to the provider.`, data: { post_id: postId } },
+        // The job is now successfully completed (work accepted, provider paid), so
+        // the client can review — prompt them (Issue 6). Eligibility is still
+        // enforced server-side on submit.
+        { userId: buyerId, type: 'review_requested', title: 'Rate your experience',
+          body: `"${postTitle}" is complete. Leave a review for the provider.`, data: { post_id: postId } },
       ]);
     } else if (type === 'FULL_REFUND') {
       await this.notifications.sendMany([
