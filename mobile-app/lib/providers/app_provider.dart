@@ -37,7 +37,6 @@ class AppProvider extends ChangeNotifier {
   RangeValues _priceRange = const RangeValues(0, 100000);
   Difficulty? _selectedDifficulty;
   Urgency? _selectedUrgency;
-  double? _minRating;
   String? _priorityLocationCity;
 
   // Getters
@@ -60,7 +59,6 @@ class AppProvider extends ChangeNotifier {
   RangeValues get priceRange => _priceRange;
   Difficulty? get selectedDifficulty => _selectedDifficulty;
   Urgency? get selectedUrgency => _selectedUrgency;
-  double? get minRating => _minRating;
   String? get priorityLocationCity => _priorityLocationCity;
 
   AppProvider({bool initialDarkMode = true}) : _isDarkMode = initialDarkMode {
@@ -645,11 +643,6 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setMinRating(double? rating) {
-    _minRating = rating;
-    notifyListeners();
-  }
-
   void clearFilters() {
     _selectedCategories = {};
     _selectedCity = '';
@@ -657,7 +650,6 @@ class AppProvider extends ChangeNotifier {
     _priceRange = const RangeValues(0, 100000);
     _selectedDifficulty = null;
     _selectedUrgency = null;
-    _minRating = null;
     notifyListeners();
     loadPosts();
   }
@@ -681,7 +673,6 @@ class AppProvider extends ChangeNotifier {
         _selectedArea.isNotEmpty ||
         _selectedDifficulty != null ||
         _selectedUrgency != null ||
-        _minRating != null ||
         _priceRange.start > 0 ||
         _priceRange.end < 100000;
   }

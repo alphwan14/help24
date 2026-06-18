@@ -20,8 +20,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
   late RangeValues _priceRange;
   late Difficulty? _selectedDifficulty;
   late Urgency? _selectedUrgency;
-  late double? _minRating;
-  
+
   final _customCategoryController = TextEditingController();
   bool _showCustomCategoryInput = false;
 
@@ -35,7 +34,6 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     _priceRange = provider.priceRange;
     _selectedDifficulty = provider.selectedDifficulty;
     _selectedUrgency = provider.selectedUrgency;
-    _minRating = provider.minRating;
   }
 
   @override
@@ -99,7 +97,6 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                       _priceRange = const RangeValues(0, 100000);
                       _selectedDifficulty = null;
                       _selectedUrgency = null;
-                      _minRating = null;
                     });
                   },
                   child: Text(
@@ -470,35 +467,10 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                       );
                     }).toList(),
                   ),
+                  // Minimum Rating filter removed (Phase 3.2C cleanup): provider
+                  // rating is backend-derived and per-provider, not a syncable
+                  // post field — client-side rating filtering is not supported.
                   const SizedBox(height: 24),
-
-                  // Rating
-                  Text(
-                    'Minimum Rating',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [1, 2, 3, 4, 5].map((rating) {
-                      final isSelected = _minRating != null && rating <= _minRating!;
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _minRating = _minRating == rating.toDouble() ? null : rating.toDouble();
-                          });
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Icon(
-                            isSelected ? Icons.star_rounded : Icons.star_outline_rounded,
-                            color: isSelected ? AppTheme.warningOrange : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
-                            size: 32,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 32),
                 ],
               ),
             ),
@@ -545,7 +517,6 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                       provider.setPriceRange(_priceRange);
                       provider.setDifficulty(_selectedDifficulty);
                       provider.setUrgency(_selectedUrgency);
-                      provider.setMinRating(_minRating);
                       Navigator.pop(context);
                     },
                     icon: const Icon(Iconsax.search_normal),
