@@ -11,7 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { EventsService } from '../events/events.service';
 import { EVENT_TYPES } from '../events/event.types';
 import { MarkCompleteDto } from './dto/mark-complete.dto';
-import { ApproveDto, DisputeDto } from './dto/client-decision.dto';
+import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
 
 @Injectable()
@@ -327,121 +327,15 @@ export class JobsService {
     return { message: 'Job approved. Payout is being processed.' };
   }
 
-  // ── Client: open dispute → freeze escrow ──────────────────────────────────
-
-  async dispute(dto: DisputeDto): Promise<{ dispute_id: string }> {
-    this.logger.log(`[JOBS] dispute post=${dto.post_id} client=${dto.client_user_id}`);
-
-    const { data: post } = await this.supabase.client
-      .from('posts')
-      .select('id, title, author_user_id, selected_provider_id')
-      .eq('id', dto.post_id)
-      .single();
-
-    if (!post) throw new NotFoundException(`Post ${dto.post_id} not found.`);
-
-    if (post.author_user_id !== dto.client_user_id) {
-      throw new ForbiddenException('Only the post author can dispute a completion.');
-    }
-
-    const completion = await this.getPendingCompletion(dto.post_id);
-
-    const { data: tx } = await this.supabase.client
-      .from('transactions')
-      .select('id, status')
-      .eq('post_id', dto.post_id)
-      .in('status', ['paid', 'payout_pending'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (!tx) throw new BadRequestException('No active transaction found to dispute.');
-
-    await this.supabase.client
-      .from('job_completions')
-      .update({ status: 'disputed', reviewed_at: new Date().toISOString() })
-      .eq('id', completion.id);
-
-    await this.supabase.client
-      .from('transactions')
-      .update({ status: 'disputed' })
-      .eq('id', tx.id);
-
-    await this.supabase.client
-      .from('escrow')
-      .update({ status: 'disputed' })
-      .eq('transaction_id', tx.id);
-
-    await this.supabase.client
-      .from('posts')
-      .update({ status: 'disputed' })
-      .eq('id', dto.post_id);
-
-    const { data: disputeRecord, error: disputeErr } = await this.supabase.client
-      .from('disputes')
-      .insert({
-        post_id:              dto.post_id,
-        transaction_id:       tx.id,
-        job_completion_id:    completion.id,
-        raised_by_user_id:    dto.client_user_id,
-        reason:               dto.reason,
-        status:               'open',
-      })
-      .select('id')
-      .single();
-
-    if (disputeErr || !disputeRecord) {
-      this.logger.error(`[JOBS] Failed to create dispute record: ${disputeErr?.message ?? 'null'}`);
-      throw new BadRequestException('Failed to open dispute.');
-    }
-
-    const disputeId = disputeRecord.id as string;
-
-    void this.events.emit({
-      type: EVENT_TYPES.JOB_DISPUTED,
-      actorUserId: dto.client_user_id,
-      entityType: 'dispute',
-      entityId: disputeId,
-      payload: {
-        post_id:        dto.post_id,
-        post_title:     post.title as string,
-        provider_id:    post.selected_provider_id as string,
-        client_user_id: dto.client_user_id,
-        dispute_id:     disputeId,
-        transaction_id: tx.id,
-      },
-    });
-
-    // Look up chat for deep-link routing.
-    const providerId = post.selected_provider_id as string;
-    const { data: dispChatRow } = await this.supabase.client
-      .from('chats').select('id')
-      .eq('post_id', dto.post_id)
-      .or(`user1.eq.${providerId},user2.eq.${providerId}`)
-      .maybeSingle();
-    const dispChatId = (dispChatRow?.id as string | null) ?? '';
-
-    // Notify inline as fast path.
-    await this.notifications.sendMany([
-      {
-        userId: providerId,
-        type: 'dispute_opened',
-        title: 'Dispute Opened',
-        body: `The client has raised a dispute on "${post.title as string}". Funds are frozen pending admin review.`,
-        data: { post_id: dto.post_id, dispute_id: disputeId, ...(dispChatId ? { chat_id: dispChatId } : {}) },
-      },
-      {
-        userId: dto.client_user_id,
-        type: 'dispute_opened',
-        title: 'Dispute Submitted',
-        body: `Your dispute on "${post.title as string}" has been submitted. Admin will review within 24-48 hours.`,
-        data: { post_id: dto.post_id, dispute_id: disputeId, ...(dispChatId ? { chat_id: dispChatId } : {}) },
-      },
-    ]);
-
-    this.logger.log(`[JOBS] Dispute ${disputeId} opened for post ${dto.post_id}`);
-    return { dispute_id: disputeId };
-  }
+  // ── Client: open dispute → REMOVED (Sprint 1, Phase 1.5) ───────────────────
+  //
+  // The legacy jobs.service.dispute() was a second writer of the 'disputed'
+  // lifecycle state (posts/transactions/escrow/job_completions + a thin disputes
+  // row), parallel to the canonical DisputesService.createDispute(). It bypassed
+  // dedupe, anti-spam, post-payout guards, auto-priority and the court thread.
+  // It has been deleted so the 'disputed' state has exactly one authoritative
+  // writer. The legacy POST /jobs/dispute route now returns 410 Gone (see
+  // jobs.controller.ts); clients raise disputes via POST /disputes/create.
 
   // ── Notify post author when a provider applies ─────────────────────────────
 
@@ -503,6 +397,146 @@ export class JobsService {
       .maybeSingle();
 
     return data ?? null;
+  }
+
+  // ── Lifecycle: participant-scoped aggregate (Job Lifecycle Detail screen) ───
+  //
+  // Single source of truth for the mobile lifecycle view. Reads the post,
+  // payment/escrow, completion and dispute (+ immutable decision ledger) live
+  // from the canonical tables and derives a chronological timeline from their
+  // timestamps. No lifecycle state is duplicated. Only a participant — the post
+  // author (client) or the selected provider — may read it.
+  async getLifecycle(postId: string, userId: string) {
+    if (!userId) throw new BadRequestException('user_id is required.');
+
+    const { data: post } = await this.supabase.client
+      .from('posts')
+      .select('id, title, price, status, author_user_id, selected_provider_id, created_at')
+      .eq('id', postId)
+      .single();
+    if (!post) throw new NotFoundException(`Post ${postId} not found.`);
+
+    const authorId = post.author_user_id as string;
+    const providerId = (post.selected_provider_id as string | null) ?? '';
+    const isClient = userId === authorId;
+    const isProvider = providerId !== '' && userId === providerId;
+    if (!isClient && !isProvider) {
+      throw new ForbiddenException('Only the client or selected provider can view this job lifecycle.');
+    }
+
+    // Latest transaction + its escrow row.
+    const { data: tx } = await this.supabase.client
+      .from('transactions')
+      .select('id, status, amount, fee, total_paid, mpesa_receipt, created_at')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let escrow: Record<string, unknown> | null = null;
+    if (tx) {
+      const { data: esc } = await this.supabase.client
+        .from('escrow')
+        .select('status, released_at, created_at')
+        .eq('transaction_id', tx.id as string)
+        .maybeSingle();
+      escrow = esc ?? null;
+    }
+
+    // Latest completion request.
+    const { data: completion } = await this.supabase.client
+      .from('job_completions')
+      .select('id, status, provider_note, created_at, reviewed_at')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Latest dispute + its immutable decision ledger.
+    const { data: disputeRow } = await this.supabase.client
+      .from('disputes')
+      .select(
+        'id, status, priority, reason, raised_by_role, provider_amount, buyer_refund, ' +
+          'created_at, first_response_at, escalated_at, resolved_at',
+      )
+      .eq('post_id', postId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const dispute = (disputeRow as unknown as Record<string, unknown> | null) ?? null;
+
+    let decisions: Array<Record<string, unknown>> = [];
+    if (dispute) {
+      const { data: decs } = await this.supabase.client
+        .from('dispute_decisions')
+        .select('decision_type, reasoning, provider_amount, client_refund_amount, decided_by_system, created_at')
+        .eq('dispute_id', dispute.id as string)
+        .order('created_at', { ascending: true });
+      decisions = decs ?? [];
+    }
+
+    // Derive a chronological timeline from canonical timestamps.
+    const timeline: Array<{ type: string; label: string; at: string }> = [];
+    const add = (type: string, label: string, at: unknown): void => {
+      if (at) timeline.push({ type, label, at: at as string });
+    };
+    add('post_created', 'Request posted', post.created_at);
+    if (tx && tx.status !== 'pending' && tx.status !== 'failed') {
+      add('payment_secured', 'Payment secured in escrow', tx.created_at);
+    }
+    if (completion) {
+      add('completion_requested', 'Provider marked the job as done', completion.created_at);
+      if (completion.status === 'approved') add('completion_approved', 'You approved the completion', completion.reviewed_at);
+      if (completion.status === 'disputed') add('completion_disputed', 'Completion disputed', completion.reviewed_at);
+    }
+    if (dispute) {
+      add('dispute_opened', 'Dispute opened — funds frozen', dispute.created_at);
+      add('dispute_reviewing', 'Admin started reviewing', dispute.first_response_at);
+      add('dispute_escalated', 'Escalated to senior admin', dispute.escalated_at);
+      for (const d of decisions) {
+        add('dispute_decision', `Decision: ${this.decisionLabel(d.decision_type as string)}`, d.created_at);
+      }
+      add('dispute_resolved', 'Dispute resolved', dispute.resolved_at);
+    }
+    if (escrow && escrow.status === 'released') add('payout_released', 'Payout released to provider', escrow.released_at);
+    timeline.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
+    return {
+      post: {
+        id: post.id,
+        title: post.title,
+        price: post.price,
+        status: post.status,
+        author_user_id: authorId,
+        selected_provider_id: providerId || null,
+      },
+      viewer_role: isClient ? 'client' : 'provider',
+      payment: tx
+        ? {
+            transaction_id: tx.id,
+            status: tx.status,
+            amount: tx.amount,
+            fee: tx.fee,
+            total_paid: tx.total_paid,
+            mpesa_receipt: isClient ? tx.mpesa_receipt : null,
+            created_at: tx.created_at,
+          }
+        : null,
+      escrow: escrow ? { status: escrow.status, released_at: escrow.released_at } : null,
+      completion: completion ?? null,
+      dispute: dispute ? { ...dispute, decisions } : null,
+      timeline,
+    };
+  }
+
+  private decisionLabel(type: string): string {
+    switch (type) {
+      case 'FULL_RELEASE': return 'Full payment released to provider';
+      case 'FULL_REFUND': return 'Full refund to client';
+      case 'PARTIAL_SPLIT': return 'Payment split between both parties';
+      case 'ESCALATE': return 'Escalated to senior admin';
+      default: return type;
+    }
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import '../models/job_lifecycle.dart';
 
 class JobsException implements Exception {
   final String message;
@@ -90,19 +91,30 @@ class JobsService {
     throw JobsException(_extractMessage(json), statusCode: response.statusCode);
   }
 
-  /// Client disputes the completion — freezes escrow.
+  /// Raise a dispute through the arbitration centre (POST /disputes/create).
+  ///
+  /// This replaces the legacy POST /jobs/dispute path. Routing through the
+  /// arbitration service activates dedupe (one open case per job), anti-spam
+  /// rate limiting, post-payout guards, auto-priority from the escrow value,
+  /// and the court-thread opener — none of which the legacy path provided.
+  ///
+  /// [raisedByRole] is 'client' from the approve/dispute screen; the parameter
+  /// exists so a provider-initiated dispute can reuse this method later.
+  /// Returns the dispute_id (canonical identifier used for deep-link routing).
   static Future<String> dispute({
     required String postId,
     required String clientUserId,
     required String reason,
+    String raisedByRole = 'client',
   }) async {
     final response = await http
         .post(
-          Uri.parse('${ApiConfig.baseUrl}/jobs/dispute'),
+          Uri.parse('${ApiConfig.baseUrl}/disputes/create'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
             'post_id': postId,
-            'client_user_id': clientUserId,
+            'raised_by_user_id': clientUserId,
+            'raised_by_role': raisedByRole,
             'reason': reason,
           }),
         )
@@ -165,6 +177,24 @@ class JobsService {
       debugPrint('[JobsService] getJobStatus error: $e');
     }
     return null;
+  }
+
+  /// Participant-scoped job lifecycle aggregate (payment + completion + dispute +
+  /// timeline) — the single source of truth for the Job Lifecycle Detail screen.
+  static Future<JobLifecycle> getLifecycle({
+    required String postId,
+    required String userId,
+  }) async {
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/jobs/$postId/lifecycle?user_id=${Uri.encodeComponent(userId)}',
+    );
+    final response = await http.get(uri).timeout(_timeout);
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return JobLifecycle.fromJson(json);
+    }
+    throw JobsException(_extractMessage(json), statusCode: response.statusCode);
   }
 
   static String _extractMessage(Map<String, dynamic> json) {

@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
 import 'applications_screen.dart';
 import 'approve_or_dispute_screen.dart';
+import 'job_lifecycle_screen.dart';
 import 'messages_screen.dart';
 
 // ─── Model ────────────────────────────────────────────────────────────────────
@@ -257,8 +258,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
         break;
 
-      // ── Job lifecycle → open the job chat (use chat_id if present) ─────────
+      // ── Provider selected → open the job chat (next step: secure payment) ──
       case 'provider_selected':
+        final psChatId = data['chat_id'] as String?;
+        final psPostId = data['post_id'] as String?;
+        if (psChatId != null && psChatId.isNotEmpty) {
+          await _openChatById(chatId: psChatId, userName: 'Job Chat');
+        } else if (psPostId != null && psPostId.isNotEmpty) {
+          final foundId = await _findChatByPost(postId: psPostId);
+          if (foundId != null && mounted) {
+            await _openChatById(chatId: foundId, userName: 'Job Chat');
+          } else if (mounted) {
+            _openMessages();
+          }
+        }
+        break;
+
+      // ── Money + dispute lifecycle → unified Job Lifecycle Detail ───────────
       case 'payment_secured':
       case 'job_approved':
       case 'payout_released':
@@ -267,19 +283,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'dispute_resolved_release':
       case 'dispute_resolved_refund':
       case 'dispute_resolved_partial':
-        final lcChatId = data['chat_id'] as String?;
         final lcPostId = data['post_id'] as String?;
-        if (lcChatId != null && lcChatId.isNotEmpty) {
-          debugPrint('[NAV][OPEN_CHAT] ${n.type} chatId=$lcChatId');
-          await _openChatById(chatId: lcChatId, userName: 'Job Chat');
-        } else if (lcPostId != null && lcPostId.isNotEmpty) {
-          debugPrint('[NAV][OPEN_CHAT] ${n.type} postId=$lcPostId — looking up chat');
-          final foundId = await _findChatByPost(postId: lcPostId);
-          if (foundId != null && mounted) {
-            await _openChatById(chatId: foundId, userName: 'Job Chat');
-          } else if (mounted) {
-            _openMessages();
-          }
+        if (lcPostId != null && lcPostId.isNotEmpty && mounted) {
+          debugPrint('[NAV][OPEN_LIFECYCLE] ${n.type} postId=$lcPostId');
+          await Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => JobLifecycleScreen(postId: lcPostId),
+          ));
         }
         break;
 

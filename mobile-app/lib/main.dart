@@ -16,6 +16,7 @@ import 'providers/locale_provider.dart';
 import 'providers/location_provider.dart';
 import 'screens/applications_screen.dart';
 import 'screens/approve_or_dispute_screen.dart';
+import 'screens/job_lifecycle_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
@@ -236,8 +237,16 @@ class _Help24AppState extends State<Help24App> {
         }
         break;
 
-      // ── Job lifecycle → open the job chat ──────────────────────────────────
+      // ── Provider selected → open the job chat (next step: secure payment) ──
       case 'provider_selected':
+        if (chatId != null && chatId.isNotEmpty) {
+          await _openChat(context, chatId);
+        } else if (postId != null && postId.isNotEmpty) {
+          await _findAndOpenChat(context, postId: postId, uid: uid);
+        }
+        break;
+
+      // ── Money + dispute lifecycle → unified Job Lifecycle Detail ───────────
       case 'payment_secured':
       case 'payout_released':
       case 'escrow_released':
@@ -246,10 +255,10 @@ class _Help24AppState extends State<Help24App> {
       case 'dispute_resolved_release':
       case 'dispute_resolved_refund':
       case 'dispute_resolved_partial':
-        if (chatId != null && chatId.isNotEmpty) {
-          await _openChat(context, chatId);
-        } else if (postId != null && postId.isNotEmpty) {
-          await _findAndOpenChat(context, postId: postId, uid: uid);
+        if (postId != null && postId.isNotEmpty) {
+          _openLifecycleScreen(context, postId: postId);
+        } else {
+          _openNotificationsScreen(context);
         }
         break;
 
@@ -274,6 +283,15 @@ class _Help24AppState extends State<Help24App> {
         _openNotificationsScreen(context);
         break;
     }
+  }
+
+  /// Open the unified Job Lifecycle Detail screen (the destination for all
+  /// money + dispute lifecycle notifications). The screen loads its own state.
+  void _openLifecycleScreen(BuildContext context, {required String postId}) {
+    debugPrint('[NAV][OPEN_LIFECYCLE] postId=$postId');
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => JobLifecycleScreen(postId: postId),
+    ));
   }
 
   /// Find and open the chat for a post, querying Supabase if chatId not in payload.

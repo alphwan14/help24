@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, GoneException, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { IsString, IsUUID } from 'class-validator';
 import { JobsService } from './jobs.service';
 import { MarkCompleteDto } from './dto/mark-complete.dto';
-import { ApproveDto, DisputeDto } from './dto/client-decision.dto';
+import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
 
 class NotifyApplicationDto {
@@ -42,15 +42,31 @@ export class JobsController {
     return this.jobs.approve(dto);
   }
 
-  /** Client raises a dispute → freezes escrow, creates admin ticket. */
+  /**
+   * DEPRECATED. The legacy dispute-creation path is removed (Sprint 1, Phase 1.5)
+   * so the 'disputed' lifecycle state has a single authoritative writer. Disputes
+   * are now raised through the arbitration centre: POST /disputes/create.
+   */
   @Post('dispute')
-  dispute(@Body() dto: DisputeDto) {
-    return this.jobs.dispute(dto);
+  dispute(): never {
+    throw new GoneException(
+      'POST /jobs/dispute is removed. Update the app — disputes are now raised via POST /disputes/create.',
+    );
   }
 
   /** Get the latest job completion status for a post. */
   @Get(':postId/status')
   getStatus(@Param('postId') postId: string) {
     return this.jobs.getJobStatus(postId);
+  }
+
+  /**
+   * Participant-scoped job lifecycle aggregate (payment + completion + dispute +
+   * timeline) that drives the mobile Job Lifecycle Detail screen. The caller's
+   * Firebase UID is passed as ?user_id= and must be the client or selected provider.
+   */
+  @Get(':postId/lifecycle')
+  getLifecycle(@Param('postId') postId: string, @Query('user_id') userId: string) {
+    return this.jobs.getLifecycle(postId, userId);
   }
 }
