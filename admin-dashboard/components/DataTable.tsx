@@ -8,12 +8,15 @@ interface DataTableProps<T extends Record<string, unknown>> {
   columns: Column<T>[];
   rows: T[];
   emptyMessage?: string;
+  /** Optional per-row class (e.g. fade archived rows). */
+  rowClassName?: (row: T, index: number) => string;
 }
 
 export default function DataTable<T extends Record<string, unknown>>({
   columns,
   rows,
   emptyMessage = "No records found.",
+  rowClassName,
 }: DataTableProps<T>) {
   return (
     <div className="card overflow-hidden">
@@ -44,7 +47,7 @@ export default function DataTable<T extends Record<string, unknown>>({
               </tr>
             ) : (
               rows.map((row, i) => (
-                <tr key={i} className="hover:bg-gray-50/60 transition-colors">
+                <tr key={i} className={`hover:bg-gray-50/60 transition-colors ${rowClassName?.(row, i) ?? ""}`}>
                   {columns.map((col) => (
                     <td
                       key={col.key}

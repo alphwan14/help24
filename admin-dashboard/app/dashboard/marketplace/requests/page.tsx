@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { PostStatusBadge, archivedRowClass } from "@/components/PostStatusBadge";
 
 type RequestRow = {
   id: string;
@@ -9,6 +10,8 @@ type RequestRow = {
   price: number;
   pricing_type: string;
   urgency: string;
+  status: string;
+  archived_at: string | null;
   author_user_id: string | null;
   selected_provider_id: string | null;
   created_at: string;
@@ -18,13 +21,6 @@ type RequestRow = {
 const STATUS_FILTERS = ["all", "open", "assigned"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
-function statusBadge(row: RequestRow) {
-  if (row.selected_provider_id) {
-    return <span className="badge bg-green-100 text-green-700">Assigned</span>;
-  }
-  return <span className="badge bg-blue-100 text-blue-700">Open</span>;
-}
-
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
 }
@@ -33,7 +29,7 @@ async function getRequests(status: StatusFilter) {
   const db = createServiceClient();
   let query = db
     .from("posts")
-    .select("id, title, category, location, price, pricing_type, urgency, author_user_id, selected_provider_id, created_at, users(name, email)")
+    .select("id, title, category, location, price, pricing_type, urgency, status, archived_at, author_user_id, selected_provider_id, created_at, users(name, email)")
     .eq("type", "request")
     .order("created_at", { ascending: false })
     .limit(200);
@@ -101,7 +97,9 @@ export default async function MarketplaceRequestsPage({
     {
       key: "status",
       label: "Status",
-      render: statusBadge,
+      render: (r: RequestRow) => (
+        <PostStatusBadge status={r.status} archivedAt={r.archived_at} />
+      ),
     },
     {
       key: "created_at",
@@ -128,7 +126,12 @@ export default async function MarketplaceRequestsPage({
           ))}
         </div>
       </div>
-      <DataTable columns={columns} rows={rows} emptyMessage="No requests found." />
+      <DataTable
+        columns={columns}
+        rows={rows}
+        emptyMessage="No requests found."
+        rowClassName={(r) => archivedRowClass(r.archived_at)}
+      />
     </div>
   );
 }

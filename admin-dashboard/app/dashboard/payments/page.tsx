@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { ArchivedBadge } from "@/components/PostStatusBadge";
 
 type TxRow = {
   id: string;
@@ -11,7 +12,7 @@ type TxRow = {
   status: string;
   mpesa_receipt: string | null;
   created_at: string;
-  posts: { title: string | null } | null;
+  posts: { title: string | null; archived_at: string | null } | null;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -34,7 +35,7 @@ async function getTransactions() {
   const db = createServiceClient();
   const { data } = await db
     .from("transactions")
-    .select("id, post_id, buyer_user_id, amount, fee, total_paid, status, mpesa_receipt, created_at, posts(title)")
+    .select("id, post_id, buyer_user_id, amount, fee, total_paid, status, mpesa_receipt, created_at, posts(title, archived_at)")
     .order("created_at", { ascending: false })
     .limit(200);
   return (data ?? []) as unknown as TxRow[];
@@ -64,9 +65,12 @@ export default async function PaymentsPage() {
       key: "post_id",
       label: "Request",
       render: (r: TxRow) => (
-        <span className="text-gray-700 max-w-[180px] truncate block">
-          {r.posts?.title || r.post_id.slice(0, 12) + "…"}
-        </span>
+        <div className="flex items-center gap-2 max-w-[220px]">
+          <span className="text-gray-700 truncate">
+            {r.posts?.title || r.post_id.slice(0, 12) + "…"}
+          </span>
+          {r.posts?.archived_at && <ArchivedBadge />}
+        </div>
       ),
     },
     {

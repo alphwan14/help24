@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { ArchivedBadge, archivedRowClass } from "@/components/PostStatusBadge";
 
 type OfferRow = {
   id: string;
@@ -8,6 +9,7 @@ type OfferRow = {
   location: string;
   price: number;
   pricing_type: string;
+  archived_at: string | null;
   author_user_id: string | null;
   created_at: string;
   users: { name: string | null; email: string | null; phone_number: string | null } | null;
@@ -21,7 +23,7 @@ async function getOffers() {
   const db = createServiceClient();
   const { data } = await db
     .from("posts")
-    .select("id, title, category, location, price, pricing_type, author_user_id, created_at, users(name, email, phone_number)")
+    .select("id, title, category, location, price, pricing_type, archived_at, author_user_id, created_at, users(name, email, phone_number)")
     .eq("type", "offer")
     .order("created_at", { ascending: false })
     .limit(200);
@@ -37,7 +39,10 @@ export default async function MarketplaceOffersPage() {
       label: "Offer",
       render: (r: OfferRow) => (
         <div className="max-w-xs">
-          <p className="font-medium text-gray-900 truncate">{r.title}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-gray-900 truncate">{r.title}</p>
+            {r.archived_at && <ArchivedBadge />}
+          </div>
           <p className="text-xs text-gray-400">{r.category} · {r.location}</p>
         </div>
       ),
@@ -79,7 +84,12 @@ export default async function MarketplaceOffersPage() {
   return (
     <div className="space-y-4">
       <p className="text-gray-500 text-sm">{rows.length} results</p>
-      <DataTable columns={columns} rows={rows} emptyMessage="No offers found." />
+      <DataTable
+        columns={columns}
+        rows={rows}
+        emptyMessage="No offers found."
+        rowClassName={(r) => archivedRowClass(r.archived_at)}
+      />
     </div>
   );
 }

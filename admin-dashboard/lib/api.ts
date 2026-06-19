@@ -205,6 +205,7 @@ export interface DisputeCase {
     author_user_id: string;
     selected_provider_id: string;
     status: string;
+    archived_at: string | null;
   } | null;
   transactions: {
     id: string;

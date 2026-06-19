@@ -223,7 +223,7 @@ export class DisputesService {
         admin_notes, resolved_by, assigned_admin_id, assigned_at, first_response_at,
         escalated_at, merged_into_dispute_id, provider_amount, buyer_refund,
         created_at, resolved_at,
-        posts(id, title, price, author_user_id, selected_provider_id, status),
+        posts(id, title, price, author_user_id, selected_provider_id, status, archived_at),
         transactions(id, amount, fee, total_paid, status, mpesa_receipt, created_at),
         job_completions(id, status, provider_note, created_at, reviewed_at)
       `)

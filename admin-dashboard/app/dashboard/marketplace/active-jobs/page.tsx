@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { PostStatusBadge, archivedRowClass } from "@/components/PostStatusBadge";
 
 type JobRow = {
   id: string;
@@ -8,6 +9,8 @@ type JobRow = {
   location: string;
   price: number;
   pricing_type: string;
+  status: string;
+  archived_at: string | null;
   author_user_id: string | null;
   selected_provider_id: string | null;
   created_at: string;
@@ -22,7 +25,7 @@ async function getActiveJobs() {
   const db = createServiceClient();
   const { data } = await db
     .from("posts")
-    .select("id, title, category, location, price, pricing_type, author_user_id, selected_provider_id, created_at, users(name, email)")
+    .select("id, title, category, location, price, pricing_type, status, archived_at, author_user_id, selected_provider_id, created_at, users(name, email)")
     .eq("type", "request")
     .not("selected_provider_id", "is", null)
     .order("created_at", { ascending: false })
@@ -72,7 +75,12 @@ export default async function ActiveJobsPage() {
     {
       key: "status",
       label: "Status",
-      render: () => <span className="badge bg-amber-100 text-amber-700">In Progress</span>,
+      render: (r: JobRow) =>
+        r.archived_at ? (
+          <PostStatusBadge status={r.status} archivedAt={r.archived_at} />
+        ) : (
+          <span className="badge bg-amber-100 text-amber-700">In Progress</span>
+        ),
     },
     {
       key: "created_at",
@@ -84,7 +92,12 @@ export default async function ActiveJobsPage() {
   return (
     <div className="space-y-4">
       <p className="text-gray-500 text-sm">{rows.length} active job{rows.length !== 1 ? "s" : ""} (provider assigned)</p>
-      <DataTable columns={columns} rows={rows} emptyMessage="No active jobs." />
+      <DataTable
+        columns={columns}
+        rows={rows}
+        emptyMessage="No active jobs."
+        rowClassName={(r) => archivedRowClass(r.archived_at)}
+      />
     </div>
   );
 }

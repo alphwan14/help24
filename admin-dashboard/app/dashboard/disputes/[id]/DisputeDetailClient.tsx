@@ -21,6 +21,7 @@ import {
   PRIORITY_STYLES,
   formatSlaAge,
 } from "@/lib/dispute-status";
+import { ArchivedBadge } from "@/components/PostStatusBadge";
 
 type DecisionType = DecisionInput["decisionType"];
 
@@ -135,7 +136,10 @@ export default function DisputeDetailClient({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="font-mono text-xs text-gray-400 mb-1">{dispute.id}</p>
-            <h2 className="text-lg font-bold text-gray-900">{post?.title ?? "Unknown Job"}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-gray-900">{post?.title ?? "Unknown Job"}</h2>
+              {post?.archived_at && <ArchivedBadge withSubtitle />}
+            </div>
             <p className="text-sm text-gray-500 mt-1">
               Opened {fmtDate(dispute.created_at)} · age {formatSlaAge(dispute.sla_age_ms)}
             </p>
