@@ -549,6 +549,87 @@ export class JobsService {
     }
   }
 
+  // ── Archive (soft delete) ───────────────────────────────────────────────────
+  //
+  // Never hard-deletes (that SET-NULLs chats.post_id and collides with
+  // idx_chats_unique_null, and is blocked by RESTRICT on transactions/escrow).
+  // Sets posts.archived_at so the post leaves feeds but all history is kept.
+  // Enforces the deletion policy matrix server-side.
+  async archivePost(postId: string, userId: string): Promise<{ archived: true; status: string }> {
+    if (!userId) throw new BadRequestException('user_id is required.');
+
+    const { data: post } = await this.supabase.client
+      .from('posts')
+      .select('id, author_user_id, selected_provider_id, status, archived_at')
+      .eq('id', postId)
+      .single();
+    if (!post) throw new NotFoundException(`Post ${postId} not found.`);
+
+    if (post.author_user_id !== userId) {
+      throw new ForbiddenException('Only the author can remove this post.');
+    }
+    // Idempotent: already archived.
+    if (post.archived_at) return { archived: true, status: post.status as string };
+
+    // ── Policy: block on active dispute ─────────────────────────────────────
+    const { data: disputeRows } = await this.supabase.client
+      .from('disputes')
+      .select('status')
+      .eq('post_id', postId);
+    const terminal = ['resolved', 'resolved_release', 'resolved_refund', 'resolved_partial', 'merged'];
+    const activeDispute = (disputeRows ?? []).some((d) => !terminal.includes((d as { status: string }).status));
+    if (activeDispute) {
+      throw new ConflictException(
+        'This job has an active dispute and cannot be removed until resolution.',
+      );
+    }
+
+    // ── Policy: block while funds are held in escrow ────────────────────────
+    const { data: heldTx } = await this.supabase.client
+      .from('transactions')
+      .select('id')
+      .eq('post_id', postId)
+      .in('status', ['paid', 'payout_pending'])
+      .limit(1)
+      .maybeSingle();
+    const { data: heldEscrow } = await this.supabase.client
+      .from('escrow')
+      .select('id')
+      .eq('post_id', postId)
+      .in('status', ['locked', 'payout_pending'])
+      .limit(1)
+      .maybeSingle();
+    if (heldTx || heldEscrow) {
+      throw new ConflictException(
+        'Funds are currently held in escrow. Resolve or complete the job before removing it.',
+      );
+    }
+
+    // ── Archive ─────────────────────────────────────────────────────────────
+    const providerId = post.selected_provider_id as string | null;
+    const now = new Date().toISOString();
+    const update: Record<string, unknown> = { archived_at: now, archived_by: userId };
+
+    // Provider was selected but the job never reached escrow → cancel the workflow.
+    const cancelWorkflow = post.status === 'assigned' && !!providerId;
+    if (cancelWorkflow) update.status = 'cancelled';
+
+    await this.supabase.client.from('posts').update(update).eq('id', postId);
+
+    if (cancelWorkflow && providerId) {
+      await this.notifications.send({
+        userId: providerId,
+        type: 'job_cancelled',
+        title: 'Job Cancelled',
+        body: 'A client removed a job you were selected for before payment was made.',
+        data: { post_id: postId },
+      });
+    }
+
+    this.logger.log(`[ARCHIVE] post=${postId} by=${userId} status=${update.status ?? post.status}`);
+    return { archived: true, status: (update.status as string) ?? (post.status as string) };
+  }
+
   // ── Private helpers ────────────────────────────────────────────────────────
 
   private async getPendingCompletion(postId: string) {

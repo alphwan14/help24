@@ -22,7 +22,8 @@ export type NotificationType =
   | 'dispute_resolved_partial'
   | 'escrow_released'
   | 'review_requested'           // client prompted to review after approval
-  | 'review_received';           // provider notified a review arrived
+  | 'review_received'            // provider notified a review arrived
+  | 'job_cancelled';             // selected provider notified the client removed the job
 
 export interface NotificationPayload {
   userId: string;

@@ -69,4 +69,14 @@ export class JobsController {
   getLifecycle(@Param('postId') postId: string, @Query('user_id') userId: string) {
     return this.jobs.getLifecycle(postId, userId);
   }
+
+  /**
+   * Archive (soft delete) a post. Author-only, policy-enforced: blocked while
+   * funds are in escrow or a dispute is active. Never hard-deletes — all history
+   * (reviews, reputation, escrow, disputes, chats) is preserved.
+   */
+  @Post(':postId/archive')
+  archive(@Param('postId') postId: string, @Body('user_id') userId: string) {
+    return this.jobs.archivePost(postId, userId);
+  }
 }
