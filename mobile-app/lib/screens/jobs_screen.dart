@@ -282,13 +282,15 @@ class _JobsScreenState extends State<JobsScreen> {
     final confirmed = await showDialog<bool>(
       context: sheetContext,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete job?'),
-        content: const Text('This will permanently delete this job post. This cannot be undone.'),
+        title: const Text('Remove job?'),
+        content: const Text(
+            'This removes the post from your feeds. Your reviews, payments and dispute history are kept. '
+            'Jobs with funds in escrow or an active dispute cannot be removed.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Delete', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
+            child: Text('Remove', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -304,7 +306,7 @@ class _JobsScreenState extends State<JobsScreen> {
       await appProvider.loadJobs();
       ScaffoldMessenger.of(parentContext).showSnackBar(
         SnackBar(
-          content: const Row(children: [Icon(Icons.check_circle, color: Colors.white), SizedBox(width: 12), Text('Job deleted')]),
+          content: const Row(children: [Icon(Icons.check_circle, color: Colors.white), SizedBox(width: 12), Text('Job removed')]),
           behavior: SnackBarBehavior.floating,
           backgroundColor: AppTheme.successGreen,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

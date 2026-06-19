@@ -179,6 +179,27 @@ class JobsService {
     return null;
   }
 
+  /// Archive (soft delete) a post via the backend. The server enforces the
+  /// deletion policy (blocked while funds are in escrow or a dispute is active)
+  /// and never hard-deletes. Throws [JobsException] with a user-facing message
+  /// when archiving is not allowed.
+  static Future<void> archivePost({
+    required String postId,
+    required String userId,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('${ApiConfig.baseUrl}/jobs/$postId/archive'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'user_id': userId}),
+        )
+        .timeout(_timeout);
+
+    if (response.statusCode == 200 || response.statusCode == 201) return;
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    throw JobsException(_extractMessage(json), statusCode: response.statusCode);
+  }
+
   /// Participant-scoped job lifecycle aggregate (payment + completion + dispute +
   /// timeline) — the single source of truth for the Job Lifecycle Detail screen.
   static Future<JobLifecycle> getLifecycle({

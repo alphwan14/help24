@@ -66,7 +66,8 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))');
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .filter('archived_at', 'is', null); // hide archived (soft-deleted) posts
 
       // Apply filters
       if (filters != null) {
@@ -155,6 +156,7 @@ class PostService {
       final response = await _client
           .from('posts')
           .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .filter('archived_at', 'is', null) // hide archived (soft-deleted) posts
           .eq('type', 'request')
           .eq('is_urgent', true)
           .gt('urgent_expires_at', DateTime.now().toIso8601String())
@@ -181,7 +183,8 @@ class PostService {
       var query = _client
           .from('posts')
           .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
-          .eq('type', 'job');
+          .eq('type', 'job')
+          .filter('archived_at', 'is', null); // hide archived (soft-deleted) posts
 
       // Apply filters (aligned with posts): location, category, price, difficulty, urgency, search)
       if (filters != null) {

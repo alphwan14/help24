@@ -182,7 +182,8 @@ class ApplicationService {
       final postsResponse = await _client
           .from('posts')
           .select('id')
-          .eq('author_user_id', currentUserId);
+          .eq('author_user_id', currentUserId)
+          .filter('archived_at', 'is', null); // exclude archived posts
 
       if ((postsResponse as List).isEmpty) return [];
 

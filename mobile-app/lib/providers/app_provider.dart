@@ -10,6 +10,7 @@ import '../services/chat_service_supabase.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
 import '../services/cache_service.dart';
+import '../services/jobs_service.dart';
 import '../services/supabase_auth_bridge.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -312,16 +313,23 @@ class AppProvider extends ChangeNotifier {
     }
     if (authorId == null || authorId != currentUserId) return false;
     try {
-      await PostService.deletePost(postId);
+      // Soft delete / archive via the backend (policy-enforced; never hard-deletes,
+      // so reviews, reputation, escrow, disputes and chat history are preserved).
+      await JobsService.archivePost(postId: postId, userId: currentUserId);
       _posts.removeWhere((p) => p.id == postId);
       _jobs.removeWhere((j) => j.id == postId);
       if (_posts.isNotEmpty) CacheService.savePosts(_posts);
       if (_jobs.isNotEmpty) CacheService.saveJobs(_jobs);
       notifyListeners();
       return true;
+    } on JobsException catch (e) {
+      // Policy message (e.g. funds in escrow, active dispute) — surface to the user.
+      _error = e.message;
+      debugPrint('[ARCHIVE] blocked: ${e.message}');
+      return false;
     } catch (e) {
-      _error = 'Failed to delete post: $e';
-      debugPrint(_error);
+      _error = 'Could not remove this post. Please try again.';
+      debugPrint('[ARCHIVE] error: $e');
       return false;
     }
   }
