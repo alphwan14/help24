@@ -476,6 +476,7 @@ export class JobsService {
     const dispute = (disputeRow as unknown as Record<string, unknown> | null) ?? null;
 
     let decisions: Array<Record<string, unknown>> = [];
+    let disputeMessages: Array<Record<string, unknown>> = [];
     if (dispute) {
       const { data: decs } = await this.supabase.client
         .from('dispute_decisions')
@@ -483,6 +484,18 @@ export class JobsService {
         .eq('dispute_id', dispute.id as string)
         .order('created_at', { ascending: true });
       decisions = decs ?? [];
+
+      // Dispute communication events (Phase 3.3) feed the SAME unified timeline.
+      // Internal admin notes and soft-hidden rows are excluded — this is the
+      // participant-facing record. kind classifies each entry for labelling.
+      const { data: msgs } = await this.supabase.client
+        .from('dispute_messages')
+        .select('sender_type, kind, created_at')
+        .eq('dispute_id', dispute.id as string)
+        .eq('internal', false)
+        .is('hidden_at', null)
+        .order('created_at', { ascending: true });
+      disputeMessages = (msgs ?? []) as unknown as Array<Record<string, unknown>>;
     }
 
     // Derive a chronological timeline from canonical timestamps.
@@ -502,6 +515,20 @@ export class JobsService {
     if (dispute) {
       add('dispute_opened', 'Dispute opened — funds frozen', dispute.created_at);
       add('dispute_reviewing', 'Admin started reviewing', dispute.first_response_at);
+      // Communication events — merged chronologically by the sort below.
+      for (const m of disputeMessages) {
+        const kind = m.kind as string;
+        const sender = m.sender_type as string;
+        if (kind === 'evidence_request') {
+          add('dispute_evidence_requested', 'Admin requested additional evidence', m.created_at);
+        } else if (kind === 'evidence_submitted') {
+          add('dispute_evidence_uploaded', 'Evidence submitted', m.created_at);
+        } else if (kind === 'text' && sender === 'admin') {
+          add('dispute_admin_reply', 'Support replied', m.created_at);
+        } else if (kind === 'text' && (sender === 'client' || sender === 'provider')) {
+          add('dispute_participant_reply', `${sender === 'client' ? 'Client' : 'Provider'} replied`, m.created_at);
+        }
+      }
       add('dispute_escalated', 'Escalated to senior admin', dispute.escalated_at);
       for (const d of decisions) {
         add('dispute_decision', `Decision: ${this.decisionLabel(d.decision_type as string)}`, d.created_at);

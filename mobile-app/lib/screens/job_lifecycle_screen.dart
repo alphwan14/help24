@@ -8,6 +8,7 @@ import '../services/review_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import 'approve_or_dispute_screen.dart';
+import 'dispute_thread_screen.dart';
 import 'review_submission_screen.dart';
 
 /// Job Lifecycle Detail — the single, unified surface for a job's progress:
@@ -282,9 +283,24 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _openDisputeThread(dispute, d.post.title),
+              icon: const Icon(Icons.forum_outlined, size: 18),
+              label: Text(_isResolved(dispute.status) ? 'View dispute conversation' : 'Open dispute conversation'),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  void _openDisputeThread(LifecycleDispute dispute, String title) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => DisputeThreadScreen(disputeId: dispute.id, postTitle: title),
+    ));
   }
 
   Widget _timelineSection(JobLifecycle d, bool isDark) {

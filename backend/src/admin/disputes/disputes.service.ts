@@ -13,13 +13,28 @@ import { EVENT_TYPES } from '../../events/event.types';
 import { AdminContext } from '../auth/admin-role';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { AddEvidenceDto } from './dto/evidence.dto';
+import {
+  ParticipantReplyDto,
+  RequestUploadUrlsDto,
+  SubmitEvidenceDto,
+  RequestEvidenceDto,
+} from './dto/participant.dto';
+import { DisputeStorageService } from './dispute-storage.service';
 
 /** Disputes a user may not exceed in a rolling window (anti-spam). */
 const RATE_LIMIT_MAX_PER_WINDOW = 5;
 const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** Active (non-terminal) statuses — a case is still in play. */
-const NON_TERMINAL = ['open', 'reviewing', 'under_review'];
+/** Active (non-terminal) statuses — a case is still in play. Includes the
+ *  Phase 3.3 transient evidence sub-states so dedupe/queues treat them as open. */
+const NON_TERMINAL = [
+  'open',
+  'reviewing',
+  'under_review',
+  'awaiting_client_evidence',
+  'awaiting_provider_evidence',
+  'awaiting_admin_review',
+];
 const TERMINAL = ['resolved', 'escalated', 'merged', 'resolved_release', 'resolved_refund', 'resolved_partial'];
 
 /**
@@ -37,6 +52,7 @@ export class DisputesService {
     private readonly supabase: SupabaseService,
     private readonly notifications: NotificationsService,
     private readonly events: EventsService,
+    private readonly storage: DisputeStorageService,
   ) {}
 
   // ── Create (user-facing: client or provider) ───────────────────────────────
@@ -334,19 +350,35 @@ export class DisputesService {
     return data;
   }
 
-  listEvidence(disputeId: string) {
-    return this.supabase.client
+  async listEvidence(disputeId: string) {
+    const { data } = await this.supabase.client
       .from('dispute_evidence')
-      .select('id, type, uploader_type, uploaded_by, file_url, content, created_at')
+      .select(
+        'id, type, uploader_type, uploaded_by, file_url, content, file_name, ' +
+          'mime_type, size_bytes, reviewed_at, reviewed_by, created_at',
+      )
       .eq('dispute_id', disputeId)
-      .order('created_at', { ascending: true })
-      .then(({ data }) => data ?? []);
+      .is('hidden_at', null)
+      .order('created_at', { ascending: true });
+    return this.signEvidence((data ?? []) as unknown as Array<Record<string, unknown>>);
+  }
+
+  /** Replace stored object paths with short-TTL signed download URLs (best-effort). */
+  private async signEvidence(
+    rows: Array<Record<string, unknown>>,
+  ): Promise<Array<Record<string, unknown>>> {
+    return Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        file_url: await this.storage.sign((r.file_url as string | null) ?? null),
+      })),
+    );
   }
 
   // ── Court thread ────────────────────────────────────────────────────────────
 
-  async postMessage(disputeId: string, message: string, admin: AdminContext) {
-    await this.requireDispute(disputeId);
+  async postMessage(disputeId: string, message: string, admin: AdminContext, internal = false) {
+    const dispute = await this.requireDispute(disputeId);
     const { data, error } = await this.supabase.client
       .from('dispute_messages')
       .insert({
@@ -354,22 +386,31 @@ export class DisputesService {
         sender_type: 'admin',
         sender_id: admin.id,
         message,
+        kind: 'text',
+        internal,
       })
-      .select('id, sender_type, sender_id, message, created_at')
+      .select('id, sender_type, sender_id, message, kind, internal, created_at')
       .single();
 
     if (error) throw new BadRequestException(error.message);
     await this.touchFirstResponse(disputeId);
+    // Internal notes never reach participants; public admin messages notify both.
+    if (!internal) {
+      const post = await this.postBrief(dispute.post_id as string);
+      if (post) await this.notifyThread(post, disputeId, 'admin', message);
+    }
     return data;
   }
 
-  listMessages(disputeId: string) {
-    return this.supabase.client
+  /** Admin view: every entry including internal notes (hidden rows excluded). */
+  async listMessages(disputeId: string) {
+    const { data } = await this.supabase.client
       .from('dispute_messages')
-      .select('id, sender_type, sender_id, message, created_at')
+      .select('id, sender_type, sender_id, message, kind, internal, created_at')
       .eq('dispute_id', disputeId)
-      .order('created_at', { ascending: true })
-      .then(({ data }) => data ?? []);
+      .is('hidden_at', null)
+      .order('created_at', { ascending: true });
+    return data ?? [];
   }
 
   listDecisions(disputeId: string) {
@@ -381,13 +422,316 @@ export class DisputesService {
       .then(({ data }) => data ?? []);
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  //  PARTICIPANT API (client / provider) — NOT behind the admin guard.
+  //  Every method authorizes through assertParticipant(). No duplicated logic.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * THE single source of participant authorization. Loads the dispute + its post
+   * and confirms userId is the client (author) or selected provider. Returns the
+   * dispute, post and caller role, or throws 404/403. Mirrors the trusted-but-
+   * validated user_id model used by createDispute + jobs.getLifecycle.
+   */
+  async assertParticipant(
+    disputeId: string,
+    userId: string,
+  ): Promise<{ dispute: Record<string, unknown>; post: Record<string, unknown>; role: 'client' | 'provider' }> {
+    if (!userId) throw new BadRequestException('user_id is required.');
+
+    const { data: dispute, error } = await this.supabase.client
+      .from('disputes')
+      .select(
+        'id, status, priority, reason, post_id, transaction_id, raised_by_role, ' +
+          'assigned_admin_id, created_at, first_response_at, resolved_at, escalated_at',
+      )
+      .eq('id', disputeId)
+      .single();
+    if (error || !dispute) throw new NotFoundException(`Dispute ${disputeId} not found.`);
+    const disputeRow = dispute as unknown as Record<string, unknown>;
+
+    const post = await this.postBrief(disputeRow.post_id as string);
+    if (!post) throw new NotFoundException('Associated job not found.');
+
+    const authorId = post.author_user_id as string;
+    const providerId = (post.selected_provider_id as string | null) ?? '';
+    const isClient = userId === authorId;
+    const isProvider = providerId !== '' && userId === providerId;
+    if (!isClient && !isProvider) {
+      throw new ForbiddenException('You are not a participant in this dispute.');
+    }
+    return { dispute: disputeRow, post, role: isClient ? 'client' : 'provider' };
+  }
+
+  /** Participant case view: metadata, status, public thread, signed evidence. */
+  async getParticipantThread(disputeId: string, userId: string) {
+    const { dispute, post, role } = await this.assertParticipant(disputeId, userId);
+
+    const [messages, evidence, decisions, assignedAdmin] = await Promise.all([
+      this.listParticipantMessages(disputeId),
+      this.listEvidence(disputeId),
+      this.listDecisions(disputeId),
+      dispute.assigned_admin_id ? this.adminBrief(dispute.assigned_admin_id as string) : null,
+    ]);
+
+    return {
+      id: dispute.id,
+      status: dispute.status,
+      priority: dispute.priority,
+      reason: dispute.reason,
+      created_at: dispute.created_at,
+      first_response_at: dispute.first_response_at,
+      resolved_at: dispute.resolved_at,
+      escalated_at: dispute.escalated_at,
+      post: { id: post.id, title: post.title },
+      viewer_role: role,
+      assigned_admin: assignedAdmin
+        ? { name: (assignedAdmin as Record<string, unknown>).name, role: (assignedAdmin as Record<string, unknown>).role }
+        : null,
+      messages,
+      evidence,
+      decisions,
+    };
+  }
+
+  /** Participant posts a text reply to the dispute thread. */
+  async participantReply(disputeId: string, dto: ParticipantReplyDto) {
+    const { dispute, post, role } = await this.assertParticipant(disputeId, dto.user_id);
+    if (TERMINAL.includes(dispute.status as string)) {
+      throw new ConflictException('This dispute is closed; you can no longer post messages.');
+    }
+
+    const { data, error } = await this.supabase.client
+      .from('dispute_messages')
+      .insert({ dispute_id: disputeId, sender_type: role, sender_id: dto.user_id, message: dto.message, kind: 'text' })
+      .select('id, sender_type, sender_id, message, kind, created_at')
+      .single();
+    if (error) throw new BadRequestException(error.message);
+
+    await this.notifyThread(post, disputeId, role, dto.message);
+    return data;
+  }
+
+  /** Issue signed upload URLs for evidence files (validated MIME/count). */
+  async issueUploadUrls(disputeId: string, dto: RequestUploadUrlsDto) {
+    const { dispute } = await this.assertParticipant(disputeId, dto.user_id);
+    if (TERMINAL.includes(dispute.status as string)) {
+      throw new ConflictException('This dispute is closed; evidence can no longer be added.');
+    }
+    const files = await this.storage.issueUploadUrls(disputeId, dto.files);
+    return { bucket: DisputeStorageService.BUCKET, files };
+  }
+
+  /** Register uploaded objects as evidence; advances state + notifies. */
+  async submitEvidence(disputeId: string, dto: SubmitEvidenceDto) {
+    const { dispute, post, role } = await this.assertParticipant(disputeId, dto.user_id);
+    if (TERMINAL.includes(dispute.status as string)) {
+      throw new ConflictException('This dispute is closed; evidence can no longer be added.');
+    }
+
+    const rows = dto.items.map((it) => {
+      DisputeStorageService.assertPathBelongs(disputeId, it.path);
+      const type = DisputeStorageService.evidenceTypeFor(it.mime_type);
+      if (it.size_bytes != null && it.size_bytes > DisputeStorageService.MAX_FILE_BYTES) {
+        throw new BadRequestException(`"${it.file_name}" exceeds the 10MB limit.`);
+      }
+      return {
+        dispute_id: disputeId,
+        uploaded_by: dto.user_id,
+        uploader_type: role,
+        type,
+        file_url: it.path, // stored as a PATH; signed on read
+        content: it.caption ?? null,
+        file_name: it.file_name,
+        mime_type: it.mime_type,
+        size_bytes: it.size_bytes ?? null,
+      };
+    });
+
+    const { data: inserted, error } = await this.supabase.client
+      .from('dispute_evidence')
+      .insert(rows)
+      .select(
+        'id, type, uploader_type, uploaded_by, file_url, content, file_name, ' +
+          'mime_type, size_bytes, reviewed_at, created_at',
+      );
+    if (error) throw new BadRequestException(error.message);
+
+    // Timeline entry (kind classifies it for lifecycle rendering later).
+    const n = rows.length;
+    await this.threadEntry(
+      disputeId,
+      'system',
+      'evidence_submitted',
+      `${role === 'client' ? 'Client' : 'Provider'} submitted ${n} evidence file${n > 1 ? 's' : ''}.`,
+    );
+
+    // A party answered an evidence request → hand the case back to the admin.
+    await this.advanceAfterEvidence(disputeId, dispute.status as string);
+
+    await this.notifyEvidenceUploaded(post, disputeId, role);
+    return this.signEvidence((inserted ?? []) as unknown as Array<Record<string, unknown>>);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  ADMIN evidence orchestration (called from the guarded DisputesController).
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** Admin requests more evidence from a party; sets awaiting_*_evidence + notifies. */
+  async requestEvidence(disputeId: string, dto: RequestEvidenceDto, admin: AdminContext) {
+    const dispute = await this.requireDispute(disputeId);
+    if (TERMINAL.includes(dispute.status as string)) {
+      throw new ConflictException('This dispute is closed.');
+    }
+    const assignee = dispute.assigned_admin_id as string | null;
+    if (assignee && assignee !== admin.id && admin.role !== 'super_admin') {
+      throw new ConflictException('Case is assigned to another admin.');
+    }
+
+    const post = await this.postBrief(dispute.post_id as string);
+    if (!post) throw new NotFoundException('Associated job not found.');
+
+    const targetId =
+      dto.from === 'client'
+        ? (post.author_user_id as string)
+        : ((post.selected_provider_id as string | null) ?? '');
+    if (!targetId) {
+      throw new BadRequestException(`This job has no ${dto.from} to request evidence from.`);
+    }
+
+    // Admin-authored thread entry, classified as an evidence request.
+    await this.threadEntry(disputeId, 'admin', 'evidence_request', dto.message, admin.id);
+
+    const newStatus =
+      dto.from === 'client' ? 'awaiting_client_evidence' : 'awaiting_provider_evidence';
+    await this.supabase.client
+      .from('disputes')
+      .update({
+        status: newStatus,
+        first_response_at: (dispute.first_response_at as string | null) ?? new Date().toISOString(),
+      })
+      .eq('id', disputeId);
+
+    await this.notifications.send({
+      userId: targetId,
+      type: 'dispute_evidence_requested',
+      title: 'Evidence requested',
+      body: `Support requested more evidence for "${post.title as string}". ${dto.message}`.slice(0, 180),
+      data: { dispute_id: disputeId, post_id: post.id as string },
+    });
+
+    this.logger.log(`[DISPUTES] ${disputeId} → ${newStatus} (evidence requested from ${dto.from})`);
+    return { ok: true, status: newStatus };
+  }
+
+  /** Admin marks an evidence row reviewed (review tracking). */
+  async markEvidenceReviewed(disputeId: string, evidenceId: string, admin: AdminContext) {
+    await this.requireDispute(disputeId);
+    const { data, error } = await this.supabase.client
+      .from('dispute_evidence')
+      .update({ reviewed_at: new Date().toISOString(), reviewed_by: admin.id })
+      .eq('id', evidenceId)
+      .eq('dispute_id', disputeId)
+      .select('id, reviewed_at, reviewed_by')
+      .single();
+    if (error || !data) throw new NotFoundException('Evidence not found for this dispute.');
+    return data;
+  }
+
+  // ── Participant/notification helpers ────────────────────────────────────────
+
+  /** Public thread only: drops internal admin notes and soft-hidden rows. */
+  private async listParticipantMessages(disputeId: string) {
+    const { data } = await this.supabase.client
+      .from('dispute_messages')
+      .select('id, sender_type, sender_id, message, kind, created_at')
+      .eq('dispute_id', disputeId)
+      .eq('internal', false)
+      .is('hidden_at', null)
+      .order('created_at', { ascending: true });
+    return data ?? [];
+  }
+
+  /** Insert a classified thread entry (used for evidence_request / evidence_submitted). */
+  private async threadEntry(
+    disputeId: string,
+    senderType: 'client' | 'provider' | 'admin' | 'system',
+    kind: 'text' | 'evidence_request' | 'evidence_submitted' | 'system' | 'resolution',
+    message: string,
+    senderId: string | null = null,
+  ): Promise<void> {
+    await this.supabase.client
+      .from('dispute_messages')
+      .insert({ dispute_id: disputeId, sender_type: senderType, sender_id: senderId, message, kind });
+  }
+
+  /** From an awaiting_*_evidence state, advance to awaiting_admin_review. */
+  private async advanceAfterEvidence(disputeId: string, currentStatus: string): Promise<void> {
+    if (currentStatus === 'awaiting_client_evidence' || currentStatus === 'awaiting_provider_evidence') {
+      await this.supabase.client
+        .from('disputes')
+        .update({ status: 'awaiting_admin_review' })
+        .eq('id', disputeId);
+    }
+  }
+
+  /** Notify the relevant participants of a new thread message (dispute_message). */
+  private async notifyThread(
+    post: Record<string, unknown>,
+    disputeId: string,
+    senderRole: 'client' | 'provider' | 'admin',
+    preview: string,
+  ): Promise<void> {
+    const authorId = post.author_user_id as string;
+    const providerId = (post.selected_provider_id as string | null) ?? '';
+    const recipients =
+      senderRole === 'admin'
+        ? [authorId, providerId]
+        : senderRole === 'client'
+          ? [providerId]
+          : [authorId];
+    const who = senderRole === 'admin' ? 'Support' : senderRole === 'client' ? 'The client' : 'The provider';
+    const body = preview.length > 90 ? `${preview.slice(0, 87)}…` : preview;
+
+    await this.notifications.sendMany(
+      recipients
+        .filter((uid) => uid && uid.length > 0)
+        .map((uid) => ({
+          userId: uid,
+          type: 'dispute_message' as const,
+          title: 'New dispute message',
+          body: `${who}: ${body}`,
+          data: { dispute_id: disputeId, post_id: post.id as string },
+        })),
+    );
+  }
+
+  /** Notify the OTHER party that evidence was uploaded (dispute_evidence_uploaded). */
+  private async notifyEvidenceUploaded(
+    post: Record<string, unknown>,
+    disputeId: string,
+    uploaderRole: 'client' | 'provider',
+  ): Promise<void> {
+    const authorId = post.author_user_id as string;
+    const providerId = (post.selected_provider_id as string | null) ?? '';
+    const otherParty = uploaderRole === 'client' ? providerId : authorId;
+    if (!otherParty) return;
+    await this.notifications.send({
+      userId: otherParty,
+      type: 'dispute_evidence_uploaded',
+      title: 'New evidence submitted',
+      body: `New evidence was added to the dispute on "${post.title as string}".`,
+      data: { dispute_id: disputeId, post_id: post.id as string },
+    });
+  }
+
   // ── Internal helpers (shared with DecisionsService via exports) ─────────────
 
   /** Append a system entry to the court thread. Best-effort. */
   async systemMessage(disputeId: string, message: string): Promise<void> {
     await this.supabase.client
       .from('dispute_messages')
-      .insert({ dispute_id: disputeId, sender_type: 'system', sender_id: null, message });
+      .insert({ dispute_id: disputeId, sender_type: 'system', sender_id: null, message, kind: 'system' });
   }
 
   /** Load a dispute or 404. */
@@ -456,6 +800,16 @@ export class DisputesService {
       .eq('id', userId)
       .maybeSingle();
     return data;
+  }
+
+  /** Minimal post record used for participant auth + thread notifications. */
+  private async postBrief(postId: string): Promise<Record<string, unknown> | null> {
+    const { data } = await this.supabase.client
+      .from('posts')
+      .select('id, title, author_user_id, selected_provider_id')
+      .eq('id', postId)
+      .single();
+    return data ?? null;
   }
 
   private async adminBrief(adminId: string) {

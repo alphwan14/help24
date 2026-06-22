@@ -11,6 +11,8 @@ import {
   assignDispute,
   decideDispute,
   postDisputeMessage,
+  requestDisputeEvidence,
+  markEvidenceReviewed,
   type DecisionInput,
 } from "@/lib/disputes-actions";
 import {
@@ -72,6 +74,11 @@ export default function DisputeDetailClient({
   const [clientRefund, setClientRefund] = useState("");
   const [reasoning, setReasoning] = useState("");
   const [message, setMessage] = useState("");
+  const [internalNote, setInternalNote] = useState(false);
+
+  // Request-evidence form state
+  const [evidenceFrom, setEvidenceFrom] = useState<"client" | "provider">("client");
+  const [evidenceMsg, setEvidenceMsg] = useState("");
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, okMsg?: string) {
     setError(null);
@@ -122,12 +129,32 @@ export default function DisputeDetailClient({
     if (!message.trim()) return;
     const fd = new FormData();
     fd.set("message", message.trim());
+    fd.set("internal", internalNote ? "true" : "false");
     run(async () => {
       const res = await postDisputeMessage(dispute.id, fd);
       if (res.ok) setMessage("");
       return res;
-    });
+    }, internalNote ? "Internal note saved (admins only)." : undefined);
   }
+
+  function handleRequestEvidence(e: React.FormEvent) {
+    e.preventDefault();
+    if (!evidenceMsg.trim()) {
+      setError("Describe what evidence you need from the party.");
+      return;
+    }
+    run(async () => {
+      const res = await requestDisputeEvidence(dispute.id, evidenceFrom, evidenceMsg.trim());
+      if (res.ok) setEvidenceMsg("");
+      return res;
+    }, `Evidence requested from the ${evidenceFrom}.`);
+  }
+
+  function handleMarkReviewed(evidenceId: string) {
+    run(() => markEvidenceReviewed(dispute.id, evidenceId), "Evidence marked reviewed.");
+  }
+
+  const reviewedCount = dispute.evidence.filter((e) => e.reviewed_at).length;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -242,33 +269,106 @@ export default function DisputeDetailClient({
         </div>
       )}
 
-      {/* Evidence */}
+      {/* Evidence gallery */}
       <div className="card p-4">
-        <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">
-          Evidence ({dispute.evidence.length})
-        </p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+            Evidence ({dispute.evidence.length})
+          </p>
+          {dispute.evidence.length > 0 && (
+            <span className="badge bg-slate-100 text-slate-600">
+              {reviewedCount}/{dispute.evidence.length} reviewed
+            </span>
+          )}
+        </div>
         {dispute.evidence.length === 0 ? (
           <p className="text-sm text-gray-400">No evidence submitted.</p>
         ) : (
-          <ul className="space-y-2">
-            {dispute.evidence.map((e) => (
-              <li key={e.id} className="text-sm flex gap-2 items-start">
-                <span className="badge bg-slate-100 text-slate-600 shrink-0">{e.uploader_type}</span>
-                <div className="min-w-0">
-                  {e.file_url ? (
-                    <a href={e.file_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline break-all">
-                      {e.type} — view file
+          <div className="grid grid-cols-2 gap-3">
+            {dispute.evidence.map((e) => {
+              const isImage = e.type === "image" && !!e.file_url;
+              const isFile = (e.type === "image" || e.type === "document" || e.type === "video") && !!e.file_url;
+              return (
+                <div key={e.id} className="border border-gray-200 rounded-lg p-3 flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="badge bg-slate-100 text-slate-600">{e.uploader_type}</span>
+                    {e.reviewed_at ? (
+                      <span className="badge bg-green-100 text-green-700">✓ reviewed</span>
+                    ) : (
+                      <button
+                        onClick={() => handleMarkReviewed(e.id)}
+                        disabled={isPending}
+                        className="text-xs text-blue-600 hover:underline disabled:opacity-40"
+                      >
+                        Mark reviewed
+                      </button>
+                    )}
+                  </div>
+
+                  {isImage ? (
+                    <a href={e.file_url!} target="_blank" rel="noreferrer" className="block">
+                      {/* Signed URL — short TTL, opens full-size in a new tab. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={e.file_url!}
+                        alt={e.file_name ?? "evidence"}
+                        className="w-full h-32 object-cover rounded-md bg-gray-50"
+                      />
+                    </a>
+                  ) : isFile ? (
+                    <a href={e.file_url!} target="_blank" rel="noreferrer"
+                      className="text-blue-600 hover:underline text-sm break-all">
+                      📄 {e.file_name ?? `${e.type} — view file`}
                     </a>
                   ) : (
-                    <p className="text-gray-700">{e.content}</p>
+                    <p className="text-sm text-gray-700">{e.content}</p>
                   )}
-                  <p className="text-xs text-gray-400">{fmtDate(e.created_at)}</p>
+
+                  {e.content && isFile && <p className="text-xs text-gray-500">{e.content}</p>}
+                  <p className="text-xs text-gray-400">
+                    {e.file_name ? <span className="break-all">{e.file_name} · </span> : null}
+                    {fmtDate(e.created_at)}
+                  </p>
                 </div>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </div>
         )}
       </div>
+
+      {/* Request evidence (admin → party) */}
+      {canRule && (
+        <form onSubmit={handleRequestEvidence} className="card p-4 space-y-3">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Request Evidence</p>
+          <div className="flex gap-2">
+            {(["client", "provider"] as const).map((who) => (
+              <button
+                key={who}
+                type="button"
+                onClick={() => setEvidenceFrom(who)}
+                className={`py-1.5 px-3 rounded-lg text-xs font-semibold border transition-all ${
+                  evidenceFrom === who
+                    ? "bg-gray-900 text-white border-gray-900"
+                    : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+                }`}
+              >
+                From {who}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={evidenceMsg}
+            onChange={(ev) => setEvidenceMsg(ev.target.value)}
+            rows={2}
+            className="input w-full resize-none"
+            placeholder={`What do you need from the ${evidenceFrom}? e.g. "Upload the receipt / before-and-after photos."`}
+          />
+          <button type="submit" disabled={isPending || !evidenceMsg.trim()}
+            className="btn-primary text-sm disabled:opacity-50">
+            Request from {evidenceFrom}
+          </button>
+        </form>
+      )}
 
       {/* Court thread */}
       <div className="card p-4">
@@ -277,27 +377,54 @@ export default function DisputeDetailClient({
           {dispute.messages.length === 0 ? (
             <p className="text-sm text-gray-400">No messages yet.</p>
           ) : (
-            dispute.messages.map((m) => (
-              <div key={m.id} className="text-sm">
-                <span className={`badge mr-2 ${m.sender_type === "admin" ? "bg-blue-100 text-blue-700" : m.sender_type === "system" ? "bg-gray-100 text-gray-500" : "bg-amber-100 text-amber-700"}`}>
-                  {m.sender_type}
-                </span>
-                <span className="text-gray-800">{m.message}</span>
-                <span className="text-xs text-gray-400 ml-2">{fmtDate(m.created_at)}</span>
-              </div>
-            ))
+            dispute.messages.map((m) => {
+              const senderStyle =
+                m.sender_type === "admin"
+                  ? "bg-blue-100 text-blue-700"
+                  : m.sender_type === "system"
+                    ? "bg-gray-100 text-gray-500"
+                    : "bg-amber-100 text-amber-700";
+              return (
+                <div
+                  key={m.id}
+                  className={`text-sm ${m.internal ? "bg-purple-50 border border-purple-100 rounded-md p-2" : ""}`}
+                >
+                  <span className={`badge mr-2 ${senderStyle}`}>{m.sender_type}</span>
+                  {m.internal && <span className="badge mr-2 bg-purple-100 text-purple-700">internal</span>}
+                  {m.kind === "evidence_request" && (
+                    <span className="badge mr-2 bg-yellow-100 text-yellow-800">evidence requested</span>
+                  )}
+                  {m.kind === "evidence_submitted" && (
+                    <span className="badge mr-2 bg-emerald-100 text-emerald-700">evidence submitted</span>
+                  )}
+                  <span className="text-gray-800">{m.message}</span>
+                  <span className="text-xs text-gray-400 ml-2">{fmtDate(m.created_at)}</span>
+                </div>
+              );
+            })
           )}
         </div>
-        <form onSubmit={handleMessage} className="flex gap-2">
-          <input
-            value={message}
-            onChange={(ev) => setMessage(ev.target.value)}
-            className="input flex-1"
-            placeholder="Add a note to the case thread…"
-          />
-          <button type="submit" disabled={isPending || !message.trim()} className="btn-primary text-sm disabled:opacity-50">
-            Post
-          </button>
+        <form onSubmit={handleMessage} className="space-y-2">
+          <div className="flex gap-2">
+            <input
+              value={message}
+              onChange={(ev) => setMessage(ev.target.value)}
+              className="input flex-1"
+              placeholder={internalNote ? "Internal note (admins only)…" : "Add a message to the parties…"}
+            />
+            <button type="submit" disabled={isPending || !message.trim()} className="btn-primary text-sm disabled:opacity-50">
+              Post
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-500 select-none">
+            <input
+              type="checkbox"
+              checked={internalNote}
+              onChange={(ev) => setInternalNote(ev.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Internal note — visible to admins only (parties will not see or be notified)
+          </label>
         </form>
       </div>
 

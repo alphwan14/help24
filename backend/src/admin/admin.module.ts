@@ -16,6 +16,7 @@ import { DisputesService } from './disputes/disputes.service';
 import { DecisionsService } from './disputes/decisions.service';
 import { DisputeRecommendationService } from './disputes/recommendation.service';
 import { DisputeSlaService } from './disputes/sla.service';
+import { DisputeStorageService } from './disputes/dispute-storage.service';
 import { DisputesController } from './disputes/disputes.controller';
 import { DisputesPublicController } from './disputes/disputes-public.controller';
 
@@ -39,6 +40,7 @@ import { DisputesPublicController } from './disputes/disputes-public.controller'
     DecisionsService,
     DisputeRecommendationService,
     DisputeSlaService,
+    DisputeStorageService,
   ],
 })
 export class AdminModule {}

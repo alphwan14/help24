@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -19,6 +20,7 @@ import { DisputeRecommendationService } from './recommendation.service';
 import { DecisionDto } from './dto/decision.dto';
 import { AddEvidenceDto } from './dto/evidence.dto';
 import { PostMessageDto } from './dto/message.dto';
+import { RequestEvidenceDto } from './dto/participant.dto';
 
 /**
  * Admin Disputes Centre. Every route requires a valid admin bearer token
@@ -86,6 +88,30 @@ export class DisputesController {
     return this.disputes.listEvidence(id);
   }
 
+  /** Request more evidence from a party; flips the case to awaiting_*_evidence. */
+  @Post(':id/request-evidence')
+  @Roles('support_agent')
+  @HttpCode(HttpStatus.OK)
+  requestEvidence(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RequestEvidenceDto,
+    @CurrentAdmin() admin: AdminContext,
+  ) {
+    return this.disputes.requestEvidence(id, dto, admin);
+  }
+
+  /** Mark a single evidence item as reviewed by this admin. */
+  @Patch(':id/evidence/:evidenceId/reviewed')
+  @Roles('support_agent')
+  @HttpCode(HttpStatus.OK)
+  markEvidenceReviewed(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('evidenceId', ParseUUIDPipe) evidenceId: string,
+    @CurrentAdmin() admin: AdminContext,
+  ) {
+    return this.disputes.markEvidenceReviewed(id, evidenceId, admin);
+  }
+
   // ── Court thread ────────────────────────────────────────────────────────────
 
   @Post(':id/message')
@@ -96,7 +122,7 @@ export class DisputesController {
     @Body() dto: PostMessageDto,
     @CurrentAdmin() admin: AdminContext,
   ) {
-    return this.disputes.postMessage(id, dto.message, admin);
+    return this.disputes.postMessage(id, dto.message, admin, dto.internal ?? false);
   }
 
   @Get(':id/messages')

@@ -20,6 +20,9 @@ export type NotificationType =
   | 'dispute_resolved_release'
   | 'dispute_resolved_refund'
   | 'dispute_resolved_partial'
+  | 'dispute_message'             // participant/admin posted to the dispute thread
+  | 'dispute_evidence_requested'  // admin asked a party for more evidence
+  | 'dispute_evidence_uploaded'   // a party submitted evidence (notifies the other side + admin)
   | 'escrow_released'
   | 'review_requested'           // client prompted to review after approval
   | 'review_received'            // provider notified a review arrived

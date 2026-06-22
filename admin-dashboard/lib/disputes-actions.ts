@@ -116,11 +116,51 @@ export async function postDisputeMessage(
   formData: FormData,
 ): Promise<ActionResult> {
   const message = String(formData.get("message") ?? "").trim();
+  // Checkbox/flag from the composer — an internal note is admin-only and never
+  // reaches the client/provider.
+  const internal = String(formData.get("internal") ?? "") === "true";
   if (!message) return { ok: false, error: "Message cannot be empty." };
   try {
     await adminRequest(`/disputes/${id}/message`, {
       method: "POST",
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, internal }),
+    });
+    revalidatePath(`/dashboard/disputes/${id}`);
+    return { ok: true };
+  } catch (err) {
+    return toResult(err);
+  }
+}
+
+/** Ask a party for more evidence; flips the case to awaiting_*_evidence. */
+export async function requestDisputeEvidence(
+  id: string,
+  from: "client" | "provider",
+  message: string,
+): Promise<ActionResult> {
+  const msg = message.trim();
+  if (!msg) return { ok: false, error: "Describe what evidence you need." };
+  try {
+    await adminRequest(`/disputes/${id}/request-evidence`, {
+      method: "POST",
+      body: JSON.stringify({ from, message: msg }),
+    });
+    revalidatePath(`/dashboard/disputes/${id}`);
+    revalidatePath("/dashboard/disputes");
+    return { ok: true };
+  } catch (err) {
+    return toResult(err);
+  }
+}
+
+/** Mark a single evidence item as reviewed by the current admin. */
+export async function markEvidenceReviewed(
+  id: string,
+  evidenceId: string,
+): Promise<ActionResult> {
+  try {
+    await adminRequest(`/disputes/${id}/evidence/${evidenceId}/reviewed`, {
+      method: "PATCH",
     });
     revalidatePath(`/dashboard/disputes/${id}`);
     return { ok: true };

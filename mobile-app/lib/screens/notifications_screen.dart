@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
 import 'applications_screen.dart';
 import 'approve_or_dispute_screen.dart';
+import 'dispute_thread_screen.dart';
 import 'job_lifecycle_screen.dart';
 import 'review_submission_screen.dart';
 import 'messages_screen.dart';
@@ -247,6 +248,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         if (postId != null && postId.isNotEmpty) {
           debugPrint('[NAV][OPEN_APPLICATIONS] provider_applied postId=$postId');
           await _openApplicationsFromBell(postId: postId);
+        }
+        break;
+
+      // ── Dispute communication → open the dispute conversation thread ───────
+      case 'dispute_message':
+      case 'dispute_evidence_requested':
+      case 'dispute_evidence_uploaded':
+        final disputeId = data['dispute_id'] as String?;
+        if (disputeId != null && disputeId.isNotEmpty) {
+          debugPrint('[NAV][OPEN_DISPUTE_THREAD] ${n.type} disputeId=$disputeId');
+          await Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => DisputeThreadScreen(disputeId: disputeId),
+          ));
         }
         break;
 
@@ -595,6 +609,9 @@ class _NotificationTile extends StatelessWidget {
       case 'dispute_resolved_release':
       case 'dispute_resolved_refund':
       case 'dispute_resolved_partial': return Icons.gavel_rounded;
+      case 'dispute_message': return Icons.forum_rounded;
+      case 'dispute_evidence_requested': return Icons.upload_file_rounded;
+      case 'dispute_evidence_uploaded': return Icons.attach_file_rounded;
       case 'escrow_released': return Icons.account_balance_wallet_rounded;
       default: return Icons.notifications_rounded;
     }
@@ -612,6 +629,9 @@ class _NotificationTile extends StatelessWidget {
       case 'dispute_resolved_release':
       case 'dispute_resolved_refund':
       case 'dispute_resolved_partial': return AppTheme.warningOrange;
+      case 'dispute_message':
+      case 'dispute_evidence_requested':
+      case 'dispute_evidence_uploaded': return AppTheme.primaryAccent;
       default: return AppTheme.primaryAccent;
     }
   }

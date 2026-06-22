@@ -10,6 +10,9 @@
 export type CanonicalStatus =
   | "open"
   | "reviewing"
+  | "awaiting_client_evidence"
+  | "awaiting_provider_evidence"
+  | "awaiting_admin_review"
   | "resolved"
   | "escalated"
   | "merged";
@@ -21,22 +24,28 @@ const LEGACY_MAP: Record<string, CanonicalStatus> = {
   resolved_partial: "resolved",
 };
 
+const CANONICAL: CanonicalStatus[] = [
+  "open",
+  "reviewing",
+  "awaiting_client_evidence",
+  "awaiting_provider_evidence",
+  "awaiting_admin_review",
+  "resolved",
+  "escalated",
+  "merged",
+];
+
 export function normalizeStatus(status: string): CanonicalStatus {
-  if (
-    status === "open" ||
-    status === "reviewing" ||
-    status === "resolved" ||
-    status === "escalated" ||
-    status === "merged"
-  ) {
-    return status;
-  }
+  if ((CANONICAL as string[]).includes(status)) return status as CanonicalStatus;
   return LEGACY_MAP[status] ?? "open";
 }
 
 export const STATUS_STYLES: Record<CanonicalStatus, string> = {
   open: "bg-red-100 text-red-700",
   reviewing: "bg-orange-100 text-orange-700",
+  awaiting_client_evidence: "bg-yellow-100 text-yellow-800",
+  awaiting_provider_evidence: "bg-yellow-100 text-yellow-800",
+  awaiting_admin_review: "bg-indigo-100 text-indigo-700",
   resolved: "bg-green-100 text-green-700",
   escalated: "bg-purple-100 text-purple-700",
   merged: "bg-gray-100 text-gray-600",
@@ -45,6 +54,9 @@ export const STATUS_STYLES: Record<CanonicalStatus, string> = {
 export const STATUS_LABELS: Record<CanonicalStatus, string> = {
   open: "Open",
   reviewing: "Reviewing",
+  awaiting_client_evidence: "Awaiting client evidence",
+  awaiting_provider_evidence: "Awaiting provider evidence",
+  awaiting_admin_review: "Awaiting admin review",
   resolved: "Resolved",
   escalated: "Escalated",
   merged: "Merged",

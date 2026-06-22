@@ -164,11 +164,16 @@ export interface DisputeDecision {
 
 export interface DisputeEvidence {
   id: string;
-  type: "image" | "video" | "text" | "system_chat";
+  type: "image" | "document" | "video" | "text" | "system_chat";
   uploader_type: "client" | "provider" | "admin" | "system";
   uploaded_by: string;
-  file_url: string | null;
+  file_url: string | null; // short-TTL signed URL (backend-issued) or inline-null
   content: string | null;
+  file_name: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
   created_at: string;
 }
 
@@ -177,6 +182,8 @@ export interface DisputeMessage {
   sender_type: "client" | "provider" | "admin" | "system";
   sender_id: string | null;
   message: string;
+  kind: "text" | "evidence_request" | "evidence_submitted" | "system" | "resolution";
+  internal: boolean;
   created_at: string;
 }
 

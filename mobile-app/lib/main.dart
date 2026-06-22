@@ -16,6 +16,7 @@ import 'providers/locale_provider.dart';
 import 'providers/location_provider.dart';
 import 'screens/applications_screen.dart';
 import 'screens/approve_or_dispute_screen.dart';
+import 'screens/dispute_thread_screen.dart';
 import 'screens/job_lifecycle_screen.dart';
 import 'screens/review_submission_screen.dart';
 import 'screens/home_screen.dart';
@@ -263,6 +264,20 @@ class _Help24AppState extends State<Help24App> {
         }
         break;
 
+      // ── Dispute communication → open the dispute conversation thread ───────
+      case 'dispute_message':
+      case 'dispute_evidence_requested':
+      case 'dispute_evidence_uploaded':
+        final disputeId = data['dispute_id'] as String?;
+        if (disputeId != null && disputeId.isNotEmpty) {
+          _openDisputeThread(context, disputeId: disputeId);
+        } else if (postId != null && postId.isNotEmpty) {
+          _openLifecycleScreen(context, postId: postId);
+        } else {
+          _openNotificationsScreen(context);
+        }
+        break;
+
       // ── Completion requested → open approve/dispute screen ─────────────────
       case 'completion_requested':
         if (postId != null && postId.isNotEmpty) {
@@ -302,6 +317,15 @@ class _Help24AppState extends State<Help24App> {
     debugPrint('[NAV][OPEN_LIFECYCLE] postId=$postId');
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => JobLifecycleScreen(postId: postId),
+    ));
+  }
+
+  /// Open the participant dispute conversation. Destination for all
+  /// dispute_message / dispute_evidence_* notifications (deep-linked by dispute_id).
+  void _openDisputeThread(BuildContext context, {required String disputeId}) {
+    debugPrint('[NAV][OPEN_DISPUTE_THREAD] disputeId=$disputeId');
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => DisputeThreadScreen(disputeId: disputeId),
     ));
   }
 
