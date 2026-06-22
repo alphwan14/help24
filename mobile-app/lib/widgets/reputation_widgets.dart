@@ -198,9 +198,35 @@ class ReputationTrustBlock extends StatelessWidget {
 }
 
 /// Full reputation section for the provider profile.
-class ReputationProfileSection extends StatelessWidget {
+class ReputationProfileSection extends StatefulWidget {
   final String providerId;
   const ReputationProfileSection({super.key, required this.providerId});
+
+  @override
+  State<ReputationProfileSection> createState() => _ReputationProfileSectionState();
+}
+
+class _ReputationProfileSectionState extends State<ReputationProfileSection> {
+  // Fetched ONCE per providerId and held in State. The profile screen's parent
+  // re-renders frequently (UserProfileService.watchUser polls every 15s), and a
+  // future created inline in build() would re-fetch and flash the loading
+  // spinner on every rebuild. Caching keeps the stats stable; we only re-fetch
+  // when the providerId actually changes.
+  late Future<ProviderReputation?> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = ReputationService.getReputation(widget.providerId);
+  }
+
+  @override
+  void didUpdateWidget(covariant ReputationProfileSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.providerId != widget.providerId) {
+      _future = ReputationService.getReputation(widget.providerId);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -220,7 +246,7 @@ class ReputationProfileSection extends StatelessWidget {
         border: Border.all(color: border),
       ),
       child: FutureBuilder<ProviderReputation?>(
-        future: ReputationService.getReputation(providerId),
+        future: _future,
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const SizedBox(

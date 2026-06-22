@@ -632,29 +632,7 @@ class _LoggedInProfile extends StatelessWidget {
 
         // Posts count (authored requests). Rating / completed jobs / tier come
         // from the backend reputation section below — no orphan users.* reads.
-        FutureBuilder<int>(
-          future: UserProfileService.getAuthoredPostsCount(profile?.uid ?? authUser.uid),
-          builder: (context, snap) {
-            final postsCount = snap.data ?? 0;
-            return Container(
-              margin: const EdgeInsets.only(top: 20),
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _StatItem(value: '$postsCount', label: 'Posts'),
-                ],
-              ),
-            );
-          },
-        ),
+        _AuthoredPostsStat(userId: profile?.uid ?? authUser.uid),
 
         // Backend-sourced reputation: rating, completed jobs, completion rate,
         // dispute rate, open disputes, tier, member since.
@@ -722,6 +700,63 @@ class _GuestProfile extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Authored-posts count card. Caches its fetch in State so the profile's 15s
+/// poll (UserProfileService.watchUser) and other ancestor rebuilds don't re-run
+/// the query and flicker. Re-fetches only when the userId changes.
+class _AuthoredPostsStat extends StatefulWidget {
+  final String userId;
+  const _AuthoredPostsStat({required this.userId});
+
+  @override
+  State<_AuthoredPostsStat> createState() => _AuthoredPostsStatState();
+}
+
+class _AuthoredPostsStatState extends State<_AuthoredPostsStat> {
+  late Future<int> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = UserProfileService.getAuthoredPostsCount(widget.userId);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AuthoredPostsStat oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) {
+      _future = UserProfileService.getAuthoredPostsCount(widget.userId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return FutureBuilder<int>(
+      future: _future,
+      builder: (context, snap) {
+        final postsCount = snap.data ?? 0;
+        return Container(
+          margin: const EdgeInsets.only(top: 20),
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _StatItem(value: '$postsCount', label: 'Posts'),
+            ],
+          ),
+        );
+      },
     );
   }
 }
