@@ -39,6 +39,14 @@ class ReputationService {
       if (res.statusCode == 200) {
         final json = jsonDecode(res.body) as Map<String, dynamic>;
         final rep = ProviderReputation.fromJson(json);
+        // Classification diagnostics: provider STATUS derives from `tier` only;
+        // total_reviews must never influence it. Log the inputs so any future
+        // "shows New Provider despite N jobs" report is one log line to diagnose.
+        debugPrint(
+          '[REPUTATION][LOAD] provider=$providerId tier=${rep.tier} '
+          'completed_jobs=${rep.completedJobs} total_reviews=${rep.totalReviews} '
+          'dispute_rate=${rep.disputeRate.toStringAsFixed(3)}',
+        );
         _cache[providerId] = rep;
         return rep;
       }

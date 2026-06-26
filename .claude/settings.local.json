@@ -25,10 +25,15 @@
       "Bash(curl -s -o /tmp/r1.txt -w \"HTTP %{http_code}\\\\n\" \"https://help24-backend.onrender.com/jobs/8b4a656b-4593-4ac9-bc8f-65f588cd14a4/lifecycle?user_id=k4DZSMyRNRNMRpXM0SypV5v6IHo2\")",
       "Read(//tmp/**)",
       "Bash(curl -s -o /tmp/r2.txt -w \"HTTP %{http_code}\\\\n\" \"https://help24-backend.onrender.com/jobs/8b4a656b-4593-4ac9-bc8f-65f588cd14a4/lifecycle?user_id=nlAJnbHFktNTYEGPPPrBE1zu0RB2\")",
-      "Bash(dart analyze *)"
+      "Bash(dart analyze *)",
+      "Bash(git commit -m ' *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\user\\Desktop\\Projects\\help24\\admin-dashboard\\app\\dashboard\\disputes"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ],
+  "enableAllProjectMcpServers": true
 }
