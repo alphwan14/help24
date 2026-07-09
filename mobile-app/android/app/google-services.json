@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "454215745233-baj7t28sjks3eqqaujl0rp6a7dtnu5a1.apps.googleusercontent.com",
+          "client_id": "454215745233-4ee91o6re4a2i0nio9nall93nv0e4qk5.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.help24.help24",
-            "certificate_hash": "de78b1af334165869d055e844ea636a699678133"
+            "certificate_hash": "5bdf32926ff294505459f2ad17ca89ababe4e9a1"
           }
         },
         {

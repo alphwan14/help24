@@ -69,6 +69,8 @@ class AuthProvider extends ChangeNotifier {
   }
 
   void _onAuthStateChanged(User? firebaseUser) {
+    // TEMP [AUTH][LISTENER] diagnostics — remove after latency is verified.
+    debugPrint('[AUTH][LISTENER] fired user=${firebaseUser != null}');
     if (firebaseUser == null) {
       _currentUser = null;
       _verificationId = null;
@@ -78,14 +80,22 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    // Set the session user immediately so the UI can proceed. Everything below is
+    // background work that MUST NOT block sign-in navigation.
     _currentUser = AuthService.appUserFromFirebase(firebaseUser);
     notifyListeners();
+
     if (AppFirebase.isReady) {
-      NotificationService.onLogin(firebaseUser.uid);
+      final swf = Stopwatch()..start();
+      NotificationService.onLogin(firebaseUser.uid)
+          .then((_) => debugPrint('[AUTH][LISTENER] onLogin(FCM) done @${swf.elapsedMilliseconds}ms'));
     }
+    final swb = Stopwatch()..start();
     firebaseUser.getIdToken().then((idToken) async {
       if (idToken != null && idToken.isNotEmpty) {
-        await SupabaseAuthBridge.setSupabaseSessionFromFirebase(idToken);
+        debugPrint('[AUTH][BRIDGE] exchange start @${swb.elapsedMilliseconds}ms');
+        final ok = await SupabaseAuthBridge.setSupabaseSessionFromFirebase(idToken);
+        debugPrint('[AUTH][BRIDGE] exchange done ok=$ok @${swb.elapsedMilliseconds}ms');
       }
     }).catchError((_) {});
     AuthService.getCurrentAppUser().then((u) {
@@ -267,23 +277,34 @@ class AuthProvider extends ChangeNotifier {
     _isLoading = true;
     _error = null;
     notifyListeners();
+    // TEMP [AUTH][GOOGLE] timing diagnostics — remove after latency is verified.
+    final sw = Stopwatch()..start();
+    void mark(String step) => debugPrint('[AUTH][GOOGLE] $step @${sw.elapsedMilliseconds}ms');
+    mark('start');
     try {
-      // Force account picker every time so the user explicitly chooses.
       final gsi = GoogleSignIn();
-      await gsi.signOut();
+      // SPEED: no forced signOut(). The previous forced signOut() added a network
+      // round-trip AND re-showed the account picker on every sign-in. signIn()
+      // reuses the cached Google account silently when available (seconds, not a
+      // minute). Account switching can be offered separately later if needed.
       final googleUser = await gsi.signIn();
+      mark('gsi.signIn done (user=${googleUser != null})');
       if (googleUser == null) {
         _isLoading = false;
         notifyListeners();
         return false; // user cancelled
       }
       final googleAuth = await googleUser.authentication;
+      mark('googleUser.authentication done');
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      final userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
+      // Fail fast instead of hanging ~60s if the network/Firebase call stalls.
+      final userCredential = await FirebaseAuth.instance
+          .signInWithCredential(credential)
+          .timeout(const Duration(seconds: 30));
+      mark('firebase.signInWithCredential done (user=${userCredential.user != null})');
       if (userCredential.user != null) {
         _currentUser = AuthService.appUserFromFirebase(userCredential.user!);
         _error = null;
@@ -291,12 +312,19 @@ class AuthProvider extends ChangeNotifier {
       }
       _error = 'Google sign-in failed. Please try again.';
       return false;
+    } on TimeoutException {
+      mark('TIMEOUT after 30s on signInWithCredential');
+      _error = 'Sign-in timed out. Please check your connection and try again.';
+      return false;
     } catch (e) {
+      // Un-swallow the real cause (type/code only — never tokens) for diagnosis.
+      mark('ERROR type=${e.runtimeType} detail=$e');
       _error = 'Google sign-in failed. Please try again.';
       return false;
     } finally {
       _isLoading = false;
       notifyListeners();
+      mark('finished total=${sw.elapsedMilliseconds}ms');
     }
   }
 

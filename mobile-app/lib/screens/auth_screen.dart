@@ -30,14 +30,24 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen> {
   _AuthStep _step = _AuthStep.welcome;
+  // Ensures the auth route/modal is dismissed EXACTLY once. authStateChanges can
+  // fire several times around a successful login (credential + token refresh +
+  // profile load); without this guard a second _onSuccess() could pop the wrong
+  // route or throw.
+  bool _dismissed = false;
 
   void _goTo(_AuthStep step) => setState(() => _step = step);
 
   void _onSuccess() {
-    if (!mounted) return;
-    widget.onSuccess?.call();
-    // If caller did not handle navigation, pop so user returns to app (no back button)
-    if (mounted && widget.onSuccess == null && Navigator.canPop(context)) {
+    if (_dismissed || !mounted) return;
+    _dismissed = true;
+    // TEMP [AUTH][NAV] diagnostic — remove after nav is verified.
+    debugPrint('[AUTH][NAV] dismiss onSuccessProvided=${widget.onSuccess != null} canPop=${Navigator.canPop(context)}');
+    // Deterministic: hand off to the caller's handler if given, otherwise pop.
+    // No longer depends on the fragile onSuccess-null + canPop combination.
+    if (widget.onSuccess != null) {
+      widget.onSuccess!.call();
+    } else if (Navigator.canPop(context)) {
       Navigator.of(context).pop(true);
     }
   }
@@ -181,6 +191,7 @@ class _WelcomeStepState extends State<_WelcomeStep> {
   bool _googleLoading = false;
 
   Future<void> _signInWithGoogle() async {
+    debugPrint('[AUTH][TAP] method=google (welcome)'); // TEMP diagnostic
     setState(() => _googleLoading = true);
     final ok = await context.read<AuthProvider>().signInWithGoogle();
     if (!mounted) return;
@@ -564,11 +575,14 @@ class _EmailAuthStepState extends State<_EmailAuthStep> {
       return;
     }
     FocusScope.of(context).unfocus();
+    debugPrint('[AUTH][TAP] method=email-login'); // TEMP diagnostic
     final ok = await context.read<AuthProvider>().signIn(email: email, password: password);
+    debugPrint('[AUTH][FIREBASE] email signIn ok=$ok'); // TEMP diagnostic
     if (ok && mounted) widget.onSuccess();
   }
 
   Future<void> _signInWithGoogle() async {
+    debugPrint('[AUTH][TAP] method=google (email)'); // TEMP diagnostic
     FocusScope.of(context).unfocus();
     setState(() => _isGoogleLoading = true);
     final ok = await context.read<AuthProvider>().signInWithGoogle();
