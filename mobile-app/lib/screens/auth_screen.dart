@@ -41,8 +41,6 @@ class _AuthScreenState extends State<AuthScreen> {
   void _onSuccess() {
     if (_dismissed || !mounted) return;
     _dismissed = true;
-    // TEMP [AUTH][NAV] diagnostic — remove after nav is verified.
-    debugPrint('[AUTH][NAV] dismiss onSuccessProvided=${widget.onSuccess != null} canPop=${Navigator.canPop(context)}');
     // Deterministic: hand off to the caller's handler if given, otherwise pop.
     // No longer depends on the fragile onSuccess-null + canPop combination.
     if (widget.onSuccess != null) {
@@ -191,7 +189,6 @@ class _WelcomeStepState extends State<_WelcomeStep> {
   bool _googleLoading = false;
 
   Future<void> _signInWithGoogle() async {
-    debugPrint('[AUTH][TAP] method=google (welcome)'); // TEMP diagnostic
     setState(() => _googleLoading = true);
     final ok = await context.read<AuthProvider>().signInWithGoogle();
     if (!mounted) return;
@@ -575,14 +572,11 @@ class _EmailAuthStepState extends State<_EmailAuthStep> {
       return;
     }
     FocusScope.of(context).unfocus();
-    debugPrint('[AUTH][TAP] method=email-login'); // TEMP diagnostic
     final ok = await context.read<AuthProvider>().signIn(email: email, password: password);
-    debugPrint('[AUTH][FIREBASE] email signIn ok=$ok'); // TEMP diagnostic
     if (ok && mounted) widget.onSuccess();
   }
 
   Future<void> _signInWithGoogle() async {
-    debugPrint('[AUTH][TAP] method=google (email)'); // TEMP diagnostic
     FocusScope.of(context).unfocus();
     setState(() => _isGoogleLoading = true);
     final ok = await context.read<AuthProvider>().signInWithGoogle();

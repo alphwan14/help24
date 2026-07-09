@@ -75,8 +75,6 @@ class AuthProvider extends ChangeNotifier {
   }
 
   void _onAuthStateChanged(User? firebaseUser) {
-    // TEMP [AUTH][LISTENER] diagnostics — remove after latency is verified.
-    debugPrint('[AUTH][LISTENER] fired user=${firebaseUser != null}');
     final uid = firebaseUser?.uid;
     final isRepeat = uid == _lastHandledUid;
     _lastHandledUid = uid;
@@ -101,16 +99,11 @@ class AuthProvider extends ChangeNotifier {
     if (isRepeat) return;
 
     if (AppFirebase.isReady) {
-      final swf = Stopwatch()..start();
-      NotificationService.onLogin(firebaseUser.uid)
-          .then((_) => debugPrint('[AUTH][LISTENER] onLogin(FCM) done @${swf.elapsedMilliseconds}ms'));
+      NotificationService.onLogin(firebaseUser.uid);
     }
-    final swb = Stopwatch()..start();
     firebaseUser.getIdToken().then((idToken) async {
       if (idToken != null && idToken.isNotEmpty) {
-        debugPrint('[AUTH][BRIDGE] exchange start @${swb.elapsedMilliseconds}ms');
-        final ok = await SupabaseAuthBridge.setSupabaseSessionFromFirebase(idToken);
-        debugPrint('[AUTH][BRIDGE] exchange done ok=$ok @${swb.elapsedMilliseconds}ms');
+        await SupabaseAuthBridge.setSupabaseSessionFromFirebase(idToken);
       }
     }).catchError((_) {});
     AuthService.getCurrentAppUser().then((u) {
@@ -292,37 +285,27 @@ class AuthProvider extends ChangeNotifier {
     _isLoading = true;
     _error = null;
     notifyListeners();
-    // TEMP [AUTH][GOOGLE] timing diagnostics — remove after latency is verified.
-    final sw = Stopwatch()..start();
-    void mark(String step) => debugPrint('[AUTH][GOOGLE] $step @${sw.elapsedMilliseconds}ms');
-    mark('start');
     try {
       final gsi = GoogleSignIn();
       // Always show the account chooser — the user may have several Google accounts
       // and must pick explicitly (never silent auto-login). signOut() clears only the
-      // LOCAL cached selection so the picker re-appears; it's a fast local op. The
-      // earlier ~1min was a one-time cold start, NOT this call (the timing marks below
-      // confirm it — signInWithCredential completed in ~4s).
+      // LOCAL cached selection so the picker re-appears; it's a fast local op.
       await gsi.signOut();
-      mark('gsi.signOut done');
       final googleUser = await gsi.signIn();
-      mark('gsi.signIn done (user=${googleUser != null})');
       if (googleUser == null) {
         _isLoading = false;
         notifyListeners();
         return false; // user cancelled
       }
       final googleAuth = await googleUser.authentication;
-      mark('googleUser.authentication done');
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      // Fail fast instead of hanging ~60s if the network/Firebase call stalls.
+      // Fail fast instead of hanging if the network/Firebase call stalls.
       final userCredential = await FirebaseAuth.instance
           .signInWithCredential(credential)
           .timeout(const Duration(seconds: 30));
-      mark('firebase.signInWithCredential done (user=${userCredential.user != null})');
       if (userCredential.user != null) {
         _currentUser = AuthService.appUserFromFirebase(userCredential.user!);
         _error = null;
@@ -331,18 +314,15 @@ class AuthProvider extends ChangeNotifier {
       _error = 'Google sign-in failed. Please try again.';
       return false;
     } on TimeoutException {
-      mark('TIMEOUT after 30s on signInWithCredential');
       _error = 'Sign-in timed out. Please check your connection and try again.';
       return false;
     } catch (e) {
-      // Un-swallow the real cause (type/code only — never tokens) for diagnosis.
-      mark('ERROR type=${e.runtimeType} detail=$e');
+      debugPrint('[AUTH] Google sign-in error: ${e.runtimeType}'); // safe: type only, no tokens
       _error = 'Google sign-in failed. Please try again.';
       return false;
     } finally {
       _isLoading = false;
       notifyListeners();
-      mark('finished total=${sw.elapsedMilliseconds}ms');
     }
   }
 

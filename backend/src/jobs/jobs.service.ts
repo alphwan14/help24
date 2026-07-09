@@ -631,7 +631,7 @@ export class JobsService {
     // Reads the latest transaction + its escrow (does not change the gate above).
     const { data: latestTx } = await this.supabase.client
       .from('transactions')
-      .select('id, status, failure_reason, conversation_id, originator_conversation_id')
+      .select('id, status, failure_reason')
       .eq('post_id', postId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -653,42 +653,6 @@ export class JobsService {
       failureReason: (latestTx?.failure_reason as string | null) ?? null,
       activeDispute,
     });
-
-    // TEMP DIAGNOSTIC [ARCHIVE_GUARD] — Phase A verification only.
-    // REMOVAL PLAN: delete this single logger.warn once the truthful archive
-    // behaviour has been confirmed against post 2b4925ab (tracked in Phase A report).
-    const guardBranch = activeDispute
-      ? 'DISPUTE'
-      : fundsHeld
-        ? `FUNDS_HELD:${moneyState}`
-        : 'ALLOW';
-    const { data: latestDispute } = await this.supabase.client
-      .from('disputes')
-      .select('id, status')
-      .eq('post_id', postId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    let latestDecision: string | null = null;
-    if (latestDispute) {
-      const { data: dec } = await this.supabase.client
-        .from('dispute_decisions')
-        .select('decision_type')
-        .eq('dispute_id', (latestDispute as { id: string }).id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      latestDecision = (dec?.decision_type as string | null) ?? null;
-    }
-    this.logger.warn(
-      `[ARCHIVE_GUARD] post=${postId} postStatus=${post.status} ` +
-        `txId=${(latestTx?.id as string) ?? 'none'} txStatus=${(latestTx?.status as string) ?? 'none'} ` +
-        `escrowId=${escrowRow?.id ?? 'none'} escrowStatus=${escrowRow?.status ?? 'none'} ` +
-        `failureReason=${(latestTx?.failure_reason as string) ?? 'none'} ` +
-        `conv=${(latestTx?.conversation_id as string) ?? 'none'} orig=${(latestTx?.originator_conversation_id as string) ?? 'none'} ` +
-        `disputeStatus=${(latestDispute as { status: string } | null)?.status ?? 'none'} decision=${latestDecision ?? 'none'} ` +
-        `moneyState=${moneyState} branch=${guardBranch}`,
-    );
 
     // ── Enforce (decision UNCHANGED; message now truthful per state) ─────────
     if (activeDispute) {
