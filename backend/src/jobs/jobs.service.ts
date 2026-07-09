@@ -14,6 +14,7 @@ import { MarkCompleteDto } from './dto/mark-complete.dto';
 import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
 import { classifyArchiveMoneyState, archiveBlockMessage } from './archive-state';
+import { deriveSettlementState } from './settlement-state';
 
 @Injectable()
 export class JobsService {
@@ -438,7 +439,7 @@ export class JobsService {
     // Latest transaction + its escrow row.
     const { data: tx } = await this.supabase.client
       .from('transactions')
-      .select('id, status, amount, fee, total_paid, mpesa_receipt, created_at')
+      .select('id, status, amount, fee, total_paid, mpesa_receipt, failure_reason, created_at')
       .eq('post_id', postId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -539,6 +540,32 @@ export class JobsService {
     if (escrow && escrow.status === 'released') add('payout_released', 'Payout released to provider', escrow.released_at);
     timeline.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 
+    // ── Canonical derived settlement state (Phase 3.4A) — read-only ─────────────
+    // The single money-truth the UI consumes instead of inferring from four
+    // statuses. activeDispute uses the SAME terminal set as archivePost so
+    // settlement.can_archive stays in exact parity with the enforcement gate.
+    const disputeTerminal = ['resolved', 'resolved_release', 'resolved_refund', 'resolved_partial', 'merged'];
+    const activeDispute = dispute != null && !disputeTerminal.includes(dispute.status as string);
+    const latestDecision = decisions.length > 0 ? decisions[decisions.length - 1] : null;
+    const settlement = deriveSettlementState({
+      txStatus: (tx?.status as string | null) ?? null,
+      escrowStatus: (escrow?.status as string | null) ?? null,
+      failureReason: (tx?.failure_reason as string | null) ?? null,
+      activeDispute,
+      latestDecisionType: (latestDecision?.decision_type as string | null) ?? null,
+      amount: (tx?.amount as number | null) ?? null,
+      fee: (tx?.fee as number | null) ?? null,
+      totalPaid: (tx?.total_paid as number | null) ?? null,
+      providerAmount:
+        (latestDecision?.provider_amount as number | null) ?? (dispute?.provider_amount as number | null) ?? null,
+      clientRefund:
+        (latestDecision?.client_refund_amount as number | null) ?? (dispute?.buyer_refund as number | null) ?? null,
+      paidAt: (tx?.created_at as string | null) ?? null,
+      releasedAt: (escrow?.released_at as string | null) ?? null,
+      disputedAt: (dispute?.created_at as string | null) ?? null,
+      resolvedAt: (dispute?.resolved_at as string | null) ?? null,
+    });
+
     return {
       post: {
         id: post.id,
@@ -549,6 +576,7 @@ export class JobsService {
         selected_provider_id: providerId || null,
       },
       viewer_role: isClient ? 'client' : 'provider',
+      settlement,
       payment: tx
         ? {
             transaction_id: tx.id,

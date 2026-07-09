@@ -62,3 +62,40 @@ describe('JobsService.getLifecycle participant scoping', () => {
     expect(res.viewer_role).toBe('provider');
   });
 });
+
+describe('JobsService.getLifecycle settlement block (Phase 3.4A)', () => {
+  it('exposes payout_processing (NOT settled) for a stuck payout_pending payout', async () => {
+    const svc = service({
+      posts: { ...POST, status: 'completed' },
+      transactions: { id: 'tx1', status: 'payout_pending', amount: 1000, fee: 30, total_paid: 1030, created_at: 't' },
+      escrow: { status: 'payout_pending', released_at: null },
+    });
+    const res = await svc.getLifecycle('p1', 'client1');
+    expect(res.settlement.state).toBe('payout_processing');
+    expect(res.settlement.can_archive).toBe(false);
+    expect(res.settlement.is_terminal).toBe(false);
+    expect(res.settlement.explanation).toMatch(/awaiting confirmation/i);
+    // The post says 'completed' but settlement is truthful that money isn't settled.
+    expect(res.post.status).toBe('completed');
+  });
+
+  it('exposes released + archivable once escrow is released', async () => {
+    const svc = service({
+      posts: { ...POST, status: 'completed' },
+      transactions: { id: 'tx1', status: 'released', amount: 1000, fee: 30, total_paid: 1030, created_at: 't' },
+      escrow: { status: 'released', released_at: 'x' },
+    });
+    const res = await svc.getLifecycle('p1', 'client1');
+    expect(res.settlement.state).toBe('released');
+    expect(res.settlement.can_archive).toBe(true);
+    expect(res.settlement.is_terminal).toBe(true);
+  });
+
+  it('is READ-ONLY: emits no events (no writes/Daraja/notifications)', async () => {
+    const supa = makeSupabase({ posts: POST });
+    const events = { emit: jest.fn() };
+    const svc = new JobsService(supa as any, {} as any, events as any);
+    await svc.getLifecycle('p1', 'client1');
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+});
