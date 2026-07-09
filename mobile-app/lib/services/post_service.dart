@@ -136,7 +136,6 @@ class PostService {
         debugPrint('  - ${post.title}: ${post.images.length} images');
       }
 
-      await _attachSettlement(posts);
       return posts;
     } catch (e) {
       debugPrint('❌ Error fetching posts: $e');
@@ -150,36 +149,11 @@ class PostService {
     }
   }
 
-  /// Enrich 'completed' posts with their payout settlement truth so the card can
-  /// show "Finalizing" instead of "Completed" while the provider payout is still
-  /// unconfirmed. Uses the same proven direct-escrow query pattern as JobStatusCard,
-  /// batched by post_id. BEST-EFFORT: any failure leaves payoutInProgress=false and
-  /// never breaks the feed. No writes, read-only.
-  static Future<void> _attachSettlement(List<PostModel> posts) async {
-    final completedIds = posts.where((p) => p.status == 'completed').map((p) => p.id).toList();
-    if (completedIds.isEmpty) return;
-    try {
-      final rows = await _client
-          .from('escrow')
-          .select('post_id, status')
-          .inFilter('post_id', completedIds);
-      final statusByPost = <String, String>{};
-      for (final r in (rows as List)) {
-        final pid = r['post_id']?.toString();
-        final st = r['status']?.toString();
-        if (pid != null && st != null) statusByPost[pid] = st;
-      }
-      for (final p in posts) {
-        if (p.status != 'completed') continue;
-        final st = statusByPost[p.id];
-        // Unsettled = an escrow row exists but is not yet terminal (released/refunded):
-        // payout_pending / locked / disputed all mean the money is not settled.
-        p.payoutInProgress = st != null && st != 'released' && st != 'refunded';
-      }
-    } catch (e) {
-      debugPrint('settlement enrich skipped (non-fatal): $e');
-    }
-  }
+  // NOTE: the previous _attachSettlement() read the RLS-locked `escrow` table
+  // directly from the client to flag completed-but-unsettled posts ("Finalizing").
+  // Removed for the S2 security lockdown (financial tables are backend-only now).
+  // Phase C repopulates PostModel.payoutInProgress from the backend-derived
+  // settlement state instead of a direct Supabase read.
 
   /// Fetch urgent request posts for top banner.
   /// Limited result set for fast UI; caller can do distance sorting.

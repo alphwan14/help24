@@ -36,18 +36,33 @@ class PaymentStatusResult {
   final String status;
   final String? mpesaReceipt;
   final String? failureReason;
+  /// Escrow holding status (locked | payout_pending | released | refunded), from
+  /// the backend's joined escrow row. Lets clients read settlement state WITHOUT
+  /// touching the RLS-locked escrow table directly (security: S2 lockdown).
+  final String? escrowStatus;
 
   const PaymentStatusResult({
     required this.status,
     this.mpesaReceipt,
     this.failureReason,
+    this.escrowStatus,
   });
 
   factory PaymentStatusResult.fromJson(Map<String, dynamic> json) {
+    // PostgREST may return the embedded escrow as an object (to-one) or a
+    // single-element array (to-many) depending on the detected relationship.
+    final raw = json['escrow'];
+    Map<String, dynamic>? escrow;
+    if (raw is Map<String, dynamic>) {
+      escrow = raw;
+    } else if (raw is List && raw.isNotEmpty && raw.first is Map<String, dynamic>) {
+      escrow = raw.first as Map<String, dynamic>;
+    }
     return PaymentStatusResult(
       status: json['status'] as String? ?? 'unknown',
       mpesaReceipt: json['mpesa_receipt'] as String?,
       failureReason: json['failure_reason'] as String?,
+      escrowStatus: escrow?['status'] as String?,
     );
   }
 

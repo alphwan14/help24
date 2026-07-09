@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
 import '../utils/phone_utils.dart';
+import '../services/mpesa_service.dart';
 import '../screens/payment_screen.dart';
 import '../screens/mark_complete_screen.dart';
 import '../screens/approve_or_dispute_screen.dart';
@@ -156,23 +157,18 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
         return;
       }
 
-      // Load latest transaction.
-      final txRes = await supabase
-          .from('transactions')
-          .select('status')
-          .eq('post_id', widget.postId)
-          .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      // Load escrow.
-      final escrowRes = await supabase
-          .from('escrow')
-          .select('status')
-          .eq('post_id', widget.postId)
-          .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+      // Load payment + escrow status from the backend (service-role). The client
+      // no longer reads the RLS-locked transactions/escrow tables directly (S2
+      // security lockdown). A 404 means no payment has been initiated yet.
+      String? txStatus;
+      String? escrowStatus;
+      try {
+        final pay = await MpesaService.pollPaymentStatus(widget.postId);
+        txStatus = pay.status;
+        escrowStatus = pay.escrowStatus;
+      } on MpesaException catch (e) {
+        if (e.statusCode != 404) rethrow; // 404 = no payment yet; anything else surfaces
+      }
 
       // Load job completion status from backend.
       final completion = await JobsService.getJobStatus(widget.postId);
@@ -184,8 +180,8 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
         postPrice: ((postRes['price'] ?? 0) as num).toDouble(),
         authorUserId: postRes['author_user_id']?.toString() ?? '',
         selectedProviderId: postRes['selected_provider_id']?.toString(),
-        transactionStatus: txRes?['status']?.toString(),
-        escrowStatus: escrowRes?['status']?.toString(),
+        transactionStatus: txStatus,
+        escrowStatus: escrowStatus,
         completion: completion,
       );
 
