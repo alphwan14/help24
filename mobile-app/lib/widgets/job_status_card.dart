@@ -12,6 +12,7 @@ import '../utils/phone_utils.dart';
 import '../screens/payment_screen.dart';
 import '../screens/mark_complete_screen.dart';
 import '../screens/approve_or_dispute_screen.dart';
+import '../screens/job_lifecycle_screen.dart';
 
 // ── Data model ──────────────────────────────────────────────────────────────
 
@@ -342,9 +343,44 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
             _buildHeader(isDark),
             const SizedBox(height: 10),
             _buildStateContent(isDark),
+            const SizedBox(height: 10),
+            _buildLifecycleLink(isDark),
           ],
         ),
       ),
+    );
+  }
+
+  // Entry point to the full Job Lifecycle Detail screen, so participants can open
+  // the complete payment/dispute/payout timeline directly from the job chat
+  // (previously reachable only via a notification tap).
+  Widget _buildLifecycleLink(bool isDark) {
+    final divider = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    return Column(
+      children: [
+        Divider(height: 1, color: divider),
+        InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => JobLifecycleScreen(postId: widget.postId)),
+          ),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.receipt_long_rounded, size: 15, color: AppTheme.primaryAccent),
+                const SizedBox(width: 6),
+                Text(
+                  'View full job details',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppTheme.primaryAccent),
+                ),
+                Icon(Icons.chevron_right_rounded, size: 16, color: AppTheme.primaryAccent),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 

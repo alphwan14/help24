@@ -306,6 +306,12 @@ class PostModel {
   /// Lifecycle state of the post: open | assigned | completed | disputed.
   final String status;
 
+  /// Enriched AFTER load (not from JSON): true when the job is 'completed' but the
+  /// provider payout is still awaiting confirmation (escrow not yet released/refunded).
+  /// The card then shows "Finalizing" instead of "Completed" so it never implies the
+  /// money is settled. Set by PostService via a batched, best-effort escrow lookup.
+  bool payoutInProgress = false;
+
   PostModel({
     required this.id,
     required this.title,

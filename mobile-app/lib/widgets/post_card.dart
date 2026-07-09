@@ -161,7 +161,7 @@ class PostCard extends StatelessWidget {
                         ),
                       // Status badge — visible to all users for non-open lifecycle states
                       if (post.status != 'open' && post.status.isNotEmpty)
-                        _StatusBadge(status: post.status),
+                        _StatusBadge(status: post.status, payoutInProgress: post.payoutInProgress),
                       // Activity indicator — application demand on open request posts
                       if (isRequest && post.status == 'open' && post.applications.isNotEmpty)
                         _SmallTag(
@@ -317,7 +317,7 @@ class PostCard extends StatelessWidget {
                           ? _OwnerCta(post: post, onTap: onTap, isDark: isDark)
                           : (isRequest && post.status != 'open')
                               // Request already has a provider — never show "Offer Service".
-                              ? _RequestTakenChip(status: post.status, isDark: isDark)
+                              ? _RequestTakenChip(status: post.status, isDark: isDark, payoutInProgress: post.payoutInProgress)
                               : FilledButton(
                                   onPressed: onRespond ?? onTap,
                                   style: FilledButton.styleFrom(
@@ -399,8 +399,9 @@ class _SmallTag extends StatelessWidget {
 /// Status badge — bordered chip shown on all cards for assigned/completed/disputed posts.
 class _StatusBadge extends StatelessWidget {
   final String status;
+  final bool payoutInProgress;
 
-  const _StatusBadge({required this.status});
+  const _StatusBadge({required this.status, this.payoutInProgress = false});
 
   @override
   Widget build(BuildContext context) {
@@ -415,9 +416,17 @@ class _StatusBadge extends StatelessWidget {
         iconData = Icons.build_circle_outlined;
         break;
       case 'completed':
-        label = 'Completed';
-        color = AppTheme.successGreen;
-        iconData = Icons.check_circle_outline;
+        // Job accepted, but the provider payout is not settled until escrow is
+        // 'released'. Never show a green "Completed" while the money is pending.
+        if (payoutInProgress) {
+          label = 'Finalizing';
+          color = AppTheme.warningOrange;
+          iconData = Icons.hourglass_top_rounded;
+        } else {
+          label = 'Completed';
+          color = AppTheme.successGreen;
+          iconData = Icons.check_circle_outline;
+        }
         break;
       case 'disputed':
         label = 'Disputed';
@@ -524,13 +533,13 @@ class _OwnerCta extends StatelessWidget {
       case 'completed':
         return OutlinedButton.icon(
           onPressed: onTap,
-          icon: const Icon(Icons.check_circle_outline, size: 15),
-          label: const Text('Completed'),
+          icon: Icon(post.payoutInProgress ? Icons.hourglass_top_rounded : Icons.check_circle_outline, size: 15),
+          label: Text(post.payoutInProgress ? 'Finalizing' : 'Completed'),
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: AppTheme.successGreen,
+            foregroundColor: post.payoutInProgress ? AppTheme.warningOrange : AppTheme.successGreen,
           ),
         );
       case 'disputed':
@@ -576,16 +585,19 @@ class _OwnerCta extends StatelessWidget {
 class _RequestTakenChip extends StatelessWidget {
   final String status;
   final bool isDark;
-  const _RequestTakenChip({required this.status, required this.isDark});
+  final bool payoutInProgress;
+  const _RequestTakenChip({required this.status, required this.isDark, this.payoutInProgress = false});
 
   @override
   Widget build(BuildContext context) {
-    final (label, color) = switch (status) {
-      'completed' => ('Completed', AppTheme.successGreen),
-      'disputed' => ('In Dispute', AppTheme.errorRed),
-      'cancelled' => ('Closed', AppTheme.lightTextTertiary),
-      _ => ('In Progress', AppTheme.primaryAccent),
-    };
+    final (label, color) = (status == 'completed' && payoutInProgress)
+        ? ('Finalizing', AppTheme.warningOrange)
+        : switch (status) {
+            'completed' => ('Completed', AppTheme.successGreen),
+            'disputed' => ('In Dispute', AppTheme.errorRed),
+            'cancelled' => ('Closed', AppTheme.lightTextTertiary),
+            _ => ('In Progress', AppTheme.primaryAccent),
+          };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(

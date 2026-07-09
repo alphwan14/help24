@@ -135,7 +135,8 @@ class PostService {
       for (final post in posts.take(3)) {
         debugPrint('  - ${post.title}: ${post.images.length} images');
       }
-      
+
+      await _attachSettlement(posts);
       return posts;
     } catch (e) {
       debugPrint('❌ Error fetching posts: $e');
@@ -146,6 +147,37 @@ class PostService {
         );
       }
       throw PostServiceException('Failed to load posts. Please try again.');
+    }
+  }
+
+  /// Enrich 'completed' posts with their payout settlement truth so the card can
+  /// show "Finalizing" instead of "Completed" while the provider payout is still
+  /// unconfirmed. Uses the same proven direct-escrow query pattern as JobStatusCard,
+  /// batched by post_id. BEST-EFFORT: any failure leaves payoutInProgress=false and
+  /// never breaks the feed. No writes, read-only.
+  static Future<void> _attachSettlement(List<PostModel> posts) async {
+    final completedIds = posts.where((p) => p.status == 'completed').map((p) => p.id).toList();
+    if (completedIds.isEmpty) return;
+    try {
+      final rows = await _client
+          .from('escrow')
+          .select('post_id, status')
+          .inFilter('post_id', completedIds);
+      final statusByPost = <String, String>{};
+      for (final r in (rows as List)) {
+        final pid = r['post_id']?.toString();
+        final st = r['status']?.toString();
+        if (pid != null && st != null) statusByPost[pid] = st;
+      }
+      for (final p in posts) {
+        if (p.status != 'completed') continue;
+        final st = statusByPost[p.id];
+        // Unsettled = an escrow row exists but is not yet terminal (released/refunded):
+        // payout_pending / locked / disputed all mean the money is not settled.
+        p.payoutInProgress = st != null && st != 'released' && st != 'refunded';
+      }
+    } catch (e) {
+      debugPrint('settlement enrich skipped (non-fatal): $e');
     }
   }
 
