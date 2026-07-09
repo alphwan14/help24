@@ -12,7 +12,9 @@ export interface Transaction {
   status: string;
   checkout_request_id: string | null;
   conversation_id: string | null;
+  originator_conversation_id: string | null;
   mpesa_receipt: string | null;
+  failure_reason: string | null;
   created_at: string;
 }
 
@@ -66,6 +68,17 @@ export class TransactionsService {
       .from('transactions')
       .select('*')
       .eq('conversation_id', conversationId)
+      .single();
+
+    if (error) return null;
+    return data as Transaction;
+  }
+
+  async findByOriginatorConversationId(id: string): Promise<Transaction | null> {
+    const { data, error } = await this.supabase.client
+      .from('transactions')
+      .select('*')
+      .eq('originator_conversation_id', id)
       .single();
 
     if (error) return null;

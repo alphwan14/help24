@@ -63,6 +63,16 @@ export class MpesaController {
     return this.mpesa.handleB2cCallback(body);
   }
 
+  // Daraja Transaction Status Query RESULT — the async answer to an admin
+  // reconcile. Public (Daraja posts here, unauthenticated); settlement is
+  // guarded inside the service (settles only on a confirmed terminal status).
+  @Post('b2c-status-result')
+  @HttpCode(HttpStatus.OK)
+  b2cStatusResult(@Body() body: Record<string, unknown>) {
+    this.logger.log(`[B2C] status-result received: ${JSON.stringify(body)}`);
+    return this.mpesa.handleB2cStatusResult(body);
+  }
+
   @Get('status/:postId')
   getStatus(@Param('postId') postId: string) {
     return this.mpesa.getStatus(postId);

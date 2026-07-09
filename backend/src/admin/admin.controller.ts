@@ -1,15 +1,21 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
   GoneException,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { MpesaService } from '../mpesa/mpesa.service';
 import { AdminAuthGuard } from './auth/admin-auth.guard';
-import { Roles } from './auth/roles.decorator';
+import { Roles, CurrentAdmin } from './auth/roles.decorator';
+import { AdminContext } from './auth/admin-role';
 
 /**
  * LEGACY admin surface — retained read-only and now behind the RBAC guard.
@@ -22,7 +28,28 @@ import { Roles } from './auth/roles.decorator';
 @Controller('admin')
 @UseGuards(AdminAuthGuard)
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly mpesa: MpesaService,
+  ) {}
+
+  /**
+   * Reconcile a stranded payout for a post whose B2C RESULT callback never
+   * arrived (transaction/escrow stuck in 'payout_pending'), or repair a
+   * split-brain escrow. Settles ONLY on a confirmed result — dev simulates a
+   * confirmed success; prod dispatches Daraja's Transaction Status Query and
+   * settles asynchronously when Daraja confirms completion. Never releases money
+   * on age alone. Requires senior_admin (same bar as financial decisions).
+   *
+   * POST /admin/reconcile-payout  { "post_id": "..." }
+   */
+  @Post('reconcile-payout')
+  @Roles('senior_admin')
+  @HttpCode(HttpStatus.OK)
+  reconcilePayout(@Body() body: { post_id?: string }, @CurrentAdmin() admin: AdminContext) {
+    if (!body?.post_id) throw new BadRequestException('post_id is required');
+    return this.mpesa.reconcilePayout(body.post_id, admin.email);
+  }
 
   /** @deprecated Use GET /disputes/open. */
   @Get('disputes')

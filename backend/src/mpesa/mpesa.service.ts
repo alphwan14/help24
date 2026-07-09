@@ -440,6 +440,10 @@ export class MpesaService {
     await this.transactions.update(transaction.id as string, {
       status: 'payout_pending',
       conversation_id: b2cResult.conversationId,
+      // Persisted so a stranded payout (missing B2C callback) can later be
+      // reconciled via Daraja's Transaction Status Query, which correlates by
+      // OriginatorConversationID rather than the ConversationID.
+      originator_conversation_id: b2cResult.originatorConversationId,
     });
 
     const { error: escrowError } = await this.supabase.client
@@ -474,6 +478,163 @@ export class MpesaService {
     return { message: 'Payout initiated.', transaction_id: transaction.id };
   }
 
+  // ── B2C settlement engine (single idempotent terminal writer) ──────────────
+  //
+  // Every path that finalises a payout — the real B2C RESULT callback, the
+  // Transaction Status Query result, the admin reconcile flow, and the dev
+  // simulation — funnels through settleByTransaction(). It is the ONLY code that
+  // moves a payout to a terminal state, so behaviour is identical regardless of
+  // which signal arrives, duplicate signals are safe, and split-brain states are
+  // self-healing. It settles ONLY on a definitive result — never on elapsed time.
+
+  private static readonly PS = '[PAYOUT_STATE]';
+
+  /**
+   * Idempotently apply a DEFINITIVE B2C result to a single transaction + its escrow.
+   *
+   *   - tx already 'released'      → repair escrow if it lagged (split-brain), else no-op.
+   *   - tx 'payout_pending' + ok   → tx+escrow → 'released', emit escrow.released ONCE.
+   *   - tx 'payout_pending' + fail → tx → 'paid' (+failure_reason), escrow → 'locked'.
+   *   - tx any other status        → no-op (cannot settle a non-pending payout).
+   */
+  private async settleByTransaction(
+    tx: { id: string; status: string; post_id?: unknown; amount?: unknown },
+    result: { resultCode: number; resultDesc: string; source: string },
+  ): Promise<{ outcome: 'released' | 'reverted' | 'repaired' | 'noop'; reason: string }> {
+    const { resultCode, resultDesc, source } = result;
+    const PS = MpesaService.PS;
+    const txId = tx.id;
+
+    // ── Already terminal-released → repair a lagging escrow row (invariant #6) ──
+    if (tx.status === 'released') {
+      const { data: escrow } = await this.supabase.client
+        .from('escrow')
+        .select('status, released_at')
+        .eq('transaction_id', txId)
+        .maybeSingle();
+
+      if (escrow && (escrow as { status: string }).status !== 'released') {
+        const { error } = await this.supabase.client
+          .from('escrow')
+          .update({
+            status: 'released',
+            released_at: (escrow as { released_at: string | null }).released_at ?? new Date().toISOString(),
+          })
+          .eq('transaction_id', txId)
+          .neq('status', 'released');
+
+        if (error) {
+          this.logger.error(`${PS} [${source}] split-brain repair FAILED tx=${txId}: ${error.message}`);
+          return { outcome: 'noop', reason: 'escrow_repair_failed' };
+        }
+        this.logger.warn(
+          `${PS} [${source}] split-brain repair: tx=${txId} already released, escrow ${(escrow as { status: string }).status}→released`,
+        );
+        // Do NOT re-emit escrow.released — the payout notification already fired on
+        // the original release. Repair only re-syncs state.
+        return { outcome: 'repaired', reason: 'escrow_synced_to_released' };
+      }
+
+      this.logger.log(`${PS} [${source}] tx=${txId} already fully released — idempotent no-op`);
+      return { outcome: 'noop', reason: 'already_released' };
+    }
+
+    // ── Only a payout_pending tx can be settled from a result ──
+    if (tx.status !== 'payout_pending') {
+      this.logger.log(`${PS} [${source}] tx=${txId} status='${tx.status}' not settleable — skipping`);
+      return { outcome: 'noop', reason: `not_pending_${tx.status}` };
+    }
+
+    // ── Confirmed SUCCESS → terminal release ──
+    if (resultCode === 0) {
+      await this.transactions.update(txId, { status: 'released' });
+
+      const { error } = await this.supabase.client
+        .from('escrow')
+        .update({ status: 'released', released_at: new Date().toISOString() })
+        .eq('transaction_id', txId)
+        .neq('status', 'released');
+
+      if (error) {
+        this.logger.error(
+          `${PS} [${source}] CRITICAL tx=${txId} released but escrow update failed: ${error.message}`,
+        );
+      }
+      this.logger.log(`${PS} [${source}] tx=${txId} SETTLED → released`);
+
+      const { data: post } = await this.supabase.client
+        .from('posts')
+        .select('title, author_user_id, selected_provider_id')
+        .eq('id', tx.post_id as string)
+        .single();
+
+      // escrow.released → EventProcessorService notifies both parties. Because we
+      // only reach here from payout_pending, this fires exactly once per payout.
+      void this.events.emit({
+        type: EVENT_TYPES.ESCROW_RELEASED,
+        entityType: 'escrow',
+        entityId: txId,
+        payload: {
+          transaction_id: txId,
+          post_id:     tx.post_id as string,
+          post_title:  post?.title as string | undefined,
+          provider_id: post?.selected_provider_id as string | undefined,
+          buyer_id:    post?.author_user_id as string | undefined,
+        },
+      });
+      return { outcome: 'released', reason: 'b2c_success' };
+    }
+
+    // ── Confirmed FAILURE → revert to a recoverable state + record the reason ──
+    await this.transactions.update(txId, {
+      status: 'paid',
+      conversation_id: null,
+      originator_conversation_id: null,
+      failure_reason: resultDesc ?? 'B2C payout failed.',
+    });
+
+    const { error } = await this.supabase.client
+      .from('escrow')
+      .update({ status: 'locked', provider_id: null })
+      .eq('transaction_id', txId);
+
+    if (error) {
+      this.logger.error(`${PS} [${source}] escrow revert failed tx=${txId}: ${error.message}`);
+    }
+    this.logger.warn(
+      `${PS} [${source}] tx=${txId} B2C FAILED (code=${resultCode} "${resultDesc}") → reverted to paid/locked`,
+    );
+
+    void this.events.emit({
+      type: EVENT_TYPES.ESCROW_PAYOUT_PENDING,
+      entityType: 'escrow',
+      entityId: txId,
+      payload: { reverted: true, result_code: resultCode, result_desc: resultDesc },
+    });
+    return { outcome: 'reverted', reason: 'b2c_failure' };
+  }
+
+  /** Resolve a B2C result to its transaction by ConversationID, then settle. */
+  private async settleByConversation(input: {
+    conversationId: string;
+    resultCode: number;
+    resultDesc: string;
+    source: string;
+  }): Promise<{ outcome: string; reason: string }> {
+    const tx = await this.transactions.findByConversationId(input.conversationId);
+    if (!tx) {
+      this.logger.error(
+        `${MpesaService.PS} [${input.source}] no transaction for ConversationID ${input.conversationId}`,
+      );
+      return { outcome: 'noop', reason: 'no_tx' };
+    }
+    return this.settleByTransaction(tx, {
+      resultCode: input.resultCode,
+      resultDesc: input.resultDesc,
+      source: input.source,
+    });
+  }
+
   // ── B2C callback (called by Daraja) ───────────────────────────────────────
 
   async handleB2cCallback(body: Record<string, unknown>): Promise<void> {
@@ -485,7 +646,7 @@ export class MpesaService {
       return;
     }
 
-    const resultCode = result.ResultCode as number;
+    const resultCode = Number(result.ResultCode);
     const resultDesc = result.ResultDesc as string;
     const conversationId = result.ConversationID as string;
 
@@ -493,77 +654,171 @@ export class MpesaService {
       `[PAYOUT][CALLBACK_RECEIVED] conversationId=${conversationId} resultCode=${resultCode} resultDesc="${resultDesc}"`,
     );
 
-    const transaction = await this.transactions.findByConversationId(conversationId);
-    if (!transaction) {
-      this.logger.error(`B2C callback: no transaction for ConversationID ${conversationId}`);
+    await this.settleByConversation({ conversationId, resultCode, resultDesc, source: 'b2c-callback' });
+  }
+
+  // ── Transaction Status Query RESULT (async reconcile answer from Daraja) ───
+  //
+  // Daraja POSTs the definitive status of a queried B2C payout here after an
+  // admin reconcile dispatched a Transaction Status Query. We settle ONLY when the
+  // original transaction's real status is a confirmed terminal value — never on
+  // ambiguity or timeout. Correlation: the query's `Occasion` (= our tx's
+  // conversation_id) is echoed back in ReferenceData; OriginatorConversationID is
+  // the fallback key.
+
+  async handleB2cStatusResult(body: Record<string, unknown>): Promise<void> {
+    const PS = MpesaService.PS;
+    this.logger.log(`${PS} [status-result] raw payload: ${JSON.stringify(body)}`);
+
+    const result = body?.Result as Record<string, unknown> | undefined;
+    if (!result) {
+      this.logger.warn(`${PS} [status-result] malformed — missing Result`);
       return;
     }
 
-    if (transaction.status !== 'payout_pending') {
-      this.logger.log(
-        `B2C callback: transaction ${transaction.id} not in payout_pending (status: ${transaction.status}), skipping`,
+    const queryResultCode = Number(result.ResultCode); // 0 = the QUERY itself succeeded
+    const originator = result.OriginatorConversationID as string | undefined;
+
+    const refItems = ((result.ReferenceData as Record<string, unknown>)?.ReferenceItem ?? []) as
+      | Array<{ Key: string; Value: unknown }>
+      | { Key: string; Value: unknown };
+    const refArr = Array.isArray(refItems) ? refItems : [refItems];
+    const occasion = refArr.find((i) => i?.Key === 'Occasion')?.Value as string | undefined;
+
+    const params = ((result.ResultParameters as Record<string, unknown>)?.ResultParameter ?? []) as
+      | Array<{ Key: string; Value: unknown }>
+      | { Key: string; Value: unknown };
+    const pArr = Array.isArray(params) ? params : [params];
+    const txnStatus = pArr.find((p) => p?.Key === 'TransactionStatus')?.Value as string | undefined;
+
+    // Correlate the answer back to our transaction.
+    let tx = occasion ? await this.transactions.findByConversationId(occasion) : null;
+    if (!tx && originator) tx = await this.transactions.findByOriginatorConversationId(originator);
+    if (!tx) {
+      this.logger.error(
+        `${PS} [status-result] could not correlate to a transaction (occasion=${occasion ?? 'n/a'} originator=${originator ?? 'n/a'})`,
       );
       return;
     }
 
-    if (resultCode === 0) {
-      await this.transactions.update(transaction.id, { status: 'released' });
+    if (queryResultCode !== 0) {
+      this.logger.warn(
+        `${PS} [status-result] query failed (code=${queryResultCode}) for tx=${tx.id} — leaving payout pending`,
+      );
+      return;
+    }
 
-      const { error } = await this.supabase.client
-        .from('escrow')
-        .update({ status: 'released', released_at: new Date().toISOString() })
-        .eq('transaction_id', transaction.id);
-
-      if (error) {
-        this.logger.error(
-          `[CRITICAL] B2C succeeded but failed to update escrow for tx ${transaction.id}: ${error.message}`,
-        );
-      }
-
-      this.logger.log(`[PAYOUT][SUCCESS] conversationId=${conversationId} txId=${transaction.id} status=released`);
-
-      // Fetch post data for the escrow.released event payload.
-      const { data: post } = await this.supabase.client
-        .from('posts')
-        .select('title, author_user_id, selected_provider_id')
-        .eq('id', transaction.post_id as string)
-        .single();
-
-      // escrow.released → EventProcessorService sends payout confirmation to both parties.
-      // This notification did NOT exist before — provider and buyer now hear when money lands.
-      void this.events.emit({
-        type: EVENT_TYPES.ESCROW_RELEASED,
-        entityType: 'escrow',
-        entityId: transaction.id,
-        payload: {
-          transaction_id: transaction.id,
-          post_id:     transaction.post_id as string,
-          post_title:  post?.title as string | undefined,
-          provider_id: post?.selected_provider_id as string | undefined,
-          buyer_id:    post?.author_user_id as string | undefined,
-        },
+    const status = (txnStatus ?? '').toLowerCase();
+    if (status === 'completed') {
+      await this.settleByTransaction(tx, {
+        resultCode: 0,
+        resultDesc: `status-query: ${txnStatus}`,
+        source: 'status-result',
+      });
+    } else if (status === 'failed' || status === 'cancelled' || status === 'canceled') {
+      await this.settleByTransaction(tx, {
+        resultCode: 1,
+        resultDesc: `status-query: ${txnStatus}`,
+        source: 'status-result',
       });
     } else {
-      await this.transactions.update(transaction.id, { status: 'paid', conversation_id: null });
-
-      const { error } = await this.supabase.client
-        .from('escrow')
-        .update({ status: 'locked', provider_id: null })
-        .eq('transaction_id', transaction.id);
-
-      if (error) {
-        this.logger.error(`Failed to revert escrow after B2C failure for tx ${transaction.id}: ${error.message}`);
-      }
-
-      void this.events.emit({
-        type: EVENT_TYPES.ESCROW_PAYOUT_PENDING,
-        entityType: 'escrow',
-        entityId: transaction.id,
-        payload: { reverted: true, result_code: resultCode, result_desc: resultDesc },
-      });
-
-      this.logger.warn(`[PAYOUT][FAILED] conversationId=${conversationId} txId=${transaction.id} resultCode=${resultCode} resultDesc="${resultDesc}" — escrow reverted to locked`);
+      // Unknown / still-processing status → do NOT move money. Leave pending.
+      this.logger.warn(
+        `${PS} [status-result] tx=${tx.id} inconclusive status='${txnStatus ?? 'none'}' — leaving payout pending`,
+      );
     }
+  }
+
+  // ── Admin reconcile (recover a stranded payout_pending transaction) ────────
+  //
+  // Safe recovery for invariant #5 (callback that never arrives) and #6 (split
+  // brain). It NEVER releases money merely because a payout has been pending a
+  // long time — it settles only on a confirmed result:
+  //   • dev  → a simulated CONFIRMED success runs the real settlement pipeline.
+  //   • prod → dispatch Daraja's Transaction Status Query; settlement happens only
+  //            when handleB2cStatusResult confirms completion.
+
+  async reconcilePayout(
+    postId: string,
+    actor = 'system',
+  ): Promise<{ status: string; action: string; message: string; transaction_id?: string }> {
+    const PS = MpesaService.PS;
+    this.logger.warn(`${PS} [reconcile] ▶ post=${postId} by=${actor}`);
+
+    const tx = await this.transactions.findLatestByPostId(postId);
+    if (!tx) throw new NotFoundException(`No transaction found for post ${postId}.`);
+
+    // Already released → repair a lagging escrow if needed (split-brain).
+    if (tx.status === 'released') {
+      const r = await this.settleByTransaction(tx, {
+        resultCode: 0,
+        resultDesc: 'reconcile',
+        source: 'reconcile',
+      });
+      return {
+        status: 'released',
+        action: r.outcome,
+        transaction_id: tx.id,
+        message:
+          r.outcome === 'repaired'
+            ? 'Transaction was released; escrow was stale and has been repaired to released.'
+            : 'Transaction and escrow are already released — nothing to do.',
+      };
+    }
+
+    if (tx.status !== 'payout_pending') {
+      return {
+        status: tx.status,
+        action: 'noop',
+        transaction_id: tx.id,
+        message: `Transaction is '${tx.status}', not awaiting a payout — nothing to reconcile.`,
+      };
+    }
+
+    if (this.devForceSuccess) {
+      this.logger.warn(
+        `${PS} [reconcile][DEV MODE] simulating CONFIRMED B2C success for tx=${tx.id} (no Daraja call)`,
+      );
+      const r = await this.settleByTransaction(tx, {
+        resultCode: 0,
+        resultDesc: 'DEV SIMULATED RECONCILE SUCCESS',
+        source: 'reconcile-dev',
+      });
+      return {
+        status: r.outcome === 'released' ? 'released' : tx.status,
+        action: r.outcome,
+        transaction_id: tx.id,
+        message: 'DEV reconcile: simulated confirmed success and settled the payout.',
+      };
+    }
+
+    // PROD: ask Daraja what actually happened. We do NOT settle here.
+    if (!tx.conversation_id && !tx.originator_conversation_id) {
+      return {
+        status: tx.status,
+        action: 'noop',
+        transaction_id: tx.id,
+        message:
+          'Transaction has neither conversation_id nor originator_conversation_id — cannot query Daraja. Manual investigation required.',
+      };
+    }
+
+    await this.daraja.transactionStatusQuery({
+      originatorConversationId: tx.originator_conversation_id ?? undefined,
+      occasion: tx.conversation_id ?? undefined,
+      remarks: `Help24 reconcile post ${postId}`,
+    });
+
+    this.logger.warn(
+      `${PS} [reconcile] dispatched Transaction Status Query for tx=${tx.id} conv=${tx.conversation_id ?? 'n/a'} — awaiting result callback`,
+    );
+    return {
+      status: tx.status,
+      action: 'query_dispatched',
+      transaction_id: tx.id,
+      message:
+        'Daraja Transaction Status Query dispatched. The payout will settle ONLY if Daraja confirms the transaction completed; the async result arrives at /mpesa/b2c-status-result.',
+    };
   }
 
   // ── DEV ONLY: force pending → paid ────────────────────────────────────────

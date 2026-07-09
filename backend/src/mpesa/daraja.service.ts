@@ -10,6 +10,7 @@ const DARAJA_BASES = {
 const STK_PATH  = '/mpesa/stkpush/v1/processrequest';
 const OAUTH_PATH = '/oauth/v1/generate?grant_type=client_credentials';
 const B2C_PATH  = '/mpesa/b2c/v1/paymentrequest';
+const TXN_STATUS_PATH = '/mpesa/transactionstatus/v1/query';
 
 interface TokenCache {
   token: string;
@@ -25,6 +26,12 @@ export interface StkPushResult {
 export interface B2cResult {
   conversationId: string;
   originatorConversationId: string;
+}
+
+export interface TransactionStatusAck {
+  conversationId: string;
+  originatorConversationId: string;
+  responseCode: string;
 }
 
 @Injectable()
@@ -229,6 +236,83 @@ export class DarajaService {
     return {
       conversationId:              data.ConversationID as string,
       originatorConversationId:    data.OriginatorConversationID as string,
+    };
+  }
+
+  // ── Transaction Status Query (B2C reconciliation) ──────────────────────────────
+  //
+  // Asks Daraja for the definitive outcome of a prior B2C payout when its RESULT
+  // callback never arrived. This is ASYNCHRONOUS: Daraja returns only an
+  // acknowledgement here; the real status is POSTed to `ResultURL` later (handled
+  // by MpesaService.handleB2cStatusResult), so no money is settled inline. We
+  // correlate the eventual result back to our transaction via `Occasion` (echoed
+  // in the result's ReferenceData) and OriginatorConversationID.
+
+  async transactionStatusQuery(params: {
+    originatorConversationId?: string;
+    transactionId?: string;
+    occasion?: string;
+    remarks?: string;
+  }): Promise<TransactionStatusAck> {
+    if (!params.originatorConversationId && !params.transactionId) {
+      throw new Error(
+        'transactionStatusQuery requires either originatorConversationId or transactionId to identify the payout.',
+      );
+    }
+
+    const token              = await this.getToken();
+    const shortcode          = this.config.getOrThrow<string>('MPESA_SHORTCODE');
+    const initiatorName      = this.config.getOrThrow<string>('MPESA_B2C_INITIATOR_NAME');
+    const securityCredential = this.config.getOrThrow<string>('MPESA_B2C_SECURITY_CREDENTIAL');
+    const timeoutUrl         = this.config.getOrThrow<string>('MPESA_B2C_TIMEOUT_URL');
+    // Dedicated result route; defaults to swapping the B2C callback path so no new
+    // required env var is introduced for existing deployments.
+    const b2cResultUrl       = this.config.getOrThrow<string>('MPESA_B2C_RESULT_URL');
+    const resultUrl =
+      this.config.get<string>('MPESA_TXN_STATUS_RESULT_URL') ??
+      b2cResultUrl.replace(/\/mpesa\/[^/]+$/, '/mpesa/b2c-status-result');
+
+    const payload = {
+      Initiator:          initiatorName,
+      SecurityCredential: securityCredential,
+      CommandID:          'TransactionStatusQuery',
+      ...(params.transactionId ? { TransactionID: params.transactionId } : {}),
+      ...(params.originatorConversationId
+        ? { OriginatorConversationID: params.originatorConversationId }
+        : {}),
+      PartyA:             shortcode,
+      IdentifierType:     '4', // 4 = organisation shortcode
+      ResultURL:          resultUrl,
+      QueueTimeOutURL:    timeoutUrl,
+      Remarks:            params.remarks ?? 'Help24 payout reconcile',
+      Occasion:           params.occasion ?? 'reconcile',
+    };
+
+    this.logger.log(
+      `[PAYOUT][STATUS_QUERY] POST ${this.baseUrl}${TXN_STATUS_PATH} originatorConversationId=${params.originatorConversationId ?? 'n/a'} transactionId=${params.transactionId ?? 'n/a'} occasion=${payload.Occasion} resultUrl=${resultUrl}`,
+    );
+
+    let data: Record<string, unknown>;
+    try {
+      ({ data } = await this.client.post(TXN_STATUS_PATH, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+      }));
+    } catch (err) {
+      this.handleAxiosError('Transaction Status Query', err);
+    }
+
+    this.logger.log(`[PAYOUT][STATUS_QUERY] ack: ${JSON.stringify(data)}`);
+
+    if (data.ResponseCode !== '0') {
+      throw new Error(
+        `Transaction Status Query rejected by Daraja: ${data.ResponseDescription as string}`,
+      );
+    }
+
+    return {
+      conversationId:           data.ConversationID as string,
+      originatorConversationId: data.OriginatorConversationID as string,
+      responseCode:             data.ResponseCode as string,
     };
   }
 }
