@@ -468,10 +468,17 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
     final type = decision?.decisionType ?? '';
     final providerAmt = decision?.providerAmount ?? dispute.providerAmount ?? 0;
     final refundAmt = decision?.clientRefundAmount ?? dispute.buyerRefund ?? 0;
+    // Money-truth: a FULL_RELEASE ruling only APPROVES the payout. It is settled
+    // only once escrow.status == 'released' (the B2C callback confirmed). Until
+    // then this box must not claim the provider has been paid.
+    final escrowReleased = _data?.escrow?.status == 'released';
+    final releasePending = type == 'FULL_RELEASE' && !escrowReleased;
     String headline;
     switch (type) {
       case 'FULL_RELEASE':
-        headline = 'Full payment released to the provider.';
+        headline = escrowReleased
+            ? 'Full payment released to the provider.'
+            : 'Full payment approved — payout awaiting confirmation.';
         break;
       case 'FULL_REFUND':
         headline = 'Full refund issued to the client.';
@@ -483,20 +490,21 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       default:
         headline = 'Dispute resolved.';
     }
+    final accent = releasePending ? AppTheme.warningOrange : AppTheme.successGreen;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.successGreen.withValues(alpha: 0.12),
+        color: accent.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.4)),
+        border: Border.all(color: accent.withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.verified_outlined, size: 18, color: AppTheme.successGreen),
+              Icon(releasePending ? Icons.hourglass_top_rounded : Icons.verified_outlined, size: 18, color: accent),
               const SizedBox(width: 8),
               const Text('Outcome', style: TextStyle(fontWeight: FontWeight.w700)),
             ],

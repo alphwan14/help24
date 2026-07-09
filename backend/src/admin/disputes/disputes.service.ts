@@ -314,7 +314,9 @@ export class DisputesService {
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new ConflictException('Case was just claimed by another admin.');
 
-    await this.systemMessage(disputeId, `Case assigned to ${admin.name || admin.email} (${admin.role}).`);
+    // Participant-facing: no admin name/role. Assignment identity stays in the
+    // audit trail (assigned_admin_id) and is shown only in the admin dashboard.
+    await this.systemMessage(disputeId, 'Your case is now under review by our support team.');
     this.logger.log(`[DISPUTES] ${disputeId} assigned to ${admin.email}`);
     return { assigned_admin_id: admin.id };
   }
@@ -485,9 +487,9 @@ export class DisputesService {
       escalated_at: dispute.escalated_at,
       post: { id: post.id, title: post.title },
       viewer_role: role,
-      assigned_admin: assignedAdmin
-        ? { name: (assignedAdmin as Record<string, unknown>).name, role: (assignedAdmin as Record<string, unknown>).role }
-        : null,
+      // Participants never see the admin's identity — only that the case is under
+      // review. The real assignee stays in assigned_admin_id for the dashboard.
+      assigned_admin: assignedAdmin ? { name: 'Help24 Support', role: 'support' } : null,
       messages,
       evidence,
       decisions,

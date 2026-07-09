@@ -21,6 +21,7 @@ enum _JobState {
   awaitingPayment,  // STATE 1: provider selected, payment not secured
   paymentSecured,   // STATE 2: payment locked in escrow, waiting for completion
   completionPending,// STATE 3: provider marked complete, waiting for client approval
+  payoutProcessing, // payout dispatched to provider, awaiting B2C confirmation
   completed,        // STATE 4: payment released, job done
   disputed,         // escrow frozen, admin reviewing
   error,
@@ -48,6 +49,14 @@ class _JobData {
   _JobState get state {
     if (selectedProviderId == null || selectedProviderId!.isEmpty) {
       return _JobState.noProvider;
+    }
+
+    // Payout dispatched but not yet confirmed by the B2C callback. This is NOT a
+    // released/completed state — it must never render as "paid"/"completed" even
+    // when the completion was approved or the dispute ruled FULL_RELEASE. Checked
+    // BEFORE completion.isApproved so a stuck payout_pending can't read as settled.
+    if (transactionStatus == 'payout_pending' || escrowStatus == 'payout_pending') {
+      return _JobState.payoutProcessing;
     }
 
     // Determine from completion first (most specific).
@@ -344,6 +353,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
       case _JobState.completed:
         return AppTheme.successGreen.withValues(alpha: 0.5);
       case _JobState.completionPending:
+      case _JobState.payoutProcessing:
         return AppTheme.warningOrange.withValues(alpha: 0.5);
       case _JobState.disputed:
         return AppTheme.errorRed.withValues(alpha: 0.5);
@@ -391,6 +401,8 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
         return _buildPaymentSecured(isDark);
       case _JobState.completionPending:
         return _buildCompletionPending(isDark);
+      case _JobState.payoutProcessing:
+        return _buildPayoutProcessing(isDark);
       case _JobState.completed:
         return _buildCompleted(isDark);
       case _JobState.disputed:
@@ -635,6 +647,50 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  // STATE: payout dispatched, awaiting confirmation ──────────────────────────
+  // Truthful state for a payout that has been initiated (B2C) but whose result
+  // callback has not yet confirmed. Must NOT claim the provider has been paid.
+  Widget _buildPayoutProcessing(bool isDark) {
+    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
+        const SizedBox(height: 6),
+        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Payment secured', isDone: true),
+        const SizedBox(height: 6),
+        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Work completed & approved', isDone: true),
+        const SizedBox(height: 6),
+        _StepRow(icon: Icons.hourglass_top_rounded, color: AppTheme.warningOrange, label: 'Payout awaiting confirmation', isDone: false),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.warningOrange.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.hourglass_bottom_rounded, size: 16, color: AppTheme.warningOrange),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Payout has been initiated and is awaiting confirmation.',
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }

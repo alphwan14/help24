@@ -73,6 +73,31 @@ describe('DecisionsService FULL_RELEASE payout', () => {
     expect(notifications.sendMany).toHaveBeenCalledTimes(1);
   });
 
+  it('participant thread message NEVER names the admin and does not claim funds were received', async () => {
+    const { service, disputes } = build();
+
+    await applyFullRelease(service);
+
+    const msg = disputes.systemMessage.mock.calls[0][1] as string;
+    expect(msg).toContain('Decision by admin');
+    expect(msg).not.toContain(admin.email); // no email PII
+    expect(msg).not.toContain('by Admin'); // no admin display name
+    expect(msg).toMatch(/being processed/i); // truthful: not settled yet
+    expect(msg).not.toMatch(/released|paid|received/i);
+  });
+
+  it('provider payout notification says "being processed", never "released to you"', async () => {
+    const { service, notifications } = build();
+
+    await applyFullRelease(service);
+
+    const sent = notifications.sendMany.mock.calls[0][0] as Array<{ userId: string; type: string; body: string }>;
+    const providerNote = sent.find((n) => n.userId === 'prov1' && n.type === 'dispute_resolved_release');
+    expect(providerNote).toBeDefined();
+    expect(providerNote!.body).toMatch(/being processed/i);
+    expect(providerNote!.body).not.toMatch(/released the full payment|released.*to you/i);
+  });
+
   it('surfaces a payout failure: dispute stays open, no success notification (no silent swallow)', async () => {
     const { service, supa, mpesa, notifications } = build();
     mpesa.releasePayout.mockRejectedValueOnce(new Error('B2C unavailable'));

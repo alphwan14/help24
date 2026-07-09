@@ -258,9 +258,13 @@ export class DecisionsService {
     });
 
     await this.notifyParties(type, postTitle, postId, providerId, buyerId, providerAmount, clientRefund);
+    // Participant-facing thread entry: NEVER names the admin (privacy). The admin's
+    // identity is preserved for audit in disputes.resolved_by + dispute_decisions.admin_id
+    // and is shown only in the admin dashboard. Copy is truthful — a release is
+    // "processing" until the payout is confirmed, not "paid".
     await this.disputes.systemMessage(
       disputeId,
-      `Decision: ${type} by ${admin.name || admin.email}. ${this.summaryFor(type, providerAmount, clientRefund)}`,
+      `Decision by admin: ${this.participantDecisionSummary(type, providerAmount, clientRefund)}`,
     );
   }
 
@@ -278,7 +282,8 @@ export class DecisionsService {
       .update({ status: 'escalated', escalated_at: new Date().toISOString() })
       .eq('id', disputeId);
 
-    await this.disputes.systemMessage(disputeId, `Escalated by ${admin.name || admin.email}: ${reasoning}`);
+    // Participant-facing: no admin name. Admin identity stays in the audit trail.
+    await this.disputes.systemMessage(disputeId, 'Case escalated to a senior admin for further review.');
     await this.notifySuperAdmins(`Dispute escalated: "${postTitle}"`, reasoning);
   }
 
@@ -328,6 +333,28 @@ export class DecisionsService {
     }
   }
 
+  /**
+   * Truthful, participant-facing decision summary for the dispute thread.
+   * A ruling only APPROVES the money movement — it is "being processed" until the
+   * payout/refund is actually confirmed. Never claims funds have been received.
+   */
+  private participantDecisionSummary(
+    type: DecisionType,
+    providerAmount: number | null,
+    clientRefund: number | null,
+  ): string {
+    switch (type) {
+      case 'FULL_RELEASE':
+        return 'full payment approved for the provider. The payout is being processed.';
+      case 'FULL_REFUND':
+        return 'full refund approved for the client. The refund is being processed.';
+      case 'PARTIAL_SPLIT':
+        return `payment split — provider KES ${(providerAmount ?? 0).toLocaleString()}, client refund KES ${(clientRefund ?? 0).toLocaleString()}. Both are being processed.`;
+      case 'ESCALATE':
+        return 'the case has been escalated to a senior admin.';
+    }
+  }
+
   // ── Notifications ────────────────────────────────────────────────────────────
 
   private async notifyParties(
@@ -336,32 +363,35 @@ export class DecisionsService {
     providerId: string, buyerId: string,
     providerAmount: number, clientRefund: number,
   ): Promise<void> {
+    // Truthful copy: a ruling APPROVES the money movement. It is "being processed"
+    // until the payout/refund is confirmed — the provider hears "funds sent" ONLY
+    // from the escrow.released settlement notification, never from the ruling.
     if (type === 'FULL_RELEASE') {
       await this.notifications.sendMany([
         { userId: providerId, type: 'dispute_resolved_release', title: 'Dispute Resolved — Payout Approved',
-          body: `Admin released the full payment for "${postTitle}" to you.`, data: { post_id: postId } },
+          body: `Your payout for "${postTitle}" has been approved and is being processed. You'll be notified once the funds reach your M-Pesa.`, data: { post_id: postId } },
         { userId: buyerId, type: 'dispute_resolved_release', title: 'Dispute Resolved',
-          body: `Admin released payment for "${postTitle}" to the provider.`, data: { post_id: postId } },
-        // The job is now successfully completed (work accepted, provider paid), so
-        // the client can review — prompt them (Issue 6). Eligibility is still
-        // enforced server-side on submit.
+          body: `The dispute for "${postTitle}" was resolved in the provider's favour. The payout is being processed.`, data: { post_id: postId } },
+        // Work was accepted, so the client can review the provider. This is about
+        // service quality, independent of when the payout settles. Eligibility is
+        // still enforced server-side on submit.
         { userId: buyerId, type: 'review_requested', title: 'Rate your experience',
-          body: `"${postTitle}" is complete. Leave a review for the provider.`, data: { post_id: postId } },
+          body: `Leave a review for the provider on "${postTitle}".`, data: { post_id: postId } },
       ]);
     } else if (type === 'FULL_REFUND') {
       await this.notifications.sendMany([
         { userId: buyerId, type: 'dispute_resolved_refund', title: 'Refund Approved',
-          body: `Admin approved a full refund for "${postTitle}". Your M-Pesa refund will arrive shortly.`, data: { post_id: postId } },
+          body: `Your full refund for "${postTitle}" has been approved and is being processed.`, data: { post_id: postId } },
         { userId: providerId, type: 'dispute_resolved_refund', title: 'Dispute Resolved',
-          body: `Admin issued a full refund to the client for "${postTitle}".`, data: { post_id: postId } },
+          body: `The dispute for "${postTitle}" was resolved with a full refund to the client.`, data: { post_id: postId } },
       ]);
     } else {
       await this.notifications.sendMany([
         { userId: providerId, type: 'dispute_resolved_partial', title: 'Dispute Resolved — Partial Payment',
-          body: `Payment for "${postTitle}" was split. You will receive KES ${providerAmount.toLocaleString()}.`,
+          body: `The dispute for "${postTitle}" was split. Your share of KES ${providerAmount.toLocaleString()} is being processed.`,
           data: { post_id: postId, amount: String(providerAmount) } },
         { userId: buyerId, type: 'dispute_resolved_partial', title: 'Dispute Resolved — Partial Refund',
-          body: `Payment for "${postTitle}" was split. You will be refunded KES ${clientRefund.toLocaleString()}.`,
+          body: `The dispute for "${postTitle}" was split. Your refund of KES ${clientRefund.toLocaleString()} is being processed.`,
           data: { post_id: postId, amount: String(clientRefund) } },
       ]);
     }

@@ -13,6 +13,7 @@ import { EVENT_TYPES } from '../events/event.types';
 import { MarkCompleteDto } from './dto/mark-complete.dto';
 import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
+import { classifyArchiveMoneyState, archiveBlockMessage } from './archive-state';
 
 @Injectable()
 export class JobsService {
@@ -605,13 +606,11 @@ export class JobsService {
       .eq('post_id', postId);
     const terminal = ['resolved', 'resolved_release', 'resolved_refund', 'resolved_partial', 'merged'];
     const activeDispute = (disputeRows ?? []).some((d) => !terminal.includes((d as { status: string }).status));
-    if (activeDispute) {
-      throw new ConflictException(
-        'This job has an active dispute and cannot be removed until resolution.',
-      );
-    }
 
-    // ── Policy: block while funds are held in escrow ────────────────────────
+    // ── Enforcement gate (UNCHANGED): block while funds are held in escrow ──
+    // Existence-based over ALL rows for the post, so multi-transaction edge cases
+    // stay strictly blocked. Never loosened — a payout_pending tx or escrow always
+    // blocks archival.
     const { data: heldTx } = await this.supabase.client
       .from('transactions')
       .select('id')
@@ -626,10 +625,77 @@ export class JobsService {
       .in('status', ['locked', 'payout_pending'])
       .limit(1)
       .maybeSingle();
-    if (heldTx || heldEscrow) {
-      throw new ConflictException(
-        'Funds are currently held in escrow. Resolve or complete the job before removing it.',
-      );
+    const fundsHeld = !!(heldTx || heldEscrow);
+
+    // ── Classify the actual money state for a TRUTHFUL block message ─────────
+    // Reads the latest transaction + its escrow (does not change the gate above).
+    const { data: latestTx } = await this.supabase.client
+      .from('transactions')
+      .select('id, status, failure_reason, conversation_id, originator_conversation_id')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let escrowRow: { id: string; status: string } | null = null;
+    if (latestTx) {
+      const { data: esc } = await this.supabase.client
+        .from('escrow')
+        .select('id, status')
+        .eq('transaction_id', latestTx.id as string)
+        .maybeSingle();
+      escrowRow = (esc as { id: string; status: string } | null) ?? null;
+    }
+
+    const moneyState = classifyArchiveMoneyState({
+      txStatus: (latestTx?.status as string | null) ?? null,
+      escrowStatus: escrowRow?.status ?? null,
+      failureReason: (latestTx?.failure_reason as string | null) ?? null,
+      activeDispute,
+    });
+
+    // TEMP DIAGNOSTIC [ARCHIVE_GUARD] — Phase A verification only.
+    // REMOVAL PLAN: delete this single logger.warn once the truthful archive
+    // behaviour has been confirmed against post 2b4925ab (tracked in Phase A report).
+    const guardBranch = activeDispute
+      ? 'DISPUTE'
+      : fundsHeld
+        ? `FUNDS_HELD:${moneyState}`
+        : 'ALLOW';
+    const { data: latestDispute } = await this.supabase.client
+      .from('disputes')
+      .select('id, status')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    let latestDecision: string | null = null;
+    if (latestDispute) {
+      const { data: dec } = await this.supabase.client
+        .from('dispute_decisions')
+        .select('decision_type')
+        .eq('dispute_id', (latestDispute as { id: string }).id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      latestDecision = (dec?.decision_type as string | null) ?? null;
+    }
+    this.logger.warn(
+      `[ARCHIVE_GUARD] post=${postId} postStatus=${post.status} ` +
+        `txId=${(latestTx?.id as string) ?? 'none'} txStatus=${(latestTx?.status as string) ?? 'none'} ` +
+        `escrowId=${escrowRow?.id ?? 'none'} escrowStatus=${escrowRow?.status ?? 'none'} ` +
+        `failureReason=${(latestTx?.failure_reason as string) ?? 'none'} ` +
+        `conv=${(latestTx?.conversation_id as string) ?? 'none'} orig=${(latestTx?.originator_conversation_id as string) ?? 'none'} ` +
+        `disputeStatus=${(latestDispute as { status: string } | null)?.status ?? 'none'} decision=${latestDecision ?? 'none'} ` +
+        `moneyState=${moneyState} branch=${guardBranch}`,
+    );
+
+    // ── Enforce (decision UNCHANGED; message now truthful per state) ─────────
+    if (activeDispute) {
+      throw new ConflictException(archiveBlockMessage('disputed'));
+    }
+    if (fundsHeld) {
+      throw new ConflictException(archiveBlockMessage(moneyState));
     }
 
     // ── Archive ─────────────────────────────────────────────────────────────
