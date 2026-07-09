@@ -15,6 +15,10 @@ class AuthProvider extends ChangeNotifier {
   bool _isInitialized = false;
   String? _error;
   StreamSubscription<User?>? _authSubscription;
+  /// The last uid whose one-time post-login side effects (FCM token, Supabase
+  /// session exchange, profile sync) have run. Firebase fires authStateChanges
+  /// several times per sign-in; this collapses the repeats so that work runs once.
+  String? _lastHandledUid;
 
   /// Phone OTP flow state
   String? _verificationId;
@@ -45,6 +49,8 @@ class AuthProvider extends ChangeNotifier {
     _isInitialized = true;
     notifyListeners();
     try {
+      // Defensive: never stack two subscriptions (would double-fire every event).
+      await _authSubscription?.cancel();
       _authSubscription = AuthService.authStateChanges.listen(_onAuthStateChanged);
       final firebaseUser = AuthService.currentFirebaseUser;
       if (firebaseUser != null) {
@@ -71,6 +77,10 @@ class AuthProvider extends ChangeNotifier {
   void _onAuthStateChanged(User? firebaseUser) {
     // TEMP [AUTH][LISTENER] diagnostics — remove after latency is verified.
     debugPrint('[AUTH][LISTENER] fired user=${firebaseUser != null}');
+    final uid = firebaseUser?.uid;
+    final isRepeat = uid == _lastHandledUid;
+    _lastHandledUid = uid;
+
     if (firebaseUser == null) {
       _currentUser = null;
       _verificationId = null;
@@ -84,6 +94,11 @@ class AuthProvider extends ChangeNotifier {
     // background work that MUST NOT block sign-in navigation.
     _currentUser = AuthService.appUserFromFirebase(firebaseUser);
     notifyListeners();
+
+    // Firebase emits authStateChanges multiple times per sign-in (credential +
+    // token refresh). Run the one-time side effects only once per actual user —
+    // this eliminates the 3x FCM save / session exchange / profile sync.
+    if (isRepeat) return;
 
     if (AppFirebase.isReady) {
       final swf = Stopwatch()..start();
@@ -283,10 +298,13 @@ class AuthProvider extends ChangeNotifier {
     mark('start');
     try {
       final gsi = GoogleSignIn();
-      // SPEED: no forced signOut(). The previous forced signOut() added a network
-      // round-trip AND re-showed the account picker on every sign-in. signIn()
-      // reuses the cached Google account silently when available (seconds, not a
-      // minute). Account switching can be offered separately later if needed.
+      // Always show the account chooser — the user may have several Google accounts
+      // and must pick explicitly (never silent auto-login). signOut() clears only the
+      // LOCAL cached selection so the picker re-appears; it's a fast local op. The
+      // earlier ~1min was a one-time cold start, NOT this call (the timing marks below
+      // confirm it — signInWithCredential completed in ~4s).
+      await gsi.signOut();
+      mark('gsi.signOut done');
       final googleUser = await gsi.signIn();
       mark('gsi.signIn done (user=${googleUser != null})');
       if (googleUser == null) {
