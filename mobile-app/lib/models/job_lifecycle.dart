@@ -4,6 +4,7 @@
 class JobLifecycle {
   final LifecyclePost post;
   final String viewerRole; // 'client' | 'provider'
+  final LifecycleSettlement? settlement; // canonical money-truth (Phase 3.4A)
   final LifecyclePayment? payment;
   final LifecycleEscrow? escrow;
   final LifecycleCompletion? completion;
@@ -13,6 +14,7 @@ class JobLifecycle {
   const JobLifecycle({
     required this.post,
     required this.viewerRole,
+    required this.settlement,
     required this.payment,
     required this.escrow,
     required this.completion,
@@ -26,6 +28,7 @@ class JobLifecycle {
     return JobLifecycle(
       post: LifecyclePost.fromJson(j['post'] as Map<String, dynamic>),
       viewerRole: j['viewer_role'] as String? ?? 'client',
+      settlement: j['settlement'] == null ? null : LifecycleSettlement.fromJson(j['settlement'] as Map<String, dynamic>),
       payment: j['payment'] == null ? null : LifecyclePayment.fromJson(j['payment'] as Map<String, dynamic>),
       escrow: j['escrow'] == null ? null : LifecycleEscrow.fromJson(j['escrow'] as Map<String, dynamic>),
       completion: j['completion'] == null ? null : LifecycleCompletion.fromJson(j['completion'] as Map<String, dynamic>),
@@ -33,6 +36,45 @@ class JobLifecycle {
       timeline: ((j['timeline'] as List<dynamic>?) ?? [])
           .map((e) => TimelineEvent.fromJson(e as Map<String, dynamic>))
           .toList(),
+    );
+  }
+}
+
+/// The ONE canonical settlement display state from the backend (deriveSettlementState).
+/// The UI shows this instead of inferring money-truth from four separate statuses.
+class LifecycleSettlement {
+  final String state; // no_payment | awaiting_payment | in_escrow | payout_processing
+  //                     | settlement_failed | disputed | released | refunded | split_settled | inconsistent
+  final String label;
+  final String explanation;
+  final bool canArchive;
+  final bool attentionRequired;
+  final String? attentionReason;
+  final bool isTerminal;
+  final double? providerOwed; // for split_settled: recorded-but-unpaid provider share
+
+  const LifecycleSettlement({
+    required this.state,
+    required this.label,
+    required this.explanation,
+    required this.canArchive,
+    required this.attentionRequired,
+    required this.attentionReason,
+    required this.isTerminal,
+    required this.providerOwed,
+  });
+
+  factory LifecycleSettlement.fromJson(Map<String, dynamic> j) {
+    final amounts = j['amounts'] as Map<String, dynamic>?;
+    return LifecycleSettlement(
+      state: j['state'] as String? ?? 'no_payment',
+      label: j['label'] as String? ?? '',
+      explanation: j['explanation'] as String? ?? '',
+      canArchive: j['can_archive'] as bool? ?? false,
+      attentionRequired: j['attention_required'] as bool? ?? false,
+      attentionReason: j['attention_reason'] as String?,
+      isTerminal: j['is_terminal'] as bool? ?? false,
+      providerOwed: (amounts?['provider_owed'] as num?)?.toDouble(),
     );
   }
 }

@@ -13,7 +13,6 @@ import { EVENT_TYPES } from '../events/event.types';
 import { MarkCompleteDto } from './dto/mark-complete.dto';
 import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
-import { classifyArchiveMoneyState, archiveBlockMessage } from './archive-state';
 import { deriveSettlementState } from './settlement-state';
 
 @Injectable()
@@ -655,8 +654,10 @@ export class JobsService {
       .maybeSingle();
     const fundsHeld = !!(heldTx || heldEscrow);
 
-    // ── Classify the actual money state for a TRUTHFUL block message ─────────
-    // Reads the latest transaction + its escrow (does not change the gate above).
+    // ── Canonical settlement state for the block message (single source) ─────
+    // Reads the latest transaction + its escrow. The enforcement DECISION stays
+    // the existence gate above (never loosened); this only drives the message,
+    // so display (lifecycle) and enforcement share ONE derivation (Phase C P4).
     const { data: latestTx } = await this.supabase.client
       .from('transactions')
       .select('id, status, failure_reason')
@@ -665,29 +666,39 @@ export class JobsService {
       .limit(1)
       .maybeSingle();
 
-    let escrowRow: { id: string; status: string } | null = null;
+    let escrowRow: { status: string } | null = null;
     if (latestTx) {
       const { data: esc } = await this.supabase.client
         .from('escrow')
-        .select('id, status')
+        .select('status')
         .eq('transaction_id', latestTx.id as string)
         .maybeSingle();
-      escrowRow = (esc as { id: string; status: string } | null) ?? null;
+      escrowRow = (esc as { status: string } | null) ?? null;
     }
 
-    const moneyState = classifyArchiveMoneyState({
+    const settlement = deriveSettlementState({
       txStatus: (latestTx?.status as string | null) ?? null,
       escrowStatus: escrowRow?.status ?? null,
       failureReason: (latestTx?.failure_reason as string | null) ?? null,
       activeDispute,
+      latestDecisionType: null,
+      amount: null, fee: null, totalPaid: null, providerAmount: null, clientRefund: null,
+      paidAt: null, releasedAt: null, disputedAt: null, resolvedAt: null,
     });
 
-    // ── Enforce (decision UNCHANGED; message now truthful per state) ─────────
+    // ── Enforce (decision = existence gate, UNCHANGED; message = canonical) ──
     if (activeDispute) {
-      throw new ConflictException(archiveBlockMessage('disputed'));
+      throw new ConflictException('This job has an active dispute and cannot be removed until resolution.');
     }
     if (fundsHeld) {
-      throw new ConflictException(archiveBlockMessage(moneyState));
+      // Truthful, state-specific message from the ONE canonical function. Fallback
+      // covers the rare multi-transaction case where the latest tx reads terminal
+      // while an older row is still held.
+      throw new ConflictException(
+        settlement.can_archive
+          ? 'Funds are currently held. Resolve or complete the job before removing it.'
+          : settlement.explanation,
+      );
     }
 
     // ── Archive ─────────────────────────────────────────────────────────────

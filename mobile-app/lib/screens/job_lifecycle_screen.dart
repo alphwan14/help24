@@ -111,6 +111,10 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       children: [
         _summaryCard(d, isDark),
         const SizedBox(height: 12),
+        if (d.settlement != null) ...[
+          _settlementBanner(d.settlement!, isDark),
+          const SizedBox(height: 12),
+        ],
         _paymentSection(d, isDark),
         const SizedBox(height: 12),
         _completionSection(d, isDark),
@@ -179,6 +183,64 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
   }
 
   // ── Sections ────────────────────────────────────────────────────────────────
+
+  // Canonical settlement banner — the ONE money-truth from the backend
+  // (deriveSettlementState). The UI shows this instead of inferring from four
+  // statuses, so it can never claim "released" while a payout is still pending.
+  Color _settlementColor(LifecycleSettlement s) {
+    if (s.state == 'settlement_failed' || s.state == 'inconsistent' || s.state == 'disputed') {
+      return AppTheme.errorRed;
+    }
+    if (s.attentionRequired) return AppTheme.warningOrange;
+    if (s.state == 'released' || s.state == 'refunded') return AppTheme.successGreen;
+    if (s.state == 'payout_processing' || s.state == 'awaiting_payment') return AppTheme.warningOrange;
+    return AppTheme.primaryAccent;
+  }
+
+  Widget _settlementBanner(LifecycleSettlement s, bool isDark) {
+    final color = _settlementColor(s);
+    final IconData icon = s.attentionRequired
+        ? Icons.warning_amber_rounded
+        : (s.state == 'released' || s.state == 'refunded')
+            ? Icons.check_circle_rounded
+            : (s.state == 'payout_processing' || s.state == 'awaiting_payment')
+                ? Icons.hourglass_top_rounded
+                : Icons.lock_outline_rounded;
+    final subColor = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(s.label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: color)),
+                const SizedBox(height: 3),
+                Text(s.explanation, style: TextStyle(fontSize: 13, color: subColor)),
+                if (s.state == 'split_settled' && s.providerOwed != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Provider owed ${formatPriceDisplay(s.providerOwed!)} — settled manually.',
+                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: color),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _summaryCard(JobLifecycle d, bool isDark) {
     return _card(
@@ -468,15 +530,16 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
     final type = decision?.decisionType ?? '';
     final providerAmt = decision?.providerAmount ?? dispute.providerAmount ?? 0;
     final refundAmt = decision?.clientRefundAmount ?? dispute.buyerRefund ?? 0;
-    // Money-truth: a FULL_RELEASE ruling only APPROVES the payout. It is settled
-    // only once escrow.status == 'released' (the B2C callback confirmed). Until
-    // then this box must not claim the provider has been paid.
-    final escrowReleased = _data?.escrow?.status == 'released';
-    final releasePending = type == 'FULL_RELEASE' && !escrowReleased;
+    // Money-truth from the canonical settlement state: a FULL_RELEASE ruling only
+    // APPROVES the payout — it is settled only when settlement.state == 'released'
+    // (escrow fallback for safety). Until then this box must not claim the provider
+    // has been paid.
+    final settled = _data?.settlement?.state == 'released' || _data?.escrow?.status == 'released';
+    final releasePending = type == 'FULL_RELEASE' && !settled;
     String headline;
     switch (type) {
       case 'FULL_RELEASE':
-        headline = escrowReleased
+        headline = settled
             ? 'Full payment released to the provider.'
             : 'Full payment approved — payout awaiting confirmation.';
         break;
