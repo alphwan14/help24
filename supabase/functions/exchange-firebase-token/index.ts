@@ -1,67 +1,82 @@
-// Exchange Firebase ID token for Supabase JWT (so RLS auth.jwt()->>'user_id' works).
-// Set secrets: SUPABASE_JWT_SECRET (from Dashboard > API > JWT Secret), FIREBASE_PROJECT_ID (e.g. help24-24410).
+// Exchange a Firebase ID token for a short-lived Supabase JWT so RLS
+// (auth.jwt()->>'user_id') can scope data to the signed-in user.
+//
+// SECURITY: the Firebase ID token is FULLY verified — RS256 signature against
+// Google's rotating public certs (JWKS) PLUS issuer/audience/expiry. Without the
+// signature check, anyone could forge a token and impersonate any user once RLS
+// relies on this, so it is mandatory before the S3 owner-scoped RLS rollout.
+//
+// Required secrets:
+//   SUPABASE_JWT_SECRET  — Dashboard → Project Settings → API → JWT Secret
+//   FIREBASE_PROJECT_ID  — e.g. help24-24410 (defaults below)
 
-import { create, getNumericDate } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
+import { SignJWT, jwtVerify, importX509, decodeProtectedHeader } from 'https://esm.sh/jose@5.9.6';
 
-const FIREBASE_PROJECT_ID = Deno.env.get("FIREBASE_PROJECT_ID") ?? "help24-24410";
-const JWT_SECRET = Deno.env.get("SUPABASE_JWT_SECRET");
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const FIREBASE_PROJECT_ID = Deno.env.get('FIREBASE_PROJECT_ID') ?? 'help24-24410';
+const JWT_SECRET = Deno.env.get('SUPABASE_JWT_SECRET');
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+// Google's public x509 certs for Firebase Secure Token (keyed by `kid`).
+const CERT_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
 
-interface FirebaseIdTokenPayload {
-  sub: string;
-  iss?: string;
-  aud?: string;
-  exp?: number;
-  iat?: number;
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+// Cache the certs per their max-age so we don't fetch on every request.
+let certCache: { certs: Record<string, string>; expiresAt: number } | null = null;
+
+async function getGoogleCerts(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (certCache && now < certCache.expiresAt) return certCache.certs;
+  const res = await fetch(CERT_URL);
+  const certs = (await res.json()) as Record<string, string>;
+  const maxAge = /max-age=(\d+)/.exec(res.headers.get('cache-control') ?? '')?.[1];
+  const ttlMs = maxAge ? parseInt(maxAge, 10) * 1000 : 3_600_000;
+  certCache = { certs, expiresAt: now + ttlMs };
+  return certs;
 }
 
-function decodeJwtPayload(token: string): FirebaseIdTokenPayload | null {
+/** Fully verify a Firebase ID token (RS256 signature + iss/aud/exp). Returns uid or null. */
+async function verifyFirebaseToken(idToken: string): Promise<string | null> {
   try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload as FirebaseIdTokenPayload;
+    const { kid, alg } = decodeProtectedHeader(idToken);
+    if (alg !== 'RS256' || !kid) return null;
+    const certs = await getGoogleCerts();
+    const cert = certs[kid];
+    if (!cert) return null;
+    const key = await importX509(cert, 'RS256');
+    const { payload } = await jwtVerify(idToken, key, {
+      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+      audience: FIREBASE_PROJECT_ID,
+    });
+    return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null;
   } catch {
     return null;
   }
 }
 
-// Verifies Firebase ID token (iss, aud, exp). For production, add signature
-// verification using JWKS: https://securetoken.google.com/<project_id>/.well-known/jwks.json
-async function verifyFirebaseToken(idToken: string): Promise<string | null> {
-  const payload = decodeJwtPayload(idToken);
-  if (!payload?.sub) return null;
-  const now = Math.floor(Date.now() / 1000);
-  if (payload.exp != null && payload.exp < now) return null;
-  if (payload.iss !== `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`) return null;
-  if (payload.aud !== FIREBASE_PROJECT_ID) return null;
-  return payload.sub;
-}
-
-function getProjectRef(): string {
-  try {
-    const m = SUPABASE_URL.match(/https:\/\/([^.]+)/);
-    return m ? m[1] : "help24";
-  } catch {
-    return "help24";
-  }
+function projectRef(): string {
+  return /https:\/\/([^.]+)/.exec(SUPABASE_URL)?.[1] ?? 'help24';
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" } });
-  }
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: { "Content-Type": "application/json" } });
+  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+    });
   }
 
   let idToken: string | null = null;
-  const auth = req.headers.get("Authorization");
-  if (auth?.startsWith("Bearer ")) {
+  const auth = req.headers.get('Authorization');
+  if (auth?.startsWith('Bearer ')) {
     idToken = auth.slice(7);
   } else {
     try {
-      const body = await req.json() as { id_token?: string; idToken?: string };
+      const body = (await req.json()) as { id_token?: string; idToken?: string };
       idToken = body.id_token ?? body.idToken ?? null;
     } catch {
       idToken = null;
@@ -69,38 +84,38 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!idToken) {
-    return new Response(JSON.stringify({ error: "Missing id_token or Authorization: Bearer" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: 'Missing id_token or Authorization: Bearer' }), {
+      status: 400,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+    });
   }
 
   const uid = await verifyFirebaseToken(idToken);
   if (!uid) {
-    return new Response(JSON.stringify({ error: "Invalid or expired Firebase token" }), { status: 401, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: 'Invalid or expired Firebase token' }), {
+      status: 401,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+    });
   }
 
   if (!JWT_SECRET) {
-    return new Response(JSON.stringify({ error: "Server misconfiguration" }), { status: 500, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: 'Server misconfiguration: SUPABASE_JWT_SECRET not set' }), {
+      status: 500,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+    });
   }
 
-  const ref = getProjectRef();
-  const encoder = new TextEncoder();
-  const keyBuf = encoder.encode(JWT_SECRET);
-  const key = await crypto.subtle.importKey("raw", keyBuf, { name: "HMAC", hash: "SHA-256" }, true, ["sign"]);
-
-  const expSeconds = 3600;
-  const payload = {
-    iss: "supabase",
-    ref,
-    role: "authenticated",
-    sub: uid,
-    user_id: uid,
-    iat: getNumericDate(0),
-    exp: getNumericDate(expSeconds),
-  };
-
-  const accessToken = await create({ alg: "HS256", typ: "JWT" }, payload, key);
+  const secret = new TextEncoder().encode(JWT_SECRET);
+  const accessToken = await new SignJWT({ role: 'authenticated', user_id: uid, ref: projectRef() })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setIssuer('supabase')
+    .setSubject(uid)
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(secret);
 
   return new Response(
-    JSON.stringify({ access_token: accessToken, refresh_token: accessToken, expires_in: expSeconds }),
-    { status: 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+    JSON.stringify({ access_token: accessToken, refresh_token: accessToken, expires_in: 3600 }),
+    { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } },
   );
 });
