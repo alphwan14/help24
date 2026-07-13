@@ -189,6 +189,42 @@ class OfflineBanner extends StatelessWidget {
   }
 }
 
+/// Continuously pulsing wrapper for skeleton placeholders: fades out, fades
+/// back in, and loops until the skeleton is removed from the tree (i.e. until
+/// the real data arrives). Opacity is driven by [FadeTransition] at the render
+/// layer — no widget rebuilds per frame — and the single [AnimationController]
+/// is disposed with the skeleton, so there is no idle animation cost.
+class SkeletonPulse extends StatefulWidget {
+  final Widget child;
+
+  const SkeletonPulse({super.key, required this.child});
+
+  @override
+  State<SkeletonPulse> createState() => _SkeletonPulseState();
+}
+
+class _SkeletonPulseState extends State<SkeletonPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1000),
+  )..repeat(reverse: true);
+
+  late final Animation<double> _opacity = Tween<double>(begin: 1.0, end: 0.45)
+      .chain(CurveTween(curve: Curves.easeInOut))
+      .animate(_controller);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      FadeTransition(opacity: _opacity, child: widget.child);
+}
+
 /// Lightweight skeleton list used while feed data loads in background.
 class FeedSkeletonList extends StatelessWidget {
   final int itemCount;
@@ -209,7 +245,8 @@ class FeedSkeletonList extends StatelessWidget {
         ? AppTheme.darkTextTertiary.withValues(alpha: 0.18)
         : AppTheme.lightTextTertiary.withValues(alpha: 0.18);
 
-    return ListView.separated(
+    return SkeletonPulse(
+        child: ListView.separated(
       padding: padding,
       itemCount: itemCount,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -261,7 +298,7 @@ class FeedSkeletonList extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _skeletonLine(Color color, double width, double height) {
@@ -289,7 +326,8 @@ class ConversationSkeletonList extends StatelessWidget {
         ? AppTheme.darkTextTertiary.withValues(alpha: 0.18)
         : AppTheme.lightTextTertiary.withValues(alpha: 0.18);
 
-    return ListView.builder(
+    return SkeletonPulse(
+        child: ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       itemCount: itemCount,
       itemBuilder: (_, __) => Padding(
@@ -351,6 +389,6 @@ class ConversationSkeletonList extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ));
   }
 }
