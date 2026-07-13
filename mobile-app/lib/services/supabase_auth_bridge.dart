@@ -32,11 +32,10 @@ class SupabaseAuthBridge {
       if (idToken != null && idToken.isNotEmpty) {
         await setSupabaseSessionFromFirebase(idToken);
       }
-    } catch (_) {
-      // Token exchange often fails in browser (CORS). App works with relaxed RLS.
+    } catch (e) {
       if (!_loggedExchangeUnavailable) {
         _loggedExchangeUnavailable = true;
-        debugPrint('SupabaseAuthBridge: token exchange unavailable (e.g. web). Using anon key.');
+        debugPrint('[AUTH][BRIDGE] ok=false — exchange error: $e (using anon key)');
       }
     }
   }
@@ -59,10 +58,10 @@ class SupabaseAuthBridge {
       if (idToken == null || idToken.isEmpty) return false;
       final ok = await setSupabaseSessionFromFirebase(idToken);
       return ok;
-    } catch (_) {
+    } catch (e) {
       if (!_loggedExchangeUnavailable) {
         _loggedExchangeUnavailable = true;
-        debugPrint('SupabaseAuthBridge: token exchange unavailable (e.g. web). Using anon key.');
+        debugPrint('[AUTH][BRIDGE] ok=false — exchange error: $e (using anon key)');
       }
       return false;
     }
@@ -79,10 +78,16 @@ class SupabaseAuthBridge {
         body: {'id_token': idToken},
         method: HttpMethod.post,
       );
-      if (response.status != 200) return false;
+      if (response.status != 200) {
+        debugPrint('[AUTH][BRIDGE] ok=false — status=${response.status} data=${response.data}');
+        return false;
+      }
       final data = response.data as Map<String, dynamic>?;
       final accessToken = data?['access_token'] as String?;
-      if (accessToken == null || accessToken.isEmpty) return false;
+      if (accessToken == null || accessToken.isEmpty) {
+        debugPrint('[AUTH][BRIDGE] ok=false — 200 but no access_token in response');
+        return false;
+      }
       _accessToken = accessToken;
       _tokenExchangedAt = DateTime.now();
 
@@ -92,11 +97,12 @@ class SupabaseAuthBridge {
       // realtime events are blocked.
       unawaited(_updateRealtimeAuth(accessToken));
 
+      debugPrint('[AUTH][BRIDGE] ok=true — authenticated JWT active for RLS');
       return true;
-    } catch (_) {
+    } catch (e) {
       if (!_loggedExchangeUnavailable) {
         _loggedExchangeUnavailable = true;
-        debugPrint('SupabaseAuthBridge: token exchange unavailable (e.g. web CORS). Using anon key.');
+        debugPrint('[AUTH][BRIDGE] ok=false — exchange error: $e (using anon key)');
       }
       return false;
     }

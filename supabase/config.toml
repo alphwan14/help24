@@ -1,0 +1,11 @@
+# Supabase project config (used by the CLI).
+project_id = "taohzhnvaitrpxcyjflq"
+
+# The token-exchange function IS the login bridge: it must be callable before
+# any Supabase session exists, and the app authenticates with the new-format
+# sb_publishable_ key (not a JWT), which the gateway's verify_jwt check would
+# reject. Security is NOT weakened: the function fully verifies the Firebase
+# ID token itself (RS256 signature vs Google JWKS + issuer/audience/expiry)
+# and mints nothing without it.
+[functions.exchange-firebase-token]
+verify_jwt = false
