@@ -6,6 +6,17 @@ enum PostType { request, offer, job }
 enum PricingType { task, hour, day, week, month }
 
 extension PricingTypeExtension on PricingType {
+  /// Compact rate suffix for dense card text ("KES 25,000/mo").
+  String get shortSuffix {
+    switch (this) {
+      case PricingType.task: return '';
+      case PricingType.hour: return '/hr';
+      case PricingType.day: return '/day';
+      case PricingType.week: return '/wk';
+      case PricingType.month: return '/mo';
+    }
+  }
+
   String get displayLabel {
     switch (this) {
       case PricingType.task: return 'Per task';
@@ -40,6 +51,14 @@ class Category {
   final IconData icon;
 
   const Category({required this.name, required this.icon});
+
+  // Name-based identity: the server category registry builds fresh instances,
+  // and dropdowns need value == item to hold across list refreshes.
+  @override
+  bool operator ==(Object other) => other is Category && other.name == name;
+
+  @override
+  int get hashCode => name.hashCode;
 
   static List<Category> all = [
     // Home & Property
@@ -306,6 +325,13 @@ class PostModel {
   /// Lifecycle state of the post: open | assigned | completed | disputed.
   final String status;
 
+  /// Smart Posting: category-specific answers (posts.attributes JSONB).
+  /// Empty for legacy posts and categories without a question schema.
+  final Map<String, dynamic> attributes;
+
+  /// Version of the category question schema the answers were collected with.
+  final int? attributesSchemaVersion;
+
   /// Enriched AFTER load (not from JSON): true when the job is 'completed' but the
   /// provider payout is still awaiting confirmation (escrow not yet released/refunded).
   /// The card then shows "Finalizing" instead of "Completed" so it never implies the
@@ -340,6 +366,8 @@ class PostModel {
     this.selectedProviderUserId,
     this.authorHasPhone = false,
     this.status = 'open',
+    this.attributes = const {},
+    this.attributesSchemaVersion,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Whether to show a numeric rating (has at least one review). Otherwise show "New".
@@ -402,6 +430,11 @@ class PostModel {
       selectedProviderUserId: json['selected_provider_id']?.toString(),
       authorHasPhone: _userHasPhone(authorUsers),
       status: json['status']?.toString() ?? 'open',
+      attributes: json['attributes'] is Map
+          ? Map<String, dynamic>.from(json['attributes'] as Map)
+          : const {},
+      attributesSchemaVersion:
+          json['attributes_schema_version'] is int ? json['attributes_schema_version'] as int : null,
     );
   }
 
@@ -424,6 +457,11 @@ class PostModel {
       if (urgentExpiresAt != null) 'urgent_expires_at': urgentExpiresAt!.toIso8601String(),
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
+      // Only sent when answers exist — inserts keep working on databases where
+      // migration 071 has not been applied yet (no schemas → no answers).
+      if (attributes.isNotEmpty) 'attributes': attributes,
+      if (attributes.isNotEmpty && attributesSchemaVersion != null)
+        'attributes_schema_version': attributesSchemaVersion,
     };
   }
 
@@ -683,6 +721,14 @@ class JobModel {
   final Urgency urgency;
   final String categoryName;
 
+  /// How the pay is quoted (salary period): month for typical employment,
+  /// day/week for casual work. Maps to posts.pricing_type.
+  final PricingType pricingType;
+
+  /// Smart Posting: category-specific answers (posts.attributes JSONB).
+  final Map<String, dynamic> attributes;
+  final int? attributesSchemaVersion;
+
   JobModel({
     required this.id,
     required this.title,
@@ -704,6 +750,9 @@ class JobModel {
     this.difficulty = Difficulty.any,
     this.urgency = Urgency.flexible,
     this.categoryName = 'Job',
+    this.pricingType = PricingType.task,
+    this.attributes = const {},
+    this.attributesSchemaVersion,
   }) : postedAt = postedAt ?? DateTime.now();
 
   bool get hasAuthorRatings => authorReviewCount > 0;
@@ -757,6 +806,9 @@ class JobModel {
 
     final authorUsers = json['users'];
     final name = _userDisplayName(authorUsers);
+    // R-4: jobs carry a real salary period (posts.pricing_type) — surface it
+    // as a compact suffix ("KES 25,000/mo").
+    final pricingType = PostModel._parsePricingType(json['pricing_type'] as String?);
     return JobModel(
       id: json['id'] ?? '',
       title: json['title'] ?? '',
@@ -765,7 +817,7 @@ class JobModel {
       authorUserId: json['author_user_id']?.toString() ?? '',
       company: name,
       location: json['location'] ?? '',
-      pay: 'KES ${json['price'] ?? 0}',
+      pay: 'KES ${json['price'] ?? 0}${pricingType.shortSuffix}',
       type: _employmentTypeToDisplay(json['employment_type']) ?? json['type']?.toString() ?? 'Full-time',
       description: json['description'] ?? '',
       authorTempId: json['author_temp_id'] ?? '',
@@ -779,6 +831,10 @@ class JobModel {
       difficulty: _parseJobDifficulty(json['difficulty']),
       urgency: _parseUrgency(json['urgency']),
       categoryName: json['category']?.toString() ?? 'Job',
+      pricingType: pricingType,
+      attributes: json['attributes'] is Map
+          ? Map<String, dynamic>.from(json['attributes'] as Map)
+          : const {},
     );
   }
 
@@ -827,10 +883,14 @@ class JobModel {
       'price': price,
       'urgency': urgency.name,
       'type': 'job',
-      'pricing_type': 'task',
+      'pricing_type': pricingType.name,
       if (employmentType != null) 'employment_type': employmentType,
       'difficulty': difficulty.name,
       'author_temp_id': authorTempId,
+      // Only sent when answers exist — see PostModel.toJson.
+      if (attributes.isNotEmpty) 'attributes': attributes,
+      if (attributes.isNotEmpty && attributesSchemaVersion != null)
+        'attributes_schema_version': attributesSchemaVersion,
     };
   }
 

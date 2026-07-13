@@ -24,6 +24,7 @@ String formatPriceDisplay(double price) {
 
 /// Normalize a pay string (e.g. "KES 1800", "Kes.2500") to full display format with commas.
 /// Returns "KES 1,500" style so cards never show "Kes1" or "Kes2"; matches formatPriceDisplay.
+/// A compact rate suffix after the amount (e.g. "KES 25000/mo") is preserved.
 String normalizePayDisplay(String pay) {
   if (pay.trim().isEmpty) return pay;
   final match = RegExp(r'[\d.,]+').firstMatch(pay);
@@ -31,5 +32,6 @@ String normalizePayDisplay(String pay) {
   final numStr = match.group(0)!.replaceAll(',', '');
   final value = double.tryParse(numStr);
   if (value == null) return pay;
-  return 'KES ${formatPriceWithCommas(value)}';
+  final suffix = pay.substring(match.end).trim();
+  return 'KES ${formatPriceWithCommas(value)}${suffix.startsWith('/') ? suffix : ''}';
 }

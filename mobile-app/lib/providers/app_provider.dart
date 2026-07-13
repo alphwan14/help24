@@ -71,6 +71,8 @@ class AppProvider extends ChangeNotifier {
     await Future.wait([
       loadPosts(),
       loadJobs(),
+      // Keeps the Discover header's Urgent count live across refresh/reconnect.
+      loadUrgentPosts(),
     ]);
   }
 
@@ -241,6 +243,10 @@ class AppProvider extends ChangeNotifier {
       _posts.insert(0, createdPost);
       if (_posts.isNotEmpty) {
         CacheService.savePosts(_posts);
+      }
+      // Emergency posts must surface in the Urgent section immediately.
+      if (createdPost.isUrgent || createdPost.urgency == Urgency.urgent) {
+        unawaited(loadUrgentPosts());
       }
       notifyListeners();
       return createdPost;

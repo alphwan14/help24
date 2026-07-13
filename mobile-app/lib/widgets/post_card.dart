@@ -3,10 +3,11 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:iconsax/iconsax.dart';
+import '../models/attribute_display.dart';
 import '../models/post_model.dart';
 import '../providers/auth_provider.dart';
+import '../services/category_schema_service.dart';
 import '../theme/app_theme.dart';
-import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
 import 'marketplace_card_components.dart';
 import 'feed_card_tokens.dart';
@@ -49,6 +50,21 @@ class PostCard extends StatelessWidget {
     final textTertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
 
     final isRequest = post.type == PostType.request;
+
+    // R-4: intent-aware read side. Schema comes from the cache-first registry;
+    // when it isn't loaded yet the chips simply don't render (never blocks).
+    final schema = CategorySchemaService.instance.schemaFor(post.category.name);
+    final timeSignal = timeSignalChip(type: post.type, attributes: post.attributes);
+    final highlightChips = highlightChipLabels(
+      schema: schema,
+      postType: post.type.name,
+      attributes: post.attributes,
+    );
+    final moneyLabel = cardMoneyLabel(
+      type: post.type,
+      price: post.price,
+      pricingType: post.pricingType,
+    );
 
     return GestureDetector(
       onTap: onTap,
@@ -141,19 +157,30 @@ class PostCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
 
-                  // Difficulty & Urgency as small tags — wrap to avoid overflow
+                  // Intent-aware tags (R-4): requests show urgency, offers show
+                  // availability, jobs show start date — plus up to two
+                  // highlight answers from the category questions. The old
+                  // difficulty tag is gone (it was never asked; every post
+                  // said "Medium").
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: [
-                      _SmallTag(
-                        label: post.difficultyText,
-                        color: post.difficultyColor,
-                      ),
-                      _SmallTag(
-                        label: post.urgencyText,
-                        color: post.urgencyColor,
-                      ),
+                      if (post.type == PostType.request)
+                        _SmallTag(
+                          label: post.urgencyText,
+                          color: post.urgencyColor,
+                        ),
+                      if (timeSignal != null)
+                        _SmallTag(
+                          label: timeSignal,
+                          color: AppTheme.successGreen,
+                        ),
+                      for (final chip in highlightChips)
+                        _SmallTag(
+                          label: chip,
+                          color: AppTheme.primaryAccent,
+                        ),
                       if (post.type == PostType.offer && post.authorHasPhone)
                         _SmallTag(
                           label: '✔ Verified Provider',
@@ -245,35 +272,41 @@ class PostCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
 
-                  // Description + optional thumbnail in one row for denser feed cards.
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          post.description,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: textTertiary,
-                                height: 1.3,
-                                fontSize: 12.5,
-                              ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                  // Description + optional thumbnail in one row for denser feed
+                  // cards. Descriptions are optional for requests (R-1) — an
+                  // empty one must not leave a dead gap.
+                  if (post.description.trim().isNotEmpty ||
+                      (post.images.isNotEmpty && post.images[0].isNotEmpty))
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: post.description.trim().isEmpty
+                              ? const SizedBox.shrink()
+                              : Text(
+                                  post.description,
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: textTertiary,
+                                        height: 1.3,
+                                        fontSize: 12.5,
+                                      ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                         ),
-                      ),
-                      if (post.images.isNotEmpty && post.images[0].isNotEmpty) ...[
-                        const SizedBox(width: 10),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: SizedBox(
-                            height: _kMediaHeight,
-                            width: _kMediaHeight,
-                            child: _buildImage(post.images[0]),
+                        if (post.images.isNotEmpty && post.images[0].isNotEmpty) ...[
+                          const SizedBox(width: 10),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: SizedBox(
+                              height: _kMediaHeight,
+                              width: _kMediaHeight,
+                              child: _buildImage(post.images[0]),
+                            ),
                           ),
-                        ),
+                        ],
                       ],
-                    ],
-                  ),
+                    ),
                   if (post.images.length > 1) ...[
                     const SizedBox(height: 4),
                     Row(
@@ -300,16 +333,20 @@ class PostCard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(_kPadding, 8, _kPadding, _kPadding),
               child: Row(
                 children: [
-                  if (post.price > 0)
-                    Text(
-                      formatPriceDisplay(post.price),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: AppTheme.successGreen,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
+                  if (moneyLabel != null)
+                    Flexible(
+                      child: Text(
+                        moneyLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: AppTheme.successGreen,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                      ),
                     ),
-                  if (post.price > 0) const SizedBox(width: 12),
+                  if (moneyLabel != null) const SizedBox(width: 12),
                   Expanded(
                     child: Align(
                       alignment: Alignment.centerRight,

@@ -23,6 +23,7 @@ import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/web_view_screen.dart';
+import 'services/category_schema_service.dart';
 import 'services/diagnostic_service.dart';
 import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
@@ -94,6 +95,10 @@ class _Help24AppState extends State<Help24App> {
 
   Future<void> _runBackgroundBootstrap() async {
     try {
+      // Warm the category registry (cache-first, 24h TTL) so feed cards can
+      // resolve highlight chips without opening the Post screen. Fire-and-
+      // forget: never blocks startup, never throws.
+      unawaited(CategorySchemaService.instance.warmUp());
       // ✅ Supabase is already initialized in main() - don't reinitialize!
       // Just initialize Firebase
       await AppFirebase.initialize();

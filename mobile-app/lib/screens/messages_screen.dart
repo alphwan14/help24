@@ -6,7 +6,9 @@ import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../models/attribute_display.dart';
 import '../models/post_model.dart';
+import '../services/category_schema_service.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
@@ -22,7 +24,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
-import '../utils/format_utils.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/job_status_card.dart';
 
@@ -2853,18 +2854,36 @@ class _PostDetailPage extends StatelessWidget {
               post.title,
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            const SizedBox(height: 8),
-            Text(
-              post.description,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
+            // Description is optional for requests since R-1.
+            if (post.description.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                post.description,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+            ],
             const SizedBox(height: 16),
             Text(
-              '${post.location} • ${formatPriceDisplay(post.price)}',
+              // R-4: intent-aware money language (Budget / From / Salary).
+              '${post.location} • ${detailMoneyValue(type: post.type, price: post.price, pricingType: post.pricingType)}',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
               ),
             ),
+            // R-4: smart-question answers, labeled from the schema.
+            for (final row in attributeDetailRows(
+              schema: CategorySchemaService.instance.schemaFor(post.category.name),
+              postType: post.type.name,
+              attributes: post.attributes,
+            )) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${row.label}: ${row.value}',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                ),
+              ),
+            ],
           ],
         ),
       ),

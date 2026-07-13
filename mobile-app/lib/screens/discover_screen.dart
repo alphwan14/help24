@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import '../utils/phone_utils.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
+import '../models/attribute_display.dart';
 import '../models/post_model.dart';
+import '../services/category_schema_service.dart';
 import '../providers/app_provider.dart';
 import '../providers/connectivity_provider.dart';
+import '../providers/location_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
@@ -47,9 +50,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<AppProvider>().setSelectedFilter('All');
-      }
+      if (!mounted) return;
+      context.read<AppProvider>().setSelectedFilter('All');
+      // Preload live urgent requests so the header's Urgent pill can show a
+      // count — emergency posts must be discoverable without opening anything.
+      final location = context.read<LocationProvider>();
+      context.read<AppProvider>().loadUrgentPosts(
+            userLatitude: location.latitude,
+            userLongitude: location.longitude,
+          );
     });
   }
 
@@ -113,13 +122,65 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                         );
                       },
                     ),
-                    TextButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const UrgentRequestsScreen()),
-                      ),
-                      child: const Text('Urgent'),
+                    // Emergency entry — red ⚡ pill with a live count of active
+                    // urgent requests ("Right now" posts within their window).
+                    Consumer<AppProvider>(
+                      builder: (_, provider, __) {
+                        final urgentCount = provider.urgentPosts.length;
+                        return GestureDetector(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const UrgentRequestsScreen()),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: AppTheme.errorRed.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: AppTheme.errorRed.withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.bolt,
+                                    size: 16, color: AppTheme.errorRed),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  'Urgent',
+                                  style: TextStyle(
+                                    color: AppTheme.errorRed,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                if (urgentCount > 0) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.errorRed,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '$urgentCount',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -561,14 +622,16 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Description
-                        Text('Description',
-                            style:
-                                Theme.of(context).textTheme.titleLarge),
-                        const SizedBox(height: 8),
-                        Text(post.description,
-                            style: Theme.of(context).textTheme.bodyLarge),
-                        const SizedBox(height: 24),
+                        // Description (optional for requests since R-1)
+                        if (post.description.trim().isNotEmpty) ...[
+                          Text('Description',
+                              style:
+                                  Theme.of(context).textTheme.titleLarge),
+                          const SizedBox(height: 8),
+                          Text(post.description,
+                              style: Theme.of(context).textTheme.bodyLarge),
+                          const SizedBox(height: 24),
+                        ],
 
                         // Details grid
                         Container(
@@ -589,13 +652,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                               const Divider(height: 24),
                               _DetailRow(
                                 icon: Icons.payments_outlined,
-                                label: post.type == PostType.request
-                                    ? 'Budget'
-                                    : post.type == PostType.job
-                                        ? 'Pay'
-                                        : 'Price',
-                                value:
-                                    '${post.pricingType.displayLabel} · ${formatPriceDisplay(post.price)}',
+                                // R-4: each intent speaks its own money
+                                // language (Budget / Starting price / Salary).
+                                label: detailMoneyLabel(post.type),
+                                value: detailMoneyValue(
+                                  type: post.type,
+                                  price: post.price,
+                                  pricingType: post.pricingType,
+                                ),
                                 valueColor: AppTheme.successGreen,
                               ),
                               if (post.type == PostType.job &&
@@ -608,13 +672,23 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                       post.employmentType!.displayLabel,
                                 ),
                               ],
-                              const Divider(height: 24),
-                              _DetailRow(
-                                icon: Icons.trending_up,
-                                label: 'Difficulty',
-                                value: post.difficultyText,
-                                valueColor: post.difficultyColor,
-                              ),
+                              // R-4: the smart-question answers (+ reserved
+                              // availability/start/needed signals), labeled
+                              // from the schema. The fake Difficulty row is
+                              // gone — it was never asked (always "Medium").
+                              for (final row in attributeDetailRows(
+                                schema: CategorySchemaService.instance
+                                    .schemaFor(post.category.name),
+                                postType: post.type.name,
+                                attributes: post.attributes,
+                              )) ...[
+                                const Divider(height: 24),
+                                _DetailRow(
+                                  icon: Icons.check_circle_outline,
+                                  label: row.label,
+                                  value: row.value,
+                                ),
+                              ],
                               // Fake "Rating: X / 5.0" row removed (Phase 3.2C):
                               // PostModel.rating was fabricated. Real provider
                               // reputation is shown via ReputationCompact on cards.
