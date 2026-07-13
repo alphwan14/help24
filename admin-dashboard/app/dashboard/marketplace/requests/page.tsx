@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
 import { PostStatusBadge, archivedRowClass } from "@/components/PostStatusBadge";
+import { requestBudgetLabel, schemasByName, smartAnswerLines, type Json } from "@/lib/post-display";
 
 type RequestRow = {
   id: string;
@@ -15,6 +16,7 @@ type RequestRow = {
   author_user_id: string | null;
   selected_provider_id: string | null;
   created_at: string;
+  attributes: Json | null;
   users: { name: string | null; email: string | null } | null;
 };
 
@@ -29,7 +31,7 @@ async function getRequests(status: StatusFilter) {
   const db = createServiceClient();
   let query = db
     .from("posts")
-    .select("id, title, category, location, price, pricing_type, urgency, status, archived_at, author_user_id, selected_provider_id, created_at, users(name, email)")
+    .select("id, title, category, location, price, pricing_type, urgency, status, archived_at, author_user_id, selected_provider_id, created_at, attributes, users(name, email)")
     .eq("type", "request")
     .order("created_at", { ascending: false })
     .limit(200);
@@ -39,6 +41,13 @@ async function getRequests(status: StatusFilter) {
 
   const { data } = await query;
   return (data ?? []) as unknown as RequestRow[];
+}
+
+// Smart Posting: category question schemas, for resolving answer labels.
+async function getSchemas() {
+  const db = createServiceClient();
+  const { data } = await db.from("categories").select("name, question_schema");
+  return schemasByName(data ?? []);
 }
 
 export default async function MarketplaceRequestsPage({
@@ -51,18 +60,30 @@ export default async function MarketplaceRequestsPage({
     ? (params.status as StatusFilter)
     : "all";
 
-  const rows = await getRequests(status);
+  const [rows, schemas] = await Promise.all([getRequests(status), getSchemas()]);
 
   const columns = [
     {
       key: "title",
       label: "Title",
-      render: (r: RequestRow) => (
-        <div className="max-w-xs">
-          <p className="font-medium text-gray-900 truncate">{r.title}</p>
-          <p className="text-xs text-gray-400">{r.category} · {r.location}</p>
-        </div>
-      ),
+      render: (r: RequestRow) => {
+        const answers = smartAnswerLines(
+          schemas.get(r.category?.toLowerCase() ?? "") ?? null,
+          "request",
+          r.attributes,
+        );
+        return (
+          <div className="max-w-xs">
+            <p className="font-medium text-gray-900 truncate">{r.title}</p>
+            <p className="text-xs text-gray-400">{r.category} · {r.location}</p>
+            {answers.length > 0 && (
+              <p className="text-xs text-indigo-500 truncate" title={answers.join("\n")}>
+                {answers.join(" · ")}
+              </p>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: "author",
@@ -77,7 +98,9 @@ export default async function MarketplaceRequestsPage({
       key: "price",
       label: "Budget",
       render: (r: RequestRow) => (
-        <span className="font-medium">KES {r.price.toLocaleString("en-KE")} / {r.pricing_type}</span>
+        <span className={`font-medium ${(!r.price || r.price <= 0) ? "text-gray-500" : ""}`}>
+          {requestBudgetLabel(r.price)}
+        </span>
       ),
     },
     {

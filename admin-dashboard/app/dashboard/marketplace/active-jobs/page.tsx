@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
 import { PostStatusBadge, archivedRowClass } from "@/components/PostStatusBadge";
+import { requestBudgetLabel } from "@/lib/post-display";
 
 type JobRow = {
   id: string;
@@ -69,7 +70,7 @@ export default async function ActiveJobsPage() {
       key: "price",
       label: "Value",
       render: (r: JobRow) => (
-        <span className="font-medium">KES {r.price.toLocaleString("en-KE")} / {r.pricing_type}</span>
+        <span className="font-medium">{requestBudgetLabel(r.price)}</span>
       ),
     },
     {

@@ -9,6 +9,7 @@ async function getMarketplaceData() {
   const [
     { count: totalRequests },
     { count: totalOffers },
+    { count: totalHiring },
     { count: activeJobs },
     { count: completedJobs },
     { count: openRequests },
@@ -16,6 +17,7 @@ async function getMarketplaceData() {
   ] = await Promise.all([
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "request"),
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "offer"),
+    db.from("posts").select("*", { count: "exact", head: true }).eq("type", "job"),
     db.from("posts").select("*", { count: "exact", head: true }).not("selected_provider_id", "is", null),
     db.from("users").select("*", { count: "exact", head: true }).gt("completed_jobs_count", 0),
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "request").is("selected_provider_id", null),
@@ -35,6 +37,7 @@ async function getMarketplaceData() {
     kpis: {
       totalRequests: totalRequests ?? 0,
       totalOffers: totalOffers ?? 0,
+      totalHiring: totalHiring ?? 0,
       activeJobs: activeJobs ?? 0,
       completedJobs: completedJobs ?? 0,
       openRequests: openRequests ?? 0,
@@ -50,10 +53,11 @@ export default async function MarketplaceAllPage() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
         <MetricCard label="Total Requests"  value={fmt(kpis.totalRequests)} />
         <MetricCard label="Open Requests"   value={fmt(kpis.openRequests)}  accent="blue" sub="No provider yet" />
         <MetricCard label="Total Offers"    value={fmt(kpis.totalOffers)}   accent="purple" />
+        <MetricCard label="Hiring Posts"    value={fmt(kpis.totalHiring)}   accent="blue" sub="Recruitment" />
         <MetricCard label="Active Jobs"     value={fmt(kpis.activeJobs)}    accent="yellow" sub="Provider assigned" />
         <MetricCard label="Completed Jobs"  value={fmt(kpis.completedJobs)} accent="green" />
       </div>

@@ -66,6 +66,7 @@ const NAV: NavItem[] = [
       { label: "All Activity", href: "/dashboard/marketplace" },
       { label: "Requests",     href: "/dashboard/marketplace/requests" },
       { label: "Offers",       href: "/dashboard/marketplace/offers" },
+      { label: "Hiring",       href: "/dashboard/marketplace/jobs" },
       { label: "Job Matches",  href: "/dashboard/marketplace/active-jobs" },
     ],
   },
