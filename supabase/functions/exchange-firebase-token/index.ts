@@ -7,13 +7,16 @@
 // relies on this, so it is mandatory before the S3 owner-scoped RLS rollout.
 //
 // Required secrets:
-//   SUPABASE_JWT_SECRET  — Dashboard → Project Settings → API → JWT Secret
+//   APP_JWT_SECRET       — the project's JWT secret (Dashboard → Project
+//                          Settings → API → JWT Secret). NOTE: named
+//                          APP_JWT_SECRET because the platform reserves the
+//                          SUPABASE_ prefix and rejects custom secrets with it.
 //   FIREBASE_PROJECT_ID  — e.g. help24-24410 (defaults below)
 
 import { SignJWT, jwtVerify, importX509, decodeProtectedHeader } from 'https://esm.sh/jose@5.9.6';
 
 const FIREBASE_PROJECT_ID = Deno.env.get('FIREBASE_PROJECT_ID') ?? 'help24-24410';
-const JWT_SECRET = Deno.env.get('SUPABASE_JWT_SECRET');
+const JWT_SECRET = Deno.env.get('APP_JWT_SECRET') ?? Deno.env.get('SUPABASE_JWT_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 // Google's public x509 certs for Firebase Secure Token (keyed by `kid`).
 const CERT_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
@@ -99,7 +102,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!JWT_SECRET) {
-    return new Response(JSON.stringify({ error: 'Server misconfiguration: SUPABASE_JWT_SECRET not set' }), {
+    return new Response(JSON.stringify({ error: 'Server misconfiguration: APP_JWT_SECRET not set' }), {
       status: 500,
       headers: { ...CORS, 'Content-Type': 'application/json' },
     });
