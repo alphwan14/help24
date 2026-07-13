@@ -41,22 +41,27 @@ async function getGoogleCerts(): Promise<Record<string, string>> {
   return certs;
 }
 
-/** Fully verify a Firebase ID token (RS256 signature + iss/aud/exp). Returns uid or null. */
-async function verifyFirebaseToken(idToken: string): Promise<string | null> {
+/** Fully verify a Firebase ID token (RS256 signature + iss/aud/exp).
+ *  Returns the uid, or a precise rejection reason (safe to surface: header
+ *  shape, key id, or the jose claim-check message — never secrets). */
+async function verifyFirebaseToken(
+  idToken: string,
+): Promise<{ uid: string | null; reason?: string }> {
   try {
     const { kid, alg } = decodeProtectedHeader(idToken);
-    if (alg !== 'RS256' || !kid) return null;
+    if (alg !== 'RS256' || !kid) return { uid: null, reason: 'unexpected token header' };
     const certs = await getGoogleCerts();
     const cert = certs[kid];
-    if (!cert) return null;
+    if (!cert) return { uid: null, reason: 'unknown signing key (kid)' };
     const key = await importX509(cert, 'RS256');
     const { payload } = await jwtVerify(idToken, key, {
       issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
       audience: FIREBASE_PROJECT_ID,
     });
-    return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null;
-  } catch {
-    return null;
+    if (typeof payload.sub === 'string' && payload.sub.length > 0) return { uid: payload.sub };
+    return { uid: null, reason: 'missing sub claim' };
+  } catch (e) {
+    return { uid: null, reason: (e as Error)?.message ?? 'verification failed' };
   }
 }
 
@@ -93,12 +98,15 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const uid = await verifyFirebaseToken(idToken);
+  const { uid, reason } = await verifyFirebaseToken(idToken);
   if (!uid) {
-    return new Response(JSON.stringify({ error: 'Invalid or expired Firebase token' }), {
-      status: 401,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-    });
+    console.error(
+      `[EXCHANGE] token rejected: ${reason} (expected project: ${FIREBASE_PROJECT_ID})`,
+    );
+    return new Response(
+      JSON.stringify({ error: 'Invalid or expired Firebase token', reason }),
+      { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } },
+    );
   }
 
   if (!JWT_SECRET) {
