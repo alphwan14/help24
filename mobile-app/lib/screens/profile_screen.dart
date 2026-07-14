@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
 import '../utils/phone_utils.dart';
@@ -19,6 +20,7 @@ import '../widgets/reputation_widgets.dart';
 import 'auth_screen.dart';
 import 'edit_profile_screen.dart';
 import 'help_center_screen.dart';
+import 'my_posts_screen.dart';
 import 'terms_screen.dart';
 import 'privacy_screen.dart';
 import 'location_permission_explainer_screen.dart';
@@ -38,95 +40,34 @@ class ProfileScreen extends StatelessWidget {
           children: [
             const SizedBox(height: 20),
 
-            // Profile Section (Dynamic based on auth state)
+            // Identity + trust + activity + account — everything that needs the
+            // user's row is fed by ONE stream inside _LoggedInSections (the old
+            // layout ran two parallel 15s pollers on the same row).
             Consumer<AuthProvider>(
               builder: (context, auth, _) {
                 if (!auth.isLoggedIn) {
-                  return _GuestProfile(
-                    onSignIn: () => _navigateToAuth(context),
-                  );
-                }
-                final uid = auth.currentUserId ?? '';
-                return StreamBuilder<UserModel?>(
-                  stream: UserProfileService.watchUser(uid),
-                  builder: (context, snap) {
-                    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 32),
-                        child: LoadingView(message: 'Loading profile...'),
-                      );
-                    }
-                    if (snap.data == null && snap.connectionState != ConnectionState.waiting) {
-                      UserProfileService.ensureProfileDoc(
-                        uid: uid,
-                        email: auth.currentUser!.email,
-                        name: auth.currentUser!.name ?? auth.currentUser!.displayName,
-                        phone: auth.currentUser!.phoneNumber,
-                      );
-                    }
-                    return _LoggedInProfile(
-                      profile: snap.data,
-                      authUser: auth.currentUser!,
-                    );
-                  },
-                );
-              },
-            ),
-
-            const SizedBox(height: 20),
-
-            // ── Account ─────────────────────────────────────────────────────
-            Consumer<AuthProvider>(
-              builder: (context, auth, _) {
-                if (!auth.isLoggedIn) {
-                  return _SettingsSection(
-                    title: 'Account',
+                  return Column(
                     children: [
-                      _SettingsTile(
-                        icon: Iconsax.profile_circle,
-                        title: 'Edit Profile',
-                        subtitle: 'Sign in to edit your profile',
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _showAuthModalForEditProfile(context),
+                      _GuestProfile(onSignIn: () => _navigateToAuth(context)),
+                      const SizedBox(height: 20),
+                      _SettingsSection(
+                        title: 'Account',
+                        children: [
+                          _SettingsTile(
+                            icon: Iconsax.profile_circle,
+                            title: 'Edit Profile',
+                            subtitle: 'Sign in to edit your profile',
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => _showAuthModalForEditProfile(context),
+                          ),
+                        ],
                       ),
                     ],
                   );
                 }
-                final uid = auth.currentUserId ?? '';
-                return StreamBuilder<UserModel?>(
-                  stream: UserProfileService.watchUser(uid),
-                  builder: (context, snap) {
-                    return _SettingsSection(
-                      title: 'Account',
-                      children: [
-                        _SettingsTile(
-                          icon: Iconsax.profile_circle,
-                          title: 'Edit Profile',
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => _openEditProfile(context, snap.data),
-                        ),
-                        _SettingsTile(
-                          icon: Iconsax.card,
-                          title: 'Payment Settings',
-                          subtitle: (snap.data?.phone?.isNotEmpty == true)
-                              ? snap.data!.phone!
-                              : 'M-Pesa number not set',
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => _showPaymentSettingsSheet(
-                            context,
-                            uid,
-                            snap.data?.phone,
-                          ),
-                        ),
-                        _SettingsTile(
-                          icon: Iconsax.security_safe,
-                          title: 'Privacy & Security',
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => _openPrivacy(context),
-                        ),
-                      ],
-                    );
-                  },
+                return _LoggedInSections(
+                  uid: auth.currentUserId ?? '',
+                  authUser: auth.currentUser!,
                 );
               },
             ),
@@ -317,10 +258,13 @@ class ProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 32),
 
-            // Version
-            Text(
-              'Help24 v1.0.0',
-              style: Theme.of(context).textTheme.bodySmall,
+            // Version — read from the installed package, never hard-coded.
+            FutureBuilder<PackageInfo>(
+              future: PackageInfo.fromPlatform(),
+              builder: (context, snap) => Text(
+                snap.hasData ? 'Help24 v${snap.data!.version}' : 'Help24',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
             const SizedBox(height: 20),
           ],
@@ -463,15 +407,6 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  void _showPaymentSettingsSheet(BuildContext context, String uid, String? currentPhone) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _PaymentSettingsSheet(uid: uid, currentPhone: currentPhone),
-    );
-  }
-
   void _showLogoutDialog(BuildContext context, AuthProvider auth) {
     showDialog(
       context: context,
@@ -517,7 +452,178 @@ class ProfileScreen extends StatelessWidget {
   }
 }
 
-/// Profile widget for logged in users (Firestore profile or auth fallback).
+/// Everything on the profile that needs the user's row: identity hero,
+/// trust/reputation, My Activity, and the Account section — fed by a SINGLE
+/// users stream (cached in State so rebuilds never re-subscribe), with the
+/// ensure-profile-row repair attempted at most once per screen life and never
+/// from inside build().
+class _LoggedInSections extends StatefulWidget {
+  final String uid;
+  final dynamic authUser; // AppUser
+
+  const _LoggedInSections({required this.uid, required this.authUser});
+
+  @override
+  State<_LoggedInSections> createState() => _LoggedInSectionsState();
+}
+
+class _LoggedInSectionsState extends State<_LoggedInSections> {
+  late Stream<UserModel?> _stream = UserProfileService.watchUser(widget.uid);
+  bool _ensureAttempted = false;
+
+  @override
+  void didUpdateWidget(covariant _LoggedInSections oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid) {
+      _stream = UserProfileService.watchUser(widget.uid);
+      _ensureAttempted = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<UserModel?>(
+      stream: _stream,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 32),
+            child: LoadingView(message: 'Loading profile...'),
+          );
+        }
+        if (snap.data == null &&
+            snap.connectionState != ConnectionState.waiting &&
+            !_ensureAttempted) {
+          _ensureAttempted = true;
+          final user = widget.authUser;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            UserProfileService.ensureProfileDoc(
+              uid: widget.uid,
+              email: user.email,
+              name: user.name ?? user.displayName,
+              phone: user.phoneNumber,
+            );
+          });
+        }
+        final profile = snap.data;
+        return Column(
+          children: [
+            _LoggedInProfile(profile: profile, authUser: widget.authUser),
+            const SizedBox(height: 20),
+
+            // ── My Activity ─────────────────────────────────────────────
+            _SettingsSection(
+              title: 'My Activity',
+              children: [
+                _MyPostsTile(uid: widget.uid),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Account ─────────────────────────────────────────────────
+            _SettingsSection(
+              title: 'Account',
+              children: [
+                _SettingsTile(
+                  icon: Iconsax.profile_circle,
+                  title: 'Edit Profile',
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => EditProfileScreen(
+                        uid: widget.uid,
+                        initialProfile: profile,
+                        emailFromAuth: widget.authUser.email ?? '',
+                      ),
+                    ),
+                  ),
+                ),
+                _SettingsTile(
+                  icon: Iconsax.card,
+                  title: 'Payment Settings',
+                  // The number is sensitive — masked here; the full value is
+                  // only revealed behind the biometric gate in the sheet.
+                  subtitle: (profile?.phone?.isNotEmpty == true)
+                      ? maskPhone(profile!.phone!)
+                      : 'M-Pesa number not set',
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => _PaymentSettingsSheet(
+                      uid: widget.uid,
+                      currentPhone: profile?.phone,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// "My Posts" activity tile: live server-side count, opens the management
+/// list. The count future is cached in State (the parent stream emits every
+/// 15s) and refreshed when returning from the My Posts screen.
+class _MyPostsTile extends StatefulWidget {
+  final String uid;
+
+  const _MyPostsTile({required this.uid});
+
+  @override
+  State<_MyPostsTile> createState() => _MyPostsTileState();
+}
+
+class _MyPostsTileState extends State<_MyPostsTile> {
+  late Future<int> _count = UserProfileService.getAuthoredPostsCount(widget.uid);
+
+  @override
+  void didUpdateWidget(covariant _MyPostsTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid) {
+      _count = UserProfileService.getAuthoredPostsCount(widget.uid);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<int>(
+      future: _count,
+      builder: (context, snap) {
+        final count = snap.data;
+        return _SettingsTile(
+          icon: Iconsax.document_text,
+          title: 'My Posts',
+          subtitle: count == null
+              ? 'Requests, offers & job posts'
+              : count == 1
+                  ? '1 active post'
+                  : '$count active posts',
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MyPostsScreen(userId: widget.uid),
+            ),
+          ).then((_) {
+            if (mounted) {
+              setState(() {
+                _count = UserProfileService.getAuthoredPostsCount(widget.uid);
+              });
+            }
+          }),
+        );
+      },
+    );
+  }
+}
+
+/// Profile identity hero for logged in users (users row, auth fallback).
 class _LoggedInProfile extends StatelessWidget {
   final UserModel? profile;
   final dynamic authUser; // AppUser
@@ -630,13 +736,13 @@ class _LoggedInProfile extends StatelessWidget {
         ],
         const SizedBox(height: 8),
 
-        // Posts count (authored requests). Rating / completed jobs / tier come
-        // from the backend reputation section below — no orphan users.* reads.
-        _AuthoredPostsStat(userId: profile?.uid ?? authUser.uid),
-
         // Backend-sourced reputation: rating, completed jobs, completion rate,
-        // dispute rate, open disputes, tier, member since.
-        ReputationProfileSection(providerId: profile?.uid ?? authUser.uid),
+        // dispute rate, open disputes, tier, member since. Post count moved to
+        // the My Activity section (it's an action, not a trust signal).
+        // authUser is AppUser (field `id`, not `uid`) — the old dynamic
+        // `authUser.uid` call crashed at runtime whenever the users row was
+        // still null.
+        ReputationProfileSection(providerId: profile?.uid ?? authUser.id),
       ],
     );
   }
@@ -698,89 +804,6 @@ class _GuestProfile extends StatelessWidget {
             icon: const Icon(Iconsax.login),
             label: const Text('Sign In'),
           ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Authored-posts count card. Caches its fetch in State so the profile's 15s
-/// poll (UserProfileService.watchUser) and other ancestor rebuilds don't re-run
-/// the query and flicker. Re-fetches only when the userId changes.
-class _AuthoredPostsStat extends StatefulWidget {
-  final String userId;
-  const _AuthoredPostsStat({required this.userId});
-
-  @override
-  State<_AuthoredPostsStat> createState() => _AuthoredPostsStatState();
-}
-
-class _AuthoredPostsStatState extends State<_AuthoredPostsStat> {
-  late Future<int> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = UserProfileService.getAuthoredPostsCount(widget.userId);
-  }
-
-  @override
-  void didUpdateWidget(covariant _AuthoredPostsStat oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.userId != widget.userId) {
-      _future = UserProfileService.getAuthoredPostsCount(widget.userId);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return FutureBuilder<int>(
-      future: _future,
-      builder: (context, snap) {
-        final postsCount = snap.data ?? 0;
-        return Container(
-          margin: const EdgeInsets.only(top: 20),
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _StatItem(value: '$postsCount', label: 'Posts'),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _StatItem extends StatelessWidget {
-  final String value;
-  final String label;
-
-  const _StatItem({required this.value, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
     );

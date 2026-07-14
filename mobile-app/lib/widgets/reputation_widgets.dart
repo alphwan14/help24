@@ -270,6 +270,39 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
               ],
             );
           }
+          // Honest new-user state: someone with no provider activity should
+          // read "you're new here", not a zero-filled report card
+          // ("0 jobs · 0% · 0% · 0 disputes"). Every value is still real —
+          // we just don't dress zeros up as performance metrics.
+          final hasProviderActivity =
+              rep.completedJobs > 0 || rep.hasReviews || rep.openDisputes > 0;
+          if (!hasProviderActivity) {
+            return Row(
+              children: [
+                Icon(Icons.verified_user_outlined, size: 20, color: tierColor(rep.tier)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        rep.memberSinceYear != null
+                            ? 'New on Help24 · Member since ${rep.memberSinceYear}'
+                            : 'New on Help24',
+                        style: TextStyle(
+                            color: textPrimary, fontSize: 15, fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Stats appear after your first completed job.',
+                        style: TextStyle(color: muted, fontSize: 12.5),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          }
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

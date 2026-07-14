@@ -35,3 +35,11 @@ String requireKenyanNumber(String raw) {
   }
   return normalized;
 }
+
+/// Masks a phone number for display: `254712345678` → `254••••••678`.
+/// Numbers too short to mask meaningfully are returned unchanged.
+String maskPhone(String phone) {
+  final p = phone.trim();
+  if (p.length <= 6) return p;
+  return '${p.substring(0, 3)}••••••${p.substring(p.length - 3)}';
+}

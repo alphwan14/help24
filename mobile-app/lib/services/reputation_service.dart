@@ -12,7 +12,12 @@ import '../models/provider_reputation.dart';
 class ReputationService {
   static const Duration _timeout = Duration(seconds: 15);
 
-  static final Map<String, ProviderReputation> _cache = {};
+  /// Cache TTL: long enough that a feed of N cards never refetches while
+  /// scrolling, short enough that your OWN profile reflects a new review or
+  /// approved job without an app restart (the old cache lived forever).
+  static const Duration _cacheTtl = Duration(minutes: 3);
+
+  static final Map<String, ({ProviderReputation rep, DateTime at})> _cache = {};
   static final Map<String, Future<ProviderReputation?>> _inflight = {};
 
   /// Reputation summary for a provider. Returns null on error (callers render an
@@ -21,7 +26,9 @@ class ReputationService {
     if (providerId.isEmpty) return Future.value(null);
 
     final cached = _cache[providerId];
-    if (cached != null) return Future.value(cached);
+    if (cached != null && DateTime.now().difference(cached.at) < _cacheTtl) {
+      return Future.value(cached.rep);
+    }
 
     final existing = _inflight[providerId];
     if (existing != null) return existing;
@@ -47,7 +54,7 @@ class ReputationService {
           'completed_jobs=${rep.completedJobs} total_reviews=${rep.totalReviews} '
           'dispute_rate=${rep.disputeRate.toStringAsFixed(3)}',
         );
-        _cache[providerId] = rep;
+        _cache[providerId] = (rep: rep, at: DateTime.now());
         return rep;
       }
       debugPrint('[REPUTATION] getReputation $providerId -> ${res.statusCode}');

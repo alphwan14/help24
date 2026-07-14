@@ -507,4 +507,20 @@ class NotificationService {
       debugPrint('[FCM][DISABLE][ERROR] $e');
     }
   }
+
+  /// Sign-out hygiene: unregister THIS device's token so a signed-out phone
+  /// stops receiving the account's pushes. Unlike [disableAndRemoveToken],
+  /// the user's notifications PREFERENCE is left untouched — they get pushes
+  /// again on their next login (which re-saves a token).
+  static Future<void> removeTokenOnLogout(String uid) async {
+    if (uid.isEmpty) return;
+    try {
+      if (_currentToken != null) {
+        await UserProfileService.removeFcmToken(uid, _currentToken!);
+        debugPrint('[FCM][LOGOUT] device token removed for uid=$uid');
+      }
+    } catch (e) {
+      debugPrint('[FCM][LOGOUT][ERROR] $e');
+    }
+  }
 }

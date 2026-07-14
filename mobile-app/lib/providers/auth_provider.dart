@@ -330,6 +330,12 @@ class AuthProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
+      // Push hygiene: a signed-out device must not keep receiving this
+      // account's notifications. Best-effort (never blocks sign-out).
+      final uid = _currentUser?.id;
+      if (uid != null && uid.isNotEmpty) {
+        await NotificationService.removeTokenOnLogout(uid);
+      }
       await AuthService.signOut();
       _currentUser = null;
       _error = null;

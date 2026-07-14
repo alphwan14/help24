@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/post_model.dart';
 import '../models/user_model.dart';
 import '../utils/phone_utils.dart';
 import 'storage_service.dart';
@@ -308,20 +309,41 @@ class UserProfileService {
   /// users.average_rating / users.total_reviews / users.completed_jobs_count —
   /// those orphan columns are dead. Reputation is served exclusively by the
   /// backend reputation endpoint (GET /reputation/:id) via ReputationService.
+  /// Count of the user's live (non-archived) posts — requests, offers AND
+  /// job posts. Server-side count: no rows are downloaded (the old version
+  /// fetched up to 10k IDs to count them, and arbitrarily excluded jobs).
   static Future<int> getAuthoredPostsCount(String uid) async {
     if (!_isAvailable || uid.isEmpty) return 0;
     try {
-      final postsList = await _client
+      final count = await _client
           .from('posts')
-          .select('id')
+          .count(CountOption.exact)
           .eq('author_user_id', uid)
-          .neq('type', 'job')
-          .limit(10000);
-      return (postsList is List) ? postsList.length : 0;
+          .filter('archived_at', 'is', null);
+      return count;
     } catch (e) {
       debugPrint('UserProfileService getAuthoredPostsCount: $e');
       return 0;
     }
+  }
+
+  /// The user's own posts (all types, non-archived, newest first) with the
+  /// same joins the feed uses so PostCard renders identically. Powers the
+  /// profile's My Posts screen. Throws on failure — the screen shows a real
+  /// error state instead of silently rendering "no posts".
+  static Future<List<PostModel>> getAuthoredPosts(String uid, {int limit = 100}) async {
+    if (!_isAvailable || uid.isEmpty) return const [];
+    final rows = await _client
+        .from('posts')
+        .select(
+            '*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+        .eq('author_user_id', uid)
+        .filter('archived_at', 'is', null)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return (rows as List)
+        .map((json) => PostModel.fromJson(json as Map<String, dynamic>))
+        .toList();
   }
 
   // REMOVED (Phase 3.2B): incrementCompletedJobsCount — a client-side "current + 1"
