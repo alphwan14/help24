@@ -69,6 +69,15 @@ function projectRef(): string {
   return /https:\/\/([^.]+)/.exec(SUPABASE_URL)?.[1] ?? 'help24';
 }
 
+/** Three dot-separated segments and not a Supabase API key. */
+function looksLikeJwt(token: string | null | undefined): token is string {
+  return (
+    typeof token === 'string' &&
+    token.split('.').length === 3 &&
+    !token.startsWith('sb_')
+  );
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
   if (req.method !== 'POST') {
@@ -78,21 +87,29 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // The BODY is the source of truth for the Firebase token.
+  //
+  // The Supabase client ALWAYS attaches `Authorization: Bearer <apikey|session>`
+  // to functions.invoke — so the header carries the project's publishable key,
+  // not a Firebase token. Reading the header first (as this did) meant we tried
+  // to verify `sb_publishable_…` as a JWT and every real login failed with
+  // "Invalid Token or Protected Header formatting". The header is now only a
+  // fallback, and only when it actually carries a JWT-shaped value.
   let idToken: string | null = null;
-  const auth = req.headers.get('Authorization');
-  if (auth?.startsWith('Bearer ')) {
-    idToken = auth.slice(7);
-  } else {
-    try {
-      const body = (await req.json()) as { id_token?: string; idToken?: string };
-      idToken = body.id_token ?? body.idToken ?? null;
-    } catch {
-      idToken = null;
-    }
+  try {
+    const body = (await req.json()) as { id_token?: string; idToken?: string };
+    idToken = body.id_token ?? body.idToken ?? null;
+  } catch {
+    idToken = null;
+  }
+  if (!looksLikeJwt(idToken)) {
+    const auth = req.headers.get('Authorization');
+    const headerToken = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+    idToken = looksLikeJwt(headerToken) ? headerToken : idToken;
   }
 
   if (!idToken) {
-    return new Response(JSON.stringify({ error: 'Missing id_token or Authorization: Bearer' }), {
+    return new Response(JSON.stringify({ error: 'Missing id_token' }), {
       status: 400,
       headers: { ...CORS, 'Content-Type': 'application/json' },
     });
