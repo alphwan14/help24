@@ -1,35 +1,58 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { ratingLabel, type ProviderRep } from "@/lib/reputation";
 
-type CompletedRow = {
-  id: string;
+// Sourced from provider_reputation (server-derived, same as the mobile app) —
+// the dead users.* stat columns are not read.
+
+type CompletedRow = ProviderRep & {
   name: string | null;
   email: string | null;
-  completed_jobs_count: number;
-  average_rating: number | null;
   phone_number: string | null;
-  created_at: string;
+  created_at: string | null;
 };
 
-function fmtDate(iso: string) {
+function fmtDate(iso: string | null) {
+  if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-async function getCompletedProviders() {
+async function getCompletedProviders(): Promise<CompletedRow[]> {
   const db = createServiceClient();
-  const { data } = await db
-    .from("users")
-    .select("id, name, email, phone_number, completed_jobs_count, average_rating, created_at")
-    .gt("completed_jobs_count", 0)
-    .order("completed_jobs_count", { ascending: false })
+  const { data: reps, error } = await db
+    .from("provider_reputation")
+    .select(
+      "provider_id, completed_jobs, avg_rating, total_reviews, completion_rate, dispute_rate, open_disputes, tier",
+    )
+    .gt("completed_jobs", 0)
+    .order("completed_jobs", { ascending: false })
     .limit(200);
-  return (data ?? []) as CompletedRow[];
+  if (error) console.error("[marketplace/completed] ERROR:", error.message);
+  const repRows = (reps ?? []) as ProviderRep[];
+  if (repRows.length === 0) return [];
+
+  const { data: users } = await db
+    .from("users")
+    .select("id, name, email, phone_number, created_at")
+    .in("id", repRows.map((r) => r.provider_id));
+  const byId = new Map((users ?? []).map((u) => [u.id, u]));
+
+  return repRows.map((r) => {
+    const u = byId.get(r.provider_id);
+    return {
+      ...r,
+      name: u?.name ?? null,
+      email: u?.email ?? null,
+      phone_number: u?.phone_number ?? null,
+      created_at: u?.created_at ?? null,
+    };
+  });
 }
 
 export default async function CompletedPage() {
   const rows = await getCompletedProviders();
 
-  const totalCompleted = rows.reduce((s, r) => s + (r.completed_jobs_count ?? 0), 0);
+  const totalCompleted = rows.reduce((s, r) => s + (r.completed_jobs ?? 0), 0);
 
   const columns = [
     {
@@ -48,23 +71,25 @@ export default async function CompletedPage() {
       render: (r: CompletedRow) => <span>{r.phone_number || "—"}</span>,
     },
     {
-      key: "completed_jobs_count",
+      key: "completed_jobs",
       label: "Jobs Done",
       render: (r: CompletedRow) => (
         <span className="badge bg-green-100 text-green-700 font-semibold">
-          {r.completed_jobs_count}
+          {r.completed_jobs}
         </span>
       ),
     },
     {
-      key: "average_rating",
+      key: "avg_rating",
       label: "Avg Rating",
-      render: (r: CompletedRow) =>
-        r.average_rating ? (
-          <span className="text-amber-600 font-medium">★ {Number(r.average_rating).toFixed(1)}</span>
+      render: (r: CompletedRow) => {
+        const label = ratingLabel(r);
+        return label ? (
+          <span className="text-amber-600 font-medium">{label}</span>
         ) : (
           <span className="text-gray-400 text-xs">—</span>
-        ),
+        );
+      },
     },
     {
       key: "created_at",

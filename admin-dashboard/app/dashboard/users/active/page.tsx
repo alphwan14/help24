@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { fetchAllReputations, ratingLabel, reputationByProvider } from "@/lib/reputation";
 
 type UserRow = {
   id: string;
@@ -9,8 +10,6 @@ type UserRow = {
   role: string | null;
   created_at: string;
   last_login: string | null;
-  completed_jobs_count: number | null;
-  average_rating: number | null;
 };
 
 function fmtDate(iso: string | null) {
@@ -34,7 +33,7 @@ async function getActiveUsers() {
   const since7 = new Date(Date.now() - 7 * 86400_000).toISOString();
   const { data, error } = await db
     .from("users")
-    .select("id, name, email, phone_number, role, created_at, last_login, completed_jobs_count, average_rating")
+    .select("id, name, email, phone_number, role, created_at, last_login")
     .gte("last_login", since7)
     .order("last_login", { ascending: false });
 
@@ -43,7 +42,8 @@ async function getActiveUsers() {
 }
 
 export default async function ActiveUsersPage() {
-  const rows = await getActiveUsers();
+  const [rows, reps] = await Promise.all([getActiveUsers(), fetchAllReputations()]);
+  const repMap = reputationByProvider(reps);
 
   const columns = [
     {
@@ -71,19 +71,21 @@ export default async function ActiveUsersPage() {
       ),
     },
     {
-      key: "completed_jobs_count",
+      key: "completed_jobs",
       label: "Jobs Done",
-      render: (r: UserRow) => <span>{r.completed_jobs_count ?? 0}</span>,
+      render: (r: UserRow) => <span>{repMap.get(r.id)?.completed_jobs ?? 0}</span>,
     },
     {
-      key: "average_rating",
+      key: "avg_rating",
       label: "Rating",
-      render: (r: UserRow) =>
-        r.average_rating ? (
-          <span className="text-amber-600 font-medium">★ {Number(r.average_rating).toFixed(1)}</span>
+      render: (r: UserRow) => {
+        const label = ratingLabel(repMap.get(r.id));
+        return label ? (
+          <span className="text-amber-600 font-medium">{label}</span>
         ) : (
           <span className="text-gray-400 text-xs">New</span>
-        ),
+        );
+      },
     },
     {
       key: "last_login",

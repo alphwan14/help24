@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../services/storage_service.dart';
+import '../widgets/google_logo.dart';
 
 enum _AuthStep { welcome, phoneInput, otpVerify, emailAuth, profileSetup }
 
@@ -1496,6 +1496,9 @@ class _OrDivider extends StatelessWidget {
   }
 }
 
+/// "Continue with Google" per Google's sign-in branding guidance: the
+/// official G mark (never redrawn), a white surface in light mode / the
+/// dark-scheme surface in dark mode, and balanced 12dp icon-to-label spacing.
 class _GoogleSignInButton extends StatelessWidget {
   final bool loading;
   final VoidCallback onPressed;
@@ -1505,10 +1508,15 @@ class _GoogleSignInButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Google dark-theme button spec: #131314 surface, subtle border.
+    final surface = isDark ? const Color(0xFF131314) : Colors.white;
+    final border = isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0);
+    final label = isDark ? Colors.white : const Color(0xFF1F1F1F);
+
     return SizedBox(
-      height: 50,
+      height: 52,
       child: Material(
-        color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+        color: surface,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           onTap: loading ? null : onPressed,
@@ -1518,9 +1526,7 @@ class _GoogleSignInButton extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-              ),
+              border: Border.all(color: border),
             ),
             alignment: Alignment.center,
             child: loading
@@ -1530,18 +1536,17 @@ class _GoogleSignInButton extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const _GoogleLogo(size: 20),
-                      const SizedBox(width: 10),
+                      const GoogleLogo(size: 20),
+                      const SizedBox(width: 12),
                       Text(
                         'Continue with Google',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color: isDark
-                              ? AppTheme.darkTextPrimary
-                              : AppTheme.lightTextPrimary,
+                          letterSpacing: 0.1,
+                          color: label,
                         ),
                       ),
                     ],
@@ -1551,65 +1556,6 @@ class _GoogleSignInButton extends StatelessWidget {
       ),
     );
   }
-}
-
-class _GoogleLogo extends StatelessWidget {
-  final double size;
-  const _GoogleLogo({this.size = 20});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: CustomPaint(painter: _GoogleLogoPainter()),
-    );
-  }
-}
-
-class _GoogleLogoPainter extends CustomPainter {
-  static const _blue   = Color(0xFF4285F4);
-  static const _red    = Color(0xFFEA4335);
-  static const _yellow = Color(0xFFFBBC05);
-  static const _green  = Color(0xFF34A853);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    // Slightly thicker stroke so the ring reads clearly at small sizes
-    final strokeW = size.width * 0.22;
-    final arcR    = cx - strokeW / 2;
-    final rect    = Rect.fromCircle(center: Offset(cx, cy), radius: arcR);
-
-    Paint seg(Color c) => Paint()
-      ..color       = c
-      ..style       = PaintingStyle.stroke
-      ..strokeWidth = strokeW
-      ..strokeCap   = StrokeCap.butt;
-
-    const d = math.pi / 180;
-    // 70° gap centred on 0° (right / 3-o'clock): gap spans 325° → 35°
-    // Remaining 290° split into 4 segments:
-    canvas.drawArc(rect, d *  35, d *  55, false, seg(_blue));   //  35° →  90°
-    canvas.drawArc(rect, d *  90, d *  90, false, seg(_red));    //  90° → 180°
-    canvas.drawArc(rect, d * 180, d *  90, false, seg(_yellow)); // 180° → 270°
-    canvas.drawArc(rect, d * 270, d *  55, false, seg(_green));  // 270° → 325°
-    // Gap:  325° → 35°  (70° opening at the right — clearly visible at 20 px)
-
-    // Blue arm: fills the middle of the gap (centre → right inner wall)
-    // Offset arm slightly below centre so it sits in the lower half of the gap,
-    // matching the real Google G proportions.
-    final armY = cy + strokeW * 0.10;
-    canvas.drawLine(
-      Offset(cx, armY),
-      Offset(cx + arcR, armY),
-      seg(_blue)..strokeCap = StrokeCap.square,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
 class _ErrorChip extends StatelessWidget {

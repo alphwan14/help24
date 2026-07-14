@@ -48,7 +48,8 @@ async function getData() {
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "request"),
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "offer"),
     db.from("posts").select("*", { count: "exact", head: true }).not("selected_provider_id", "is", null),
-    db.from("users").select("*", { count: "exact", head: true }).gt("completed_jobs_count", 0),
+    // Server-derived reputation table — users.completed_jobs_count is dead.
+    db.from("provider_reputation").select("*", { count: "exact", head: true }).gt("completed_jobs", 0),
     db.from("transactions").select("*", { count: "exact", head: true }),
     db.from("escrow").select("amount").eq("status", "locked"),
     db.from("users").select("created_at").gte("created_at", since30).order("created_at"),

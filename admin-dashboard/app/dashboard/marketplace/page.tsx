@@ -19,7 +19,8 @@ async function getMarketplaceData() {
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "offer"),
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "job"),
     db.from("posts").select("*", { count: "exact", head: true }).not("selected_provider_id", "is", null),
-    db.from("users").select("*", { count: "exact", head: true }).gt("completed_jobs_count", 0),
+    // Server-derived reputation table — users.completed_jobs_count is dead.
+    db.from("provider_reputation").select("*", { count: "exact", head: true }).gt("completed_jobs", 0),
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "request").is("selected_provider_id", null),
     db.from("posts").select("created_at, type").gte("created_at", since30).order("created_at"),
   ]);

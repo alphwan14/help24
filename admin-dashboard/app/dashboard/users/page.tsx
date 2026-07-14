@@ -1,5 +1,6 @@
 import { createServiceClient, getSessionUser } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { fetchAllReputations, ratingLabel, reputationByProvider } from "@/lib/reputation";
 import { BanToggle } from "./BanToggle";
 import { RoleToggle } from "./RoleToggle";
 
@@ -11,8 +12,6 @@ type UserRow = {
   role: string | null;
   created_at: string;
   last_login: string | null;
-  completed_jobs_count: number | null;
-  average_rating: number | null;
   is_banned: boolean | null;
   [key: string]: unknown;
 };
@@ -61,13 +60,17 @@ function fmtDate(iso: string | null) {
 }
 
 export default async function UsersPage() {
-  const [{ rows: users, error: usersError }, postCounts, sessionUser] = await Promise.all([
+  const [{ rows: users, error: usersError }, postCounts, sessionUser, reps] = await Promise.all([
     getUsers(),
     getPostCounts(),
     getSessionUser(),
+    fetchAllReputations(),
   ]);
 
   const currentUserEmail = sessionUser?.email ?? "";
+  // Server-derived reputation (same source as the mobile app) — the users.*
+  // stat columns are dead and must not be read.
+  const repMap = reputationByProvider(reps);
 
   type EnrichedUser = UserRow & { requests: number; offers: number };
 
@@ -110,21 +113,21 @@ export default async function UsersPage() {
       ),
     },
     {
-      key: "completed_jobs_count",
+      key: "completed_jobs",
       label: "Jobs Done",
-      render: (r: EnrichedUser) => <span>{r.completed_jobs_count ?? 0}</span>,
+      render: (r: EnrichedUser) => <span>{repMap.get(r.id)?.completed_jobs ?? 0}</span>,
     },
     {
-      key: "average_rating",
+      key: "avg_rating",
       label: "Rating",
-      render: (r: EnrichedUser) =>
-        r.average_rating ? (
-          <span className="text-amber-600 font-medium">
-            ★ {Number(r.average_rating).toFixed(1)}
-          </span>
+      render: (r: EnrichedUser) => {
+        const label = ratingLabel(repMap.get(r.id));
+        return label ? (
+          <span className="text-amber-600 font-medium">{label}</span>
         ) : (
           <span className="text-gray-400 text-xs">New</span>
-        ),
+        );
+      },
     },
     {
       key: "created_at",
