@@ -21,6 +21,7 @@ import 'auth_screen.dart';
 import 'edit_profile_screen.dart';
 import 'help_center_screen.dart';
 import 'my_posts_screen.dart';
+import 'promotion/promote_business_screen.dart';
 import 'terms_screen.dart';
 import 'privacy_screen.dart';
 import 'location_permission_explainer_screen.dart';
@@ -516,6 +517,26 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
               title: 'My Activity',
               children: [
                 _MyPostsTile(uid: widget.uid),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Business (Promote Business) ─────────────────────────────
+            _SettingsSection(
+              title: 'Business',
+              children: [
+                _SettingsTile(
+                  icon: Iconsax.flash_1,
+                  title: 'Promote Business',
+                  subtitle: 'Feature a listing · campaigns, results & payments',
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PromoteBusinessScreen(uid: widget.uid),
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 16),

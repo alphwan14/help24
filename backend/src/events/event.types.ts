@@ -58,6 +58,28 @@ export const EVENT_TYPES = {
   // ── Chat / messaging ───────────────────────────────────────────────────────
   CHAT_CREATED:            'chat.created',
   MESSAGE_SENT:            'message.sent',
+
+  // ── Business Promotion lifecycle ───────────────────────────────────────────
+  /** Campaign created for an owned offer post (status=awaiting_payment). */
+  PROMOTION_CAMPAIGN_CREATED: 'promotion.campaign_created',
+  /** Promotion STK payment confirmed by Daraja (promotion_payments=paid). */
+  PROMOTION_PAYMENT_SUCCESS:  'promotion.payment_success',
+  /** Promotion STK payment failed/cancelled. */
+  PROMOTION_PAYMENT_FAILED:   'promotion.payment_failed',
+  /** Moderation approved — campaign is live (starts_at/ends_at set). */
+  PROMOTION_ACTIVATED:        'promotion.activated',
+  /** Moderation rejected a paid campaign. */
+  PROMOTION_REJECTED:         'promotion.rejected',
+  /** Owner/admin paused an active campaign. */
+  PROMOTION_PAUSED:           'promotion.paused',
+  /** Paused campaign resumed (ends_at shifted by the pause duration). */
+  PROMOTION_RESUMED:          'promotion.resumed',
+  /** Campaign ran its full purchased window. */
+  PROMOTION_COMPLETED:        'promotion.completed',
+  /** Unpaid campaign lapsed past the payment TTL. */
+  PROMOTION_EXPIRED:          'promotion.expired',
+  /** Campaign cancelled before its natural end. */
+  PROMOTION_CANCELLED:        'promotion.cancelled',
 } as const;
 
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];
@@ -71,7 +93,9 @@ export type EntityType =
   | 'application'
   | 'dispute'
   | 'escrow'
-  | 'job_completion';
+  | 'job_completion'
+  | 'promotion_campaign'
+  | 'promotion_payment';
 
 export interface EmitEventDto {
   type: EventType;

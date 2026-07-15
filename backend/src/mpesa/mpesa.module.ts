@@ -10,6 +10,8 @@ import { EventsModule } from '../events/events.module';
   imports: [TransactionsModule, NotificationsModule, EventsModule],
   controllers: [MpesaController],
   providers: [MpesaService, DarajaService],
-  exports: [MpesaService],
+  // DarajaService is exported for PromotionsModule: promotion purchases reuse
+  // the same STK client (and callback URL) without duplicating Daraja auth.
+  exports: [MpesaService, DarajaService],
 })
 export class MpesaModule {}

@@ -6,6 +6,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { EventProcessorService } from './events/event-processor.service';
 import { JobsService } from './jobs/jobs.service';
 import { DevService } from './dev/dev.service';
+import { CampaignsService } from './promotions/campaigns.service';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -53,6 +54,11 @@ async function bootstrap(): Promise<void> {
       label: 'DevModule',
       routes: 'POST /dev/reset-state, POST /dev/trigger-event',
       token: DevService,
+    },
+    {
+      label: 'PromotionsModule',
+      routes: 'GET /promotions/packages, GET /promotions/slots, POST /promotions/campaigns, GET /admin/promotions/campaigns',
+      token: CampaignsService,
     },
   ];
 

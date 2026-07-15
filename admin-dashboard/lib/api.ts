@@ -362,3 +362,108 @@ export function getEvidence(id: string): Promise<DisputeEvidence[]> {
 export function getMessages(id: string): Promise<DisputeMessage[]> {
   return adminRequest<DisputeMessage[]>(`/disputes/${id}/messages`);
 }
+
+// ── Business Promotion (Promote Business) ────────────────────────────────────
+
+export type PromotionCampaignStatus =
+  | "draft"
+  | "awaiting_payment"
+  | "pending_review"
+  | "active"
+  | "paused"
+  | "rejected"
+  | "completed"
+  | "expired"
+  | "cancelled";
+
+export type PromotionCampaignItem = {
+  id: string;
+  owner_user_id: string;
+  post_id: string | null;
+  post_title: string | null;
+  package_id: string;
+  package_name: string;
+  price_kes: number;
+  duration_days: number;
+  status: PromotionCampaignStatus;
+  starts_at: string | null;
+  ends_at: string | null;
+  days_remaining: number;
+  rejection_reason: string | null;
+  cancel_reason: string | null;
+  created_at: string;
+  posts: { id: string; title: string; category: string; status: string } | null;
+  promotion_payments: Array<{
+    id: string;
+    status: "pending" | "paid" | "failed";
+    amount_kes: number;
+    phone: string;
+    mpesa_receipt: string | null;
+    failure_reason: string | null;
+    paid_at: string | null;
+    created_at: string;
+  }>;
+  users: { name: string; email: string } | null;
+  [key: string]: unknown;
+};
+
+export type PromotionPackageItem = {
+  id: string;
+  name: string;
+  description: string;
+  price_kes: number | null;
+  duration_days: number;
+  is_custom: boolean;
+  sort: number;
+  active: boolean;
+  [key: string]: unknown;
+};
+
+export interface PromotionRevenue {
+  total_kes: number;
+  last_30_days_kes: number;
+  payments_count: number;
+  by_package: Record<string, { package_name: string; count: number; amount_kes: number }>;
+}
+
+export interface PromotionAnalytics {
+  campaign: {
+    id: string;
+    status: string;
+    post_title: string | null;
+    package_name: string;
+    starts_at: string | null;
+    ends_at: string | null;
+    days_remaining: number;
+  };
+  totals: {
+    impressions: number;
+    clicks: number;
+    profile_views: number;
+    phone_taps: number;
+    messages: number;
+    ctr: number;
+  };
+  daily: Array<{ day: string; impressions: number; clicks: number }>;
+}
+
+export function getPromotionCampaigns(status?: string): Promise<PromotionCampaignItem[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return adminRequest<PromotionCampaignItem[]>(`/admin/promotions/campaigns${qs}`);
+}
+
+export function getPromotionCampaign(id: string): Promise<PromotionCampaignItem> {
+  return adminRequest<PromotionCampaignItem>(`/admin/promotions/campaigns/${id}`);
+}
+
+export function getPromotionAnalytics(id: string): Promise<PromotionAnalytics> {
+  return adminRequest<PromotionAnalytics>(`/admin/promotions/campaigns/${id}/analytics`);
+}
+
+export function getPromotionPackages(): Promise<PromotionPackageItem[]> {
+  return adminRequest<PromotionPackageItem[]>(`/admin/promotions/packages`);
+}
+
+export function getPromotionRevenue(): Promise<PromotionRevenue> {
+  return adminRequest<PromotionRevenue>(`/admin/promotions/revenue`);
+}

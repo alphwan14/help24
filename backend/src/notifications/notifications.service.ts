@@ -26,7 +26,11 @@ export type NotificationType =
   | 'escrow_released'
   | 'review_requested'           // client prompted to review after approval
   | 'review_received'            // provider notified a review arrived
-  | 'job_cancelled';             // selected provider notified the client removed the job
+  | 'job_cancelled'              // selected provider notified the client removed the job
+  | 'promotion_payment_received' // promotion paid; campaign queued for review
+  | 'promotion_live'             // campaign approved and now serving
+  | 'promotion_rejected'         // moderation rejected the campaign
+  | 'promotion_completed';       // campaign finished its purchased window
 
 export interface NotificationPayload {
   userId: string;

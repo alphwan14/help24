@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../utils/phone_utils.dart';
@@ -32,6 +33,10 @@ import 'mark_complete_screen.dart';
 import 'approve_or_dispute_screen.dart';
 import 'notifications_screen.dart';
 import 'applications_screen.dart';
+import '../models/promotion_models.dart';
+import '../services/promotion_service.dart';
+import '../utils/feed_composer.dart';
+import '../utils/promotion_tracker.dart';
 
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
@@ -46,6 +51,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   // 0 = All, 1 = Requests, 2 = Offers
   int _tabIndex = 0;
 
+  // ── Business Promotion (sponsored slots) ────────────────────────────
+  // Fetched NON-BLOCKING in parallel with the organic feed: the feed never
+  // waits on promotions and renders organically when the engine is
+  // unreachable. Slots are refetched when the feed context changes
+  // (refresh / tab / search / filters); search input is debounced.
+  SlotsResult _slots = SlotsResult.empty;
+  int _slotsRequestSeq = 0;
+  Timer? _slotsDebounce;
+
   @override
   void initState() {
     super.initState();
@@ -59,16 +73,70 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             userLatitude: location.latitude,
             userLongitude: location.longitude,
           );
+      _loadSponsoredSlots();
     });
   }
 
   @override
   void dispose() {
+    _slotsDebounce?.cancel();
+    // Flush any queued impressions/clicks before the screen goes away.
+    PromotionTracker.instance.flush();
     _searchController.dispose();
     super.dispose();
   }
 
+  /// Maps the current feed context to a promotion placement and fetches
+  /// slots. Sequence-guarded so a slow older response never overwrites a
+  /// newer one.
+  Future<void> _loadSponsoredSlots() async {
+    final provider = context.read<AppProvider>();
+    final location = context.read<LocationProvider>();
+
+    // Sponsored subjects are offer posts — the Requests tab shows none.
+    if (_tabIndex == 1) {
+      if (mounted && _slots.items.isNotEmpty) {
+        setState(() => _slots = SlotsResult.empty);
+      }
+      return;
+    }
+
+    final query = provider.searchQuery.trim();
+    final categories = provider.selectedCategories;
+    String placement = 'discover';
+    String? category;
+    String? q;
+    if (query.isNotEmpty) {
+      placement = 'search';
+      q = query;
+    } else if (categories.length == 1) {
+      placement = 'category';
+      category = categories.first;
+    }
+
+    final seq = ++_slotsRequestSeq;
+    final result = await PromotionService.fetchSlots(
+      placement: placement,
+      category: category,
+      query: q,
+      lat: location.latitude,
+      lng: location.longitude,
+    );
+    if (!mounted || seq != _slotsRequestSeq) return;
+    PromotionTracker.instance.reset(); // new feed session → fresh impressions
+    setState(() => _slots = result);
+  }
+
+  /// Debounced slot refetch for per-keystroke search updates.
+  void _scheduleSlotReload() {
+    _slotsDebounce?.cancel();
+    _slotsDebounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _loadSponsoredSlots();
+    });
+  }
+
   Future<void> _refreshPosts() async {
+    _loadSponsoredSlots(); // parallel, non-blocking
     await context.read<AppProvider>().loadPosts();
   }
 
@@ -80,6 +148,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     provider.setSearchQuery('');
     const filters = ['All', 'Requests', 'Offers'];
     provider.setSelectedFilter(filters[tab]);
+    _loadSponsoredSlots();
   }
 
   @override
@@ -195,7 +264,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               builder: (context, provider, _) {
                 return TextField(
                   controller: _searchController,
-                  onChanged: provider.setSearchQuery,
+                  onChanged: (value) {
+                    provider.setSearchQuery(value);
+                    _scheduleSlotReload();
+                  },
                   decoration: InputDecoration(
                     hintText: _tabIndex == 0
                         ? 'Search all posts...'
@@ -214,6 +286,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             onPressed: () {
                               _searchController.clear();
                               provider.setSearchQuery('');
+                              _scheduleSlotReload();
                             },
                           )
                         : null,
@@ -262,7 +335,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                 const FilterBottomSheet(),
                           ),
                         );
-                        if (mounted) provider.applyFilters();
+                        if (mounted) {
+                          provider.applyFilters();
+                          _loadSponsoredSlots();
+                        }
                       },
                       child: Container(
                         padding: const EdgeInsets.all(10),
@@ -383,16 +459,49 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           );
         }
 
+        // Business Promotion: interleave sponsored offer cards per the
+        // server-configured cadence (pure composition — organic order is
+        // never changed, sponsored cards never cluster).
+        final entries = FeedComposer.compose(
+          organic: posts,
+          slots: _slots.items,
+          config: _slots.serving,
+        );
+
         return RefreshIndicator(
           onRefresh: _refreshPosts,
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: posts.length,
+            itemCount: entries.length,
             itemBuilder: (context, index) {
-              final post = posts[index];
+              final entry = entries[index];
+              final post = entry.post;
+
+              if (entry.sponsored) {
+                // Rendered ⇒ visible impression (deduped per feed session).
+                PromotionTracker.instance.trackImpression(
+                  campaignId: entry.campaignId!,
+                  placement: _slots.placement,
+                  viewerUserId: context.read<AuthProvider>().currentUserId,
+                );
+              }
+
+              void trackSponsoredClick() {
+                if (!entry.sponsored) return;
+                PromotionTracker.instance.trackClick(
+                  campaignId: entry.campaignId!,
+                  placement: _slots.placement,
+                  viewerUserId: context.read<AuthProvider>().currentUserId,
+                );
+              }
+
               return PostCard(
                 post: post,
-                onTap: () => _showPostDetails(context, post),
+                sponsored: entry.sponsored,
+                onTap: () {
+                  trackSponsoredClick();
+                  _showPostDetails(context, post);
+                },
                 onRespond: post.type == PostType.request
                     ? () {
                         AuthGuard.requireAuth(
@@ -404,6 +513,16 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       }
                     : () {
                         // Offer post: "Enquire" opens a direct chat with the provider.
+                        trackSponsoredClick();
+                        if (entry.sponsored) {
+                          PromotionTracker.instance.trackAction(
+                            campaignId: entry.campaignId!,
+                            eventType: 'message',
+                            placement: _slots.placement,
+                            viewerUserId:
+                                context.read<AuthProvider>().currentUserId,
+                          );
+                        }
                         AuthGuard.requireAuth(
                           context,
                           action: 'enquire about this service',

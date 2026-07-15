@@ -19,6 +19,28 @@ import { randomUUID } from 'crypto';
 const PHONE_RE = /^254\d{9}$/;
 
 /**
+ * A Daraja STK callback reduced to the fields consumers need. All STK pushes
+ * (escrow AND promotion purchases) share the single MPESA_CALLBACK_URL, so
+ * /mpesa/stk-callback is a router: escrow transactions are matched first; a
+ * callback matching no transaction is offered to registered fallback consumers
+ * (see registerStkCallbackFallback).
+ */
+export interface ParsedStkCallback {
+  checkoutRequestId: string;
+  resultCode: number;
+  resultDesc: string;
+  receipt: string | null;
+  amount: number | null;
+}
+
+export interface StkCallbackFallback {
+  /** Stable name for log lines. */
+  name: string;
+  /** Returns true when the callback was claimed (matched a record it owns). */
+  handle: (parsed: ParsedStkCallback) => Promise<boolean>;
+}
+
+/**
  * Normalizes a raw Kenyan phone number to the canonical `254XXXXXXXXX` form.
  */
 function normalizePhone(raw: string | null | undefined): string | null {
@@ -42,6 +64,9 @@ export class MpesaService {
    * production (see constructor).
    */
   private readonly devForceSuccess: boolean;
+
+  /** Fallback consumers for STK callbacks that match no escrow transaction. */
+  private readonly stkCallbackFallbacks: StkCallbackFallback[] = [];
 
   constructor(
     private readonly daraja: DarajaService,
@@ -265,6 +290,31 @@ export class MpesaService {
 
   // ── STK push callback (called by Daraja) ───────────────────────────────────
 
+  /**
+   * Registers a fallback consumer for STK callbacks that match no escrow
+   * transaction (e.g. promotion purchases). Called by feature services in
+   * onModuleInit — keeps this module free of upward dependencies.
+   */
+  registerStkCallbackFallback(fallback: StkCallbackFallback): void {
+    this.stkCallbackFallbacks.push(fallback);
+    this.logger.log(`[CALLBACK] STK fallback consumer registered: ${fallback.name}`);
+  }
+
+  /** Extract receipt + amount from Daraja's CallbackMetadata items. */
+  private parseStkMetadata(callback: Record<string, unknown>): {
+    receipt: string | null;
+    amount: number | null;
+  } {
+    const items =
+      ((callback.CallbackMetadata as Record<string, unknown>)?.Item as Array<{
+        Name: string;
+        Value: unknown;
+      }>) ?? [];
+    const receipt = items.find((i) => i.Name === 'MpesaReceiptNumber')?.Value as string | undefined;
+    const amount = items.find((i) => i.Name === 'Amount')?.Value as number | undefined;
+    return { receipt: receipt ?? null, amount: amount ?? null };
+  }
+
   async handleStkCallback(body: Record<string, unknown>): Promise<void> {
     this.logger.log(`[CALLBACK] STK raw payload: ${JSON.stringify(body)}`);
 
@@ -282,6 +332,22 @@ export class MpesaService {
 
     const transaction = await this.transactions.findByCheckoutRequestId(checkoutRequestId);
     if (!transaction) {
+      // Not an escrow payment — offer it to fallback consumers (promotions, …)
+      // before declaring it unmatched. A consumer that claims it ends routing.
+      const parsed = {
+        checkoutRequestId,
+        resultCode,
+        resultDesc,
+        ...this.parseStkMetadata(callback),
+      };
+      for (const fallback of this.stkCallbackFallbacks) {
+        if (await fallback.handle(parsed)) {
+          this.logger.log(
+            `[CALLBACK] STK ${checkoutRequestId} handled by fallback consumer '${fallback.name}'`,
+          );
+          return;
+        }
+      }
       this.logger.error(`STK callback: no transaction for CheckoutRequestID ${checkoutRequestId}`);
       return;
     }
@@ -294,10 +360,7 @@ export class MpesaService {
     }
 
     if (resultCode === 0) {
-      const items = (
-        (callback.CallbackMetadata as Record<string, unknown>)?.Item as Array<{ Name: string; Value: unknown }>
-      ) ?? [];
-      const receipt = items.find((i) => i.Name === 'MpesaReceiptNumber')?.Value as string | undefined;
+      const { receipt } = this.parseStkMetadata(callback);
 
       await this.transactions.update(transaction.id, {
         status: 'paid',

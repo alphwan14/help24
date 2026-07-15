@@ -25,11 +25,17 @@ class PostCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onRespond;
 
+  /// Business Promotion: renders this card as a sponsored slot. The card stays
+  /// a genuine marketplace card — the ONLY differences are a small "Sponsored"
+  /// tag and a faint highlight border. Never banners, never overlays.
+  final bool sponsored;
+
   const PostCard({
     super.key,
     required this.post,
     this.onTap,
     this.onRespond,
+    this.sponsored = false,
   });
 
   @override
@@ -73,7 +79,12 @@ class PostCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: cardColor,
           borderRadius: BorderRadius.circular(_kRadius),
-          border: Border.all(color: borderColor, width: 1),
+          border: Border.all(
+            color: sponsored
+                ? AppTheme.warningOrange.withValues(alpha: isDark ? 0.45 : 0.35)
+                : borderColor,
+            width: 1,
+          ),
           boxShadow: [
             if (isDark)
               BoxShadow(
@@ -108,6 +119,7 @@ class PostCard extends StatelessWidget {
                           spacing: 6,
                           runSpacing: 6,
                           children: [
+                            if (sponsored) const _SponsoredTag(),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
@@ -392,6 +404,36 @@ class PostCard extends StatelessWidget {
       errorWidget: (context, url, error) => Container(
         color: AppTheme.darkCard,
         child: const Icon(Icons.broken_image_outlined, color: AppTheme.darkTextTertiary, size: 28),
+      ),
+    );
+  }
+}
+
+/// Subtle "Sponsored" tag (Business Promotion). Same visual weight as the
+/// other card badges — recommended-business tone, never an ad banner.
+class _SponsoredTag extends StatelessWidget {
+  const _SponsoredTag();
+
+  @override
+  Widget build(BuildContext context) {
+    const color = AppTheme.warningOrange;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 1),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.star_rounded, size: 12, color: color),
+          SizedBox(width: 3),
+          Text(
+            'Sponsored',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+          ),
+        ],
       ),
     );
   }

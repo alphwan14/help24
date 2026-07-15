@@ -118,6 +118,10 @@ export class DarajaService {
     phone: string;
     amount: number;
     postId: string;
+    /** Optional Daraja AccountReference override (default: Help24-<postId prefix>). */
+    accountReference?: string;
+    /** Optional Daraja TransactionDesc override (default: escrow wording). */
+    transactionDesc?: string;
   }): Promise<StkPushResult> {
     const token       = await this.getToken();
     const shortcode   = this.config.getOrThrow<string>('MPESA_SHORTCODE');
@@ -141,8 +145,8 @@ export class DarajaService {
       PartyB:            shortcode,
       PhoneNumber:       params.phone,
       CallBackURL:       callbackUrl,
-      AccountReference:  `Help24-${params.postId.slice(0, 12)}`,
-      TransactionDesc:   'Help24 Escrow Payment',
+      AccountReference:  params.accountReference ?? `Help24-${params.postId.slice(0, 12)}`,
+      TransactionDesc:   params.transactionDesc ?? 'Help24 Escrow Payment',
     };
 
     this.logger.log(

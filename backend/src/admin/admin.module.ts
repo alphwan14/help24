@@ -42,5 +42,8 @@ import { DisputesPublicController } from './disputes/disputes-public.controller'
     DisputeSlaService,
     DisputeStorageService,
   ],
+  // Exported so feature modules (e.g. PromotionsModule) can guard their own
+  // admin controllers with the same RBAC instead of duplicating it.
+  exports: [AdminAuthService, AdminAuthGuard],
 })
 export class AdminModule {}
