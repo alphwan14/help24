@@ -762,9 +762,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                         label: post.typeDisplayLabel,
                                         color: post.typeBadgeColor,
                                       ),
+                                      // M-Pesa number on file → payment-ready.
+                                      // Never "Verified": users misread it as
+                                      // an app verification requirement.
                                       if (post.type == PostType.offer && post.authorHasPhone)
                                         _BadgeChip(
-                                          label: '✔ Verified Provider',
+                                          label: 'Accepts M-Pesa',
                                           color: AppTheme.successGreen,
                                         ),
                                       _BadgeChip(

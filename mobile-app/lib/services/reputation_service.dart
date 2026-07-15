@@ -20,6 +20,17 @@ class ReputationService {
   static final Map<String, ({ProviderReputation rep, DateTime at})> _cache = {};
   static final Map<String, Future<ProviderReputation?>> _inflight = {};
 
+  /// Synchronous cache read — non-null only when a fresh cached value exists.
+  /// Lets list widgets render instantly on rebuild instead of flashing a
+  /// loading placeholder while a Future.value round-trips the event loop.
+  static ProviderReputation? getCachedSync(String providerId) {
+    final cached = _cache[providerId];
+    if (cached != null && DateTime.now().difference(cached.at) < _cacheTtl) {
+      return cached.rep;
+    }
+    return null;
+  }
+
   /// Reputation summary for a provider. Returns null on error (callers render an
   /// empty/hidden state — never a fabricated value).
   static Future<ProviderReputation?> getReputation(String providerId) {

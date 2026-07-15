@@ -193,10 +193,15 @@ class PostCard extends StatelessWidget {
                           label: chip,
                           color: AppTheme.primaryAccent,
                         ),
+                      // Payment-readiness signal: the provider has an M-Pesa
+                      // number on file (can pay / be paid). Deliberately NOT
+                      // worded as "Verified" — that read as an app-level
+                      // identity check and confused users.
                       if (post.type == PostType.offer && post.authorHasPhone)
                         _SmallTag(
-                          label: '✔ Verified Provider',
+                          label: 'M-Pesa',
                           color: AppTheme.successGreen,
+                          icon: Icons.account_balance_wallet_outlined,
                         ),
                       // Status badge — visible to all users for non-open lifecycle states
                       if (post.status != 'open' && post.status.isNotEmpty)

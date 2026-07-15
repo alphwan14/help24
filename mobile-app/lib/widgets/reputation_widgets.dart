@@ -60,24 +60,58 @@ class TierBadge extends StatelessWidget {
 
 /// Compact one-line trust signal for discover cards + chat header.
 /// "⭐ 4.8 • Top Rated" when reviewed, else the tier label (e.g. "Rising Provider").
-class ReputationCompact extends StatelessWidget {
+class ReputationCompact extends StatefulWidget {
   final String providerId;
   final Color? textColor;
   const ReputationCompact({super.key, required this.providerId, this.textColor});
 
   @override
+  State<ReputationCompact> createState() => _ReputationCompactState();
+}
+
+class _ReputationCompactState extends State<ReputationCompact> {
+  // Future is created ONCE per providerId and held in State. Feed cards rebuild
+  // constantly (AuthProvider notifications, scrolling, pull-to-refresh); a
+  // future created inline in build() re-resolved on every rebuild and flashed
+  // an empty placeholder for a frame each time — visible as rating flicker.
+  // The sync cache read additionally covers the one-frame gap on rebuilds
+  // where the service cache is already warm.
+  late Future<ProviderReputation?> _future;
+  ProviderReputation? _cached;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant ReputationCompact oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.providerId != widget.providerId) _load();
+  }
+
+  void _load() {
+    _cached = ReputationService.getCachedSync(widget.providerId);
+    _future = ReputationService.getReputation(widget.providerId);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final muted = textColor ?? (Theme.of(context).brightness == Brightness.dark
+    final muted = widget.textColor ?? (Theme.of(context).brightness == Brightness.dark
         ? AppTheme.darkTextSecondary
         : AppTheme.lightTextSecondary);
     return FutureBuilder<ProviderReputation?>(
-      future: ReputationService.getReputation(providerId),
+      future: _future,
+      initialData: _cached,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const SizedBox(width: 56, height: 14);
-        }
         final rep = snap.data;
-        if (rep == null) return const SizedBox.shrink(); // error: hide, never fake
+        if (rep == null) {
+          // Still loading → hold layout space; error → hide, never fake.
+          return snap.connectionState == ConnectionState.waiting
+              ? const SizedBox(width: 56, height: 14)
+              : const SizedBox.shrink();
+        }
         // No reviews yet → fall back to the STATUS (tier), never a review-derived
         // "New Provider". A rising_provider with 0 reviews reads "Rising Provider".
         if (!rep.hasReviews) {
@@ -109,18 +143,46 @@ class ReputationCompact extends StatelessWidget {
 
 /// Multi-signal block for application cards + provider selection — the highest
 /// priority trust surface. Visibly differentiates trusted vs new providers.
-class ReputationTrustBlock extends StatelessWidget {
+class ReputationTrustBlock extends StatefulWidget {
   final String providerId;
   const ReputationTrustBlock({super.key, required this.providerId});
+
+  @override
+  State<ReputationTrustBlock> createState() => _ReputationTrustBlockState();
+}
+
+class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
+  // Same anti-flicker pattern as ReputationCompact: future held in State,
+  // sync cache covers the waiting frame on rebuilds.
+  late Future<ProviderReputation?> _future;
+  ProviderReputation? _cached;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant ReputationTrustBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.providerId != widget.providerId) _load();
+  }
+
+  void _load() {
+    _cached = ReputationService.getCachedSync(widget.providerId);
+    _future = ReputationService.getReputation(widget.providerId);
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     return FutureBuilder<ProviderReputation?>(
-      future: ReputationService.getReputation(providerId),
+      future: _future,
+      initialData: _cached,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+        if (snap.data == null && snap.connectionState == ConnectionState.waiting) {
           return _loadingBars(muted);
         }
         final rep = snap.data;

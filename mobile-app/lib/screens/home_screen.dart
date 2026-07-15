@@ -117,7 +117,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
     }
 
-    return Scaffold(
+    // Android back behaves like a "home" gesture: from any tab (Jobs, Messages,
+    // Profile) the first back press returns to Discover; only a second press —
+    // already on Discover — leaves the app. The Post screen keeps its own inner
+    // PopScope (which also lands on Discover), so this one stays out of its way.
+    return PopScope(
+      canPop: !_showPostScreen && _currentIndex == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _showPostScreen) return;
+        setState(() => _currentIndex = 0);
+      },
+      child: Scaffold(
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -166,6 +176,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               currentIndex: _getNavIndex(),
               onTap: _onNavTap,
             ),
+      ),
     );
   }
 
