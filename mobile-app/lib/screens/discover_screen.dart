@@ -47,6 +47,7 @@ class DiscoverScreen extends StatefulWidget {
 
 class _DiscoverScreenState extends State<DiscoverScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
 
   // 0 = All, 1 = Requests, 2 = Offers
   int _tabIndex = 0;
@@ -83,6 +84,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     // Flush any queued impressions/clicks before the screen goes away.
     PromotionTracker.instance.flush();
     _searchController.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -142,6 +144,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _switchToTab(int tab) {
     if (_tabIndex == tab) return;
+    _searchFocus.unfocus();
     _searchController.clear();
     setState(() => _tabIndex = tab);
     final provider = context.read<AppProvider>();
@@ -173,21 +176,51 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // The bell is PERMANENT chrome — it must never blink in
+                    // and out with auth/connectivity state (offline, session
+                    // restore). Only the unread badge and the tap behaviour
+                    // depend on who is signed in.
                     Consumer<AuthProvider>(
                       builder: (_, auth, __) {
                         final uid = auth.currentUserId ?? '';
-                        if (uid.isEmpty) return const SizedBox.shrink();
-                        return NotificationBadge(
-                          userId: uid,
-                          child: IconButton(
-                            icon: const Icon(Icons.notifications_outlined),
-                            tooltip: 'Notifications',
-                            onPressed: () => Navigator.push(
+                        final bell = IconButton(
+                          icon: const Icon(Icons.notifications_outlined),
+                          tooltip: 'Notifications',
+                          onPressed: () {
+                            if (uid.isEmpty) {
+                              AuthGuard.requireAuth(
+                                context,
+                                action: 'view your notifications',
+                                onAuthenticated: () {
+                                  final freshUid = context
+                                          .read<AuthProvider>()
+                                          .currentUserId ??
+                                      '';
+                                  if (freshUid.isEmpty) return;
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) => NotificationsScreen(
+                                            userId: freshUid)),
+                                  );
+                                },
+                              );
+                              return;
+                            }
+                            Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (_) => NotificationsScreen(userId: uid)),
-                            ),
-                          ),
+                                  builder: (_) =>
+                                      NotificationsScreen(userId: uid)),
+                            );
+                          },
+                        );
+                        if (uid.isEmpty) return bell;
+                        // Keyed so the badge re-subscribes if the account changes.
+                        return NotificationBadge(
+                          key: ValueKey('bell_$uid'),
+                          userId: uid,
+                          child: bell,
                         );
                       },
                     ),
@@ -264,6 +297,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               builder: (context, provider, _) {
                 return TextField(
                   controller: _searchController,
+                  focusNode: _searchFocus,
+                  // The focused highlight must never stick: any tap or drag
+                  // outside the field (feed scroll, tab tap, card tap)
+                  // releases focus immediately.
+                  onTapOutside: (_) => _searchFocus.unfocus(),
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _searchFocus.unfocus(),
                   onChanged: (value) {
                     provider.setSearchQuery(value);
                     _scheduleSlotReload();
