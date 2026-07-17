@@ -46,7 +46,10 @@ describe('deriveSettlementState — truth table', () => {
     const s = deriveSettlementState(inp({ txStatus: 'paid', escrowStatus: 'locked' }));
     expect(s.state).toBe('in_escrow');
     expect(s.can_archive).toBe(false);
-    expect(s.explanation).toMatch(/securely held in escrow/i);
+    // Customer-facing copy: everyday protection language, never "escrow"
+    // (the internal state NAME stays in_escrow — that is API surface).
+    expect(s.explanation).toMatch(/held safely by Help24/i);
+    expect(s.explanation).not.toMatch(/escrow/i);
   });
 
   it('paid + locked + failure_reason → settlement_failed (attention)', () => {

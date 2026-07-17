@@ -408,7 +408,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                               overflow: TextOverflow.ellipsis),
                           const SizedBox(height: 2),
                           Text(
-                            '${formatPriceDisplay(_amount)} in escrow',
+                            '${formatPriceDisplay(_amount)} · Payment Protected',
                             style: TextStyle(
                                 color: AppTheme.primaryAccent,
                                 fontWeight: FontWeight.w600,
@@ -453,7 +453,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Funds are held in escrow. Approving releases them to the provider. Disputing freezes them for admin review.',
+                    'Your payment is held safely by Help24. Approving releases it to the provider. Disputing freezes it while our team reviews.',
                     style: TextStyle(
                         color: textSecondary, fontSize: 12, height: 1.4),
                   ),

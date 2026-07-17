@@ -275,7 +275,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
 
   Widget _paymentSection(JobLifecycle d, bool isDark) {
     final special = _paymentSpecial(d); // refunded / frozen banner, or null
-    final stages = ['Payment Required', 'Payment Secured', 'Escrow Locked', 'Payout Pending', 'Payout Released'];
+    final stages = ['Payment Required', 'Payment Sent', 'Payment Protected', 'Payout Pending', 'Payout Released'];
     final current = _paymentStageIndex(d);
     return _sectionCard(
       isDark,

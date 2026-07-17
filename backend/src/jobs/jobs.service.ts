@@ -506,7 +506,7 @@ export class JobsService {
     };
     add('post_created', 'Request posted', post.created_at);
     if (tx && tx.status !== 'pending' && tx.status !== 'failed') {
-      add('payment_secured', 'Payment secured in escrow', tx.created_at);
+      add('payment_secured', 'Payment secured — money safely held', tx.created_at);
     }
     if (completion) {
       add('completion_requested', 'Provider marked the job as done', completion.created_at);

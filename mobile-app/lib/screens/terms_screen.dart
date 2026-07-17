@@ -37,9 +37,9 @@ class TermsScreen extends StatelessWidget {
             textSecondary,
           ),
           const SizedBox(height: 20),
-          _Heading('4. Payments & Escrow', textPrimary),
+          _Heading('4. Payments & Payment Protection', textPrimary),
           _Body(
-            'When you pay through Help24, we may hold funds in escrow until the work is completed or released according to the agreement. Fees may apply as stated in the app. Refunds are subject to our refund policy and the specific circumstances of the transaction.',
+            'When you pay through Help24, we may hold your money safely (in escrow) until the work is completed or released according to the agreement. Fees may apply as stated in the app. Refunds are subject to our refund policy and the specific circumstances of the transaction.',
             textSecondary,
           ),
           const SizedBox(height: 20),

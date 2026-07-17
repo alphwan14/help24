@@ -213,10 +213,11 @@ class PostCard extends StatelessWidget {
                           color: AppTheme.primaryAccent,
                           icon: Icons.people_outline,
                         ),
-                      // Escrow indicator — funds are held when job is in progress
+                      // Payment-hold indicator — money is held while the job
+                      // is in progress. Everyday language, never "escrow".
                       if (post.status == 'assigned')
                         _SmallTag(
-                          label: 'Escrow Active',
+                          label: 'Payment Protected',
                           color: AppTheme.warningOrange,
                           icon: Icons.lock_outline,
                         ),

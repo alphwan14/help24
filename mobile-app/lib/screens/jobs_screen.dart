@@ -285,7 +285,7 @@ class _JobsScreenState extends State<JobsScreen> {
         title: const Text('Remove job?'),
         content: const Text(
             'This removes the post from your feeds. Your reviews, payments and dispute history are kept. '
-            'Jobs with funds in escrow or an active dispute cannot be removed.'),
+            'Jobs with a protected payment or an active dispute cannot be removed.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(

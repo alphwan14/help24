@@ -536,7 +536,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
               Expanded(
                 child: Text(
                   _isClient
-                      ? 'Funds are securely held by Help24 escrow. They will be released only when you approve.'
+                      ? 'Your payment is held safely by Help24. It is released only when you approve.'
                       : 'Payment is secured. Complete the work and mark it done.',
                   style: TextStyle(color: textPrimary, fontSize: 12.5, height: 1.4),
                 ),
@@ -566,7 +566,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
             padding: const EdgeInsets.only(top: 6),
             child: Text(
               _data != null
-                  ? 'Amount in escrow: ${formatPriceDisplay(_data!.postPrice)}'
+                  ? 'Protected amount: ${formatPriceDisplay(_data!.postPrice)}'
                   : '',
               style: TextStyle(color: textSecondary, fontSize: 12),
             ),

@@ -87,7 +87,7 @@ interface StateMeta {
 const META: Record<SettlementStateName, StateMeta> = {
   no_payment:        { label: 'No payment',          explanation: 'No payment has been secured for this job.',                                   attention: false, attentionReason: null,                  terminal: true },
   awaiting_payment:  { label: 'Payment in progress', explanation: 'Waiting for the M-Pesa payment to be confirmed.',                             attention: false, attentionReason: null,                  terminal: false },
-  in_escrow:         { label: 'Funds in escrow',     explanation: 'Funds are securely held in escrow.',                                          attention: false, attentionReason: null,                  terminal: false },
+  in_escrow:         { label: 'Payment protected',   explanation: 'The money is held safely by Help24 until the work is approved.',              attention: false, attentionReason: null,                  terminal: false },
   payout_processing: { label: 'Payout processing',   explanation: 'Payout has been initiated and is awaiting confirmation.',                     attention: false, attentionReason: null,                  terminal: false },
   settlement_failed: { label: 'Payout failed',       explanation: 'Payout attempt failed and needs attention. Support has been notified.',       attention: true,  attentionReason: 'payout_failed',       terminal: false },
   disputed:          { label: 'In dispute',          explanation: 'Funds are frozen while an admin reviews the dispute.',                        attention: false, attentionReason: null,                  terminal: false },

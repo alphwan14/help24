@@ -558,7 +558,7 @@ class _IdleView extends StatelessWidget {
                   textPrimary: textSecondary,
                   textSecondary: textSecondary,
                   isSmall: true,
-                  tooltip: 'Covers secure escrow & support',
+                  tooltip: 'Covers payment protection & support',
                 ),
                 const SizedBox(height: 10),
                 Divider(color: borderColor, height: 1),
@@ -630,7 +630,7 @@ class _IdleView extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Center(
-            child: Text('Secured by M-Pesa escrow',
+            child: Text('Payment protected with M-Pesa',
                 style: TextStyle(color: textSecondary, fontSize: 12)),
           ),
         ],
@@ -823,7 +823,7 @@ class _SuccessView extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            '${formatPriceDisplay(total)} is held securely in escrow.\nFunds are released when the job is completed.',
+            '${formatPriceDisplay(total)} is held safely by Help24.\nIt is released to the provider when you approve the completed job.',
             textAlign: TextAlign.center,
             style: TextStyle(color: textSecondary, fontSize: 14, height: 1.55),
           ),
@@ -845,7 +845,7 @@ class _SuccessView extends StatelessWidget {
                     size: 15, color: AppTheme.successGreen),
                 SizedBox(width: 8),
                 Text(
-                  'Escrow Active — Payment Secured',
+                  'Payment Protected',
                   style: TextStyle(
                       color: AppTheme.successGreen,
                       fontWeight: FontWeight.w700,
