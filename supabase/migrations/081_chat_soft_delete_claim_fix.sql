@@ -1,0 +1,28 @@
+-- =============================================================================
+-- Migration 081: drop the exploding auth.uid() policy on chat_messages UPDATE
+-- =============================================================================
+-- BUG: "Delete for everyone" always fails for signed-in users (the app then
+-- shows its catch-all "older than 15 minutes or permission denied" snackbar,
+-- even for a message sent seconds ago). Live-location updates/stop — also
+-- chat_messages UPDATEs — fail the same way.
+--
+-- Root cause: same class as 080. The exchange-firebase-token JWT carries
+-- sub = <firebase-uid> (a NON-UUID string). 042's policy
+--   sender_can_soft_delete: USING (sender_id = auth.uid()::text)
+-- was created without TO, i.e. TO public, so it is evaluated for the
+-- authenticated role on EVERY chat_messages UPDATE — and auth.uid()'s uuid
+-- cast of the Firebase sub RAISES, erroring the entire statement. SELECT and
+-- INSERT are unaffected (042's policy is FOR UPDATE only), which is why chats
+-- read and send fine while every UPDATE dies.
+--
+-- Fix: DROP the policy with NO replacement. It never restricted anything —
+-- it is PERMISSIVE and sits OR'd beside 061's broader chat_messages_participant
+-- (FOR ALL TO authenticated, jwt-claim-based), which already authorizes
+-- participants' updates (the sender IS a participant). The "only the sender may
+-- delete-for-everyone, within 15 minutes" rule is enforced in the client, as
+-- 042's own comments state; the service role bypasses RLS for backend flows.
+--
+-- Reversible: re-run the CREATE POLICY block from 042 (not recommended).
+-- =============================================================================
+
+DROP POLICY IF EXISTS "sender_can_soft_delete" ON public.chat_messages;

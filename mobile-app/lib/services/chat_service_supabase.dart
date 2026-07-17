@@ -6,6 +6,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/api_config.dart';
 import '../models/post_model.dart';
 
+/// Outcome of a delete-for-everyone attempt. Distinct cases so the UI can show
+/// an accurate message: [windowExpired] is the sender's 15-minute rule;
+/// [failed] is a server/RLS/network failure and must NOT be blamed on the window.
+enum DeleteForEveryoneResult { success, windowExpired, failed }
+
 /// Supabase-only messaging: chats + chat_messages.
 /// Conversation list: polled (Realtime can't filter user1 OR user2).
 /// Individual chat messages: Supabase Realtime channel (instant delivery).
@@ -734,13 +739,16 @@ class ChatServiceSupabase {
     }
   }
 
-  /// Soft-delete a message for everyone.
-  /// Returns false if the 15-minute sender window has passed.
-  static Future<bool> deleteMessageForEveryone(
+  /// Soft-delete a message for everyone. The outcome distinguishes the
+  /// 15-minute sender window from a server/RLS failure so the UI never blames
+  /// the window for a fresh message that failed for another reason.
+  static Future<DeleteForEveryoneResult> deleteMessageForEveryone(
     String messageId,
     DateTime messageTimestamp,
   ) async {
-    if (DateTime.now().difference(messageTimestamp).inMinutes > 15) return false;
+    if (DateTime.now().difference(messageTimestamp).inMinutes > 15) {
+      return DeleteForEveryoneResult.windowExpired;
+    }
     try {
       // .select() after .update() returns the rows that were actually mutated.
       // An empty list means 0 rows updated — RLS blocked the write silently.
@@ -750,12 +758,12 @@ class ChatServiceSupabase {
       }).eq('id', messageId).select();
       if ((rows as List).isEmpty) {
         debugPrint('ChatServiceSupabase deleteMessageForEveryone: 0 rows updated (RLS?)');
-        return false;
+        return DeleteForEveryoneResult.failed;
       }
-      return true;
+      return DeleteForEveryoneResult.success;
     } catch (e) {
       debugPrint('ChatServiceSupabase deleteMessageForEveryone: $e');
-      return false;
+      return DeleteForEveryoneResult.failed;
     }
   }
 

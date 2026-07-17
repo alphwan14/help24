@@ -1258,12 +1258,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
     });
 
-    final success = await ChatServiceSupabase.deleteMessageForEveryone(
+    final result = await ChatServiceSupabase.deleteMessageForEveryone(
       message.id,
       message.timestamp,
     );
     if (!mounted) return;
-    if (!success) {
+    if (result != DeleteForEveryoneResult.success) {
       // Revert the optimistic update.
       setState(() {
         final idx = _messages.indexWhere((m) => m.id == message.id);
@@ -1273,7 +1273,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _messages = updated;
         }
       });
-      _showError('Cannot delete — message is older than 15 minutes or permission denied.');
+      _showError(result == DeleteForEveryoneResult.windowExpired
+          ? 'Cannot delete for everyone — messages can only be deleted within 15 minutes.'
+          : 'Could not delete the message. Please try again.');
     }
     // If success: Realtime UPDATE in watchMessages propagates tombstone to receiver.
   }
