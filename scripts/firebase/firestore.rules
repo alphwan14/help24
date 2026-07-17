@@ -21,17 +21,12 @@ service cloud.firestore {
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.get('participants', []);
     }
 
-    // Posts and comments (Firestore-only; if using Supabase for posts, this block can be removed or kept for Firestore posts).
+    // Posts (Firestore-only; comments feature removed — Help24 is transactional, not social).
     match /posts/{postId} {
       allow read: if true;
       allow create: if request.auth != null;
       allow update, delete: if request.auth != null
         && resource.data.get('author_user_id', '') == request.auth.uid;
-      match /comments/{commentId} {
-        allow read: if true;
-        allow create: if request.auth != null;
-        allow update, delete: if request.auth != null;
-      }
     }
   }
 }

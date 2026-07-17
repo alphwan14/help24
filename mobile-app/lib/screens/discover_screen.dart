@@ -18,7 +18,6 @@ import '../widgets/post_card.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/auth_guard.dart';
 import '../providers/auth_provider.dart';
-import '../services/comment_service_firestore.dart';
 import '../services/post_service.dart';
 import '../services/application_service.dart';
 import '../services/user_profile_service.dart';
@@ -1094,27 +1093,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             ),
                         ],
 
-                        const SizedBox(height: 24),
-                        Text('Comments',
-                            style:
-                                Theme.of(context).textTheme.titleLarge),
-                        const SizedBox(height: 12),
-                        _CommentsList(postId: post.id),
+                        // Comments removed: Help24 is transactional, not
+                        // social — the journey is post → interested →
+                        // private conversation. This space is reclaimed by
+                        // the post-detail redesign.
                         const SizedBox(height: 24),
                       ],
                     ),
                   ),
-                ),
-                // Comment input pinned above keyboard
-                Padding(
-                  padding: EdgeInsets.only(
-                    bottom:
-                        MediaQuery.of(sheetContext).viewInsets.bottom,
-                    left: 16,
-                    right: 16,
-                    top: 8,
-                  ),
-                  child: _CommentInputBar(postId: post.id),
                 ),
               ],
             ),
@@ -1843,189 +1829,6 @@ class _DetailRow extends StatelessWidget {
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
             color: valueColor,
           ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Comments list only (used inside scroll). Input is in _CommentInputBar for keyboard avoidance.
-class _CommentsList extends StatelessWidget {
-  final String postId;
-
-  const _CommentsList({required this.postId});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return StreamBuilder<List<PostComment>>(
-      stream: CommentServiceFirestore.watchComments(postId),
-      builder: (context, snap) {
-        final comments = snap.data ?? [];
-        if (comments.isEmpty && !snap.hasData) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-          );
-        }
-        if (comments.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              'No comments yet. Be the first!',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-              ),
-            ),
-          );
-        }
-        return ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: comments.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (context, index) {
-            final c = comments[index];
-            return Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        c.userName,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _commentTimeAgo(c.timestamp),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(c.text, style: Theme.of(context).textTheme.bodyMedium),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  static String _commentTimeAgo(DateTime t) {
-    final d = DateTime.now().difference(t);
-    if (d.inMinutes < 1) return 'Just now';
-    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
-    if (d.inHours < 24) return '${d.inHours}h ago';
-    if (d.inDays < 7) return '${d.inDays}d ago';
-    return '${t.day}/${t.month}';
-  }
-}
-
-/// Comment input bar — placed at bottom of sheet with viewInsets so it moves above keyboard.
-class _CommentInputBar extends StatefulWidget {
-  final String postId;
-
-  const _CommentInputBar({required this.postId});
-
-  @override
-  State<_CommentInputBar> createState() => _CommentInputBarState();
-}
-
-class _CommentInputBarState extends State<_CommentInputBar> {
-  final _controller = TextEditingController();
-  bool _sending = false;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _addComment() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || _sending) return;
-    final uid = context.read<AuthProvider>().currentUserId ?? '';
-    if (uid.isEmpty) return;
-    setState(() => _sending = true);
-    try {
-      await CommentServiceFirestore.addComment(
-        postId: widget.postId,
-        userId: uid,
-        text: text,
-      );
-      if (mounted) _controller.clear();
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to post comment'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final uid = context.read<AuthProvider>().currentUserId ?? '';
-
-    if (uid.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Text(
-          'Sign in to comment',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-          ),
-        ),
-      );
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: TextField(
-            controller: _controller,
-            decoration: InputDecoration(
-              hintText: 'Add a comment...',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              filled: true,
-              fillColor: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            ),
-            maxLines: 2,
-            onSubmitted: (_) => _addComment(),
-          ),
-        ),
-        const SizedBox(width: 8),
-        IconButton.filled(
-          onPressed: _sending ? null : _addComment,
-          icon: _sending
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.send_rounded, size: 20),
         ),
       ],
     );
