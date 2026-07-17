@@ -12,6 +12,7 @@ import '../firebase_options.dart';
 ///   if (AppFirebase.isReady) { ... }  // guard Firebase operations
 class AppFirebase {
   static bool _ready = false;
+  static Future<bool>? _initFuture;
 
   /// True once [initialize] has completed successfully.
   static bool get isReady => _ready;
@@ -19,7 +20,13 @@ class AppFirebase {
   /// Initialize Firebase with the platform-specific options from
   /// firebase_options.dart and enable Firestore offline persistence.
   /// Returns true on success, false on failure (app continues without Firebase).
-  static Future<bool> initialize() async {
+  ///
+  /// Memoized: main() kicks this off while the native splash is still visible
+  /// and the background bootstrap awaits the SAME in-flight future — Firebase
+  /// is only ever initialized once per process.
+  static Future<bool> initialize() => _initFuture ??= _doInitialize();
+
+  static Future<bool> _doInitialize() async {
     try {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,

@@ -26,6 +26,7 @@ import 'screens/web_view_screen.dart';
 import 'services/category_schema_service.dart';
 import 'services/diagnostic_service.dart';
 import 'services/notification_service.dart';
+import 'services/startup_prefetch.dart';
 import 'theme/app_theme.dart';
 import 'widgets/notification_banner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -50,6 +51,14 @@ void main() async {
     anonKey: 'sb_publishable_WQYHVfGzH-VKqkM2WLT-8A_NjQ6WeZD',
     httpClient: HttpClientWithToken(),
   );
+
+  // Use the time the native splash is still on screen: start Firebase init
+  // (auth/session restore depends on it — the background bootstrap awaits the
+  // SAME memoized future) and fire the first-screen data fetches NOW instead
+  // of after the first frame. Both are unawaited: startup time is unchanged,
+  // and on failure the app falls back to its existing load paths.
+  unawaited(AppFirebase.initialize());
+  StartupPrefetch.begin();
 
   // Load persisted theme before first frame — prevents any dark/light flicker.
   final prefs = await SharedPreferences.getInstance();
@@ -100,7 +109,7 @@ class _Help24AppState extends State<Help24App> {
       // forget: never blocks startup, never throws.
       unawaited(CategorySchemaService.instance.warmUp());
       // ✅ Supabase is already initialized in main() - don't reinitialize!
-      // Just initialize Firebase
+      // Join the Firebase init started in main() (memoized — never runs twice).
       await AppFirebase.initialize();
       if (AppFirebase.isReady) {
         await NotificationService.initialize();

@@ -46,7 +46,6 @@ class _PostScreenState extends State<PostScreen> {
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
   final _locationController = TextEditingController();
-  final _customCategoryController = TextEditingController();
 
   Category? _selectedCategory;
   Urgency _selectedUrgency = Urgency.flexible;
@@ -218,7 +217,6 @@ class _PostScreenState extends State<PostScreen> {
     _descriptionController.dispose();
     _priceController.dispose();
     _locationController.dispose();
-    _customCategoryController.dispose();
     _categorySearchController.dispose();
     super.dispose();
   }
@@ -947,14 +945,60 @@ class _PostScreenState extends State<PostScreen> {
     );
   }
 
+  /// True when [name] matches a registry category (server list or bundled
+  /// fallback) — used to dedupe custom entries against predefined categories.
+  bool _isRegistryCategory(String name) => CategorySchemaService.instance.categories
+      .any((c) => c.name.toLowerCase() == name.toLowerCase());
+
+  /// Journeys that accept a custom (non-registry) service: providers describe
+  /// what they OFFER, requesters describe what they NEED. Jobs stay
+  /// registry-only — hiring categories remain curated.
+  bool get _supportsCustomCategory => _isOfferFlow || _isRequestFlow;
+
+  /// Select [category] and advance — shared by registry and custom tiles.
+  void _pickCategory(Category category) {
+    setState(() {
+      // Different category → its questions (and old answers) no longer apply.
+      if (category.name != _selectedCategory?.name) _attributes = {};
+      _selectedCategory = category;
+    });
+    _advanceRequestDelayed();
+  }
+
   /// Category first — it routes everything else. Searchable tile list,
-  /// one tap to select and advance.
+  /// one tap to select and advance. The OFFER and REQUEST journeys additionally
+  /// accept a custom service: typing one that isn't in the registry surfaces an
+  /// "add your own" tile (deduped case-insensitively against the registry, so
+  /// typing "plumbing" can only ever select the predefined Plumbing). Copy is
+  /// journey-aware: providers add the service they offer, requesters the
+  /// service they need.
   Widget _buildCategoryStep() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final query = _categorySearchController.text.trim().toLowerCase();
     final categories = CategorySchemaService.instance.categories
         .where((c) => query.isEmpty || c.name.toLowerCase().contains(query))
         .toList();
+
+    // A previously chosen custom service stays visible (and deselectable) even
+    // after the search box is cleared — it is not part of the registry list.
+    // Hidden in the job flow so a custom pick from another journey can't be
+    // carried into a job post.
+    final selected = _selectedCategory;
+    final selectedCustom = (_supportsCustomCategory &&
+            selected != null &&
+            !_isRegistryCategory(selected.name))
+        ? selected
+        : null;
+
+    // Offer/request flows: the typed search text becomes an addable custom
+    // service when it is a plausible name and not already a registry category.
+    final normalized = Category.normalizeCustomName(_categorySearchController.text);
+    final customCandidate = (_supportsCustomCategory &&
+            normalized != null &&
+            !_isRegistryCategory(normalized) &&
+            normalized.toLowerCase() != selectedCustom?.name.toLowerCase())
+        ? normalized
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -967,25 +1011,52 @@ class _PostScreenState extends State<PostScreen> {
           ),
           onChanged: (_) => setState(() {}),
         ),
+        if (_supportsCustomCategory) ...[
+          const SizedBox(height: 8),
+          Text(
+            _isOfferFlow
+                ? 'Not listed? Type your service above to add your own — e.g. "CCTV Installer".'
+                : 'Not listed? Type the service you need above to add it — e.g. "TV Repair".',
+            style: TextStyle(
+              fontSize: 12.5,
+              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
+        if (selectedCustom != null) ...[
+          ChoiceTile(
+            label: selectedCustom.name,
+            subtitle: _isOfferFlow ? 'Your custom service' : 'The service you need',
+            icon: selectedCustom.icon,
+            selected: true,
+            isDark: isDark,
+            onTap: () => _pickCategory(selectedCustom),
+          ),
+          const SizedBox(height: 10),
+        ],
+        if (customCandidate != null) ...[
+          ChoiceTile(
+            label: customCandidate,
+            subtitle: _isOfferFlow ? 'Add as my service' : 'Request this service',
+            icon: Icons.add_circle_outline,
+            selected: false,
+            isDark: isDark,
+            onTap: () => _pickCategory(Category.custom(customCandidate)),
+          ),
+          const SizedBox(height: 10),
+        ],
         for (final category in categories) ...[
           ChoiceTile(
             label: category.name,
             icon: category.icon,
             selected: _selectedCategory?.name == category.name,
             isDark: isDark,
-            onTap: () {
-              setState(() {
-                // Different category → its questions (and old answers) no longer apply.
-                if (category.name != _selectedCategory?.name) _attributes = {};
-                _selectedCategory = category;
-              });
-              _advanceRequestDelayed();
-            },
+            onTap: () => _pickCategory(category),
           ),
           const SizedBox(height: 10),
         ],
-        if (categories.isEmpty)
+        if (categories.isEmpty && customCandidate == null && selectedCustom == null)
           Padding(
             padding: const EdgeInsets.only(top: 24),
             child: Text(

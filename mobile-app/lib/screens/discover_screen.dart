@@ -66,7 +66,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<AppProvider>().setSelectedFilter('All');
+      // At cold start the filter is already 'All' and AppProvider's constructor
+      // has the feed load in flight — re-triggering setSelectedFilter here
+      // issued a SECOND identical fetch of the entire feed. Only reset (and
+      // reload) when the filter genuinely differs.
+      final appProvider = context.read<AppProvider>();
+      if (appProvider.selectedFilter != 'All') {
+        appProvider.setSelectedFilter('All');
+      }
       // Preload live urgent requests so the header's Urgent pill can show a
       // count — emergency posts must be discoverable without opening anything.
       final location = context.read<LocationProvider>();

@@ -31,6 +31,24 @@ class ReputationService {
     return null;
   }
 
+  /// Seed the cache from batch-fetched rows (public_provider_reputation view,
+  /// which mirrors the GET /reputation/:id shape). Called by PostService right
+  /// after a feed fetch so cards render their trust line on first paint instead
+  /// of popping it in after a per-provider backend round-trip. Rows that fail
+  /// to parse are skipped — a bad row must never break the feed.
+  static void seedAll(List<Map<String, dynamic>> rows) {
+    final now = DateTime.now();
+    for (final row in rows) {
+      try {
+        final rep = ProviderReputation.fromJson(row);
+        if (rep.providerId.isEmpty) continue;
+        _cache[rep.providerId] = (rep: rep, at: now);
+      } catch (e) {
+        debugPrint('[REPUTATION] seedAll: skipped unparsable row: $e');
+      }
+    }
+  }
+
   /// Reputation summary for a provider. Returns null on error (callers render an
   /// empty/hidden state — never a fabricated value).
   static Future<ProviderReputation?> getReputation(String providerId) {

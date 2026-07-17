@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
+import 'reputation_service.dart';
 import 'storage_service.dart';
 
 /// Filter options for fetching posts
@@ -49,6 +50,35 @@ class PostServiceException implements Exception {
 class PostService {
   static get _client => Supabase.instance.client;
   
+  /// Batch-warm the reputation cache for every distinct author in [authorIds]
+  /// with ONE read of the public_provider_reputation view (migration 079, same
+  /// shape as GET /reputation/:id), so cards paint their trust line together
+  /// with the rest of the card instead of popping it in after a per-provider
+  /// backend round-trip. Best-effort and bounded: on any error or timeout the
+  /// feed renders exactly as before and ReputationCompact falls back to its
+  /// existing per-provider backend fetch.
+  static Future<void> _warmReputations(Iterable<String> authorIds) async {
+    final ids = authorIds
+        .where((id) => id.isNotEmpty && ReputationService.getCachedSync(id) == null)
+        .toSet()
+        .toList();
+    if (ids.isEmpty) return;
+    try {
+      final rows = await _client
+          .from('public_provider_reputation')
+          .select()
+          .inFilter('provider_id', ids)
+          .timeout(const Duration(seconds: 2));
+      ReputationService.seedAll([
+        for (final row in rows as List)
+          if (row is Map) Map<String, dynamic>.from(row),
+      ]);
+    } catch (e) {
+      // View not applied / slow network — cards use the per-card fallback.
+      debugPrint('[REPUTATION] feed warm-up skipped: $e');
+    }
+  }
+
   /// Check if error is a network error
   static bool _isNetworkError(dynamic error) {
     final errorStr = error.toString().toLowerCase();
@@ -109,10 +139,13 @@ class PostService {
           query = query.lte('price', filters.maxPrice!);
         }
 
-        // Search query (title or description)
+        // Search query (title, description, or category — the category match is
+        // what makes CUSTOM services like "TV Repair Technician" discoverable
+        // by search; the client-side instant filter already matched category
+        // names, so this only aligns the server result set with it)
         if (filters.searchQuery != null && filters.searchQuery!.isNotEmpty) {
           query = query.or(
-            'title.ilike.%${filters.searchQuery}%,description.ilike.%${filters.searchQuery}%',
+            'title.ilike.%${filters.searchQuery}%,description.ilike.%${filters.searchQuery}%,category.ilike.%${filters.searchQuery}%',
           );
         }
       }
@@ -135,6 +168,10 @@ class PostService {
       for (final post in posts.take(3)) {
         debugPrint('  - ${post.title}: ${post.images.length} images');
       }
+
+      // Complete cards on first paint: warm author reputations BEFORE the feed
+      // is handed to the UI (bounded to 2s; failure changes nothing).
+      await _warmReputations(posts.map((p) => p.authorUserId));
 
       return posts;
     } catch (e) {
@@ -168,9 +205,11 @@ class PostService {
           .gt('urgent_expires_at', DateTime.now().toIso8601String())
           .order('created_at', ascending: false)
           .limit(limit);
-      return (response as List)
+      final posts = (response as List)
           .map((json) => PostModel.fromJson(json))
           .toList();
+      await _warmReputations(posts.map((p) => p.authorUserId));
+      return posts;
     } catch (e) {
       debugPrint('❌ Error fetching urgent posts: $e');
       if (_isNetworkError(e)) {
@@ -229,9 +268,12 @@ class PostService {
             (filters?.offset ?? 0) + (filters?.limit ?? 50) - 1,
           );
 
-      return (response as List)
+      final jobs = (response as List)
           .map((json) => JobModel.fromJson(json))
           .toList();
+      // Job cards render the same ReputationCompact trust line as post cards.
+      await _warmReputations(jobs.map((j) => j.authorUserId));
+      return jobs;
     } catch (e) {
       debugPrint('❌ Error fetching jobs: $e');
       if (_isNetworkError(e)) {

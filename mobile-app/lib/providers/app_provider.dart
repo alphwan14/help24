@@ -11,6 +11,7 @@ import '../services/application_service.dart';
 import '../services/auth_service.dart';
 import '../services/cache_service.dart';
 import '../services/jobs_service.dart';
+import '../services/startup_prefetch.dart';
 import '../services/supabase_auth_bridge.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -91,6 +92,25 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Consume the splash-time prefetch (take-once; null after startup).
+      // Only usable while filter state is still at its startup defaults —
+      // the prefetch mirrored exactly that query. On prefetch failure the
+      // future resolves null and the unchanged path below takes over.
+      final prefetch = StartupPrefetch.takePosts();
+      if (prefetch != null &&
+          !hasActiveFilters &&
+          _searchQuery.isEmpty &&
+          _selectedFilter == 'All') {
+        final prefetched = await prefetch;
+        if (prefetched != null) {
+          _posts = prefetched;
+          if (_posts.isNotEmpty) {
+            await CacheService.savePosts(_posts);
+          }
+          return;
+        }
+      }
+
       final results = await Connectivity().checkConnectivity();
       final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
       if (offline) {
@@ -143,6 +163,19 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Splash-time prefetch (see loadPosts for the contract).
+      final prefetch = StartupPrefetch.takeJobs();
+      if (prefetch != null && !hasActiveFilters && _searchQuery.isEmpty) {
+        final prefetched = await prefetch;
+        if (prefetched != null) {
+          _jobs = prefetched;
+          if (_jobs.isNotEmpty) {
+            await CacheService.saveJobs(_jobs);
+          }
+          return;
+        }
+      }
+
       final results = await Connectivity().checkConnectivity();
       final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
       if (offline) {
@@ -189,6 +222,17 @@ class AppProvider extends ChangeNotifier {
     _isLoadingUrgentPosts = true;
     notifyListeners();
     try {
+      // Splash-time prefetch (take-once; no filters apply to urgent posts).
+      final prefetch = StartupPrefetch.takeUrgentPosts();
+      if (prefetch != null) {
+        final prefetched = await prefetch;
+        if (prefetched != null) {
+          _sortUrgentByProximity(prefetched, userLatitude, userLongitude);
+          _urgentPosts = prefetched;
+          return;
+        }
+      }
+
       final results = await Connectivity().checkConnectivity();
       final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
       if (offline) {
@@ -197,19 +241,7 @@ class AppProvider extends ChangeNotifier {
       }
 
       final fetched = await PostService.fetchUrgentPosts(limit: limit);
-      fetched.sort((a, b) {
-        final aHasCoords = a.latitude != null && a.longitude != null && userLatitude != null && userLongitude != null;
-        final bHasCoords = b.latitude != null && b.longitude != null && userLatitude != null && userLongitude != null;
-        if (aHasCoords && bHasCoords) {
-          final ad = _distanceKm(userLatitude!, userLongitude!, a.latitude!, a.longitude!);
-          final bd = _distanceKm(userLatitude!, userLongitude!, b.latitude!, b.longitude!);
-          final byDistance = ad.compareTo(bd);
-          if (byDistance != 0) return byDistance;
-          return b.createdAt.compareTo(a.createdAt);
-        }
-        if (aHasCoords != bHasCoords) return aHasCoords ? -1 : 1;
-        return b.createdAt.compareTo(a.createdAt);
-      });
+      _sortUrgentByProximity(fetched, userLatitude, userLongitude);
       _urgentPosts = fetched;
     } catch (e) {
       _error = 'Failed to load urgent posts: $e';
@@ -218,6 +250,29 @@ class AppProvider extends ChangeNotifier {
       _isLoadingUrgentPosts = false;
       notifyListeners();
     }
+  }
+
+  /// Urgent prioritization: nearest first (when both sides have coordinates),
+  /// newest as tie-break and fallback. Extracted so the prefetch-consumption
+  /// path applies the exact same ordering as a live fetch.
+  void _sortUrgentByProximity(
+    List<PostModel> posts,
+    double? userLatitude,
+    double? userLongitude,
+  ) {
+    posts.sort((a, b) {
+      final aHasCoords = a.latitude != null && a.longitude != null && userLatitude != null && userLongitude != null;
+      final bHasCoords = b.latitude != null && b.longitude != null && userLatitude != null && userLongitude != null;
+      if (aHasCoords && bHasCoords) {
+        final ad = _distanceKm(userLatitude!, userLongitude!, a.latitude!, a.longitude!);
+        final bd = _distanceKm(userLatitude!, userLongitude!, b.latitude!, b.longitude!);
+        final byDistance = ad.compareTo(bd);
+        if (byDistance != 0) return byDistance;
+        return b.createdAt.compareTo(a.createdAt);
+      }
+      if (aHasCoords != bHasCoords) return aHasCoords ? -1 : 1;
+      return b.createdAt.compareTo(a.createdAt);
+    });
   }
 
   /// Create a new post. Requires [currentUserId] (real user id from auth).

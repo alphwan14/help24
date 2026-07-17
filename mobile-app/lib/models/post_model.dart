@@ -107,12 +107,28 @@ class Category {
 
   static Category custom(String name) => Category(name: name, icon: Icons.work_outline);
 
-  /// Find category by name, returns 'Other' if not found
+  /// Resolve a stored category name for display. Known names (bundled registry)
+  /// keep their icon; any other non-empty name — a provider's custom service
+  /// ("TV Repair Technician") or a server-registry category added after this
+  /// build shipped — is PRESERVED as-is with a generic icon instead of being
+  /// collapsed to 'Other'. Only blank values fall back to 'Other'.
   static Category fromName(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return all.last; // 'Other'
     return all.firstWhere(
-      (c) => c.name.toLowerCase() == name.toLowerCase(),
-      orElse: () => all.last, // 'Other'
+      (c) => c.name.toLowerCase() == trimmed.toLowerCase(),
+      orElse: () => custom(trimmed),
     );
+  }
+
+  /// Normalize a user-typed custom service name: trims, collapses repeated
+  /// whitespace, and validates (3–40 chars, must contain a letter). Returns
+  /// null when the input is not usable as a service name.
+  static String? normalizeCustomName(String raw) {
+    final collapsed = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (collapsed.length < 3 || collapsed.length > 40) return null;
+    if (!collapsed.contains(RegExp(r'[A-Za-z]'))) return null;
+    return collapsed;
   }
 
   String toJson() => name;
