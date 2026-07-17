@@ -286,6 +286,32 @@ class PostService {
     }
   }
 
+  /// Fetch specific posts by id (saved shortlist). Same select shape as the
+  /// feed; archived posts are excluded so dead saves drop out naturally.
+  static Future<List<PostModel>> fetchPostsByIds(List<String> ids) async {
+    if (ids.isEmpty) return const [];
+    try {
+      final response = await _client
+          .from('posts')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .filter('archived_at', 'is', null)
+          .inFilter('id', ids);
+      final posts =
+          (response as List).map((json) => PostModel.fromJson(json)).toList();
+      await _warmReputations(posts.map((p) => p.authorUserId));
+      return posts;
+    } catch (e) {
+      debugPrint('❌ Error fetching posts by ids: $e');
+      if (_isNetworkError(e)) {
+        throw PostServiceException(
+          'Unable to connect. Please check your internet connection.',
+          isNetworkError: true,
+        );
+      }
+      throw PostServiceException('Failed to load saved posts.');
+    }
+  }
+
   /// Get a single post by ID with all related data
   static Future<PostModel?> getPostById(String id) async {
     try {

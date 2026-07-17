@@ -6,9 +6,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import '../models/attribute_display.dart';
 import '../models/post_model.dart';
-import '../services/category_schema_service.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
@@ -19,6 +17,7 @@ import '../services/post_service.dart';
 import '../services/cache_service.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../services/storage_service.dart';
+import 'post_detail_screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1155,7 +1154,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (post == null || !mounted) return;
       Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (context) => _PostDetailPage(post: post),
+          builder: (context) => PostDetailScreen(post: post),
         ),
       );
     } catch (e) {
@@ -2809,86 +2808,6 @@ class _ActionTile extends StatelessWidget {
       title: Text(label, style: TextStyle(color: c, fontSize: 15)),
       dense: true,
       onTap: onTap,
-    );
-  }
-}
-
-/// Minimal post detail page when opening from chat (post_id linked).
-class _PostDetailPage extends StatelessWidget {
-  final PostModel post;
-
-  const _PostDetailPage({required this.post});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Post'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (post.images.isNotEmpty) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Image.network(
-                  post.images.first,
-                  height: 200,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    height: 200,
-                    color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                    child: const Icon(Icons.image_not_supported, size: 48),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-            ],
-            Text(
-              post.title,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            // Description is optional for requests since R-1.
-            if (post.description.trim().isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                post.description,
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-            ],
-            const SizedBox(height: 16),
-            Text(
-              // R-4: intent-aware money language (Budget / From / Salary).
-              '${post.location} • ${detailMoneyValue(type: post.type, price: post.price, pricingType: post.pricingType)}',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-              ),
-            ),
-            // R-4: smart-question answers, labeled from the schema.
-            for (final row in attributeDetailRows(
-              schema: CategorySchemaService.instance.schemaFor(post.category.name),
-              postType: post.type.name,
-              attributes: post.attributes,
-            )) ...[
-              const SizedBox(height: 8),
-              Text(
-                '${row.label}: ${row.value}',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
     );
   }
 }

@@ -22,6 +22,7 @@ import 'edit_profile_screen.dart';
 import 'help_center_screen.dart';
 import 'my_posts_screen.dart';
 import 'promotion/promote_business_screen.dart';
+import 'saved_screen.dart';
 import 'terms_screen.dart';
 import 'privacy_screen.dart';
 import 'location_permission_explainer_screen.dart';
@@ -517,6 +518,18 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
               title: 'My Activity',
               children: [
                 _MyPostsTile(uid: widget.uid),
+                _SettingsTile(
+                  icon: Iconsax.archive_1,
+                  title: 'Saved',
+                  subtitle: 'Your shortlist of posts & providers',
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => SavedScreen(userId: widget.uid),
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 16),
