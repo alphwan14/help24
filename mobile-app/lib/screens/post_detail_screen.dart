@@ -262,6 +262,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               applicantUserId,
                               otherUserName: applicantName,
                               otherUserAvatar: applicantAvatarUrl,
+                              postTitle: post.title,
                             );
                           },
                         ),

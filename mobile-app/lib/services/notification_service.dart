@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_firebase.dart';
 import 'auth_service.dart';
+import 'chat_local_prefs.dart';
 import 'user_profile_service.dart';
 
 // ── Channel constants ─────────────────────────────────────────────────────────
@@ -137,6 +138,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
 
   if (type != 'chat_message' || chatId == null) return;
+
+  // Muted chats: honor the device-local mute even when the app is killed —
+  // possible because chat pushes are data-only (we render, not the OS).
+  if (await ChatLocalPrefs.isMuted(chatId)) {
+    debugPrint('[CHAT_NOTIFY][MUTED] chatId=$chatId — notification suppressed');
+    return;
+  }
 
   // flutter_local_notifications requires bindings + channel setup in every isolate.
   WidgetsFlutterBinding.ensureInitialized();

@@ -1129,6 +1129,7 @@ class Message {
   Map<String, dynamic> toCacheMap() {
     return {
       'id': id,
+      'conversation_id': conversationId,
       'sender_id': senderId,
       'content': text,
       'message': text,
@@ -1140,6 +1141,13 @@ class Message {
       if (longitude != null) 'longitude': longitude,
       if (liveUntil != null) 'live_until': liveUntil!.toIso8601String(),
       if (attachmentUrl != null) 'attachment_url': attachmentUrl,
+      // Tombstones and reply quotes must survive the cache round-trip —
+      // otherwise a cache-hydrated chat resurrects deleted content and
+      // renders replies as plain messages until realtime catches up.
+      if (deletedForEveryone) 'deleted_for_everyone': true,
+      if (replyToId != null) 'reply_to_id': replyToId,
+      if (replyToSender != null) 'reply_to_sender': replyToSender,
+      if (replyToPreview != null) 'reply_to_preview': replyToPreview,
     };
   }
 }
@@ -1157,6 +1165,11 @@ class Conversation {
   final String? postId;
   /// Human-readable title of the post this chat belongs to (fetched via join).
   final String? postTitle;
+  /// Presence of the other participant — rides the same batch profile query
+  /// the conversation list already issues, so the chat header can render
+  /// presence instantly without its own lookup.
+  final bool isOnline;
+  final DateTime? lastSeen;
 
   Conversation({
     required this.id,
@@ -1169,6 +1182,8 @@ class Conversation {
     this.messages = const [],
     this.postId,
     this.postTitle,
+    this.isOnline = false,
+    this.lastSeen,
   });
 
   Conversation copyWith({
@@ -1182,6 +1197,8 @@ class Conversation {
     List<Message>? messages,
     String? postId,
     String? postTitle,
+    bool? isOnline,
+    DateTime? lastSeen,
   }) {
     return Conversation(
       id: id ?? this.id,
@@ -1194,6 +1211,8 @@ class Conversation {
       messages: messages ?? this.messages,
       postId: postId ?? this.postId,
       postTitle: postTitle ?? this.postTitle,
+      isOnline: isOnline ?? this.isOnline,
+      lastSeen: lastSeen ?? this.lastSeen,
     );
   }
 
@@ -1209,6 +1228,8 @@ class Conversation {
       'unread_count': unreadCount,
       'post_id': postId,
       if (postTitle != null) 'post_title': postTitle,
+      if (lastSeen != null) 'last_seen': lastSeen!.toIso8601String(),
+      // isOnline is deliberately not cached: stale presence is worse than none.
     };
   }
 
@@ -1226,6 +1247,9 @@ class Conversation {
       unreadCount: (map['unread_count'] is int) ? map['unread_count'] as int : 0,
       postId: map['post_id']?.toString(),
       postTitle: map['post_title']?.toString(),
+      lastSeen: map['last_seen'] != null
+          ? DateTime.tryParse(map['last_seen'].toString())
+          : null,
     );
   }
 }

@@ -31,10 +31,16 @@ class MarketplaceAvatar extends StatelessWidget {
         child: SizedBox(
           width: size,
           height: size,
+          // Never a visible load: zero fade so warmed/disk-cached avatars
+          // paint the same frame as the card; the rare cold fetch sits on the
+          // initials placeholder — no spinner.
           child: CachedNetworkImage(
             imageUrl: imageUrl!,
             fit: BoxFit.cover,
-            placeholder: (_, __) => _loadingPlaceholder(placeholderColor),
+            fadeInDuration: Duration.zero,
+            fadeOutDuration: Duration.zero,
+            placeholderFadeInDuration: Duration.zero,
+            placeholder: (_, __) => _placeholder(placeholderColor),
             errorWidget: (_, __, ___) => _brokenImagePlaceholder(placeholderColor),
           ),
         ),
@@ -91,19 +97,6 @@ class MarketplaceAvatar extends StatelessWidget {
     );
   }
 
-  /// Loading state when profile_image URL is set — no initials until load fails.
-  Widget _loadingPlaceholder(Color bg) {
-    return Container(
-      color: bg,
-      child: Center(
-        child: SizedBox(
-          width: size * 0.4,
-          height: size * 0.4,
-          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkTextTertiary),
-        ),
-      ),
-    );
-  }
 }
 
 /// Urgency indicator: dot + label. No glow, no blinking.

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -150,6 +151,9 @@ class AppProvider extends ChangeNotifier {
       _error = 'Failed to load posts: $e';
       print(_error);
     } finally {
+      // Runs on every exit path (prefetch, offline cache, network): author
+      // avatars start caching with the feed so cards render them instantly.
+      _warmAvatarUrls(_posts.map((p) => p.authorAvatar));
       _isLoadingPosts = false;
       notifyListeners();
     }
@@ -207,6 +211,7 @@ class AppProvider extends ChangeNotifier {
       _error = 'Failed to load jobs: $e';
       print(_error);
     } finally {
+      _warmAvatarUrls(_jobs.map((j) => j.authorAvatarUrl));
       _isLoadingJobs = false;
       notifyListeners();
     }
@@ -247,6 +252,7 @@ class AppProvider extends ChangeNotifier {
       _error = 'Failed to load urgent posts: $e';
       debugPrint(_error);
     } finally {
+      _warmAvatarUrls(_urgentPosts.map((p) => p.authorAvatar));
       _isLoadingUrgentPosts = false;
       notifyListeners();
     }
@@ -499,30 +505,57 @@ class AppProvider extends ChangeNotifier {
 
   // ==================== CONVERSATIONS ====================
 
-  /// Real-time chat list from Supabase. When offline, show cached conversations if any.
+  /// User id the active conversation stream belongs to ('' = none).
+  String _conversationsUserId = '';
+
+  /// Real-time chat list from Supabase, designed so the Messages tab paints
+  /// instantly:
+  ///
+  /// 1. Idempotent — the stream is started once (at app start / auth ready)
+  ///    and survives tab switches. Re-entering the tab is a no-op instead of
+  ///    a cancel-resubscribe-skeleton cycle.
+  /// 2. Stale-while-revalidate — cached conversations hydrate the list
+  ///    immediately (online too, not just offline); the live stream then
+  ///    refreshes silently. The skeleton only ever shows on a true first run.
+  /// 3. Avatars are pre-warmed into the image cache so tiles render without
+  ///    pop-in.
   Future<void> loadConversations(String currentUserId) async {
     if (currentUserId.isEmpty) {
       _conversations = [];
       _hasMoreConversations = true;
+      _conversationsUserId = '';
       _conversationStreamSubscription?.cancel();
       _conversationStreamSubscription = null;
       notifyListeners();
       return;
     }
+    if (_conversationsUserId == currentUserId &&
+        _conversationStreamSubscription != null) {
+      return; // Already syncing for this user — nothing to do.
+    }
+    _conversationsUserId = currentUserId;
     _error = null;
     _hasMoreConversations = true;
     _conversationStreamSubscription?.cancel();
-    _isLoadingConversations = true;
+    _conversationStreamSubscription = null;
+
+    // Disk hydration first: whatever we knew last session shows instantly.
+    if (_conversations.isEmpty) {
+      final cached = await CacheService.loadConversations();
+      if (_conversations.isEmpty && cached.isNotEmpty) {
+        _conversations = cached;
+        _warmAvatarCache(cached);
+      }
+    }
+    _isLoadingConversations = _conversations.isEmpty;
     notifyListeners();
 
     final results = await Connectivity().checkConnectivity();
     final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
     if (offline) {
-      final cached = await CacheService.loadConversations();
-      if (cached.isNotEmpty) {
-        _conversations = cached;
-      }
       _isLoadingConversations = false;
+      // Allow a later call (tab tap / reconnect) to retry the subscription.
+      _conversationsUserId = '';
       notifyListeners();
       return;
     }
@@ -537,6 +570,7 @@ class AppProvider extends ChangeNotifier {
         _isLoadingConversations = false;
         if (list.isNotEmpty) {
           CacheService.saveConversations(list);
+          _warmAvatarCache(list);
         }
         notifyListeners();
       },
@@ -551,7 +585,32 @@ class AppProvider extends ChangeNotifier {
   void stopListeningToConversations() {
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
+    _conversationsUserId = '';
   }
+
+  /// URLs already fed to the image cache this session (avoid re-resolving).
+  final Set<String> _warmedAvatarUrls = {};
+
+  /// Kick off avatar downloads into cached_network_image's cache the moment
+  /// data mentioning them lands (feed, jobs, conversations) — avatars are
+  /// then already decoded when their card/tile builds, so they are never
+  /// seen loading. Fire-and-forget; errors are swallowed by the pipeline.
+  void _warmAvatarUrls(Iterable<String> urls, {int cap = 40}) {
+    var started = 0;
+    for (final url in urls) {
+      if (started >= cap) break;
+      if (url.isEmpty || !_warmedAvatarUrls.add(url)) continue;
+      started++;
+      try {
+        CachedNetworkImageProvider(url).resolve(ImageConfiguration.empty);
+      } catch (_) {
+        // Never let a bad URL disturb the provider.
+      }
+    }
+  }
+
+  void _warmAvatarCache(List<Conversation> list) =>
+      _warmAvatarUrls(list.take(30).map((c) => c.userAvatar));
 
   bool _hasMoreConversations = true;
   bool _loadingMoreConversations = false;
@@ -562,6 +621,11 @@ class AppProvider extends ChangeNotifier {
   /// Sum of unread messages across all conversations.
   int get totalUnreadCount =>
       _conversations.fold(0, (sum, c) => sum + c.unreadCount);
+
+  /// Repaint conversation consumers after device-local state changed
+  /// (e.g. clear-conversation watermark, mute toggles) — the data the tiles
+  /// read lives in ChatLocalPrefs, not in this provider.
+  void touchConversations() => notifyListeners();
 
   /// Instantly zero the local unread badge for a chat the user just opened.
   /// The DB reset happens in ChatServiceSupabase.markMessagesSeen().

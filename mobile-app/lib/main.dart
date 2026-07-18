@@ -22,8 +22,8 @@ import 'screens/review_submission_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
-import 'screens/web_view_screen.dart';
 import 'services/category_schema_service.dart';
+import 'services/chat_local_prefs.dart';
 import 'services/diagnostic_service.dart';
 import 'services/notification_service.dart';
 import 'services/startup_prefetch.dart';
@@ -59,6 +59,8 @@ void main() async {
   // and on failure the app falls back to its existing load paths.
   unawaited(AppFirebase.initialize());
   StartupPrefetch.begin();
+  // Warm the muted-chats set for synchronous reads in list tiles and menus.
+  unawaited(ChatLocalPrefs.ensureLoaded());
 
   // Load persisted theme before first frame — prevents any dark/light flicker.
   final prefs = await SharedPreferences.getInstance();
@@ -123,7 +125,7 @@ class _Help24AppState extends State<Help24App> {
     }
   }
 
-  void _onForegroundMessage(RemoteMessage message) {
+  Future<void> _onForegroundMessage(RemoteMessage message) async {
     final data = message.data;
     final chatId = (data['chatId'] ?? data['chat_id']) as String?;
     final type = (data['type'] as String?) ?? '';
@@ -134,6 +136,15 @@ class _Help24AppState extends State<Help24App> {
     final activeChatId = ctx != null ? ctx.read<AppProvider>().activeChatId : _activeChatId;
     if (chatId != null && chatId.isNotEmpty && chatId == activeChatId) {
       debugPrint('main: suppressing foreground notification for active chat $chatId');
+      return;
+    }
+
+    // Muted chats: no banner (the unread badge still updates via the list).
+    if (type == 'chat_message' &&
+        chatId != null &&
+        chatId.isNotEmpty &&
+        await ChatLocalPrefs.isMuted(chatId)) {
+      debugPrint('main: suppressing foreground notification for muted chat $chatId');
       return;
     }
 
@@ -186,24 +197,33 @@ class _Help24AppState extends State<Help24App> {
     String userName = 'Chat';
     String userAvatar = '';
     String participantId = '';
+    String? postId;
+    String? postTitle;
     try {
       final chatRow = await Supabase.instance.client
           .from('chats')
-          .select('user1, user2, post_id')
+          .select('user1, user2, post_id, posts!chats_post_id_fkey(title)')
           .eq('id', chatId)
           .maybeSingle();
       if (chatRow != null) {
         final u1 = chatRow['user1'] as String? ?? '';
         final u2 = chatRow['user2'] as String? ?? '';
+        postId = chatRow['post_id']?.toString();
+        final postsData = chatRow['posts'];
+        postTitle = postsData is Map<String, dynamic> ? postsData['title'] as String? : null;
         participantId = (u1 == uid) ? u2 : u1;
         if (participantId.isNotEmpty) {
+          // Same columns the chat list resolves avatars from (avatar_url with
+          // profile_image fallback) — profile_picture_url does not exist.
           final userRow = await Supabase.instance.client
               .from('users')
-              .select('name, profile_picture_url')
+              .select('name, avatar_url, profile_image')
               .eq('id', participantId)
               .maybeSingle();
           userName = (userRow?['name'] as String?) ?? 'Chat';
-          userAvatar = (userRow?['profile_picture_url'] as String?) ?? '';
+          final avatar = (userRow?['avatar_url'] as String?)?.trim() ?? '';
+          final profileImage = (userRow?['profile_image'] as String?)?.trim() ?? '';
+          userAvatar = avatar.isNotEmpty ? avatar : profileImage;
         }
       }
     } catch (e) {
@@ -218,6 +238,8 @@ class _Help24AppState extends State<Help24App> {
       userAvatar: userAvatar,
       lastMessage: '',
       lastMessageTime: DateTime.now(),
+      postId: postId,
+      postTitle: postTitle,
     );
     Navigator.of(context).push(
       MaterialPageRoute(

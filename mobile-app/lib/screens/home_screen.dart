@@ -114,6 +114,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _handleAuthLocationFlow(uid);
+        // Preload Messages the moment auth is ready — conversations, unread
+        // counts and avatars sync quietly in the background so the tab opens
+        // instantly instead of loading on first visit. loadConversations is
+        // idempotent, so later tab taps are no-ops. Empty uid resets state on
+        // logout.
+        context.read<AppProvider>().loadConversations(uid);
       });
     }
 

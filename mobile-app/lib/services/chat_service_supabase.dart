@@ -174,14 +174,35 @@ class ChatServiceSupabase {
     return '${s.substring(0, max)}…';
   }
 
-  /// Stream of conversations for current user. Polls periodically (Realtime filter can't do user1 OR user2).
+  /// Stream of conversations for current user.
+  ///
+  /// Hybrid sync: a periodic poll (Realtime postgres_changes can't express
+  /// user1 OR user2 in a single filter) plus a chats-table Realtime channel
+  /// with one binding per column. Any INSERT/UPDATE on one of my chat rows
+  /// (new message bumps last_message/updated_at/unread counts) nudges an
+  /// immediate refetch, so the list updates in ~instant time while the poll
+  /// degrades to a 60s safety net once Realtime is confirmed alive. If the
+  /// chats table isn't in the supabase_realtime publication the channel just
+  /// never fires and behavior is identical to the old 15s poll.
   static Stream<List<Conversation>> watchConversations(String currentUserId) {
     if (currentUserId.isEmpty) return Stream.value([]);
 
     final controller = StreamController<List<Conversation>>.broadcast();
     Timer? timer;
+    Timer? nudgeDebounce;
+    RealtimeChannel? channel;
+    var pollInterval = const Duration(seconds: 15);
+    var realtimeConfirmed = false;
+    var fetching = false;
+    var refetchQueued = false;
 
     Future<void> emit() async {
+      // Coalesce: a nudge landing mid-fetch queues exactly one follow-up.
+      if (fetching) {
+        refetchQueued = true;
+        return;
+      }
+      fetching = true;
       try {
         final list = await _fetchConversations(currentUserId);
         if (controller.isClosed) return;
@@ -189,12 +210,58 @@ class ChatServiceSupabase {
       } catch (e) {
         debugPrint('ChatServiceSupabase watchConversations fetch: $e');
         if (!controller.isClosed) controller.add([]);
+      } finally {
+        fetching = false;
+        if (refetchQueued && !controller.isClosed) {
+          refetchQueued = false;
+          Future.microtask(emit);
+        }
       }
     }
 
+    void schedulePoll() {
+      timer?.cancel();
+      timer = Timer.periodic(pollInterval, (_) => emit());
+    }
+
+    void nudge() {
+      if (!realtimeConfirmed) {
+        realtimeConfirmed = true;
+        pollInterval = const Duration(seconds: 60);
+        schedulePoll();
+      }
+      // Debounce bursts (several rows updating at once) into one refetch.
+      nudgeDebounce?.cancel();
+      nudgeDebounce = Timer(const Duration(milliseconds: 400), emit);
+    }
+
     emit();
-    timer = Timer.periodic(const Duration(seconds: 15), (_) => emit());
-    controller.onCancel = () => timer?.cancel();
+    schedulePoll();
+
+    PostgresChangeFilter userFilter(String column) => PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: column,
+          value: currentUserId,
+        );
+    channel = _client.channel('chats_list:$currentUserId');
+    for (final event in [PostgresChangeEvent.insert, PostgresChangeEvent.update]) {
+      for (final column in ['user1', 'user2']) {
+        channel = channel!.onPostgresChanges(
+          event: event,
+          schema: 'public',
+          table: 'chats',
+          filter: userFilter(column),
+          callback: (_) => nudge(),
+        );
+      }
+    }
+    channel!.subscribe();
+
+    controller.onCancel = () {
+      timer?.cancel();
+      nudgeDebounce?.cancel();
+      channel?.unsubscribe();
+    };
 
     return controller.stream;
   }
@@ -237,7 +304,8 @@ class ChatServiceSupabase {
       final user1 = map['user1'] as String? ?? '';
       final user2 = map['user2'] as String? ?? '';
       final otherId = user1 == currentUserId ? user2 : user1;
-      final profile = profiles[otherId] ?? (name: '?', avatarUrl: '');
+      final profile = profiles[otherId] ??
+          (name: '?', avatarUrl: '', isOnline: false, lastSeen: null);
       final postsRaw = map['posts'];
       final postsData = postsRaw is Map<String, dynamic> ? postsRaw : null;
       final postTitle = postsData?['title'] as String?;
@@ -262,23 +330,26 @@ class ChatServiceSupabase {
         unreadCount: unreadCount,
         postId: map['post_id']?.toString(),
         postTitle: postTitle,
+        isOnline: profile.isOnline,
+        lastSeen: profile.lastSeen,
       ));
     }
     return list;
   }
 
-  /// Fetch profiles for multiple user IDs in a single query.
+  /// Fetch profiles (incl. presence) for multiple user IDs in a single query.
   /// Returns a map of userId → profile record.
-  static Future<Map<String, ({String name, String avatarUrl})>> _getBatchUserProfiles(
+  static Future<Map<String, ({String name, String avatarUrl, bool isOnline, DateTime? lastSeen})>>
+      _getBatchUserProfiles(
     List<String> userIds,
   ) async {
-    final result = <String, ({String name, String avatarUrl})>{};
+    final result = <String, ({String name, String avatarUrl, bool isOnline, DateTime? lastSeen})>{};
     final uniqueIds = userIds.where((id) => id.isNotEmpty).toSet().toList();
     if (uniqueIds.isEmpty) return result;
     try {
       final r = await _client
           .from('users')
-          .select('id, name, email, avatar_url, profile_image')
+          .select('id, name, email, avatar_url, profile_image, is_online, last_seen')
           .inFilter('id', uniqueIds);
       for (final row in r as List) {
         final map = row as Map<String, dynamic>;
@@ -298,6 +369,10 @@ class ChatServiceSupabase {
         result[id] = (
           name: displayName,
           avatarUrl: (avatar != null && avatar.isNotEmpty) ? avatar : (profileImage ?? ''),
+          isOnline: map['is_online'] as bool? ?? false,
+          lastSeen: map['last_seen'] != null
+              ? DateTime.tryParse(map['last_seen'].toString())
+              : null,
         );
       }
     } catch (e) {
@@ -389,6 +464,37 @@ class ChatServiceSupabase {
     if (row['reply_to_sender']  != null) map['reply_to_sender']  = row['reply_to_sender'].toString();
     if (row['reply_to_preview'] != null) map['reply_to_preview'] = row['reply_to_preview'].toString();
     return Message.fromJson(map, currentUserId);
+  }
+
+  /// Case-insensitive text search within one chat. Excludes tombstones
+  /// (deleted_for_everyone is NOT NULL DEFAULT false per migration 042).
+  /// Newest matches first.
+  static Future<List<Message>> searchMessages(
+    String chatId,
+    String currentUserId,
+    String query, {
+    int limit = 50,
+  }) async {
+    final q = query.trim();
+    if (chatId.isEmpty || q.isEmpty) return [];
+    try {
+      final escaped = q.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
+      final res = await _client
+          .from('chat_messages')
+          .select()
+          .eq('chat_id', chatId)
+          .eq('type', 'text')
+          .neq('deleted_for_everyone', true)
+          .ilike('content', '%$escaped%')
+          .order('created_at', ascending: false)
+          .limit(limit);
+      return (res as List)
+          .map((e) => _messageFromRow(e as Map<String, dynamic>, chatId, currentUserId))
+          .toList();
+    } catch (e) {
+      debugPrint('ChatServiceSupabase searchMessages: $e');
+      return [];
+    }
   }
 
   /// Mark all unread messages (not sent by current user) as seen,

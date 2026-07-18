@@ -266,6 +266,7 @@ Future<void> openChatWithUser(
   String otherUserId, {
   String otherUserName = '',
   String otherUserAvatar = '',
+  String postTitle = '',
 }) async {
   final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
   if (currentUserId.isEmpty || otherUserId.isEmpty) return;
@@ -276,7 +277,10 @@ Future<void> openChatWithUser(
     userAvatar: otherUserAvatar,
     lastMessage: '',
     lastMessageTime: DateTime.now(),
-    postId: postId,
+    postId: postId.isNotEmpty ? postId : null,
+    // Without the title the chat renders no post banner and no View post /
+    // Job status menu entries — pass it whenever the caller knows it.
+    postTitle: postTitle.isNotEmpty ? postTitle : null,
   );
   if (!context.mounted) return;
   Navigator.push(

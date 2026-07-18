@@ -95,10 +95,17 @@ class JobStatusCard extends StatefulWidget {
   final String postId;
   final String currentUserId;
 
+  /// Rendered instead of collapsing to zero size when there is no job to
+  /// track yet (no provider selected). Lets host surfaces like the Job Status
+  /// sheet show an honest empty state; inline hosts leave it null to keep the
+  /// legacy collapse behavior.
+  final Widget? emptyPlaceholder;
+
   const JobStatusCard({
     super.key,
     required this.postId,
     required this.currentUserId,
+    this.emptyPlaceholder,
   });
 
   @override
@@ -309,8 +316,24 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
   @override
   Widget build(BuildContext context) {
     // Don't render if no postId or no provider selected yet.
-    if (_state == _JobState.noProvider) return const SizedBox.shrink();
-    if (_state == _JobState.loading && _data == null) return const SizedBox.shrink();
+    if (_state == _JobState.noProvider) {
+      return widget.emptyPlaceholder ?? const SizedBox.shrink();
+    }
+    if (_state == _JobState.loading && _data == null) {
+      // Sheet hosts get a real loading state; inline hosts keep collapsing.
+      return widget.emptyPlaceholder != null
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(
+                child: SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+              ),
+            )
+          : const SizedBox.shrink();
+    }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
