@@ -95,7 +95,12 @@ class SupabaseAuthBridge {
       // subscriptions (postgres_changes) also use the authenticated JWT.
       // Without this the WebSocket stays on the anon role and RLS-filtered
       // realtime events are blocked.
-      unawaited(_updateRealtimeAuth(accessToken));
+      //
+      // AWAITED, not fire-and-forget: callers (watchMessages) resolve the
+      // session immediately before joining a channel. Leaving this unawaited
+      // let a channel join while the socket was still on `anon`, which Realtime
+      // rejects at authorisation time — a permanently dead subscription.
+      await _updateRealtimeAuth(accessToken);
 
       debugPrint('[AUTH][BRIDGE] ok=true — authenticated JWT active for RLS');
       return true;

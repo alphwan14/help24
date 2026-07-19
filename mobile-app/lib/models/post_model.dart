@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../utils/time_utils.dart';
+
 enum PostType { request, offer, job }
 
 /// How price is quoted: per task, per hour, per day, per week, per month.
@@ -256,9 +258,7 @@ class Application {
       applicantUserId: json['applicant_user_id']?.toString() ?? '',
       message: json['message'] ?? '',
       proposedPrice: (json['proposed_price'] ?? 0).toDouble(),
-      timestamp: json['created_at'] != null
-          ? DateTime.parse(json['created_at'].toString())
-          : DateTime.now(),
+      timestamp: parseServerTime(json['created_at']),
     );
   }
 
@@ -413,12 +413,10 @@ class PostModel {
       authorAvatar: _userAvatarUrl(authorUsers),
       authorTempId: json['author_temp_id'] ?? '',
       authorUserId: json['author_user_id']?.toString() ?? '',
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'].toString())
-          : DateTime.now(),
+      createdAt: parseServerTime(json['created_at']),
       isUrgent: json['is_urgent'] == true || _parseUrgency(json['urgency']) == Urgency.urgent,
       urgentExpiresAt: json['urgent_expires_at'] != null
-          ? DateTime.tryParse(json['urgent_expires_at'].toString())
+          ? parseServerTimeOrNull(json['urgent_expires_at'])
           : null,
       latitude: (json['latitude'] is num) ? (json['latitude'] as num).toDouble() : null,
       longitude: (json['longitude'] is num) ? (json['longitude'] as num).toDouble() : null,
@@ -818,9 +816,7 @@ class JobModel {
       type: _employmentTypeToDisplay(json['employment_type']) ?? json['type']?.toString() ?? 'Full-time',
       description: json['description'] ?? '',
       authorTempId: json['author_temp_id'] ?? '',
-      postedAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'].toString())
-          : DateTime.now(),
+      postedAt: parseServerTime(json['created_at']),
       images: images,
       applications: applications,
       rating: (json['rating'] ?? 0).toDouble(),
@@ -1022,6 +1018,13 @@ class Message {
 
   bool get isLocation => type == 'location' || type == 'live_location';
   bool get isLiveLocation => type == 'live_location';
+  /// "Where exactly?" prompt — no coordinates, answered via the Place Picker.
+  bool get isLocationRequest => type == 'location_request';
+  /// Journey that ended with "I've arrived" (vs. plain stop/expiry).
+  bool get isJourneyArrived => type == 'live_location' && text == 'Arrived';
+  /// Live share still running (journeys and legacy timed shares).
+  bool get isLiveNow =>
+      isLiveLocation && liveUntil != null && liveUntil!.isAfter(DateTime.now());
   bool get isImage => type == 'image';
   bool get isFile => type == 'file';
   bool get hasValidCoordinates =>
@@ -1034,14 +1037,10 @@ class Message {
     final type = (json['type'] ?? 'text') as String;
     double? lat = json['latitude'] != null ? (json['latitude'] as num).toDouble() : null;
     double? lng = json['longitude'] != null ? (json['longitude'] as num).toDouble() : null;
-    DateTime? liveUntil = json['live_until'] != null
-        ? DateTime.tryParse(json['live_until'].toString())
-        : null;
+    DateTime? liveUntil = parseServerTimeOrNull(json['live_until']);
     final attachmentUrl = json['attachment_url']?.toString();
     final status = (json['status'] ?? 'sent') as String;
-    final seenAt = json['seen_at'] != null
-        ? DateTime.tryParse(json['seen_at'].toString())
-        : null;
+    final seenAt = parseServerTimeOrNull(json['seen_at']);
     final deletedForEveryone = json['deleted_for_everyone'] as bool? ?? false;
     final replyToId      = json['reply_to_id']?.toString();
     final replyToSender  = json['reply_to_sender']?.toString();
@@ -1052,9 +1051,7 @@ class Message {
       senderId: senderId,
       receiverId: (json['receiver_temp_id'] ?? '').toString(),
       text: text,
-      timestamp: json['created_at'] != null
-          ? DateTime.parse(json['created_at'].toString())
-          : DateTime.now(),
+      timestamp: parseServerTime(json['created_at']),
       isMe: senderId == currentUserId,
       type: type,
       latitude: lat,
@@ -1241,15 +1238,11 @@ class Conversation {
       userName: (map['user_name'] ?? '').toString(),
       userAvatar: (map['user_avatar'] ?? '').toString(),
       lastMessage: (map['last_message'] ?? '').toString(),
-      lastMessageTime: map['last_message_time'] != null
-          ? DateTime.tryParse(map['last_message_time'].toString()) ?? DateTime.now()
-          : DateTime.now(),
+      lastMessageTime: parseServerTime(map['last_message_time']),
       unreadCount: (map['unread_count'] is int) ? map['unread_count'] as int : 0,
       postId: map['post_id']?.toString(),
       postTitle: map['post_title']?.toString(),
-      lastSeen: map['last_seen'] != null
-          ? DateTime.tryParse(map['last_seen'].toString())
-          : null,
+      lastSeen: parseServerTimeOrNull(map['last_seen']),
     );
   }
 }

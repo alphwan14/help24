@@ -202,7 +202,7 @@ class PostService {
           .filter('archived_at', 'is', null) // hide archived (soft-deleted) posts
           .eq('type', 'request')
           .eq('is_urgent', true)
-          .gt('urgent_expires_at', DateTime.now().toIso8601String())
+          .gt('urgent_expires_at', DateTime.now().toUtc().toIso8601String())
           .order('created_at', ascending: false)
           .limit(limit);
       final posts = (response as List)

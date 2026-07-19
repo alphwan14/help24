@@ -10,6 +10,7 @@ import '../models/post_model.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/report_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/time_utils.dart';
 import 'job_status_card.dart';
 
 // =============================================================================
@@ -539,21 +540,8 @@ class _SearchResultRow extends StatelessWidget {
     required this.onTap,
   });
 
-  static const _months = [
-    '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-
-  String _dateLabel(DateTime t) {
-    final local = t.toLocal();
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final day = DateTime(local.year, local.month, local.day);
-    final hm = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-    if (day == today) return hm;
-    if (day == today.subtract(const Duration(days: 1))) return 'Yesterday $hm';
-    return '${_months[local.month]} ${local.day}, $hm';
-  }
+  String _dateLabel(BuildContext context, DateTime t) =>
+      formatMessageStamp(context, t);
 
   /// Bolds every case-insensitive occurrence of [query] in [text].
   TextSpan _highlight(String text, Color base) {
@@ -608,7 +596,7 @@ class _SearchResultRow extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  _dateLabel(message.timestamp),
+                  _dateLabel(context, message.timestamp),
                   style: TextStyle(fontSize: 11, color: tertiary),
                 ),
               ],

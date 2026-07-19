@@ -390,7 +390,7 @@ class AuthService {
       if (name != null && name.trim().isNotEmpty) await firebaseUser.updateDisplayName(name.trim());
       if (photoUrl != null) await firebaseUser.updatePhotoURL(photoUrl);
       await firebaseUser.reload();
-      final updates = <String, dynamic>{'last_login': DateTime.now().toIso8601String()};
+      final updates = <String, dynamic>{'last_login': DateTime.now().toUtc().toIso8601String()};
       if (name != null) updates['name'] = name.trim();
       if (photoUrl != null) {
         updates['profile_image'] = photoUrl;

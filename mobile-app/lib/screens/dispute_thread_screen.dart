@@ -6,6 +6,7 @@ import '../models/dispute_thread.dart';
 import '../providers/auth_provider.dart';
 import '../services/dispute_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/time_utils.dart';
 
 /// DisputeThreadScreen — the participant's home for a single dispute. Drives off
 /// GET /disputes/:id/thread (backend is source of truth). Supports: reading the
@@ -214,7 +215,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
           _pill(_statusLabel(d.status), _statusColor(d.status)),
         ]),
         const SizedBox(height: 12),
-        _kv('Opened', _fmtTime(d.createdAt), isDark),
+        _kv('Opened', _fmtTime(context, d.createdAt), isDark),
         if (d.priority != null) _kv('Priority', _cap(d.priority!), isDark),
         _kv('Handled by', d.assignedAdminName != null ? '${d.assignedAdminName} (support)' : 'Awaiting an admin', isDark),
         if (d.reason != null && d.reason!.trim().isNotEmpty) ...[
@@ -310,7 +311,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
                       fontSize: 12.5,
                       color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary)),
               const SizedBox(height: 2),
-              Text(_fmtTime(m.createdAt),
+              Text(_fmtTime(context, m.createdAt),
                   style: TextStyle(fontSize: 10.5, color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary)),
             ],
           ),
@@ -342,7 +343,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
               const SizedBox(height: 2),
               Text(m.message, style: TextStyle(fontSize: 14, color: fg)),
               const SizedBox(height: 3),
-              Text(_fmtTime(m.createdAt),
+              Text(_fmtTime(context, m.createdAt),
                   style: TextStyle(fontSize: 10.5, color: fg?.withValues(alpha: 0.8) ?? (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary))),
             ],
           ),
@@ -392,7 +393,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
                 Text(e.content!, style: const TextStyle(fontSize: 13)),
               ],
               const SizedBox(height: 4),
-              Text(_fmtTime(e.createdAt),
+              Text(_fmtTime(context, e.createdAt),
                   style: TextStyle(fontSize: 10.5, color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary)),
             ],
           ),
@@ -605,14 +606,12 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
 
   static const List<String> _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  String _fmtTime(String? iso) {
-    if (iso == null) return '';
-    final dt = DateTime.tryParse(iso)?.toLocal();
-    if (dt == null) return '';
-    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-    final m = dt.minute.toString().padLeft(2, '0');
-    final ampm = dt.hour < 12 ? 'AM' : 'PM';
-    return '${dt.day} ${_months[dt.month - 1]} ${dt.year}, $h:$m $ampm';
+  String _fmtTime(BuildContext context, String? iso) {
+    final utc = parseServerTimeOrNull(iso);
+    if (utc == null) return '';
+    final dt = utc.toLocal();
+    return '${dt.day} ${_months[dt.month - 1]} ${dt.year}, '
+        '${formatClockTime(context, utc)}';
   }
 }
 

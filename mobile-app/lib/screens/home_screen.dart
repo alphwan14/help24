@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../services/supabase_auth_bridge.dart';
 import '../services/user_profile_service.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../widgets/auth_guard.dart';
@@ -29,6 +32,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _lastAuthUserId = '';
   bool _locationPromptInFlight = false;
 
+  /// Presence heartbeat. `is_online` is a flag another device wrote, so on its
+  /// own it goes stale (a crash leaves it stuck true) and `last_seen` freezes
+  /// at the last lifecycle transition — which is why a user sitting in an open
+  /// chat still read as "last seen 22 min ago". Refreshing it on a timer makes
+  /// presence reflect observed liveness. Readers treat presence as valid only
+  /// while this beat is fresh (see _presenceStaleAfter in ChatScreen).
+  static const Duration _presenceHeartbeat = Duration(seconds: 60);
+  Timer? _presenceTimer;
+
+  Future<void> _beatPresence() async {
+    final uid = context.read<AuthProvider>().currentUserId;
+    if (uid == null || uid.isEmpty) return;
+    // The presence row is RLS-protected. On a cold start the Firebase→Supabase
+    // token exchange is still in flight for the first seconds, and a write sent
+    // before it lands is rejected with "permission denied" — which is exactly
+    // how a user sitting in an open chat stayed flagged offline.
+    await SupabaseAuthBridge.ensureSessionAsync();
+    if (!mounted) return;
+    await UserProfileService.setOnline(uid, true);
+  }
+
+  void _startPresence() {
+    _presenceTimer?.cancel();
+    _beatPresence();
+    _presenceTimer = Timer.periodic(_presenceHeartbeat, (_) {
+      if (mounted) _beatPresence();
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -38,12 +70,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final auth = context.read<AuthProvider>();
       if (auth.isLoggedIn) {
         context.read<LocaleProvider>().loadLanguageForUser();
+        // Cold start with a restored session never fires a lifecycle CHANGE,
+        // so the resume branch below does not run and the user would stay
+        // flagged offline for the whole session. Start the beat explicitly.
+        _startPresence();
       }
     });
   }
 
   @override
   void dispose() {
+    _presenceTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -55,7 +92,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (uid == null || uid.isEmpty) return;
     switch (state) {
       case AppLifecycleState.resumed:
-        UserProfileService.setOnline(uid, true);
+        _startPresence(); // beat now, then keep beating while foregrounded
         // Re-check location permission in case user granted it in Settings
         // while the app was in the background.
         context.read<LocationProvider>().refreshPermissionStatus();
@@ -64,6 +101,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       case AppLifecycleState.inactive:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
+        _presenceTimer?.cancel();
+        _presenceTimer = null;
         UserProfileService.setOnline(uid, false);
         break;
     }
@@ -113,6 +152,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _lastAuthUserId = uid;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        // Auth just resolved (cold start restores the session asynchronously,
+        // so initState ran while uid was still empty). This is the first point
+        // where a presence write can pass RLS.
+        if (uid.isEmpty) {
+          _presenceTimer?.cancel();
+          _presenceTimer = null;
+        } else {
+          _startPresence();
+        }
         _handleAuthLocationFlow(uid);
         // Preload Messages the moment auth is ready — conversations, unread
         // counts and avatars sync quietly in the background so the tab opens

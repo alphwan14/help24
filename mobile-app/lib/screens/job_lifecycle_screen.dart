@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../services/jobs_service.dart';
 import '../services/review_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/time_utils.dart';
 import '../utils/format_utils.dart';
 import 'approve_or_dispute_screen.dart';
 import 'dispute_thread_screen.dart';
@@ -413,7 +414,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
                   Text(e.label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 2),
                   Text(
-                    _fmtTime(e.at),
+                    _fmtTime(context, e.at),
                     style: TextStyle(
                       fontSize: 12,
                       color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
@@ -708,13 +709,12 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
   ];
 
-  String _fmtTime(String iso) {
-    final dt = DateTime.tryParse(iso)?.toLocal();
-    if (dt == null) return '';
-    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-    final m = dt.minute.toString().padLeft(2, '0');
-    final ampm = dt.hour < 12 ? 'AM' : 'PM';
-    return '${dt.day} ${_months[dt.month - 1]} ${dt.year}, $h:$m $ampm';
+  String _fmtTime(BuildContext context, String iso) {
+    final utc = parseServerTimeOrNull(iso);
+    if (utc == null) return '';
+    final dt = utc.toLocal();
+    return '${dt.day} ${_months[dt.month - 1]} ${dt.year}, '
+        '${formatClockTime(context, utc)}';
   }
 }
 

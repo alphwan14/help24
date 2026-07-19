@@ -17,7 +17,10 @@ import '../services/category_schema_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
+import '../widgets/location_experience.dart';
 import '../widgets/schema_question_flow.dart';
+import 'place_picker_screen.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
 /// Represents a selected image with cross-platform support
 class SelectedImage {
@@ -53,6 +56,11 @@ class _PostScreenState extends State<PostScreen> {
   EmploymentType? _selectedEmploymentType;
   String _selectedCity = '';
   String _selectedArea = '';
+  // Exact job spot pinned on the map (Location Experience, Scenario C):
+  // posting must never depend on GPS permission — the map pin is the manual
+  // path, and it wins over the silent device position when both exist.
+  double? _pinnedLat;
+  double? _pinnedLng;
   List<SelectedImage> _selectedImages = [];
   final ImagePicker _picker = ImagePicker();
 
@@ -829,7 +837,95 @@ class _PostScreenState extends State<PostScreen> {
           ),
         ),
       ],
+      // Pin the exact spot (optional). Works with GPS denied — the picker
+      // opens on the last-known position or a default region and the user
+      // places the pin manually. Never blocks posting. Requests/offers only:
+      // jobs don't carry coordinates.
+      if (_selectedType != PostType.job) ...[
+      const SizedBox(height: 12),
+      InkWell(
+        onTap: _pickExactSpot,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _pinnedLat != null
+                  ? AppTheme.successGreen.withValues(alpha: 0.6)
+                  : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                _pinnedLat != null ? Iconsax.location_tick : Iconsax.location,
+                size: 20,
+                color: _pinnedLat != null ? AppTheme.successGreen : AppTheme.primaryAccent,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _pinnedLat != null
+                      ? 'Exact spot pinned on the map'
+                      : 'Pin the exact spot on the map (optional)',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
+                  ),
+                ),
+              ),
+              if (_pinnedLat != null)
+                IconButton(
+                  onPressed: () => setState(() {
+                    _pinnedLat = null;
+                    _pinnedLng = null;
+                  }),
+                  tooltip: 'Remove pin',
+                  icon: Icon(
+                    Icons.close_rounded,
+                    size: 18,
+                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                  ),
+                )
+              else
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                ),
+            ],
+          ),
+        ),
+      ),
+      ],
     ];
+  }
+
+  Future<void> _pickExactSpot() async {
+    final locationProvider = context.read<LocationProvider>();
+    final LatLng? start = (_pinnedLat != null && _pinnedLng != null)
+        ? LatLng(_pinnedLat!, _pinnedLng!)
+        : (locationProvider.latitude != null && locationProvider.longitude != null)
+            ? LatLng(locationProvider.latitude!, locationProvider.longitude!)
+            : null;
+    final picked = await Navigator.of(context).push<PickedPlace>(
+      MaterialPageRoute(
+        builder: (_) => PlacePickerScreen(
+          initialCenter: start,
+          title: 'Pin the job location',
+          confirmLabel: 'Use this spot',
+        ),
+      ),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _pinnedLat = picked.latitude;
+        _pinnedLng = picked.longitude;
+      });
+    }
   }
 
   /// Horizontal add/preview strip — the Photos step of the request and offer
@@ -2005,8 +2101,8 @@ class _PostScreenState extends State<PostScreen> {
           urgentExpiresAt: !_isOfferFlow && _selectedUrgency == Urgency.urgent
               ? DateTime.now().add(const Duration(hours: 1))
               : null,
-          latitude: locationProvider.latitude,
-          longitude: locationProvider.longitude,
+          latitude: _pinnedLat ?? locationProvider.latitude,
+          longitude: _pinnedLng ?? locationProvider.longitude,
           attributes: attributes,
           attributesSchemaVersion: schemaVersion,
         );

@@ -25,8 +25,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../utils/time_utils.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/chat_ui.dart';
+import '../widgets/location_experience.dart';
+import 'place_picker_screen.dart';
+import 'journey_confirm_screen.dart';
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key});
@@ -213,9 +217,10 @@ class _ConversationTile extends StatelessWidget {
 
   String _formatTime(DateTime time) {
     final now = DateTime.now();
-    final diff = now.difference(time);
+    // Instant-based: correct for any UTC-normalised timestamp regardless of zone.
+    final diff = now.difference(time.toLocal());
 
-    if (diff.inMinutes < 1) {
+    if (diff.isNegative || diff.inMinutes < 1) {
       return 'Just now';
     } else if (diff.inMinutes < 60) {
       return '${diff.inMinutes}m ago';
@@ -446,7 +451,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
   final List<Message> _pendingMessages = []; // Optimistic until send completes
@@ -473,6 +478,20 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _liveEndTimer;
   String? _liveMessageId;
   int _lastMessageCount = 0;
+
+  // ── Location Experience (Phase 1) ──
+  // Journeys have no user-facing duration ("until I arrive"); this cap only
+  // guards against a forgotten share and is never shown in the UI.
+  static const int _kJourneySafetyCapMinutes = 120;
+  // Post behind this chat — fetched lazily (first location intent) for the
+  // journey destination, picker centering and role-aware intent ordering.
+  PostModel? _chatPost;
+  Future<void>? _chatPostFetch;
+  // Viewer's last-known position for card distance labels. Primed silently —
+  // rendering must never trigger a permission dialog.
+  double? _myLat, _myLng;
+  // Ticks only to expire journey UI (strip/cards) when no realtime event fires.
+  Timer? _journeyUiTimer;
 
   // Typing indicator state
   bool _otherIsTyping = false;
@@ -519,6 +538,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _activeChatId = widget.conversation.id;
     _scrollController.addListener(_onScroll);
     _messageController.addListener(_onTypingChanged);
@@ -556,10 +576,32 @@ class _ChatScreenState extends State<ChatScreen> {
         if (mounted && rep != null) setState(() => _headerRep = rep);
       });
     }
+    // Location Experience: prime the viewer position for distance labels and
+    // keep journey UI (strip, LIVE states) honest when no realtime event lands.
+    _primeViewerPosition();
+    _journeyUiTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted && _messages.any((m) => m.isLiveLocation)) setState(() {});
+    });
+  }
+
+  /// Android may tear the Realtime websocket down while backgrounded without
+  /// the client seeing a close event. Rebuilding the subscription on resume
+  /// re-joins the channels and runs one catch-up fetch, so anything that landed
+  /// while we were away appears immediately. Lifecycle edge only — not a poll.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed) return;
+    if (!mounted || _chatId.isEmpty) return;
+    _realtimeSubscription?.cancel();
+    _realtimeSubscription = null;
+    _startRealtimeMessages();
+    _markSeenNow();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // Clear active chat so notifications resume for other chats.
     context.read<AppProvider>().setActiveChatId(null);
     _realtimeSubscription?.cancel();
@@ -571,6 +613,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _onlineStatusTimer?.cancel();
     _liveLocationSubscription?.cancel();
     _liveEndTimer?.cancel();
+    _journeyUiTimer?.cancel();
     // Flush any pending thread-cache write so the last messages of the
     // session are on disk for the next instant open.
     _cacheSaveDebounce?.cancel();
@@ -625,7 +668,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// Subscribe to Supabase Realtime for this chat. Messages arrive instantly.
+  /// Idempotent: three paths can reach here (initState, app resume, lazy chat
+  /// creation on first send). Without dropping the previous subscription each
+  /// call opened another pair of channels, so every message was delivered once
+  /// per live stream — harmless visually (upsert dedupes by id) but a real
+  /// socket/CPU leak that grows with each resume.
   void _startRealtimeMessages() {
+    _realtimeSubscription?.cancel();
     _realtimeSubscription = ChatServiceSupabase.watchMessages(
       _chatId,
       widget.currentUserId,
@@ -651,6 +700,12 @@ class _ChatScreenState extends State<ChatScreen> {
         _loadingMessages = false;
         _hasMoreOlder = messages.length >= 30;
       });
+      // Re-adopt an orphaned journey: if this device's user has a live share
+      // but this screen instance isn't streaming (chat was closed/reopened,
+      // app restarted), take ownership again so position updates resume and
+      // Stop / I've arrived stay available. Without this the share would idle
+      // frozen until the safety cap.
+      _readoptOwnLiveJourney();
       if (messages.isNotEmpty) {
         _scheduleCacheSave(merged);
       }
@@ -748,6 +803,11 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// A peer counts as "online" only while its presence heartbeat is newer than
+  /// this. Must exceed the writer's heartbeat interval (60s) with margin for a
+  /// missed beat and clock skew.
+  static const Duration _presenceStaleAfter = Duration(seconds: 150);
+
   static String _lastSeenLabel(DateTime lastSeen) {
     final diff = DateTime.now().difference(lastSeen);
     if (diff.inMinutes < 2) return 'last seen just now';
@@ -785,15 +845,20 @@ class _ChatScreenState extends State<ChatScreen> {
           .eq('id', participantId)
           .maybeSingle();
       if (!mounted || row == null) return;
-      final isOnline = row['is_online'] as bool? ?? false;
+      final flaggedOnline = row['is_online'] as bool? ?? false;
+      final lastSeen = parseServerTimeOrNull(row['last_seen']);
+      // `is_online` alone cannot be trusted: it is a flag the other device
+      // wrote, and a crash / force-stop / lost network leaves it stuck true
+      // forever. Treat it as authoritative only while the heartbeat behind it
+      // is fresh, otherwise fall back to the last-seen label. Presence is
+      // derived from observed liveness, never from a stale boolean.
+      final heartbeatFresh = lastSeen != null &&
+          DateTime.now().toUtc().difference(lastSeen.toUtc()) < _presenceStaleAfter;
       String label = '';
-      if (isOnline) {
+      if (flaggedOnline && heartbeatFresh) {
         label = 'online';
-      } else {
-        final lastSeen = row['last_seen'] != null
-            ? DateTime.tryParse(row['last_seen'].toString())?.toLocal()
-            : null;
-        if (lastSeen != null) label = _lastSeenLabel(lastSeen);
+      } else if (lastSeen != null) {
+        label = _lastSeenLabel(lastSeen.toLocal());
       }
       // Only rebuild when the label actually changed — this runs on a timer
       // and a no-op setState would rebuild the whole screen every 30s.
@@ -1168,7 +1233,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
                 child: Text(
-                  'Share',
+                  'Share something',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
@@ -1199,10 +1264,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 icon: Iconsax.location,
                 color: AppTheme.successGreen,
                 title: 'Location',
-                subtitle: 'Current spot or live sharing',
+                subtitle: 'Share or request location',
                 onTap: () {
                   Navigator.pop(context);
-                  _showLocationOptions();
+                  _openLocationIntents();
                 },
               ),
             ],
@@ -1212,85 +1277,159 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _showLocationOptions() {
+  // ── Location Experience (Phase 1) ─────────────────────────────────────────
+  // Three user intents (On my way / Send a place / Request location) replace
+  // the old current-vs-live + duration taxonomy. Durations are never asked:
+  // journeys end manually ("I've arrived" / Stop) under a silent safety cap.
+
+  /// The newest still-live journey in this thread (either side), if any.
+  Message? get _activeJourney {
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final m = _messages[i];
+      if (m.isLiveNow && _isLocallyVisible(m)) return m;
+    }
+    return null;
+  }
+
+  /// If the newest live share in this thread belongs to the current user and
+  /// no local stream owns it, adopt it: resume 8s position updates and re-arm
+  /// the safety-cap timer with the REMAINING window. Idempotent.
+  void _readoptOwnLiveJourney() {
+    if (_liveMessageId != null) return;
+    Message? mine;
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final m = _messages[i];
+      if (m.isLiveNow && m.isMe) {
+        mine = m;
+        break;
+      }
+    }
+    if (mine == null) return;
+    _liveMessageId = mine.id;
+    final remaining = mine.liveUntil!.difference(DateTime.now());
+    _liveEndTimer?.cancel();
+    _liveEndTimer = Timer(remaining.isNegative ? Duration.zero : remaining, () {
+      if (mounted) _stopLiveSharing();
+    });
+    _liveLocationSubscription?.cancel();
+    _liveLocationSubscription =
+        LocationService.positionUpdatesEvery(intervalSeconds: 8).listen((pos) {
+      if (_liveMessageId == null) return;
+      ChatServiceSupabase.updateMessageLocation(
+        messageId: _liveMessageId!,
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+      );
+    });
+    if (mounted) setState(() {});
+  }
+
+  /// Viewer position for card distance labels — silent, never prompts.
+  Future<void> _primeViewerPosition() async {
+    final pos = await LocationService.getCurrentPosition(requestIfNeeded: false);
+    if (mounted && pos != null) {
+      setState(() {
+        _myLat = pos.latitude;
+        _myLng = pos.longitude;
+      });
+    }
+  }
+
+  /// Lazily fetches the post behind this chat (destination, picker centering,
+  /// role ordering). Deduplicated; a failure just means graceful fallbacks.
+  Future<void> _ensureChatPost() {
+    final postId = widget.conversation.postId;
+    if (_chatPost != null || postId == null || postId.isEmpty) {
+      return Future.value();
+    }
+    return _chatPostFetch ??= PostService.getPostById(postId).then((post) {
+      if (mounted && post != null) setState(() => _chatPost = post);
+    }).catchError((_) {
+      _chatPostFetch = null; // allow a retry on the next intent
+    });
+  }
+
+  /// Role-aware intent ordering: the person who did NOT author a request/job
+  /// post is usually the one travelling, so "On my way" leads for them. For
+  /// offer posts it is inverted (the author is the provider). Falls back to
+  /// traveller-first — the most common marketplace action — until the post is
+  /// known. Ordering only; every intent stays available to both sides.
+  bool get _travellerFirst {
+    final post = _chatPost;
+    if (post == null) return true;
+    final mine = post.authorUserId == widget.currentUserId;
+    if (post.type == PostType.offer) return mine;
+    return !mine;
+  }
+
+  void _openLocationIntents() {
     if (_isSending) return;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SheetHandle(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-                child: Text(
-                  'Share location',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              _AttachOption(
-                icon: Iconsax.location,
-                color: AppTheme.primaryAccent,
-                title: 'Send current location',
-                subtitle: 'Share your location once',
-                onTap: () {
-                  Navigator.pop(context);
-                  _sendCurrentLocation();
-                },
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                child: Text(
-                  'SHARE LIVE LOCATION',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.6,
-                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                  ),
-                ),
-              ),
-              _LiveOption(minutes: 15, onTap: () { Navigator.pop(context); _startLiveLocation(15); }),
-              _LiveOption(minutes: 30, onTap: () { Navigator.pop(context); _startLiveLocation(30); }),
-              _LiveOption(minutes: 60, onTap: () { Navigator.pop(context); _startLiveLocation(60); }),
-            ],
-          ),
-        ),
-      ),
+    // Warm-ups so the full-screen surfaces open already-informed: the post
+    // (destination/centering) and a silent GPS fix. Neither blocks the sheet.
+    _ensureChatPost();
+    _primeViewerPosition();
+    LocationIntents.show(
+      context,
+      travellerFirst: _travellerFirst,
+      onOnMyWay: _startJourneyFlow,
+      onSendPlace: _openPlacePicker,
+      onRequestLocation: _sendLocationRequest,
     );
   }
 
-  Future<void> _sendCurrentLocation() async {
+  /// "On my way": confirm screen (destination from the post when it has one),
+  /// then start sharing. The confirm screen owns the permission scenario.
+  Future<void> _startJourneyFlow() async {
+    await _ensureChatPost();
+    if (!mounted) return;
+    final post = _chatPost;
+    final destination = (post?.latitude != null && post?.longitude != null)
+        ? LatLng(post!.latitude!, post.longitude!)
+        : null;
+    final start = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => JourneyConfirmScreen(
+          destination: destination,
+          destinationTitle: widget.conversation.postTitle ?? post?.title ?? 'This job',
+          destinationSubtitle: post?.location ?? '',
+        ),
+      ),
+    );
+    if (start == true && mounted) await _startJourney();
+  }
+
+  /// "Send a place": full-screen picker centered on the job → last-known
+  /// position → default region. Works fully without GPS (Scenario B).
+  Future<void> _openPlacePicker() async {
+    await _ensureChatPost();
+    if (!mounted) return;
+    final post = _chatPost;
+    LatLng? center;
+    if (post?.latitude != null && post?.longitude != null) {
+      center = LatLng(post!.latitude!, post.longitude!);
+    } else if (_myLat != null && _myLng != null) {
+      center = LatLng(_myLat!, _myLng!);
+    }
+    final picked = await Navigator.of(context).push<PickedPlace>(
+      MaterialPageRoute(builder: (_) => PlacePickerScreen(initialCenter: center)),
+    );
+    if (picked != null && mounted) await _sendPickedPlace(picked);
+  }
+
+  Future<void> _sendPickedPlace(PickedPlace place) async {
     setState(() => _isSending = true);
     if (!await _ensureChatCreated()) {
       if (mounted) { setState(() => _isSending = false); _showError('Could not start chat. Please try again.'); }
       return;
     }
     await SupabaseAuthBridge.ensureSessionAsync();
-    final position = await LocationService.getCurrentPosition();
-    if (!mounted) return;
-    if (position == null) {
-      setState(() => _isSending = false);
-      _showError('Location unavailable. Enable location and try again.');
-      return;
-    }
     try {
       await ChatServiceSupabase.sendLocation(
         chatId: _chatId,
         senderId: widget.currentUserId,
-        latitude: position.latitude,
-        longitude: position.longitude,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        label: place.label,
       );
       if (mounted) {
         setState(() => _isSending = false);
@@ -1299,12 +1438,37 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isSending = false);
-        _showError('Failed to send location.');
+        _showError('Failed to send the place.');
       }
     }
   }
 
-  Future<void> _startLiveLocation(int durationMinutes) async {
+  /// "Request location": sends immediately — no second UI (by design).
+  Future<void> _sendLocationRequest() async {
+    setState(() => _isSending = true);
+    if (!await _ensureChatCreated()) {
+      if (mounted) { setState(() => _isSending = false); _showError('Could not start chat. Please try again.'); }
+      return;
+    }
+    await SupabaseAuthBridge.ensureSessionAsync();
+    try {
+      await ChatServiceSupabase.sendLocationRequest(
+        chatId: _chatId,
+        senderId: widget.currentUserId,
+      );
+      if (mounted) {
+        setState(() => _isSending = false);
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSending = false);
+        _showError('Could not send the request.');
+      }
+    }
+  }
+
+  Future<void> _startJourney() async {
     setState(() => _isSending = true);
     if (!await _ensureChatCreated()) {
       if (mounted) { setState(() => _isSending = false); _showError('Could not start chat. Please try again.'); }
@@ -1324,7 +1488,7 @@ class _ChatScreenState extends State<ChatScreen> {
         senderId: widget.currentUserId,
         latitude: position.latitude,
         longitude: position.longitude,
-        durationMinutes: durationMinutes,
+        durationMinutes: _kJourneySafetyCapMinutes,
       );
       if (!mounted) return;
       setState(() {
@@ -1333,7 +1497,8 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       _scrollToBottom();
 
-      _liveEndTimer = Timer(Duration(minutes: durationMinutes), () {
+      // Safety cap only — journeys end via "I've arrived" or Stop.
+      _liveEndTimer = Timer(const Duration(minutes: _kJourneySafetyCapMinutes), () {
         if (!mounted) return;
         _stopLiveSharing();
       });
@@ -1349,7 +1514,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isSending = false);
-        _showError('Failed to start live location.');
+        _showError('Failed to start the journey.');
       }
     }
   }
@@ -1365,6 +1530,64 @@ class _ChatScreenState extends State<ChatScreen> {
       } catch (_) {}
       if (mounted) setState(() => _liveMessageId = null);
     }
+  }
+
+  /// "I've arrived": ends the journey as ARRIVED (the card mutates into the
+  /// receipt on both sides via realtime), then offers to notify the other
+  /// party — a clear, human end to the journey without auto-detection (P2).
+  Future<void> _markArrived() async {
+    final messageId = _liveMessageId;
+    if (messageId == null) return;
+    _liveEndTimer?.cancel();
+    _liveEndTimer = null;
+    await _liveLocationSubscription?.cancel();
+    _liveLocationSubscription = null;
+    try {
+      await ChatServiceSupabase.markJourneyArrived(messageId);
+    } catch (_) {
+      // Row update failed (offline?) — at minimum stop the live window.
+      try { await ChatServiceSupabase.stopLiveLocation(messageId); } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() => _liveMessageId = null);
+
+    final partner = widget.conversation.userName.trim();
+    final notify = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text("You've arrived"),
+        content: Text(
+          'Send ${partner.isEmpty ? 'them' : partner} a heads-up that you are at the location?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Notify'),
+          ),
+        ],
+      ),
+    );
+    if (notify == true && mounted) {
+      try {
+        await ChatServiceSupabase.sendMessage(
+          chatIdParam: _chatId,
+          senderId: widget.currentUserId,
+          content: "🔔 I've arrived at the location.",
+        );
+        if (mounted) _scrollToBottom();
+      } catch (_) {
+        if (mounted) _showError('Could not send the arrival note.');
+      }
+    }
+  }
+
+  /// Recipient tapped "Share now" on a request card → straight into the picker.
+  void _respondToLocationRequest() {
+    _openPlacePicker();
   }
 
   /// Opens the FULL production post detail screen — the exact same screen
@@ -1663,8 +1886,10 @@ class _ChatScreenState extends State<ChatScreen> {
       final prevMsg = i > 0 ? messages[i - 1] : null;
       final nextMsg = i < messages.length - 1 ? messages[i + 1] : null;
 
-      // Insert a date divider whenever the calendar day changes.
-      final msgDate = DateTime(msg.timestamp.year, msg.timestamp.month, msg.timestamp.day);
+      // Insert a date divider whenever the LOCAL calendar day changes. Using
+      // the raw (UTC) components split days at UTC midnight, which put evening
+      // messages under the wrong date header.
+      final msgDate = localDay(msg.timestamp);
       if (lastDate == null || msgDate != lastDate) {
         items.add(_ChatDateDivider(msgDate));
         lastDate = msgDate;
@@ -1796,6 +2021,20 @@ class _ChatScreenState extends State<ChatScreen> {
                     ? () => _openPostFromChat(widget.conversation.postId!)
                     : null,
               ),
+            // Journey strip — persistent, lightweight "on the way" state while
+            // a journey is live (either direction). Tap opens the live map.
+            if (_activeJourney != null)
+              Builder(builder: (context) {
+                final journey = _activeJourney!;
+                final mine = journey.isMe;
+                return JourneyStatusStrip(
+                  title: mine
+                      ? "You're sharing your journey"
+                      : '${widget.conversation.userName} is on the way',
+                  onTap: journey.hasValidCoordinates ? () => _openFullScreenMap(journey) : null,
+                  onStop: mine && _liveMessageId == journey.id ? _stopLiveSharing : null,
+                );
+              }),
             // Job/payment tracking moved to the three-dot menu (Job status
             // sheet) — the conversation keeps its full height for messages.
             // Messages: cache-hydrated instantly, then Supabase Realtime.
@@ -1906,7 +2145,15 @@ class _ChatScreenState extends State<ChatScreen> {
                           isLastInGroup: msgItem.isLastInGroup,
                           isLiveSharing: _liveMessageId == msgItem.message.id,
                           onStopLiveSharing: msgItem.message.id == _liveMessageId ? _stopLiveSharing : null,
+                          onMarkArrived: msgItem.message.id == _liveMessageId ? _markArrived : null,
                           onTapLocation: msgItem.message.hasValidCoordinates ? () => _openFullScreenMap(msgItem.message) : null,
+                          onRespondToRequest:
+                              msgItem.message.isLocationRequest && !msgItem.message.isMe
+                                  ? _respondToLocationRequest
+                                  : null,
+                          partnerName: widget.conversation.userName,
+                          viewerLat: _myLat,
+                          viewerLng: _myLng,
                           onLongPressMessage: msgItem.isPending || msgItem.message.deletedForEveryone
                               ? null
                               : _showMessageActions,
@@ -2281,25 +2528,6 @@ class _AttachOption extends StatelessWidget {
   }
 }
 
-class _LiveOption extends StatelessWidget {
-  final int minutes;
-  final VoidCallback onTap;
-
-  const _LiveOption({required this.minutes, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: AppTheme.secondaryAccent.withValues(alpha: 0.2),
-        child: const Icon(Iconsax.location_tick, color: AppTheme.secondaryAccent, size: 20),
-      ),
-      title: Text('$minutes min'),
-      onTap: onTap,
-    );
-  }
-}
-
 class _MessageBubble extends StatelessWidget {
   final Message message;
   final String currentUserId;
@@ -2308,7 +2536,15 @@ class _MessageBubble extends StatelessWidget {
   final bool isPending;
   final bool isLiveSharing;
   final VoidCallback? onStopLiveSharing;
+  final VoidCallback? onMarkArrived;
   final VoidCallback? onTapLocation;
+  /// Recipient-side "Share now" on a location request card.
+  final VoidCallback? onRespondToRequest;
+  /// Other participant's display name (request card copy).
+  final String partnerName;
+  /// Viewer's last-known position — powers "2.1 km away" on location cards.
+  final double? viewerLat;
+  final double? viewerLng;
   final bool isFirstInGroup;
   final bool isLastInGroup;
   /// Long-press with the bubble's global rect so the context menu can anchor
@@ -2324,7 +2560,12 @@ class _MessageBubble extends StatelessWidget {
     this.isPending = false,
     this.isLiveSharing = false,
     this.onStopLiveSharing,
+    this.onMarkArrived,
     this.onTapLocation,
+    this.onRespondToRequest,
+    this.partnerName = '',
+    this.viewerLat,
+    this.viewerLng,
     this.isFirstInGroup = true,
     this.isLastInGroup = true,
     this.onLongPressMessage,
@@ -2356,29 +2597,11 @@ class _MessageBubble extends StatelessWidget {
     }
   }
 
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(time.year, time.month, time.day);
-    final timeStr = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-    if (messageDate == today) {
-      return timeStr;
-    }
-    final yesterday = today.subtract(const Duration(days: 1));
-    if (messageDate == yesterday) {
-      return 'Yesterday $timeStr';
-    }
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final weekday = days[time.weekday - 1];
-    return '$weekday $timeStr';
-  }
-
-  int? _minutesLeft(DateTime? liveUntil) {
-    if (liveUntil == null) return null;
-    final d = liveUntil.difference(DateTime.now());
-    if (d.isNegative) return 0;
-    return d.inMinutes + (d.inSeconds % 60 > 0 ? 1 : 0);
-  }
+  /// Message-bubble stamp. Delegates to the canonical formatter so the time is
+  /// rendered in the device's zone and 12h/24h convention — reading
+  /// `time.hour` here rendered the UTC wall clock (3 h behind in EAT).
+  String _formatTime(BuildContext context, DateTime time) =>
+      formatMessageStamp(context, time);
 
   Widget _buildTombstone(BuildContext context, bool isDark) {
     return Padding(
@@ -2624,56 +2847,29 @@ class _MessageBubble extends StatelessWidget {
                       ],
                     ),
                   ),
-                ] else if (isLocation) ...[
-                  GestureDetector(
-                    onTap: onTapLocation,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: SizedBox(
-                        width: 260,
-                        height: 140,
-                        child: _LocationMapPreview(
-                          latitude: message.latitude!,
-                          longitude: message.longitude!,
-                        ),
-                      ),
-                    ),
+                ] else if (message.isLocationRequest) ...[
+                  RequestCard(
+                    message: message,
+                    partnerName: partnerName,
+                    onShareNow: onRespondToRequest,
                   ),
-                  const SizedBox(height: 8),
-                  if (message.isLiveLocation && (message.liveUntil == null || message.liveUntil!.isAfter(DateTime.now()))) ...[
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Iconsax.location_tick,
-                          size: 14,
-                          color: message.isMe ? Colors.white70 : AppTheme.primaryAccent,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Live location (${_minutesLeft(message.liveUntil) ?? 0} min left)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: message.isMe ? Colors.white70 : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (isLiveSharing && onStopLiveSharing != null) ...[
-                      const SizedBox(height: 6),
-                      TextButton.icon(
-                        onPressed: onStopLiveSharing,
-                        icon: const Icon(Icons.stop_circle_outlined, size: 16),
-                        label: const Text('Stop sharing'),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          foregroundColor: message.isMe ? Colors.white : AppTheme.errorRed,
-                        ),
-                      ),
-                    ],
-                  ],
+                ] else if (isLocation && message.isLiveLocation) ...[
+                  JourneyCard(
+                    message: message,
+                    viewerLat: viewerLat,
+                    viewerLng: viewerLng,
+                    isSharing: isLiveSharing,
+                    onStop: onStopLiveSharing,
+                    onArrived: onMarkArrived,
+                    onTap: onTapLocation,
+                  ),
+                ] else if (isLocation) ...[
+                  PlaceCard(
+                    message: message,
+                    viewerLat: viewerLat,
+                    viewerLng: viewerLng,
+                    onTap: onTapLocation,
+                  ),
                 ] else
                   Text(
                     message.text,
@@ -2689,7 +2885,7 @@ class _MessageBubble extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _formatTime(message.timestamp),
+                      _formatTime(context, message.timestamp),
                       style: TextStyle(
                         color: message.isMe
                             ? Colors.white.withValues(alpha: 0.7)
@@ -2861,20 +3057,7 @@ class _DateDivider extends StatelessWidget {
 
   const _DateDivider({required this.date});
 
-  String _label() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final d = DateTime(date.year, date.month, date.day);
-    if (d == today) return 'Today';
-    if (d == yesterday) return 'Yesterday';
-    if (today.difference(d).inDays < 7) {
-      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-      return days[date.weekday - 1];
-    }
-    const months = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${months[date.month]} ${date.day}';
-  }
+  String _label() => formatDateSeparator(date);
 
   @override
   Widget build(BuildContext context) {
@@ -2916,35 +3099,6 @@ class _DateDivider extends StatelessWidget {
 }
 
 // ── Map preview helpers ────────────────────────────────────────────────────
-
-class _LocationMapPreview extends StatelessWidget {
-  final double latitude;
-  final double longitude;
-
-  const _LocationMapPreview({required this.latitude, required this.longitude});
-
-  @override
-  Widget build(BuildContext context) {
-    return GoogleMap(
-      initialCameraPosition: CameraPosition(
-        target: LatLng(latitude, longitude),
-        zoom: 15,
-      ),
-      markers: {
-        Marker(
-          markerId: const MarkerId('loc'),
-          position: LatLng(latitude, longitude),
-        ),
-      },
-      liteModeEnabled: true,
-      zoomControlsEnabled: false,
-      scrollGesturesEnabled: false,
-      zoomGesturesEnabled: false,
-      myLocationButtonEnabled: false,
-      mapToolbarEnabled: false,
-    );
-  }
-}
 
 class _FullScreenMapScreen extends StatefulWidget {
   final String conversationId;
@@ -2991,14 +3145,6 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
     }
   }
 
-  int? get _minutesLeft {
-    final u = _message.liveUntil;
-    if (u == null) return null;
-    final d = u.difference(DateTime.now());
-    if (d.isNegative) return 0;
-    return d.inMinutes + (d.inSeconds % 60 > 0 ? 1 : 0);
-  }
-
   void _fitBounds() {
     final lat = _message.latitude!;
     final lng = _message.longitude!;
@@ -3024,7 +3170,13 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_message.isLiveLocation ? 'Live location' : 'Location'),
+        title: Text(
+          _message.isJourneyArrived
+              ? 'Journey'
+              : _message.isLiveLocation
+                  ? (_message.text == 'Live location' ? 'Live location' : 'Journey')
+                  : 'Location',
+        ),
         actions: [
           if (widget.canStopSharing && widget.onStopSharing != null)
             TextButton(
@@ -3073,10 +3225,10 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   child: Row(
                     children: [
-                      const Icon(Iconsax.timer_1, color: AppTheme.primaryAccent),
+                      const LiveDot(size: 7),
                       const SizedBox(width: 12),
                       Text(
-                        'Live sharing: ${_minutesLeft ?? 0} min left',
+                        'Sharing live',
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                     ],

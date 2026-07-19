@@ -102,7 +102,7 @@ class UserProfileService {
     try {
       await _client.from('users').update({
         'is_online': isOnline,
-        'last_seen': DateTime.now().toIso8601String(),
+        'last_seen': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService setOnline: $e');
@@ -369,7 +369,7 @@ class UserProfileService {
     if (!_isAvailable || uid.isEmpty) return;
     try {
       await _client.from('users').update({
-        'tos_accepted_at': DateTime.now().toIso8601String(),
+        'tos_accepted_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', uid);
     } catch (e) {
       debugPrint('UserProfileService setTosAccepted: $e');

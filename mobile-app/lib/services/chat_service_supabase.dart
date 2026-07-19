@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/api_config.dart';
 import '../models/post_model.dart';
+import '../utils/time_utils.dart';
+import 'supabase_auth_bridge.dart';
 
 /// Outcome of a delete-for-everyone attempt. Distinct cases so the UI can show
 /// an accurate message: [windowExpired] is the sender's 15-minute rule;
@@ -112,9 +114,7 @@ class ChatServiceSupabase {
         userName: profile.name,
         userAvatar: profile.avatarUrl,
         lastMessage: (row['last_message'] as String? ?? '').toString(),
-        lastMessageTime: row['updated_at'] != null
-            ? DateTime.parse(row['updated_at'].toString())
-            : DateTime.now(),
+        lastMessageTime: parseServerTime(row['updated_at']),
         unreadCount: 0,
         postId: row['post_id']?.toString(),
       );
@@ -153,7 +153,7 @@ class ChatServiceSupabase {
       'user1': user1,
       'user2': user2,
       'last_message': initialMessage.isEmpty ? '' : _truncate(initialMessage),
-      'updated_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
     if (postIdUuid != null) insert['post_id'] = postIdUuid;
     return _client.from('chats').insert(insert).select().single();
@@ -324,9 +324,7 @@ class ChatServiceSupabase {
         userName: profile.name,
         userAvatar: profile.avatarUrl,
         lastMessage: map['last_message'] as String? ?? '',
-        lastMessageTime: map['updated_at'] != null
-            ? DateTime.parse(map['updated_at'].toString())
-            : DateTime.now(),
+        lastMessageTime: parseServerTime(map['updated_at']),
         unreadCount: unreadCount,
         postId: map['post_id']?.toString(),
         postTitle: postTitle,
@@ -438,9 +436,9 @@ class ChatServiceSupabase {
     final senderId = (row['sender_id'] ?? '').toString();
     final content = (row['content'] ?? row['message'] ?? '').toString();
     final type = (row['type'] ?? 'text').toString();
-    final createdAt = row['created_at'] != null
-        ? DateTime.parse(row['created_at'].toString())
-        : DateTime.now();
+    // UTC-normalised: REST sends an offset designator, Realtime/WAL often does
+    // not. parseServerTime makes both paths yield the same instant.
+    final createdAt = parseServerTime(row['created_at']);
     final map = <String, dynamic>{
       'id': id,
       'conversation_id': chatIdParam,
@@ -449,7 +447,7 @@ class ChatServiceSupabase {
       'content': content,
       'message': content,
       'type': type,
-      'created_at': createdAt.toIso8601String(),
+      'created_at': toServerTime(createdAt),
       'status': (row['status'] ?? 'sent').toString(),
       if (row['seen_at'] != null) 'seen_at': row['seen_at'].toString(),
     };
@@ -591,6 +589,27 @@ class ChatServiceSupabase {
   /// from the realtime payload — no full re-fetch per message (eliminates N
   /// round-trips after initial load).
   /// The caller should cancel the subscription in dispose().
+  /// Live message stream for one chat.
+  ///
+  /// Delivery contract: a row inserted or updated by ANY participant lands in
+  /// this stream while the screen stays open — no reopen, no poll.
+  ///
+  /// Resilience, learned from a production outage where the thread only ever
+  /// populated from the initial REST fetch:
+  ///  • INSERT and UPDATE get their OWN channels. Postgres-changes bindings are
+  ///    validated per channel, so one rejected binding used to fail the whole
+  ///    channel and silently take new-message delivery down with it. Split, a
+  ///    degraded UPDATE path can never cost us new messages.
+  ///  • The JWT is resolved BEFORE subscribing. Realtime authorises the socket
+  ///    at join time; joining before the Firebase→Supabase exchange finished
+  ///    joined as `anon`, RLS rejected it, and the channel died permanently.
+  ///  • channelError / timedOut / closed schedule a re-subscribe with capped
+  ///    exponential backoff instead of leaving a dead socket.
+  ///  • Every successful (re)join triggers ONE catch-up fetch to heal the gap
+  ///    that existed while disconnected. This is reconciliation on a lifecycle
+  ///    edge, not polling — nothing runs on a timer.
+  ///  • Channel topics are unique per subscription, so opening the same chat
+  ///    twice (deep link over an open thread) cannot collide on one topic.
   static Stream<List<Message>> watchMessages(
     String chatId,
     String currentUserId,
@@ -598,82 +617,211 @@ class ChatServiceSupabase {
     if (chatId.isEmpty) return Stream.value([]);
 
     final controller = StreamController<List<Message>>.broadcast();
-    RealtimeChannel? channel;
     final messages = <Message>[];
+    final topicSuffix = DateTime.now().microsecondsSinceEpoch;
 
-    Future<void> loadInitial() async {
+    RealtimeChannel? insertChannel;
+    RealtimeChannel? updateChannel;
+    Timer? retryTimer;
+    Timer? stabilityTimer;
+    var retryAttempt = 0;
+    var disposed = false;
+    var resyncing = false;
+    DateTime? lastResyncAt;
+    // Bumped on every (re)subscribe. Status callbacks carry the generation they
+    // were created with, so callbacks from channels we have already torn down
+    // (removeChannel fires `closed`) can't schedule retries for the live one.
+    var generation = 0;
+
+    void emit() {
+      if (!controller.isClosed) controller.add(List.of(messages));
+    }
+
+    /// Insert-or-replace by id, keeping the thread in chronological order.
+    /// Idempotent: realtime redelivery and a catch-up fetch covering the same
+    /// row converge to one entry, so nothing double-renders.
+    void upsert(Message msg, {bool insertIfMissing = true}) {
+      if (msg.id.isEmpty) return;
+      final idx = messages.indexWhere((m) => m.id == msg.id);
+      if (idx != -1) {
+        messages[idx] = msg;
+      } else {
+        if (!insertIfMissing) return;
+        messages.add(msg);
+        messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      }
+      emit();
+    }
+
+    /// One-shot reconciliation: pulls the latest page and merges it in. Used
+    /// for the first load and after every reconnect.
+    Future<void> resync({bool force = false}) async {
+      if (disposed || resyncing) return;
+      // Throttle: a server that rejects our bindings can flap subscribed→error
+      // repeatedly, and each rejoin would otherwise fire a REST fetch.
+      final since = lastResyncAt;
+      if (!force && since != null &&
+          DateTime.now().difference(since) < const Duration(seconds: 5)) {
+        return;
+      }
+      lastResyncAt = DateTime.now();
+      resyncing = true;
       try {
         final result = await getMessagesPage(chatId, currentUserId);
-        messages
-          ..clear()
-          ..addAll(result.messages);
-        if (!controller.isClosed) controller.add(List.of(messages));
-      } catch (e) {
-        debugPrint('ChatServiceSupabase watchMessages initial fetch: $e');
-      }
-    }
-
-    void onInsert(PostgresChangePayload payload) {
-      try {
-        final row = Map<String, dynamic>.from(payload.newRecord);
-        final msg = _messageFromRow(row, chatId, currentUserId);
-        if (msg.id.isNotEmpty && !messages.any((m) => m.id == msg.id)) {
-          messages.add(msg);
+        if (disposed) return;
+        var changed = false;
+        for (final m in result.messages) {
+          final idx = messages.indexWhere((e) => e.id == m.id);
+          if (idx == -1) {
+            messages.add(m);
+            changed = true;
+          } else if (messages[idx] != m) {
+            messages[idx] = m;
+            changed = true;
+          }
+        }
+        if (changed) {
           messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-          if (!controller.isClosed) controller.add(List.of(messages));
         }
+        // Always emit the first load so the screen can leave its spinner even
+        // when the thread is empty.
+        emit();
       } catch (e) {
-        debugPrint('ChatServiceSupabase watchMessages insert payload: $e');
+        debugPrint('ChatServiceSupabase watchMessages resync: $e');
+      } finally {
+        resyncing = false;
       }
     }
 
-    void onUpdate(PostgresChangePayload payload) {
+    void handleRow(PostgresChangePayload payload, {required bool isInsert}) {
       try {
         final row = Map<String, dynamic>.from(payload.newRecord);
-        final msg = _messageFromRow(row, chatId, currentUserId);
-        if (msg.id.isEmpty) return;
-        final idx = messages.indexWhere((m) => m.id == msg.id);
-        if (idx != -1) {
-          messages[idx] = msg;
-          if (!controller.isClosed) controller.add(List.of(messages));
-        }
+        if (row.isEmpty) return;
+        // An UPDATE for a row we have not loaded yet (older page) is not worth
+        // materialising; an INSERT always is.
+        upsert(
+          _messageFromRow(row, chatId, currentUserId),
+          insertIfMissing: isInsert,
+        );
       } catch (e) {
-        debugPrint('ChatServiceSupabase watchMessages update payload: $e');
+        debugPrint('ChatServiceSupabase watchMessages payload: $e');
       }
     }
 
-    loadInitial();
+    // Declared late so scheduleRetry/onStatus (defined below) can re-enter it.
+    late final Future<void> Function() subscribeAll;
 
-    channel = _client
-        .channel('chat_messages:$chatId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'chat_messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'chat_id',
-            value: chatId,
-          ),
-          callback: onInsert,
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'chat_messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'chat_id',
-            value: chatId,
-          ),
-          callback: onUpdate,
-        )
-        .subscribe((status, [error]) {
-          debugPrint('ChatServiceSupabase watchMessages channel status: $status error: $error');
-        });
+    void scheduleRetry(String reason) {
+      if (disposed || retryTimer != null) return;
+      retryAttempt = retryAttempt >= 5 ? 5 : retryAttempt + 1;
+      final delay = Duration(seconds: 1 << (retryAttempt - 1)); // 1,2,4,8,16s
+      debugPrint(
+        'ChatServiceSupabase watchMessages: $reason — resubscribing in '
+        '${delay.inSeconds}s (attempt $retryAttempt)',
+      );
+      retryTimer = Timer(delay, () {
+        retryTimer = null;
+        if (!disposed) unawaited(subscribeAll());
+      });
+    }
+
+    void teardownChannels() {
+      final oldInsert = insertChannel;
+      final oldUpdate = updateChannel;
+      insertChannel = null;
+      updateChannel = null;
+      if (oldInsert != null) _client.removeChannel(oldInsert);
+      if (oldUpdate != null) _client.removeChannel(oldUpdate);
+    }
+
+    void onStatus(
+      String label,
+      int gen,
+      RealtimeSubscribeStatus status,
+      Object? error,
+    ) {
+      // Ignore late callbacks from a superseded subscription.
+      if (disposed || gen != generation) return;
+      debugPrint(
+        'ChatServiceSupabase watchMessages[$label] status: $status error: $error',
+      );
+      switch (status) {
+        case RealtimeSubscribeStatus.subscribed:
+          // Joined (or re-joined): heal whatever we missed while away.
+          unawaited(resync());
+          // Only clear the backoff once the join has PROVEN stable. A server
+          // that accepts the join then immediately rejects the binding (e.g.
+          // the table is not in the realtime publication) would otherwise reset
+          // the backoff every cycle and spin a hot retry loop.
+          stabilityTimer?.cancel();
+          stabilityTimer = Timer(const Duration(seconds: 8), () {
+            if (!disposed && gen == generation) retryAttempt = 0;
+          });
+          break;
+        case RealtimeSubscribeStatus.channelError:
+        case RealtimeSubscribeStatus.timedOut:
+        case RealtimeSubscribeStatus.closed:
+          stabilityTimer?.cancel();
+          stabilityTimer = null;
+          scheduleRetry('$label $status');
+          break;
+      }
+    }
+
+    subscribeAll = () async {
+      if (disposed) return;
+      final gen = ++generation; // invalidates callbacks from the old channels
+      teardownChannels();
+
+      // Realtime authorises the socket at JOIN time. Resolve the Supabase JWT
+      // first, otherwise the channel joins as `anon`, RLS rejects it and the
+      // subscription is dead for the life of the screen.
+      try {
+        await SupabaseAuthBridge.ensureSessionAsync();
+      } catch (e) {
+        debugPrint('ChatServiceSupabase watchMessages auth: $e');
+      }
+      if (disposed || gen != generation) return;
+
+      final filter = PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'chat_id',
+        value: chatId,
+      );
+
+      insertChannel = _client
+          .channel('chat_messages_ins:$chatId:$topicSuffix')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'chat_messages',
+            filter: filter,
+            callback: (p) => handleRow(p, isInsert: true),
+          )
+          .subscribe((status, [error]) => onStatus('insert', gen, status, error));
+
+      updateChannel = _client
+          .channel('chat_messages_upd:$chatId:$topicSuffix')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.update,
+            schema: 'public',
+            table: 'chat_messages',
+            filter: filter,
+            callback: (p) => handleRow(p, isInsert: false),
+          )
+          .subscribe((status, [error]) => onStatus('update', gen, status, error));
+    };
+
+    unawaited(resync());
+    unawaited(subscribeAll());
 
     controller.onCancel = () {
-      channel?.unsubscribe();
+      disposed = true;
+      retryTimer?.cancel();
+      retryTimer = null;
+      stabilityTimer?.cancel();
+      stabilityTimer = null;
+      teardownChannels();
     };
 
     return controller.stream;
@@ -705,7 +853,7 @@ class ChatServiceSupabase {
       debugPrint('[CHAT_NOTIFY][SEND] chat_id=$chatIdParam sender_id=$senderId');
       await _client.from('chats').update({
         'last_message': _truncate(text),
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatIdParam);
       // Fire-and-forget push notification to recipient.
       unawaited(_notifyBackend(chatId: chatIdParam, senderId: senderId, preview: text));
@@ -739,7 +887,7 @@ class ChatServiceSupabase {
       debugPrint('[CHAT_NOTIFY][SEND] attachment type=$type chat_id=$chatIdParam sender_id=$senderId');
       await _client.from('chats').update({
         'last_message': content,
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatIdParam);
       unawaited(_notifyBackend(chatId: chatIdParam, senderId: senderId, preview: content));
       return _messageFromRow(row, chatIdParam, senderId);
@@ -749,18 +897,22 @@ class ChatServiceSupabase {
     }
   }
 
-  /// Send current location (one-time).
+  /// Send a place (static pin). [label] is the user's human name for the spot
+  /// ("Black gate next to the kiosk"); it becomes the message content so chat
+  /// previews and reply quotes read naturally. Falls back to 'Location'.
   static Future<Message> sendLocation({
     required String chatId,
     required String senderId,
     required double latitude,
     required double longitude,
+    String? label,
   }) async {
+    final content = (label != null && label.trim().isNotEmpty) ? label.trim() : 'Location';
     try {
       final insert = {
         'chat_id': chatId,
         'sender_id': senderId,
-        'content': 'Location',
+        'content': content,
         'type': 'location',
         'latitude': latitude,
         'longitude': longitude,
@@ -769,11 +921,11 @@ class ChatServiceSupabase {
       final row = res as Map<String, dynamic>;
       debugPrint('ChatServiceSupabase sendLocation: inserted chat_message id=${row['id']} chat_id=$chatId sender_id=$senderId');
       await _client.from('chats').update({
-        'last_message': 'Location',
-        'updated_at': DateTime.now().toIso8601String(),
+        'last_message': _truncate(content == 'Location' ? 'Location' : '📍 $content'),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatId);
       // Fire-and-forget push to recipient (NestJS — same path as text/attachments).
-      unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '📍 Location'));
+      unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '📍 $content'));
       return _messageFromRow(row, chatId, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendLocation: $e');
@@ -781,20 +933,24 @@ class ChatServiceSupabase {
     }
   }
 
-  /// Start live location sharing.
+  /// Start live location sharing. [content] is the human-readable intent shown
+  /// in previews and as the card title: 'On my way' for journeys (default) —
+  /// legacy rows carry 'Live location'.
   static Future<Message> sendLiveLocation({
     required String chatId,
     required String senderId,
     required double latitude,
     required double longitude,
     required int durationMinutes,
+    String content = 'On my way',
   }) async {
-    final liveUntil = DateTime.now().add(Duration(minutes: durationMinutes));
+    // UTC: timestamptz round-trips a naive-local string as UTC (+offset).
+    final liveUntil = DateTime.now().toUtc().add(Duration(minutes: durationMinutes));
     try {
       final insert = {
         'chat_id': chatId,
         'sender_id': senderId,
-        'content': 'Live location',
+        'content': content,
         'type': 'live_location',
         'latitude': latitude,
         'longitude': longitude,
@@ -804,11 +960,11 @@ class ChatServiceSupabase {
       final row = res as Map<String, dynamic>;
       debugPrint('ChatServiceSupabase sendLiveLocation: inserted chat_message id=${row['id']} chat_id=$chatId sender_id=$senderId');
       await _client.from('chats').update({
-        'last_message': 'Live location',
-        'updated_at': DateTime.now().toIso8601String(),
+        'last_message': '🚗 $content',
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatId);
       // Fire-and-forget push to recipient (NestJS — same path as text/attachments).
-      unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '📍 Live location'));
+      unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '🚗 $content'));
       return _messageFromRow(row, chatId, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendLiveLocation: $e');
@@ -816,8 +972,62 @@ class ChatServiceSupabase {
     }
   }
 
-  /// Update live location message (same row).
-  static Future<void> updateMessageLocation({
+  /// Ask the other participant for their location. Renders as a Request Card
+  /// with an inline "Share now" action on the recipient side. No coordinates
+  /// are attached — this is a prompt, not a share.
+  static Future<Message> sendLocationRequest({
+    required String chatId,
+    required String senderId,
+  }) async {
+    try {
+      final insert = {
+        'chat_id': chatId,
+        'sender_id': senderId,
+        'content': 'Location requested',
+        'type': 'location_request',
+      };
+      final res = await _client.from('chat_messages').insert(insert).select().single();
+      final row = res as Map<String, dynamic>;
+      debugPrint('ChatServiceSupabase sendLocationRequest: inserted chat_message id=${row['id']} chat_id=$chatId');
+      await _client.from('chats').update({
+        'last_message': '📍 Location requested',
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', chatId);
+      unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '📍 Location requested'));
+      return _messageFromRow(row, chatId, senderId);
+    } catch (e) {
+      debugPrint('ChatServiceSupabase sendLocationRequest: $e');
+      rethrow;
+    }
+  }
+
+  /// End a journey as ARRIVED: closes the live window and stamps the message
+  /// so both sides render the "Arrived" state (content is the render flag —
+  /// same row-update RLS path as stopLiveLocation/updateMessageLocation).
+  static Future<void> markJourneyArrived(String messageId) async {
+    try {
+      await _client.from('chat_messages').update({
+        'content': 'Arrived',
+        // UTC: live_until is timestamptz; a naive-local string round-trips as
+        // UTC and displays +offset (the arrival receipt showed +3h in EAT).
+        'live_until': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', messageId);
+    } catch (e) {
+      debugPrint('ChatServiceSupabase markJourneyArrived: $e');
+      rethrow;
+    }
+  }
+
+  /// Push the traveller's current position onto the live journey row.
+  ///
+  /// Best-effort by design and therefore NEVER throws: this is a periodic beat
+  /// (every 8s) fired from a stream listener that cannot await it, so a rethrow
+  /// surfaced as an unhandled async exception on every transient network blip —
+  /// observed in the field as repeated
+  /// `ClientException: SSLV3_ALERT_BAD_RECORD_MAC` crashing out of the journey
+  /// loop. A dropped beat is harmless: the next one carries a fresher position
+  /// and supersedes it. Returns false so a caller can react if it wants to.
+  static Future<bool> updateMessageLocation({
     required String messageId,
     required double latitude,
     required double longitude,
@@ -827,9 +1037,10 @@ class ChatServiceSupabase {
         'latitude': latitude,
         'longitude': longitude,
       }).eq('id', messageId);
+      return true;
     } catch (e) {
-      debugPrint('ChatServiceSupabase updateMessageLocation: $e');
-      rethrow;
+      debugPrint('ChatServiceSupabase updateMessageLocation (beat dropped): $e');
+      return false;
     }
   }
 
@@ -837,7 +1048,8 @@ class ChatServiceSupabase {
   static Future<void> stopLiveLocation(String messageId) async {
     try {
       await _client.from('chat_messages').update({
-        'live_until': DateTime.now().toIso8601String(),
+        // UTC: timestamptz round-trips a naive-local string as UTC (+offset).
+        'live_until': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', messageId);
     } catch (e) {
       debugPrint('ChatServiceSupabase stopLiveLocation: $e');
