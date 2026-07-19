@@ -444,12 +444,58 @@ class PlaceCard extends StatelessWidget {
 ///   live     → thumbnail + LIVE + "since HH:mm" (+ Stop / I've arrived for the sharer)
 ///   arrived  → mapless receipt: ✓ Arrived · HH:mm
 ///   ended    → muted "Journey ended", map still openable
+/// How a journey should read RIGHT NOW. One continuous journey, one card that
+/// mutates through these phases — never additional cards (Phase 2 §journey
+/// evolution). The sender derives this from the JourneyEngine state; watchers
+/// derive it from the row via [deriveWatcherJourneyPhase].
+enum JourneyPhase { travelling, nearby, reconnecting, arrived, ended }
+
+/// Watcher-side phase derivation — a pure function of the row plus what this
+/// device knows (the job's destination, and when the last realtime update for
+/// this journey landed). No engine required: the traveller's device is the
+/// only one running a JourneyEngine.
+JourneyPhase deriveWatcherJourneyPhase(
+  Message m, {
+  double? destLat,
+  double? destLng,
+  DateTime? lastEventAt,
+}) {
+  if (m.isJourneyArrived) return JourneyPhase.arrived;
+  if (!m.isLiveNow) return JourneyPhase.ended;
+  // Signal health first: a frozen marker must never masquerade as live truth.
+  if (lastEventAt != null &&
+      DateTime.now().difference(lastEventAt) > const Duration(seconds: 75)) {
+    return JourneyPhase.reconnecting;
+  }
+  if (destLat != null && destLng != null && m.hasValidCoordinates) {
+    final d = Geolocator.distanceBetween(m.latitude!, m.longitude!, destLat, destLng);
+    if (d <= 300) return JourneyPhase.nearby;
+  }
+  return JourneyPhase.travelling;
+}
+
+/// "Updated 40s ago" / "Updated 3m ago" — watcher-side freshness copy.
+String? journeyFreshnessText(DateTime? lastEventAt) {
+  if (lastEventAt == null) return null;
+  final age = DateTime.now().difference(lastEventAt);
+  if (age.inSeconds < 50) return null; // fresh — say nothing
+  if (age.inMinutes < 1) return 'Updated ${age.inSeconds}s ago';
+  if (age.inMinutes < 60) return 'Updated ${age.inMinutes}m ago';
+  return 'Updated ${age.inHours}h ago';
+}
+
 class JourneyCard extends StatelessWidget {
   final Message message;
   final double? viewerLat;
   final double? viewerLng;
   /// True only on the device that is actively streaming this journey.
   final bool isSharing;
+  /// Current phase of this journey (see [JourneyPhase]). Defaults to
+  /// travelling for callers that have no richer knowledge.
+  final JourneyPhase phase;
+  /// When the last realtime update for this journey landed (watcher side) —
+  /// drives the "Updated Xs ago" honesty line while reconnecting.
+  final DateTime? lastEventAt;
   final VoidCallback? onStop;
   final VoidCallback? onArrived;
   final VoidCallback? onTap;
@@ -460,6 +506,8 @@ class JourneyCard extends StatelessWidget {
     this.viewerLat,
     this.viewerLng,
     this.isSharing = false,
+    this.phase = JourneyPhase.travelling,
+    this.lastEventAt,
     this.onStop,
     this.onArrived,
     this.onTap,
@@ -542,10 +590,41 @@ class JourneyCard extends StatelessWidget {
       );
     }
 
-    // ── Live ──
+    // ── Live — one card, mutating through the journey's phases ──
+    final reconnecting = phase == JourneyPhase.reconnecting;
+    final freshness = journeyFreshnessText(lastEventAt);
+    final String statusLine;
+    switch (phase) {
+      case JourneyPhase.nearby:
+        statusLine = [
+          'Almost there…',
+          if (!mine && distance != null) distance,
+        ].join(' · ');
+        break;
+      case JourneyPhase.reconnecting:
+        statusLine = [
+          mine ? 'Reconnecting…' : 'Connection unsteady',
+          if (!mine && freshness != null) freshness,
+        ].join(' · ');
+        break;
+      case JourneyPhase.travelling:
+      case JourneyPhase.arrived:
+      case JourneyPhase.ended:
+        statusLine = [
+          'Live · since ${_clockTime(context, message.timestamp)}',
+          if (!mine && distance != null) distance,
+        ].join(' · ');
+        break;
+    }
+    final String semanticsPhase = switch (phase) {
+      JourneyPhase.nearby => mine ? 'You are almost there.' : 'They are almost there.',
+      JourneyPhase.reconnecting =>
+        'Connection unsteady.${freshness == null ? '' : ' $freshness.'}',
+      _ => mine ? 'You are on the way.' : 'They are on the way.',
+    };
     return Semantics(
       label:
-          'Live journey: ${mine ? 'you are' : 'they are'} on the way.${distance != null && !mine ? ' $distance.' : ''} Sharing since ${_clockTime(context, message.timestamp)}. Double tap to open the live map.',
+          'Live journey: $semanticsPhase${distance != null && !mine ? ' $distance.' : ''} Sharing since ${_clockTime(context, message.timestamp)}. Double tap to open the live map.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -566,7 +645,15 @@ class JourneyCard extends StatelessWidget {
             width: 240,
             child: Row(
               children: [
-                const LiveDot(size: 7),
+                if (reconnecting)
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                        color: AppTheme.warningOrange, shape: BoxShape.circle),
+                  )
+                else
+                  const LiveDot(size: 7),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Column(
@@ -576,10 +663,7 @@ class JourneyCard extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 14, fontWeight: FontWeight.w700, color: titleColor)),
                       Text(
-                        [
-                          'Live · since ${_clockTime(context, message.timestamp)}',
-                          if (!mine && distance != null) distance,
-                        ].join(' · '),
+                        statusLine,
                         style: TextStyle(fontSize: 12, color: subColor),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -764,14 +848,78 @@ class _RequestCardState extends State<RequestCard> {
 
 /// Compact persistent strip under the post banner while a journey is active.
 /// Lightweight by design: one line, LIVE pill, Stop only for the sharer.
+/// Context-aware quick action above the composer: the ONE next thing this
+/// person is most likely here to do (answer a location request, start the
+/// journey, rate after arrival). Rendered only when the lifecycle says it
+/// makes sense; disappears the moment it doesn't.
+class ContextActionBar extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const ContextActionBar({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: double.infinity,
+      color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Semantics(
+          button: true,
+          label: label,
+          child: Material(
+            color: AppTheme.primaryAccent.withValues(alpha: isDark ? 0.16 : 0.10),
+            borderRadius: BorderRadius.circular(18),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 16, color: AppTheme.primaryAccent),
+                    const SizedBox(width: 7),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.primaryAccent,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class JourneyStatusStrip extends StatelessWidget {
   final String title;
+  /// Drives tint, badge and dot so the strip evolves with the journey:
+  /// travelling/nearby → green LIVE, reconnecting → amber, arrived → green ✓.
+  final JourneyPhase phase;
   final VoidCallback? onTap;
   final VoidCallback? onStop;
 
   const JourneyStatusStrip({
     super.key,
     required this.title,
+    this.phase = JourneyPhase.travelling,
     this.onTap,
     this.onStop,
   });
@@ -779,11 +927,15 @@ class JourneyStatusStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final arrived = phase == JourneyPhase.arrived;
+    final reconnecting = phase == JourneyPhase.reconnecting;
+    final accent = reconnecting ? AppTheme.warningOrange : AppTheme.successGreen;
     return Semantics(
-      label: '$title. Live journey.'
+      label: '$title.'
+          '${arrived ? ' Journey completed.' : reconnecting ? ' Reconnecting.' : ' Live journey.'}'
           '${onStop != null ? ' Stop sharing button available.' : ' Double tap to open the live map.'}',
       child: Material(
-        color: AppTheme.successGreen.withValues(alpha: isDark ? 0.10 : 0.08),
+        color: accent.withValues(alpha: isDark ? 0.10 : 0.08),
         child: InkWell(
           onTap: onTap,
           child: Container(
@@ -803,10 +955,14 @@ class JourneyStatusStrip extends StatelessWidget {
                   width: 28,
                   height: 28,
                   decoration: BoxDecoration(
-                    color: AppTheme.successGreen.withValues(alpha: 0.16),
+                    color: accent.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Iconsax.routing_2, size: 15, color: AppTheme.successGreen),
+                  child: Icon(
+                    arrived ? Icons.check_rounded : Iconsax.routing_2,
+                    size: 15,
+                    color: accent,
+                  ),
                 ),
                 const SizedBox(width: 9),
                 Expanded(
@@ -822,17 +978,39 @@ class JourneyStatusStrip extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const LiveDot(size: 6),
-                const SizedBox(width: 4),
-                const Text(
-                  'LIVE',
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
-                    color: AppTheme.successGreen,
+                if (arrived)
+                  const Icon(Icons.check_circle_rounded,
+                      size: 15, color: AppTheme.successGreen)
+                else if (reconnecting) ...[
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                        color: AppTheme.warningOrange, shape: BoxShape.circle),
                   ),
-                ),
+                  const SizedBox(width: 4),
+                  const Text(
+                    'RECONNECTING',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                      color: AppTheme.warningOrange,
+                    ),
+                  ),
+                ] else ...[
+                  const LiveDot(size: 6),
+                  const SizedBox(width: 4),
+                  const Text(
+                    'LIVE',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                      color: AppTheme.successGreen,
+                    ),
+                  ),
+                ],
                 if (onStop != null) ...[
                   const SizedBox(width: 6),
                   SizedBox(

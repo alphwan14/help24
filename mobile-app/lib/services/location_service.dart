@@ -76,11 +76,53 @@ class LocationService {
 
   /// Stream of position updates at a fixed [intervalSeconds] (e.g. 8).
   /// Cancel the subscription when live sharing ends.
+  ///
+  /// Legacy polling loop — journeys now use [journeyPositionStream]. Kept for
+  /// any non-journey callers; do not use for new work.
   static Stream<Position> positionUpdatesEvery({int intervalSeconds = 8}) async* {
     while (true) {
       final pos = await getCurrentPosition();
       if (pos != null) yield pos;
       await Future<void>.delayed(Duration(seconds: intervalSeconds));
     }
+  }
+
+  /// The journey pipeline's position source: a true platform stream (fused
+  /// provider callbacks) instead of a getCurrentPosition polling loop — lower
+  /// battery cost, immediate error propagation (GPS off → onError instead of
+  /// silent nulls), and the only route to background updates.
+  ///
+  /// [foregroundService]: when true (journeys only), Android runs geolocator's
+  /// own foreground service (`GeolocatorLocationService`, declared by the
+  /// plugin with foregroundServiceType="location") with a persistent
+  /// notification, so fixes keep flowing while the screen is locked or the app
+  /// is backgrounded. The service stops automatically when the stream
+  /// subscription is cancelled — journey end tears it down deterministically.
+  static Stream<Position> journeyPositionStream({bool foregroundService = false}) {
+    late final LocationSettings settings;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      settings = AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 0,
+        intervalDuration: const Duration(seconds: 8),
+        foregroundNotificationConfig: foregroundService
+            ? const ForegroundNotificationConfig(
+                notificationTitle: 'Sharing your journey',
+                notificationText:
+                    'Help24 is sharing your live location with this chat until you arrive or stop.',
+                notificationIcon:
+                    AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+                enableWakeLock: false,
+                setOngoing: true,
+              )
+            : null,
+      );
+    } else {
+      settings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      );
+    }
+    return Geolocator.getPositionStream(locationSettings: settings);
   }
 }

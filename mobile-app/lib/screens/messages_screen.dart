@@ -29,8 +29,10 @@ import '../utils/time_utils.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/chat_ui.dart';
 import '../widgets/location_experience.dart';
+import '../services/journey_engine.dart';
 import 'place_picker_screen.dart';
 import 'journey_confirm_screen.dart';
+import 'review_submission_screen.dart';
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key});
@@ -474,15 +476,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Timer? _cacheSaveDebounce;
   List<Message>? _pendingCacheSave;
   bool _isSending = false;
-  StreamSubscription? _liveLocationSubscription;
-  Timer? _liveEndTimer;
-  String? _liveMessageId;
   int _lastMessageCount = 0;
 
-  // ── Location Experience (Phase 1) ──
-  // Journeys have no user-facing duration ("until I arrive"); this cap only
-  // guards against a forgotten share and is never shown in the UI.
-  static const int _kJourneySafetyCapMinutes = 120;
+  // ── Journey Engine (Phase 2) ──
+  // The screen owns NO journey state: no timers, no position subscriptions,
+  // no message-id booleans. JourneyEngine is the single app-level owner; this
+  // screen renders its snapshot and forwards user intent. That is what lets a
+  // journey survive navigating away, activity recreation and app restart.
+  /// True when the thread has nothing to show AND the load failed — lets the
+  /// empty state tell the truth ("couldn't load") instead of claiming the
+  /// conversation is empty.
+  bool _loadFailed = false;
+  JourneySnapshot _journey = JourneyEngine.instance.snapshot;
+  StreamSubscription<JourneyEvent>? _journeyEvents;
+  // Rebuild filter: engine snapshots change on every GPS fix; only state /
+  // ownership / coarse distance changes are visually relevant here.
+  String _journeyUiKey = '';
   // Post behind this chat — fetched lazily (first location intent) for the
   // journey destination, picker centering and role-aware intent ordering.
   PostModel? _chatPost;
@@ -579,9 +588,48 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Location Experience: prime the viewer position for distance labels and
     // keep journey UI (strip, LIVE states) honest when no realtime event lands.
     _primeViewerPosition();
-    _journeyUiTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+    // Post context up-front (one deduped fetch): powers the context action
+    // (roles), journey destination and picker centering from the first frame.
+    _ensureChatPost();
+    // 20s so watcher freshness ("Updated Xs ago") and the reconnecting phase
+    // appear within a reasonable window of the 75s staleness threshold.
+    _journeyUiTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (mounted && _messages.any((m) => m.isLiveLocation)) setState(() {});
     });
+    // Journey Engine: render its lifecycle and react to its one-shot events.
+    JourneyEngine.instance.listenable.addListener(_onJourneyChanged);
+    _onJourneyChanged();
+    _journeyEvents = JourneyEngine.instance.events.listen(_onJourneyEvent);
+  }
+
+  /// Engine → UI. Fixes arrive every ~8s; rebuild only when something the
+  /// user can see changed (state, owned row, or ~25 m of progress).
+  void _onJourneyChanged() {
+    final s = JourneyEngine.instance.snapshot;
+    _journey = s;
+    final key = '${s.state.name}:${s.messageId ?? ''}:'
+        '${s.distanceToDestinationM == null ? '' : (s.distanceToDestinationM! / 25).round()}';
+    if (key == _journeyUiKey) return;
+    _journeyUiKey = key;
+    if (mounted) setState(() {});
+  }
+
+  void _onJourneyEvent(JourneyEvent event) {
+    if (!mounted) return;
+    switch (event) {
+      case JourneyEvent.autoArrived:
+        // Same human close as manual arrival — offer the heads-up. Only when
+        // this chat is the journey's chat (engine outlives navigation).
+        if (_journey.chatId == _chatId || _journey.chatId == null) {
+          _offerArrivalNotify();
+        }
+        break;
+      case JourneyEvent.manualArrived:
+        break; // dialog is offered inline by _markArrived
+      case JourneyEvent.capExpired:
+      case JourneyEvent.failedPermanently:
+        break; // strip/card copy already explains; no modal interruptions
+    }
   }
 
   /// Android may tear the Realtime websocket down while backgrounded without
@@ -611,8 +659,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _typingDebounce?.cancel();
     _typingClearTimer?.cancel();
     _onlineStatusTimer?.cancel();
-    _liveLocationSubscription?.cancel();
-    _liveEndTimer?.cancel();
+    // Deliberately NOT stopping the journey: it belongs to the engine and
+    // keeps sharing while the user navigates elsewhere in the app.
+    JourneyEngine.instance.listenable.removeListener(_onJourneyChanged);
+    _journeyEvents?.cancel();
     _journeyUiTimer?.cancel();
     // Flush any pending thread-cache write so the last messages of the
     // session are on disk for the next instant open.
@@ -698,6 +748,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       setState(() {
         _messages = merged;
         _loadingMessages = false;
+        _loadFailed = false; // a successful emission clears any prior failure
         _hasMoreOlder = messages.length >= 30;
       });
       // Re-adopt an orphaned journey: if this device's user has a live share
@@ -706,6 +757,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       // Stop / I've arrived stay available. Without this the share would idle
       // frozen until the safety cap.
       _readoptOwnLiveJourney();
+      // Watcher-side signal freshness for "Updated Xs ago" honesty copy.
+      _trackJourneyFreshness(merged);
       if (messages.isNotEmpty) {
         _scheduleCacheSave(merged);
       }
@@ -723,7 +776,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
     }, onError: (e) {
       debugPrint('ChatScreen Realtime error: $e');
-      if (mounted) setState(() => _loadingMessages = false);
+      if (mounted) {
+        setState(() {
+          _loadingMessages = false;
+          // Only reachable with nothing on screen (the service suppresses this
+          // when messages are already rendered), so the thread can say what is
+          // actually true: we could not load, rather than "no messages yet".
+          _loadFailed = true;
+        });
+      }
     });
   }
 
@@ -1291,11 +1352,146 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return null;
   }
 
+  /// The journey the header strip narrates: a live one, or — for a graceful
+  /// close — the newest ARRIVED journey for ~60s after it concluded, so both
+  /// sides watch the strip evolve "on the way → arrived" before it leaves.
+  Message? get _stripJourney {
+    final live = _activeJourney;
+    if (live != null) return live;
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final m = _messages[i];
+      if (!m.isLiveLocation || !_isLocallyVisible(m)) continue;
+      if (m.isJourneyArrived && m.liveUntil != null &&
+          DateTime.now().difference(m.liveUntil!) < const Duration(seconds: 60)) {
+        return m;
+      }
+      return null; // newest journey is ended/stale — no strip
+    }
+    return null;
+  }
+
+  /// When the last realtime update for each live journey landed on THIS
+  /// device — watcher-side signal honesty ("Updated 2m ago"). Keyed by
+  /// message id; fingerprint dedupes non-position emissions.
+  final Map<String, DateTime> _journeyEventAt = {};
+  final Map<String, String> _journeyEventFingerprint = {};
+
+  void _trackJourneyFreshness(List<Message> messages) {
+    for (final m in messages) {
+      if (!m.isLiveLocation || m.isMe || !m.isLiveNow) continue;
+      final fp = '${m.latitude}:${m.longitude}:${m.liveUntil}:${m.text}';
+      if (_journeyEventFingerprint[m.id] != fp) {
+        _journeyEventFingerprint[m.id] = fp;
+        _journeyEventAt[m.id] = DateTime.now();
+      }
+    }
+  }
+
+  /// The other side asked for a location and no place has been sent since —
+  /// their request is still standing.
+  bool get _hasOpenLocationRequest {
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final m = _messages[i];
+      if (!_isLocallyVisible(m)) continue;
+      if (m.type == 'location' && m.isMe) return false; // answered
+      if (m.isLocationRequest && !m.isMe) return true; // still open
+    }
+    return false;
+  }
+
+  /// The newest journey concluded as ARRIVED within the last 10 minutes —
+  /// the natural moment to close the loop (rate the provider).
+  bool get _recentlyArrivedJourney {
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final m = _messages[i];
+      if (!m.isLiveLocation || !_isLocallyVisible(m)) continue;
+      return m.isJourneyArrived &&
+          m.liveUntil != null &&
+          DateTime.now().difference(m.liveUntil!) < const Duration(minutes: 10);
+    }
+    return false;
+  }
+
+  /// Lifecycle-driven quick action (at most one; null = no bar). Priority:
+  /// answer an open request > start the journey you're expected to make >
+  /// rate the provider after arrival. "Stop sharing" intentionally lives in
+  /// the journey strip — never duplicated here.
+  ({IconData icon, String label, VoidCallback onTap})? _contextAction() {
+    if (_isSending) return null;
+    // 1) They asked "where exactly?" — answering beats everything else.
+    if (_hasOpenLocationRequest) {
+      return (
+        icon: Iconsax.location,
+        label: 'Share location',
+        onTap: _respondToLocationRequest,
+      );
+    }
+    // While a journey is live the strip owns the journey controls.
+    if (_activeJourney != null || _journey.isLive) return null;
+    // 2) I'm the traveller for this job and the trip hasn't started.
+    if (_chatPost != null && _travellerFirst) {
+      return (
+        icon: Iconsax.routing_2,
+        label: 'On my way',
+        onTap: _startJourneyFlow,
+      );
+    }
+    // 3) The provider just arrived and I'm the customer: close the loop.
+    // ReviewService/backend stays the gatekeeper of review validity.
+    final postId = widget.conversation.postId;
+    if (_chatPost != null &&
+        !_travellerFirst &&
+        postId != null &&
+        postId.isNotEmpty &&
+        _recentlyArrivedJourney) {
+      return (
+        icon: Icons.star_rounded,
+        label: 'Rate ${widget.conversation.userName}',
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ReviewSubmissionScreen(
+                postId: postId,
+                clientUserId: widget.currentUserId,
+                postTitle: widget.conversation.postTitle,
+              ),
+            ),
+          );
+        },
+      );
+    }
+    return null;
+  }
+
+  /// One phase computation for strip and card. The traveller's device asks
+  /// the engine (it knows interruptions and geometry first-hand); watchers
+  /// derive from the row + destination + realtime freshness.
+  JourneyPhase _phaseFor(Message m) {
+    if (_journey.owns(m.id)) {
+      switch (_journey.state) {
+        case JourneyState.nearby:
+          return JourneyPhase.nearby;
+        case JourneyState.interrupted:
+        case JourneyState.reconnecting:
+          return JourneyPhase.reconnecting;
+        default:
+          return JourneyPhase.travelling;
+      }
+    }
+    final dest = _journeyDestination();
+    return deriveWatcherJourneyPhase(
+      m,
+      destLat: dest?.latitude,
+      destLng: dest?.longitude,
+      lastEventAt: m.isMe ? null : _journeyEventAt[m.id],
+    );
+  }
+
   /// If the newest live share in this thread belongs to the current user and
-  /// no local stream owns it, adopt it: resume 8s position updates and re-arm
-  /// the safety-cap timer with the REMAINING window. Idempotent.
+  /// the engine doesn't own it (fresh process, engine idle), hand it to the
+  /// engine, which resumes beats with the REMAINING safety window. Idempotent —
+  /// the engine no-ops when it already owns the row.
   void _readoptOwnLiveJourney() {
-    if (_liveMessageId != null) return;
     Message? mine;
     for (var i = _messages.length - 1; i >= 0; i--) {
       final m = _messages[i];
@@ -1304,24 +1500,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         break;
       }
     }
-    if (mine == null) return;
-    _liveMessageId = mine.id;
-    final remaining = mine.liveUntil!.difference(DateTime.now());
-    _liveEndTimer?.cancel();
-    _liveEndTimer = Timer(remaining.isNegative ? Duration.zero : remaining, () {
-      if (mounted) _stopLiveSharing();
-    });
-    _liveLocationSubscription?.cancel();
-    _liveLocationSubscription =
-        LocationService.positionUpdatesEvery(intervalSeconds: 8).listen((pos) {
-      if (_liveMessageId == null) return;
-      ChatServiceSupabase.updateMessageLocation(
-        messageId: _liveMessageId!,
-        latitude: pos.latitude,
-        longitude: pos.longitude,
-      );
-    });
-    if (mounted) setState(() {});
+    if (mine == null || mine.liveUntil == null) return;
+    JourneyEngine.instance.adopt(
+      messageId: mine.id,
+      chatId: _chatId,
+      liveUntil: mine.liveUntil!,
+      destination: _journeyDestination(),
+    );
+  }
+
+  /// Where this journey is headed, best knowledge first: the post's own
+  /// coordinates, else the most recent pinned place in the thread (the gate,
+  /// the stalled car — by convention the job location), else none. Null keeps
+  /// the journey valid — it just cannot auto-arrive or show "nearby".
+  GeoPoint? _journeyDestination() {
+    final post = _chatPost;
+    if (post?.latitude != null && post?.longitude != null) {
+      return GeoPoint(post!.latitude!, post.longitude!);
+    }
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final m = _messages[i];
+      if (m.type == 'location' && m.hasValidCoordinates && !m.deletedForEveryone) {
+        return GeoPoint(m.latitude!, m.longitude!);
+      }
+    }
+    return null;
   }
 
   /// Viewer position for card distance labels — silent, never prompts.
@@ -1377,25 +1580,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// "On my way": confirm screen (destination from the post when it has one),
-  /// then start sharing. The confirm screen owns the permission scenario.
+  /// "On my way": confirm screen (destination from the post, else the most
+  /// recent pinned place in the thread), then hand the journey to the engine.
+  /// The confirm screen owns the permission scenario.
   Future<void> _startJourneyFlow() async {
     await _ensureChatPost();
     if (!mounted) return;
     final post = _chatPost;
-    final destination = (post?.latitude != null && post?.longitude != null)
-        ? LatLng(post!.latitude!, post.longitude!)
-        : null;
+    final dest = _journeyDestination();
     final start = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => JourneyConfirmScreen(
-          destination: destination,
+          destination: dest == null ? null : LatLng(dest.latitude, dest.longitude),
           destinationTitle: widget.conversation.postTitle ?? post?.title ?? 'This job',
           destinationSubtitle: post?.location ?? '',
         ),
       ),
     );
-    if (start == true && mounted) await _startJourney();
+    if (start == true && mounted) await _startJourney(dest);
   }
 
   /// "Send a place": full-screen picker centered on the job → last-known
@@ -1468,89 +1670,59 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _startJourney() async {
+  Future<void> _startJourney(GeoPoint? destination) async {
     setState(() => _isSending = true);
     if (!await _ensureChatCreated()) {
       if (mounted) { setState(() => _isSending = false); _showError('Could not start chat. Please try again.'); }
       return;
     }
     await SupabaseAuthBridge.ensureSessionAsync();
-    final position = await LocationService.getCurrentPosition();
+    // Foreground service ON: a journey is a promise to someone waiting, so it
+    // must survive the screen locking or the app being backgrounded. Android
+    // shows the ongoing "Sharing your journey" notification for the duration
+    // and the service stops with the journey.
+    final result = await JourneyEngine.instance.start(
+      chatId: _chatId,
+      senderId: widget.currentUserId,
+      destination: destination,
+      foregroundService: true,
+    );
     if (!mounted) return;
-    if (position == null) {
-      setState(() => _isSending = false);
-      _showError('Location unavailable. Enable location and try again.');
-      return;
-    }
-    try {
-      final message = await ChatServiceSupabase.sendLiveLocation(
-        chatId: _chatId,
-        senderId: widget.currentUserId,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        durationMinutes: _kJourneySafetyCapMinutes,
-      );
-      if (!mounted) return;
-      setState(() {
-        _isSending = false;
-        _liveMessageId = message.id;
-      });
-      _scrollToBottom();
-
-      // Safety cap only — journeys end via "I've arrived" or Stop.
-      _liveEndTimer = Timer(const Duration(minutes: _kJourneySafetyCapMinutes), () {
-        if (!mounted) return;
-        _stopLiveSharing();
-      });
-
-      _liveLocationSubscription = LocationService.positionUpdatesEvery(intervalSeconds: 8).listen((pos) {
-        if (_liveMessageId == null) return;
-        ChatServiceSupabase.updateMessageLocation(
-          messageId: _liveMessageId!,
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-        );
-      });
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isSending = false);
+    setState(() => _isSending = false);
+    switch (result) {
+      case JourneyStartResult.started:
+        _scrollToBottom();
+        break;
+      case JourneyStartResult.permissionRequired:
+        JourneyEngine.instance.acknowledgeIdle();
+        _showError('Location permission is needed to share your journey.');
+        break;
+      case JourneyStartResult.serviceDisabled:
+        JourneyEngine.instance.acknowledgeIdle();
+        _showError('Turn on location to share your journey.');
+        break;
+      case JourneyStartResult.failed:
+        JourneyEngine.instance.acknowledgeIdle();
         _showError('Failed to start the journey.');
-      }
+        break;
     }
   }
 
   Future<void> _stopLiveSharing() async {
-    _liveEndTimer?.cancel();
-    _liveEndTimer = null;
-    await _liveLocationSubscription?.cancel();
-    _liveLocationSubscription = null;
-    if (_liveMessageId != null) {
-      try {
-        await ChatServiceSupabase.stopLiveLocation(_liveMessageId!);
-      } catch (_) {}
-      if (mounted) setState(() => _liveMessageId = null);
-    }
+    await JourneyEngine.instance.stop();
   }
 
-  /// "I've arrived": ends the journey as ARRIVED (the card mutates into the
-  /// receipt on both sides via realtime), then offers to notify the other
-  /// party — a clear, human end to the journey without auto-detection (P2).
+  /// "I've arrived": the engine ends the journey as ARRIVED (the card mutates
+  /// into the receipt on both sides via realtime), then we offer the heads-up.
   Future<void> _markArrived() async {
-    final messageId = _liveMessageId;
-    if (messageId == null) return;
-    _liveEndTimer?.cancel();
-    _liveEndTimer = null;
-    await _liveLocationSubscription?.cancel();
-    _liveLocationSubscription = null;
-    try {
-      await ChatServiceSupabase.markJourneyArrived(messageId);
-    } catch (_) {
-      // Row update failed (offline?) — at minimum stop the live window.
-      try { await ChatServiceSupabase.stopLiveLocation(messageId); } catch (_) {}
-    }
-    if (!mounted) return;
-    setState(() => _liveMessageId = null);
+    final ok = await JourneyEngine.instance.arrive();
+    if (!mounted || !ok) return;
+    await _offerArrivalNotify();
+  }
 
+  /// The human close of a journey (manual or automatic): offer to send the
+  /// other party a one-tap heads-up message.
+  Future<void> _offerArrivalNotify() async {
     final partner = widget.conversation.userName.trim();
     final notify = await showDialog<bool>(
       context: context,
@@ -1858,8 +2030,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           conversationId: widget.conversation.id,
           message: message,
           currentUserId: widget.currentUserId,
-          canStopSharing: message.isMe && message.isLiveLocation &&
-              (message.liveUntil == null || message.liveUntil!.isAfter(DateTime.now())),
+          canStopSharing: _journey.owns(message.id) && _journey.isLive,
           onStopSharing: _stopLiveSharing,
         ),
       ),
@@ -2021,18 +2192,37 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     ? () => _openPostFromChat(widget.conversation.postId!)
                     : null,
               ),
-            // Journey strip — persistent, lightweight "on the way" state while
-            // a journey is live (either direction). Tap opens the live map.
-            if (_activeJourney != null)
+            // Journey strip — narrates the journey as it evolves: on the way →
+            // nearby → reconnecting → arrived (brief), then leaves. One strip,
+            // phase-driven; tap opens the live map.
+            if (_stripJourney != null)
               Builder(builder: (context) {
-                final journey = _activeJourney!;
+                final journey = _stripJourney!;
                 final mine = journey.isMe;
+                final phase = _phaseFor(journey);
+                final name = widget.conversation.userName;
+                final String title;
+                switch (phase) {
+                  case JourneyPhase.nearby:
+                    title = mine ? "You're almost there" : '$name is nearby';
+                    break;
+                  case JourneyPhase.reconnecting:
+                    title = mine ? 'Reconnecting…' : "Waiting for $name's signal…";
+                    break;
+                  case JourneyPhase.arrived:
+                    title = mine ? "You've arrived" : '$name has arrived';
+                    break;
+                  case JourneyPhase.travelling:
+                  case JourneyPhase.ended:
+                    title = mine ? "You're sharing your journey" : '$name is on the way';
+                    break;
+                }
                 return JourneyStatusStrip(
-                  title: mine
-                      ? "You're sharing your journey"
-                      : '${widget.conversation.userName} is on the way',
+                  title: title,
+                  phase: phase,
                   onTap: journey.hasValidCoordinates ? () => _openFullScreenMap(journey) : null,
-                  onStop: mine && _liveMessageId == journey.id ? _stopLiveSharing : null,
+                  onStop:
+                      mine && _journey.owns(journey.id) && _journey.isLive ? _stopLiveSharing : null,
                 );
               }),
             // Job/payment tracking moved to the three-dot menu (Job status
@@ -2053,6 +2243,55 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
                   if (_loadingMessages && combined.isEmpty) {
                     return const Center(child: CircularProgressIndicator());
+                  }
+                  if (combined.isEmpty && _loadFailed) {
+                    _lastMessageCount = 0;
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Iconsax.cloud_cross,
+                              size: 52,
+                              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              "Couldn't load messages",
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: isDark
+                                        ? AppTheme.darkTextSecondary
+                                        : AppTheme.lightTextSecondary,
+                                  ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Check your connection and try again.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: isDark
+                                        ? AppTheme.darkTextTertiary
+                                        : AppTheme.lightTextTertiary,
+                                  ),
+                            ),
+                            const SizedBox(height: 14),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _loadFailed = false;
+                                  _loadingMessages = true;
+                                });
+                                _startRealtimeMessages();
+                              },
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Try again'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
                   }
                   if (combined.isEmpty) {
                     _lastMessageCount = 0;
@@ -2143,9 +2382,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           isPending: msgItem.isPending,
                           isFirstInGroup: msgItem.isFirstInGroup,
                           isLastInGroup: msgItem.isLastInGroup,
-                          isLiveSharing: _liveMessageId == msgItem.message.id,
-                          onStopLiveSharing: msgItem.message.id == _liveMessageId ? _stopLiveSharing : null,
-                          onMarkArrived: msgItem.message.id == _liveMessageId ? _markArrived : null,
+                          isLiveSharing: _journey.owns(msgItem.message.id),
+                          journeyPhase: msgItem.message.isLiveLocation
+                              ? _phaseFor(msgItem.message)
+                              : JourneyPhase.travelling,
+                          journeyLastEventAt: _journeyEventAt[msgItem.message.id],
+                          onStopLiveSharing: _journey.owns(msgItem.message.id) ? _stopLiveSharing : null,
+                          onMarkArrived: _journey.owns(msgItem.message.id) ? _markArrived : null,
                           onTapLocation: msgItem.message.hasValidCoordinates ? () => _openFullScreenMap(msgItem.message) : null,
                           onRespondToRequest:
                               msgItem.message.isLocationRequest && !msgItem.message.isMe
@@ -2197,6 +2440,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
             ),
             // (Typing indicator lives in the header subtitle — no layout shift.)
+            // Context action — the marketplace already knows who travels, who
+            // hosts, what was asked and where the journey stands; surface the
+            // single next action instead of making users dig through menus.
+            Builder(builder: (context) {
+              final action = _contextAction();
+              if (action == null) return const SizedBox.shrink();
+              return ContextActionBar(
+                icon: action.icon,
+                label: action.label,
+                onTap: action.onTap,
+              );
+            }),
             // Reply preview bar — visible when user long-pressed a message to reply.
             if (_replyToMessage != null)
               _ReplyPreviewBar(
@@ -2535,6 +2790,8 @@ class _MessageBubble extends StatelessWidget {
   final String senderInitial;
   final bool isPending;
   final bool isLiveSharing;
+  final JourneyPhase journeyPhase;
+  final DateTime? journeyLastEventAt;
   final VoidCallback? onStopLiveSharing;
   final VoidCallback? onMarkArrived;
   final VoidCallback? onTapLocation;
@@ -2559,6 +2816,8 @@ class _MessageBubble extends StatelessWidget {
     this.senderInitial = '?',
     this.isPending = false,
     this.isLiveSharing = false,
+    this.journeyPhase = JourneyPhase.travelling,
+    this.journeyLastEventAt,
     this.onStopLiveSharing,
     this.onMarkArrived,
     this.onTapLocation,
@@ -2859,6 +3118,8 @@ class _MessageBubble extends StatelessWidget {
                     viewerLat: viewerLat,
                     viewerLng: viewerLng,
                     isSharing: isLiveSharing,
+                    phase: journeyPhase,
+                    lastEventAt: journeyLastEventAt,
                     onStop: onStopLiveSharing,
                     onArrived: onMarkArrived,
                     onTap: onTapLocation,

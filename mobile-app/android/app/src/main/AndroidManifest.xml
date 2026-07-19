@@ -9,7 +9,26 @@
     <!-- Location for messaging -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    
+    <!--
+        Journey foreground service (Phase 2). A journey must keep sharing while
+        the screen is locked or the app is backgrounded, so geolocator runs its
+        GeolocatorLocationService (declared by the plugin with
+        foregroundServiceType="location") with an ongoing notification.
+
+        Deliberately NOT requesting ACCESS_BACKGROUND_LOCATION: a location-typed
+        foreground service started while the app is visible keeps receiving
+        updates on while-in-use permission alone. Background location would be a
+        far broader grant, a Play Console policy declaration, and a scarier
+        install-time prompt — for no capability this feature needs.
+
+        The service is started only by an explicit "Start journey" and stops the
+        moment the journey ends (arrive / stop / cap), because it lives and dies
+        with the position-stream subscription.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
     <application
         android:label="Help24"
         android:name="${applicationName}"

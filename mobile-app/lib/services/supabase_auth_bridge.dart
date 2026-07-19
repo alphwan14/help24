@@ -21,22 +21,42 @@ class SupabaseAuthBridge {
   /// Current JWT used for Supabase requests (read by custom HTTP client).
   static String? get currentToken => _accessToken;
 
-  /// Ensures the Supabase JWT is set so RLS (auth.jwt()->>'user_id') passes.
-  /// Call before inserting into chat_messages or other RLS-protected writes.
+  /// Ensures a FRESH Supabase JWT is set so RLS (auth.jwt()->>'user_id') passes.
+  ///
+  /// Delegates to [ensureSessionForWriteAsync] so reads and writes share one
+  /// freshness rule. This previously returned early whenever any token existed,
+  /// ignoring its age: once the Supabase JWT passed its 1 h expiry every read
+  /// 401'd with PGRST303 "JWT expired" and never recovered, so conversations,
+  /// message threads and post details all rendered empty on a device that had
+  /// simply been signed in for a while.
   static Future<void> ensureSessionAsync() async {
-    if (_accessToken != null && _accessToken!.isNotEmpty) return;
+    await ensureSessionForWriteAsync();
+  }
+
+  /// Re-exchanges unconditionally, ignoring the cached token — used when the
+  /// server has told us the JWT is no longer acceptable (401 / PGRST303).
+  /// Concurrent callers share ONE exchange: a burst of 401s from parallel
+  /// reads must not trigger a burst of cloud-function calls.
+  static Future<bool> forceRefresh() {
+    return _refreshInFlight ??= _doForceRefresh().whenComplete(() {
+      _refreshInFlight = null;
+    });
+  }
+
+  static Future<bool>? _refreshInFlight;
+
+  static Future<bool> _doForceRefresh() async {
     final user = AuthService.currentFirebaseUser;
-    if (user == null) return;
+    if (user == null) return false;
     try {
-      final idToken = await user.getIdToken();
-      if (idToken != null && idToken.isNotEmpty) {
-        await setSupabaseSessionFromFirebase(idToken);
-      }
+      // forceRefresh: true — a stale Firebase ID token would only buy us
+      // another expired Supabase JWT.
+      final idToken = await user.getIdToken(true);
+      if (idToken == null || idToken.isEmpty) return false;
+      return await setSupabaseSessionFromFirebase(idToken);
     } catch (e) {
-      if (!_loggedExchangeUnavailable) {
-        _loggedExchangeUnavailable = true;
-        debugPrint('[AUTH][BRIDGE] ok=false — exchange error: $e (using anon key)');
-      }
+      debugPrint('[AUTH][BRIDGE] forceRefresh failed: $e');
+      return false;
     }
   }
 

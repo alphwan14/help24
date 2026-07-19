@@ -688,6 +688,14 @@ class ChatServiceSupabase {
         emit();
       } catch (e) {
         debugPrint('ChatServiceSupabase watchMessages resync: $e');
+        // Surface the failure ONLY when we have nothing to show. With messages
+        // already on screen (cache or an earlier page) a failed refresh is a
+        // non-event; with none, the screen must say "couldn't load" instead of
+        // rendering the empty state, which reads as "this chat has no messages"
+        // and is simply untrue.
+        if (!disposed && messages.isEmpty && !controller.isClosed) {
+          controller.addError(e);
+        }
       } finally {
         resyncing = false;
       }

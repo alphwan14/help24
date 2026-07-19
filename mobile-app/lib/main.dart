@@ -25,8 +25,10 @@ import 'screens/notifications_screen.dart';
 import 'services/category_schema_service.dart';
 import 'services/chat_local_prefs.dart';
 import 'services/diagnostic_service.dart';
+import 'services/journey_engine.dart';
 import 'services/notification_service.dart';
 import 'services/startup_prefetch.dart';
+import 'services/supabase_auth_bridge.dart';
 import 'theme/app_theme.dart';
 import 'widgets/notification_banner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -61,6 +63,15 @@ void main() async {
   StartupPrefetch.begin();
   // Warm the muted-chats set for synchronous reads in list tiles and menus.
   unawaited(ChatLocalPrefs.ensureLoaded());
+
+  // Journey recovery: if the process died mid-journey, silently re-own it so
+  // the traveller never has to notice. Short delay lets Firebase restore the
+  // session first; if auth lands later anyway, the engine's keepalive beats
+  // heal the journey on their own (interrupted → travelling).
+  unawaited(Future.delayed(const Duration(seconds: 4), () async {
+    await SupabaseAuthBridge.ensureSessionAsync();
+    await JourneyEngine.instance.resumePersisted();
+  }));
 
   // Load persisted theme before first frame — prevents any dark/light flicker.
   final prefs = await SharedPreferences.getInstance();
