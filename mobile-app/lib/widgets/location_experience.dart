@@ -654,9 +654,20 @@ class JourneyCard extends StatelessWidget {
         'Connection unsteady.${freshness == null ? '' : ' $freshness.'}',
       _ => mine ? 'You are on the way.' : 'They are on the way.',
     };
+    // A map is invisible to a screen reader, so the ETA and remaining distance
+    // — the two things this card exists to communicate — must be spoken, in
+    // words rather than the abbreviations the visual line uses.
+    final String spokenEta = eta == null
+        ? ''
+        : ' ${eta.replaceAll('min', 'minutes').replaceAll(' h ', ' hours ')}.';
+    final String spokenRemaining = remaining == null
+        ? ''
+        : ' ${remaining.replaceAll(' m ', ' metres ').replaceAll(' km ', ' kilometres ')}.';
     return Semantics(
       label:
-          'Live journey: $semanticsPhase${distance != null && !mine ? ' $distance.' : ''} Sharing since ${_clockTime(context, message.timestamp)}. Double tap to open the live map.',
+          'Live journey: $semanticsPhase$spokenEta$spokenRemaining'
+          '${spokenRemaining.isEmpty && distance != null && !mine ? ' $distance.' : ''}'
+          ' Sharing since ${_clockTime(context, message.timestamp)}. Double tap to open the live map.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -691,9 +702,15 @@ class JourneyCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title,
+                      // Hierarchy: once an ETA exists it becomes the headline
+                      // and "On my way" drops to the supporting line. The ETA
+                      // is the one fact the reader is looking for; making them
+                      // find it in 12 pt secondary text buried the answer.
+                      Text(eta ?? title,
                           style: TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.w700, color: titleColor)),
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700,
+                              color: titleColor)),
                       // Deliberately NOT crossfaded. A switcher overlays the
                       // outgoing and incoming strings, and two different-width
                       // status lines ("Almost there…" → "2 min away · 480 m
@@ -702,7 +719,12 @@ class JourneyCard extends StatelessWidget {
                       // changes at most once a minute does not need animating;
                       // clarity wins over polish here.
                       Text(
-                        statusLine,
+                        // With the ETA promoted, the supporting line carries
+                        // the journey label plus remaining distance; without
+                        // one it keeps the full Phase 2 status line verbatim.
+                        eta == null
+                            ? statusLine
+                            : [title, if (remaining != null) remaining].join(' · '),
                         style: TextStyle(fontSize: 12, color: subColor),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart' show Geolocator;
+import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -1700,24 +1702,95 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     setState(() => _isSending = false);
     switch (result) {
       case JourneyStartResult.started:
+        // The journey is a commitment; a short confirmation makes it land
+        // physically as well as visually.
+        HapticFeedback.mediumImpact();
         _scrollToBottom();
         break;
       case JourneyStartResult.permissionRequired:
         JourneyEngine.instance.acknowledgeIdle();
-        _showError('Location permission is needed to share your journey.');
+        await _showJourneyBlocked(
+          icon: Iconsax.location_slash,
+          title: 'Location access is off',
+          body: 'Help24 needs your location to share your journey with '
+              '${widget.conversation.userName.isEmpty ? 'them' : widget.conversation.userName}. '
+              'You can turn it on in Settings — nothing is shared until you start a journey.',
+          actionLabel: 'Open settings',
+          onAction: ph.openAppSettings,
+        );
         break;
       case JourneyStartResult.serviceDisabled:
         JourneyEngine.instance.acknowledgeIdle();
-        _showError('Turn on location to share your journey.');
+        await _showJourneyBlocked(
+          icon: Iconsax.gps_slash,
+          title: 'Location is turned off',
+          body: 'Your device location is switched off, so we can\'t follow your '
+              'journey. Turn it on and try again.',
+          actionLabel: 'Location settings',
+          onAction: Geolocator.openLocationSettings,
+        );
         break;
       case JourneyStartResult.failed:
         JourneyEngine.instance.acknowledgeIdle();
-        _showError('Failed to start the journey.');
+        await _showJourneyBlocked(
+          icon: Iconsax.warning_2,
+          title: "Couldn't start the journey",
+          body: 'Something went wrong on our side. Check your connection and '
+              'try again — you can also just send a place instead.',
+          actionLabel: 'Try again',
+          onAction: () async {
+            if (mounted) await _startJourneyFlow();
+          },
+        );
         break;
     }
   }
 
+  /// A blocked journey is a dead end unless we hand back a way forward, so
+  /// every failure states what happened, what it means for sharing, and the
+  /// one action that resolves it. Replaces terse snackbars that explained the
+  /// problem but left the user with nowhere to go.
+  Future<void> _showJourneyBlocked({
+    required IconData icon,
+    required String title,
+    required String body,
+    required String actionLabel,
+    required Future<void> Function() onAction,
+  }) async {
+    HapticFeedback.heavyImpact();
+    if (!mounted) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final act = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(icon, size: 28, color: AppTheme.warningOrange),
+        title: Text(title, textAlign: TextAlign.center),
+        content: Text(
+          body,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            height: 1.4,
+            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+          ),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+    if (act == true) await onAction();
+  }
+
   Future<void> _stopLiveSharing() async {
+    HapticFeedback.selectionClick();
     await JourneyEngine.instance.stop();
   }
 
@@ -1732,6 +1805,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// The human close of a journey (manual or automatic): offer to send the
   /// other party a one-tap heads-up message.
   Future<void> _offerArrivalNotify() async {
+    // Arrival is the journey's payoff — and with auto-arrival it can happen
+    // while the phone is in a pocket, so it deserves a distinct physical cue
+    // rather than only a visual one.
+    HapticFeedback.mediumImpact();
     final partner = widget.conversation.userName.trim();
     final notify = await showDialog<bool>(
       context: context,
