@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'providers/connectivity_provider.dart' show NetworkHealth;
 import 'services/supabase_auth_bridge.dart';
 
 /// HTTP client that injects the Supabase JWT (from the Firebase exchange) into
@@ -22,7 +23,20 @@ class HttpClientWithToken extends http.BaseClient {
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     // Capture a replay copy BEFORE sending: a BaseRequest body is single-use.
     final replay = _replayFactory(request);
-    final response = await _sendOnce(request);
+    final http.StreamedResponse response;
+    try {
+      response = await _sendOnce(request);
+    } catch (e) {
+      // Timeouts and socket errors are the app's most reliable signal that the
+      // network is up but carrying nothing (an expired data bundle keeps the
+      // radio on). Reported here — the one place every Supabase call passes
+      // through — so reachability is derived from real traffic instead of a
+      // separate polling loop. Suspicion only; the provider decides.
+      NetworkHealth.failure();
+      rethrow;
+    }
+    // A response of any status proves packets made the round trip.
+    NetworkHealth.success();
     if (response.statusCode != 401 || replay == null) return response;
 
     final refreshed = await SupabaseAuthBridge.forceRefresh();

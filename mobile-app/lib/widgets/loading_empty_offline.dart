@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:provider/provider.dart';
+import '../providers/connectivity_provider.dart';
 import '../theme/app_theme.dart';
 
 /// Consistent loading view (spinner + message). Use when data is being fetched.
@@ -166,24 +168,63 @@ class OfflineBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      color: AppTheme.warningOrange.withValues(alpha: 0.2),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Iconsax.wifi_square, size: 18, color: AppTheme.warningOrange),
-          const SizedBox(width: 8),
-          Text(
-            "You're offline — showing cached data",
-            style: TextStyle(
-              fontSize: 13,
-              color: AppTheme.warningOrange,
-              fontWeight: FontWeight.w500,
+    // Two different failures deserve two different sentences. "No connection"
+    // sends someone to check their Wi-Fi; but the common case on mobile data is
+    // a live radio carrying nothing — an expired bundle — and telling that user
+    // they have "no connection" is misleading, because their phone plainly
+    // shows bars. Naming it is the difference between a confusing app and one
+    // that tells them to top up.
+    final connectivity = context.watch<ConnectivityProvider>();
+    final unreachable = connectivity.isConnectedButUnreachable;
+    final checking = connectivity.isProbing;
+    final message = checking
+        ? 'Checking your connection…'
+        : unreachable
+            ? "Connected, but can't reach Help24 — showing saved content"
+            : "You're offline — showing saved content";
+
+    return Semantics(
+      liveRegion: true,
+      label: message,
+      child: Material(
+        color: AppTheme.warningOrange.withValues(alpha: 0.2),
+        child: InkWell(
+          // Tapping retries. Recovery is automatic, but a user staring at the
+          // banner wants a way to act rather than wait.
+          onTap: checking ? null : () => connectivity.checkNow(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            child: Row(
+              children: [
+                Icon(
+                  unreachable ? Iconsax.global_refresh : Iconsax.wifi_square,
+                  size: 18,
+                  color: AppTheme.warningOrange,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.warningOrange,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (!checking)
+                  const Text(
+                    'Retry',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: AppTheme.warningOrange,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
