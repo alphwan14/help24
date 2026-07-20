@@ -110,6 +110,50 @@ void main() {
     });
   });
 
+  group('single-flight must not deadlock', () {
+    // Regression guard for a self-referential deadlock that silently disabled
+    // every ETA: compute() de-duplicates concurrent calls via an _inFlight map
+    // and cleared the entry with `whenComplete(() => _inFlight.remove(key))`.
+    // Map.remove returns the stored value — the very future being built — and
+    // whenComplete awaits any Future its callback returns, so the future waited
+    // on itself and never completed. The fetch succeeded, nothing threw, and
+    // callers' `await` hung forever. Only a block body is safe.
+    test('a compute() call completes rather than hanging', () async {
+      // No backend in a unit test, so this resolves to null via the error
+      // path — the point is that it RESOLVES at all. Under the bug this
+      // future never completes and the timeout fires.
+      final result = await RouteService.compute(
+        originLat: -3.97,
+        originLng: 39.72,
+        destLat: -3.96,
+        destLng: 39.73,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw StateError(
+            'compute() never completed — single-flight future is awaiting itself'),
+      );
+      expect(result, anyOf(isNull, isA<JourneyRoute>()));
+    });
+
+    test('concurrent calls for the same key all complete', () async {
+      final futures = List.generate(
+        3,
+        (_) => RouteService.compute(
+          originLat: -3.9702,
+          originLng: 39.7202,
+          destLat: -3.9602,
+          destLng: 39.7302,
+        ),
+      );
+      final results = await Future.wait(futures).timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => throw StateError(
+            'shared in-flight future never completed'),
+      );
+      expect(results.length, 3);
+    });
+  });
+
   group('JourneyRoute liveness', () {
     test('ETA counts down with elapsed time and never goes negative', () {
       final route = JourneyRoute(

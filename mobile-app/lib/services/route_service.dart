@@ -117,8 +117,15 @@ class RouteService {
     final existing = _inFlight[key];
     if (existing != null) return existing;
 
+    // NOTE the block body. `whenComplete(() => _inFlight.remove(key))` looks
+    // identical but deadlocks: Map.remove returns the stored value — which is
+    // THIS future — and whenComplete waits on any Future its callback returns,
+    // so the future ends up awaiting itself and never completes. The fetch
+    // succeeds, no error is thrown, and every caller's `await` simply hangs.
     final future = _fetch(originLat, originLng, destLat, destLng, key)
-        .whenComplete(() => _inFlight.remove(key));
+        .whenComplete(() {
+      _inFlight.remove(key);
+    });
     _inFlight[key] = future;
     return future;
   }

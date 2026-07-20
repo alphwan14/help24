@@ -608,8 +608,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _onJourneyChanged() {
     final s = JourneyEngine.instance.snapshot;
     _journey = s;
+    // Rebuild key = everything the journey UI can actually show. The route
+    // parts are NOT optional: without them a newly-arrived route changed no
+    // other field on a stationary device, the key compared equal, setState was
+    // skipped, and the ETA never appeared even though the engine had it.
+    // Bucketed so the filter still does its job — route identity changes ~once
+    // per 90s, and the ETA is rendered in whole minutes.
     final key = '${s.state.name}:${s.messageId ?? ''}:'
-        '${s.distanceToDestinationM == null ? '' : (s.distanceToDestinationM! / 25).round()}';
+        '${s.distanceToDestinationM == null ? '' : (s.distanceToDestinationM! / 25).round()}:'
+        '${s.route?.computedAt.millisecondsSinceEpoch ?? 0}:'
+        '${s.etaSeconds == null ? '' : (s.etaSeconds! / 60).round()}';
     if (key == _journeyUiKey) return;
     _journeyUiKey = key;
     if (mounted) setState(() {});

@@ -694,24 +694,18 @@ class JourneyCard extends StatelessWidget {
                       Text(title,
                           style: TextStyle(
                               fontSize: 14, fontWeight: FontWeight.w700, color: titleColor)),
-                      // Calm crossfade: the ETA changes on its own schedule,
-                      // and a number that snaps reads as a glitch. 220 ms is
-                      // long enough to notice, short enough to ignore.
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
-                        switchInCurve: Curves.easeOut,
-                        switchOutCurve: Curves.easeIn,
-                        layoutBuilder: (current, previous) => Stack(
-                          alignment: Alignment.centerLeft,
-                          children: [...previous, if (current != null) current],
-                        ),
-                        child: Text(
-                          statusLine,
-                          key: ValueKey(statusLine),
-                          style: TextStyle(fontSize: 12, color: subColor),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                      // Deliberately NOT crossfaded. A switcher overlays the
+                      // outgoing and incoming strings, and two different-width
+                      // status lines ("Almost there…" → "2 min away · 480 m
+                      // remaining") render on top of each other mid-transition
+                      // as garbled text — observed on device. An ETA that
+                      // changes at most once a minute does not need animating;
+                      // clarity wins over polish here.
+                      Text(
+                        statusLine,
+                        style: TextStyle(fontSize: 12, color: subColor),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -1014,10 +1008,11 @@ class JourneyStatusStrip extends StatelessWidget {
                 ),
                 const SizedBox(width: 9),
                 Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 240),
-                    child: Column(
-                      key: ValueKey('$title|$subtitle'),
+                  // Same reasoning as the journey card: overlaying two
+                  // different-width strings reads as garbled text, and the
+                  // strip's own colour/badge transitions already carry the
+                  // sense of change.
+                  child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1045,8 +1040,7 @@ class JourneyStatusStrip extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 8),
