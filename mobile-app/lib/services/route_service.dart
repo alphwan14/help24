@@ -144,7 +144,11 @@ class RouteService {
           )
           .timeout(const Duration(seconds: 8));
 
-      if (response.statusCode != 200) {
+      // Accept any 2xx. The endpoint answers 200, but pinning this to exactly
+      // 200 made the client brittle to a server-side default it does not own:
+      // Nest returns 201 for POST unless told otherwise, and that alone was
+      // enough to discard every successful route.
+      if (response.statusCode < 200 || response.statusCode >= 300) {
         debugPrint('RouteService: HTTP ${response.statusCode}');
         return null;
       }

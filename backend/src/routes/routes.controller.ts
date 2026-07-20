@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { IsLatitude, IsLongitude, IsNumber } from 'class-validator';
 import { RoutesService, RouteResult } from './routes.service';
 
@@ -33,7 +33,12 @@ class ComputeRouteDto {
 export class RoutesController {
   constructor(private readonly routes: RoutesService) {}
 
+  // 200, not Nest's default 201 for POST: this computes and returns a value,
+  // it does not create a resource. POST is used only because the request
+  // carries a coordinate body. (Verified in the field: the client treated the
+  // 201 as a failure and silently dropped every successful route.)
   @Post('compute')
+  @HttpCode(HttpStatus.OK)
   async compute(@Body() dto: ComputeRouteDto): Promise<RouteResult> {
     return this.routes.computeRoute(
       dto.originLat,
