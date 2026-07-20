@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Ip, Post } from '@nestjs/common';
 import { IsLatitude, IsLongitude, IsNumber } from 'class-validator';
 import { RoutesService, RouteResult } from './routes.service';
 
@@ -39,12 +39,20 @@ export class RoutesController {
   // 201 as a failure and silently dropped every successful route.)
   @Post('compute')
   @HttpCode(HttpStatus.OK)
-  async compute(@Body() dto: ComputeRouteDto): Promise<RouteResult> {
+  async compute(
+    @Body() dto: ComputeRouteDto,
+    @Ip() ip: string,
+  ): Promise<RouteResult> {
+    // The caller IP is the only identity available here — the endpoint is
+    // unauthenticated by necessity — and it is what the per-caller spend
+    // budget is keyed on. Render sits behind a proxy, so trust proxy must be
+    // enabled for this to be the real client address rather than the edge's.
     return this.routes.computeRoute(
       dto.originLat,
       dto.originLng,
       dto.destLat,
       dto.destLng,
+      ip || 'unknown',
     );
   }
 }

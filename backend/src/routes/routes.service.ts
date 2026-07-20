@@ -104,11 +104,47 @@ export class RoutesService {
     });
   }
 
+  /// Per-caller budget. This endpoint spends real money on every cache miss,
+  /// and it is unauthenticated — it has to be, because the app calls it before
+  /// any Help24 session concept exists on the backend. Without a cap, anyone
+  /// who finds the URL can run up the Google bill indefinitely, which is a
+  /// worse exposure than the extractable-key problem this proxy was built to
+  /// avoid: at least a leaked key can be rotated and attributed.
+  ///
+  /// A sliding window per IP is deliberately crude but effective: a real
+  /// traveller needs roughly one call per 45–90 s (the client's own refresh
+  /// policy), so 40/10 min is generous for legitimate use — several concurrent
+  /// journeys behind one NAT — while capping a single abusive source. Cache
+  /// hits are NOT counted; only calls that would reach Google.
+  private static readonly RATE_LIMIT_MAX = 40;
+  private static readonly RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+  private readonly callers = new Map<string, number[]>();
+
+  private overBudget(caller: string): boolean {
+    const now = Date.now();
+    const cutoff = now - RoutesService.RATE_LIMIT_WINDOW_MS;
+    const hits = (this.callers.get(caller) ?? []).filter((t) => t > cutoff);
+    if (hits.length >= RoutesService.RATE_LIMIT_MAX) {
+      this.callers.set(caller, hits);
+      return true;
+    }
+    hits.push(now);
+    this.callers.set(caller, hits);
+    // Opportunistic sweep so the map cannot grow without bound.
+    if (this.callers.size > 5000) {
+      for (const [k, v] of this.callers) {
+        if (!v.some((t) => t > cutoff)) this.callers.delete(k);
+      }
+    }
+    return false;
+  }
+
   async computeRoute(
     originLat: number,
     originLng: number,
     destLat: number,
     destLng: number,
+    caller = 'unknown',
   ): Promise<RouteResult> {
     const key = this.apiKey;
     if (!key) {
@@ -118,6 +154,13 @@ export class RoutesService {
     const cacheKey = this.cacheKey(originLat, originLng, destLat, destLng);
     const cached = this.readCache(cacheKey);
     if (cached) return cached;
+
+    // Checked only on a cache miss — a cached answer costs nothing, so
+    // serving it can never be abuse.
+    if (this.overBudget(caller)) {
+      this.logger.warn(`Routes rate limit hit for ${caller}`);
+      return { available: false, reason: 'rate_limited' };
+    }
 
     try {
       const response = await axios.post(

@@ -1,3 +1,4 @@
+import { NestExpressApplication } from '@nestjs/platform-express';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -9,7 +10,14 @@ import { DevService } from './dev/dev.service';
 import { CampaignsService } from './promotions/campaigns.service';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Render terminates TLS at an edge proxy, so without this every request
+  // reports the proxy's address as its client IP. Anything that reasons about
+  // the caller — currently the Routes spend budget — would then see all users
+  // as ONE caller and throttle them collectively. Trusting the proxy makes
+  // req.ip the real client via X-Forwarded-For.
+  app.set('trust proxy', 1);
 
   // CORS is environment-driven: set CORS_ORIGINS to a comma-separated allowlist
   // in production (e.g. https://help24-admin-dashboard.vercel.app). Unset → allow all (dev).

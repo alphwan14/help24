@@ -46,7 +46,15 @@ class PlaceNameCache {
     final existing = _inFlight[key];
     if (existing != null) return existing;
 
-    final future = _lookup(lat, lng, key).whenComplete(() => _inFlight.remove(key));
+    // Block body, NOT `whenComplete(() => _inFlight.remove(key))`. The arrow
+    // form returns Map.remove's value — the very future stored on the next
+    // line — and whenComplete awaits any Future its callback returns, so the
+    // future ends up awaiting itself and never completes. The lookup succeeds,
+    // nothing throws, and every caller's `await` hangs: on the journey confirm
+    // screen the destination area name simply never appeared, silently.
+    final future = _lookup(lat, lng, key).whenComplete(() {
+      _inFlight.remove(key);
+    });
     _inFlight[key] = future;
     return future;
   }

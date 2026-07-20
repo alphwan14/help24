@@ -64,7 +64,16 @@ class ReputationService {
 
     final future = _fetchReputation(providerId);
     _inflight[providerId] = future;
-    return future.whenComplete(() => _inflight.remove(providerId));
+    // Block body on purpose. This site happens to be safe — the map holds the
+    // INNER future, which has already completed by the time this callback runs
+    // — but the arrow form returns Map.remove's value, and whenComplete awaits
+    // any Future its callback returns. Storing the composed future here
+    // instead would make it await itself and hang forever, silently. Two
+    // sibling caches shipped exactly that bug; the block body removes the trap
+    // rather than relying on the storage order staying as it is.
+    return future.whenComplete(() {
+      _inflight.remove(providerId);
+    });
   }
 
   static Future<ProviderReputation?> _fetchReputation(String providerId) async {
