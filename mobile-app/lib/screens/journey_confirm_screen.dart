@@ -17,6 +17,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:iconsax/iconsax.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 
@@ -41,6 +42,42 @@ class JourneyConfirmScreen extends StatefulWidget {
 
   @override
   State<JourneyConfirmScreen> createState() => _JourneyConfirmScreenState();
+}
+
+/// One line of pre-journey reassurance: an icon and a short statement. Two of
+/// these replace a paragraph — the reader scans them, which is the point.
+class _ReassuranceRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final bool isDark;
+
+  const _ReassuranceRow({
+    required this.icon,
+    required this.text,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(icon, size: 15, color: color),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(fontSize: 13, height: 1.3, color: color),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
@@ -302,6 +339,20 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Names the row before naming the place: without it the
+                  // title reads as "some text" rather than "where I'm going".
+                  Text(
+                    hasDest ? 'DESTINATION' : 'SHARING WITH',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.7,
+                      color: isDark
+                          ? AppTheme.darkTextTertiary
+                          : AppTheme.lightTextTertiary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
                   Text(
                     widget.destinationTitle,
                     style: TextStyle(
@@ -340,29 +391,42 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
             ),
           ],
         ),
-        const SizedBox(height: 10),
-        Text(
-          hasDest
-              ? "Your location will be shared in this chat while you're travelling to this job. You stop it anytime."
-              : 'Your live location will be shared in this chat until you stop it.',
-          style: TextStyle(
-            fontSize: 13,
-            height: 1.35,
-            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-          ),
+        const SizedBox(height: 14),
+        // Two short lines instead of one long sentence: what happens, then who
+        // can see it. Sharing your live position is the most sensitive thing
+        // this app asks for, and the scope answer ("only this chat") belongs
+        // next to the button, not buried in a paragraph.
+        _ReassuranceRow(
+          icon: Iconsax.location,
+          text: hasDest
+              ? "Your live location is shared while you travel to this job"
+              : 'Your live location is shared in this chat',
+          isDark: isDark,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 7),
+        _ReassuranceRow(
+          icon: Iconsax.lock_1,
+          text: 'Only this chat can see it — stop anytime',
+          isDark: isDark,
+        ),
+        const SizedBox(height: 16),
         SizedBox(
-          height: 48,
+          // 54: this is the screen's single decision, so it carries the weight
+          // a primary CTA does in a navigation app rather than sitting at the
+          // same height as an ordinary form button.
+          height: 54,
           child: FilledButton.icon(
-            onPressed: () => Navigator.of(context).pop(true),
-            icon: const Icon(Iconsax.routing_2, size: 19),
+            onPressed: () {
+              HapticFeedback.mediumImpact();
+              Navigator.of(context).pop(true);
+            },
+            icon: const Icon(Iconsax.routing_2, size: 20),
             label: const Text('Start journey'),
             style: FilledButton.styleFrom(
               backgroundColor: AppTheme.primaryAccent,
               foregroundColor: Colors.white,
-              textStyle: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
             ),
           ),
         ),

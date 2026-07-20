@@ -18,6 +18,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:iconsax/iconsax.dart';
 
 import '../services/location_service.dart';
@@ -48,6 +49,15 @@ class PlacePickerScreen extends StatefulWidget {
 class _PlacePickerScreenState extends State<PlacePickerScreen> {
   // Nairobi CBD — country-scale sensible default when nothing better exists.
   static const _fallbackRegion = CameraPosition(target: LatLng(-1.286389, 36.817223), zoom: 11.5);
+
+  /// Height reserved for the bottom card (instruction + label + CTA + safe
+  /// area). ONE constant on purpose: it feeds both the map's bottom padding —
+  /// which is what makes Google's own chrome and the camera centre sit above
+  /// the card — and the centre pin's offset. These were duplicated literals,
+  /// and when the card grew they silently disagreed, which moves the pin tip
+  /// off the true centre and makes the user pin a spot they did not choose.
+  static const double _bottomCardHeight = 182;
+  static const double _pinHeight = 46;
 
   GoogleMapController? _map;
   late final TextEditingController _labelCtrl = TextEditingController(text: widget.initialLabel);
@@ -165,7 +175,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
             zoomControlsEnabled: false,
             mapToolbarEnabled: false,
             // Keep Google chrome clear of the bottom card.
-            padding: const EdgeInsets.only(bottom: 148),
+            padding: const EdgeInsets.only(bottom: _bottomCardHeight),
           ),
 
           // Fixed center pin. IgnorePointer so map gestures pass through.
@@ -173,7 +183,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
           IgnorePointer(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.only(bottom: 148 + 46),
+                padding: const EdgeInsets.only(bottom: _bottomCardHeight + _pinHeight),
                 child: Semantics(
                   label: 'Map pin. Drag the map to position the pin on the exact spot.',
                   child: const Icon(
@@ -256,6 +266,34 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // The core interaction — drag the map, the pin stays put —
+                    // is invisible: the pin looks draggable and the map looks
+                    // static, which is exactly backwards. One line removes the
+                    // guesswork for a first-time user without adding chrome.
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10, left: 2),
+                      child: Row(
+                        children: [
+                          Icon(Iconsax.info_circle,
+                              size: 14,
+                              color: isDark
+                                  ? AppTheme.darkTextTertiary
+                                  : AppTheme.lightTextTertiary),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Move the map to place the pin',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: isDark
+                                    ? AppTheme.darkTextSecondary
+                                    : AppTheme.lightTextSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     TextField(
                       controller: _labelCtrl,
                       textCapitalization: TextCapitalization.sentences,
@@ -279,10 +317,15 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                     ),
                     const SizedBox(height: 10),
                     SizedBox(
-                      height: 46,
+                      // Matches the journey confirm CTA: both are the single
+                      // decision on their screen and should carry equal weight.
+                      height: 52,
                       child: FilledButton.icon(
-                        onPressed: _confirm,
-                        icon: const Icon(Iconsax.send_2, size: 18),
+                        onPressed: () {
+                          HapticFeedback.mediumImpact();
+                          _confirm();
+                        },
+                        icon: const Icon(Iconsax.send_2, size: 19),
                         label: Text(widget.confirmLabel),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.primaryAccent,
