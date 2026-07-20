@@ -450,6 +450,25 @@ class PlaceCard extends StatelessWidget {
 /// derive it from the row via [deriveWatcherJourneyPhase].
 enum JourneyPhase { travelling, nearby, reconnecting, arrived, ended }
 
+/// Human-facing ETA, e.g. "12 min away", "arriving shortly", "1 h 5 min away".
+/// Presentation only — the engine owns the number, this owns the sentence.
+String? etaText(int? seconds) {
+  if (seconds == null) return null;
+  if (seconds < 90) return 'Arriving shortly';
+  final minutes = (seconds / 60).round();
+  if (minutes < 60) return '$minutes min away';
+  final hours = minutes ~/ 60;
+  final rest = minutes % 60;
+  return rest == 0 ? '$hours h away' : '$hours h $rest min away';
+}
+
+/// "4.8 km remaining" / "320 m remaining".
+String? remainingText(double? meters) {
+  if (meters == null) return null;
+  if (meters < 950) return '${(meters / 10).round() * 10} m remaining';
+  return '${(meters / 1000).toStringAsFixed(1)} km remaining';
+}
+
 /// Watcher-side phase derivation — a pure function of the row plus what this
 /// device knows (the job's destination, and when the last realtime update for
 /// this journey landed). No engine required: the traveller's device is the
@@ -496,6 +515,12 @@ class JourneyCard extends StatelessWidget {
   /// When the last realtime update for this journey landed (watcher side) —
   /// drives the "Updated Xs ago" honesty line while reconnecting.
   final DateTime? lastEventAt;
+  /// Live ETA in seconds and remaining metres (Phase 3). Null when routing is
+  /// unavailable, in which case the card renders exactly as it did in Phase 2.
+  final int? etaSeconds;
+  final double? remainingMeters;
+  /// Human destination name ("Mtopanga") when reverse geocoding resolved one.
+  final String? destinationName;
   final VoidCallback? onStop;
   final VoidCallback? onArrived;
   final VoidCallback? onTap;
@@ -508,6 +533,9 @@ class JourneyCard extends StatelessWidget {
     this.isSharing = false,
     this.phase = JourneyPhase.travelling,
     this.lastEventAt,
+    this.etaSeconds,
+    this.remainingMeters,
+    this.destinationName,
     this.onStop,
     this.onArrived,
     this.onTap,
@@ -593,12 +621,16 @@ class JourneyCard extends StatelessWidget {
     // ── Live — one card, mutating through the journey's phases ──
     final reconnecting = phase == JourneyPhase.reconnecting;
     final freshness = journeyFreshnessText(lastEventAt);
+    // ETA leads when routing has an answer — "12 min away" is what both sides
+    // actually want to know; distance and start time are the fallback.
+    final eta = etaText(etaSeconds);
+    final remaining = remainingText(remainingMeters);
     final String statusLine;
     switch (phase) {
       case JourneyPhase.nearby:
         statusLine = [
-          'Almost there…',
-          if (!mine && distance != null) distance,
+          eta ?? 'Almost there…',
+          if (remaining != null) remaining else if (!mine && distance != null) distance,
         ].join(' · ');
         break;
       case JourneyPhase.reconnecting:
@@ -611,8 +643,8 @@ class JourneyCard extends StatelessWidget {
       case JourneyPhase.arrived:
       case JourneyPhase.ended:
         statusLine = [
-          'Live · since ${_clockTime(context, message.timestamp)}',
-          if (!mine && distance != null) distance,
+          eta ?? 'Live · since ${_clockTime(context, message.timestamp)}',
+          if (remaining != null) remaining else if (!mine && distance != null) distance,
         ].join(' · ');
         break;
     }
@@ -662,11 +694,24 @@ class JourneyCard extends StatelessWidget {
                       Text(title,
                           style: TextStyle(
                               fontSize: 14, fontWeight: FontWeight.w700, color: titleColor)),
-                      Text(
-                        statusLine,
-                        style: TextStyle(fontSize: 12, color: subColor),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      // Calm crossfade: the ETA changes on its own schedule,
+                      // and a number that snaps reads as a glitch. 220 ms is
+                      // long enough to notice, short enough to ignore.
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        switchInCurve: Curves.easeOut,
+                        switchOutCurve: Curves.easeIn,
+                        layoutBuilder: (current, previous) => Stack(
+                          alignment: Alignment.centerLeft,
+                          children: [...previous, if (current != null) current],
+                        ),
+                        child: Text(
+                          statusLine,
+                          key: ValueKey(statusLine),
+                          style: TextStyle(fontSize: 12, color: subColor),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),
@@ -913,6 +958,8 @@ class JourneyStatusStrip extends StatelessWidget {
   /// Drives tint, badge and dot so the strip evolves with the journey:
   /// travelling/nearby → green LIVE, reconnecting → amber, arrived → green ✓.
   final JourneyPhase phase;
+  /// Optional second line: "12 min away · 4.8 km remaining" (Phase 3).
+  final String? subtitle;
   final VoidCallback? onTap;
   final VoidCallback? onStop;
 
@@ -920,6 +967,7 @@ class JourneyStatusStrip extends StatelessWidget {
     super.key,
     required this.title,
     this.phase = JourneyPhase.travelling,
+    this.subtitle,
     this.onTap,
     this.onStop,
   });
@@ -966,15 +1014,39 @@ class JourneyStatusStrip extends StatelessWidget {
                 ),
                 const SizedBox(width: 9),
                 Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 240),
+                    child: Column(
+                      key: ValueKey('$title|$subtitle'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: isDark
+                                ? AppTheme.darkTextPrimary
+                                : AppTheme.lightTextPrimary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (subtitle != null && subtitle!.isNotEmpty)
+                          Text(
+                            subtitle!,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: isDark
+                                  ? AppTheme.darkTextSecondary
+                                  : AppTheme.lightTextSecondary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(width: 8),

@@ -13,6 +13,7 @@ import { AdminModule } from './admin/admin.module';
 import { ReputationModule } from './reputation/reputation.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { PromotionsModule } from './promotions/promotions.module';
+import { RoutesModule } from './routes/routes.module';
 import { HealthController, RootController } from './health.controller';
 import { DevModule } from './dev/dev.module';
 
@@ -39,6 +40,9 @@ import { DevModule } from './dev/dev.module';
     // Business Promotion ("Promote Business"): campaigns, packages, M-Pesa
     // purchase, placement serving, analytics, moderation.
     PromotionsModule,
+    // Journey routing (Phase 3): Google Routes proxy for ETA, remaining
+    // distance and polyline. Keeps the billable key off the device.
+    RoutesModule,
     // EventProcessorModule is registered last: it imports MpesaModule + EventsModule.
     // Nothing imports EventProcessorModule — it is a leaf that starts the retry loop.
     EventProcessorModule,

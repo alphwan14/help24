@@ -21,6 +21,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 
 import '../services/location_service.dart';
+import '../services/place_name_cache.dart';
 import '../theme/app_theme.dart';
 
 class JourneyConfirmScreen extends StatefulWidget {
@@ -52,11 +53,30 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
   bool _requesting = false;
   LatLng? _myPos;
 
+  /// Reverse-geocoded area name for the destination ("Mtopanga"), shown when
+  /// the post carries no written location. Resolved once and cached process-
+  /// wide; never blocks the screen — the map and CTA render regardless.
+  String? _areaName;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _refreshPermission();
+    _resolveAreaName();
+  }
+
+  Future<void> _resolveAreaName() async {
+    final dest = widget.destination;
+    // Only worth a lookup when there is no human location text already.
+    if (dest == null || widget.destinationSubtitle.trim().isNotEmpty) return;
+    final cached = PlaceNameCache.peek(dest.latitude, dest.longitude);
+    if (cached != null) {
+      setState(() => _areaName = cached);
+      return;
+    }
+    final name = await PlaceNameCache.resolve(dest.latitude, dest.longitude);
+    if (mounted && name != null) setState(() => _areaName = name);
   }
 
   @override
@@ -292,6 +312,19 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (widget.destinationSubtitle.isEmpty && _areaName != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        _areaName!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDark
+                              ? AppTheme.darkTextSecondary
+                              : AppTheme.lightTextSecondary,
+                        ),
+                      ),
+                    ),
                   if (widget.destinationSubtitle.isNotEmpty)
                     Text(
                       widget.destinationSubtitle,

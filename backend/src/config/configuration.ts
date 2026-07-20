@@ -30,6 +30,17 @@ export const configuration = (): Record<string, unknown> => {
       url: required('SUPABASE_URL'),
       serviceRoleKey: required('SUPABASE_SERVICE_ROLE_KEY'),
     },
+    google: {
+      // OPTIONAL on purpose — not `required()`. Journey ETAs are an
+      // enhancement; if this is unset the /routes endpoint answers
+      // "unavailable" and the app keeps its straight-line behaviour. The
+      // server must never refuse to boot over a missing Phase 3 nicety.
+      //
+      // Must be a SERVER key (no Android app restriction — Routes is a web
+      // service and ignores package/SHA-1 restrictions). Restrict by IP or
+      // leave unrestricted but server-held; never ship it in the app.
+      routesApiKey: process.env.GOOGLE_ROUTES_API_KEY?.trim() || undefined,
+    },
     mpesa: {
       env: required('MPESA_ENV'),
       consumerKey: required('MPESA_CONSUMER_KEY'),

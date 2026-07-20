@@ -30,6 +30,7 @@ import '../widgets/loading_empty_offline.dart';
 import '../widgets/chat_ui.dart';
 import '../widgets/location_experience.dart';
 import '../services/journey_engine.dart';
+import '../services/route_service.dart';
 import 'place_picker_screen.dart';
 import 'journey_confirm_screen.dart';
 import 'review_submission_screen.dart';
@@ -2217,12 +2218,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     title = mine ? "You're sharing your journey" : '$name is on the way';
                     break;
                 }
+                // ETA line: only the traveller's device computes a route, so
+                // only it can narrate one. Watchers keep the Phase 2 line.
+                final owns = _journey.owns(journey.id);
+                final subtitle = (owns && phase != JourneyPhase.arrived)
+                    ? [
+                        etaText(_journey.etaSeconds),
+                        remainingText(_journey.remainingMeters),
+                      ].whereType<String>().join(' · ')
+                    : null;
                 return JourneyStatusStrip(
                   title: title,
                   phase: phase,
+                  subtitle: (subtitle == null || subtitle.isEmpty) ? null : subtitle,
                   onTap: journey.hasValidCoordinates ? () => _openFullScreenMap(journey) : null,
-                  onStop:
-                      mine && _journey.owns(journey.id) && _journey.isLive ? _stopLiveSharing : null,
+                  onStop: mine && owns && _journey.isLive ? _stopLiveSharing : null,
                 );
               }),
             // Job/payment tracking moved to the three-dot menu (Job status
@@ -2387,6 +2397,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                               ? _phaseFor(msgItem.message)
                               : JourneyPhase.travelling,
                           journeyLastEventAt: _journeyEventAt[msgItem.message.id],
+                          journeyEtaSeconds: _journey.owns(msgItem.message.id)
+                              ? _journey.etaSeconds
+                              : null,
+                          journeyRemainingMeters: _journey.owns(msgItem.message.id)
+                              ? _journey.remainingMeters
+                              : null,
                           onStopLiveSharing: _journey.owns(msgItem.message.id) ? _stopLiveSharing : null,
                           onMarkArrived: _journey.owns(msgItem.message.id) ? _markArrived : null,
                           onTapLocation: msgItem.message.hasValidCoordinates ? () => _openFullScreenMap(msgItem.message) : null,
@@ -2792,6 +2808,8 @@ class _MessageBubble extends StatelessWidget {
   final bool isLiveSharing;
   final JourneyPhase journeyPhase;
   final DateTime? journeyLastEventAt;
+  final int? journeyEtaSeconds;
+  final double? journeyRemainingMeters;
   final VoidCallback? onStopLiveSharing;
   final VoidCallback? onMarkArrived;
   final VoidCallback? onTapLocation;
@@ -2818,6 +2836,8 @@ class _MessageBubble extends StatelessWidget {
     this.isLiveSharing = false,
     this.journeyPhase = JourneyPhase.travelling,
     this.journeyLastEventAt,
+    this.journeyEtaSeconds,
+    this.journeyRemainingMeters,
     this.onStopLiveSharing,
     this.onMarkArrived,
     this.onTapLocation,
@@ -3120,6 +3140,8 @@ class _MessageBubble extends StatelessWidget {
                     isSharing: isLiveSharing,
                     phase: journeyPhase,
                     lastEventAt: journeyLastEventAt,
+                    etaSeconds: journeyEtaSeconds,
+                    remainingMeters: journeyRemainingMeters,
                     onStop: onStopLiveSharing,
                     onArrived: onMarkArrived,
                     onTap: onTapLocation,
@@ -3392,6 +3414,28 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
     super.initState();
     _message = widget.message;
     _loadMyPosition();
+    // Redraw when the engine publishes a new route/position for this journey.
+    JourneyEngine.instance.listenable.addListener(_onEngine);
+  }
+
+  void _onEngine() {
+    if (!mounted) return;
+    final journey = JourneyEngine.instance.snapshot;
+    if (!journey.owns(_message.id)) return;
+    // Only the route object identity matters for the drawn path; the marker
+    // follows the message row via realtime. Cheap setState, no camera fight.
+    if (!identical(journey.route, _lastDrawnRoute)) {
+      _lastDrawnRoute = journey.route;
+      setState(() {});
+    }
+  }
+
+  JourneyRoute? _lastDrawnRoute;
+
+  @override
+  void dispose() {
+    JourneyEngine.instance.listenable.removeListener(_onEngine);
+    super.dispose();
   }
 
   Future<void> _loadMyPosition() async {
@@ -3404,6 +3448,47 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
       });
       if (pos != null && _mapController != null) _fitBounds();
     }
+  }
+
+  /// Route path for this journey, if the engine has one for THIS message.
+  ///
+  /// Identity-keyed on the route object: the polyline is only rebuilt when a
+  /// genuinely new route arrives (every ~90 s), not on every position fix, so
+  /// the line does not flicker as the marker moves.
+  Set<Polyline> _routePolylines() {
+    final journey = JourneyEngine.instance.snapshot;
+    if (!journey.owns(_message.id)) return const {};
+    final route = journey.route;
+    if (route == null || route.isStale || route.path.length < 2) return const {};
+    return {
+      Polyline(
+        polylineId: PolylineId('route_${route.computedAt.millisecondsSinceEpoch}'),
+        points: [
+          for (final p in _simplify(route.path)) LatLng(p.lat, p.lng),
+        ],
+        width: 5,
+        color: AppTheme.primaryAccent.withValues(alpha: 0.85),
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+        geodesic: true,
+      ),
+    };
+  }
+
+  /// Caps the drawn vertex count. An overview polyline for a long trip can
+  /// carry thousands of points; past a few hundred they are sub-pixel and cost
+  /// only render time. Uniform sampling keeps the shape and always keeps the
+  /// endpoints.
+  List<({double lat, double lng})> _simplify(List<({double lat, double lng})> path) {
+    const maxPoints = 300;
+    if (path.length <= maxPoints) return path;
+    final step = (path.length / maxPoints).ceil();
+    final out = <({double lat, double lng})>[];
+    for (var i = 0; i < path.length; i += step) {
+      out.add(path[i]);
+    }
+    if (out.last != path.last) out.add(path.last);
+    return out;
   }
 
   void _fitBounds() {
@@ -3466,6 +3551,10 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
                   icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
                 ),
             },
+            // Actual driven route, not a straight line. Drawn only when this
+            // device owns the journey (only it computes routes) and the path
+            // is non-empty; otherwise the map is exactly as it was in Phase 2.
+            polylines: _routePolylines(),
             onMapCreated: (controller) {
               _mapController = controller;
               if (_myLat != null && _myLng != null) _fitBounds();
@@ -3488,9 +3577,29 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
                     children: [
                       const LiveDot(size: 7),
                       const SizedBox(width: 12),
-                      Text(
-                        'Sharing live',
-                        style: Theme.of(context).textTheme.titleSmall,
+                      Expanded(
+                        child: Builder(builder: (context) {
+                          final journey = JourneyEngine.instance.snapshot;
+                          final owns = journey.owns(_message.id);
+                          final eta = owns ? etaText(journey.etaSeconds) : null;
+                          final remaining =
+                              owns ? remainingText(journey.remainingMeters) : null;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                eta ?? 'Sharing live',
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                              if (remaining != null)
+                                Text(
+                                  remaining,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                            ],
+                          );
+                        }),
                       ),
                     ],
                   ),

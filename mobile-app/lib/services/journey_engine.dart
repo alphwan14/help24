@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'chat_service_supabase.dart';
 import 'location_service.dart';
+import 'route_service.dart';
 
 // =============================================================================
 // Help24 Journey Engine — the single owner of an active journey
@@ -119,6 +120,11 @@ class JourneySnapshot {
   final DateTime? startedAt;
   final DateTime? liveUntil;
   final JourneyEndReason? endReason;
+  /// Latest computed route (Phase 3). Null when routing is unavailable — the
+  /// journey is fully functional without it.
+  final JourneyRoute? route;
+  /// Smoothed ground speed in m/s (null until enough movement is seen).
+  final double? speedMps;
 
   const JourneySnapshot._({
     required this.state,
@@ -130,6 +136,8 @@ class JourneySnapshot {
     this.startedAt,
     this.liveUntil,
     this.endReason,
+    this.route,
+    this.speedMps,
   });
 
   static const JourneySnapshot idle = JourneySnapshot._(state: JourneyState.idle);
@@ -153,6 +161,8 @@ class JourneySnapshot {
     DateTime? startedAt,
     DateTime? liveUntil,
     JourneyEndReason? endReason,
+    JourneyRoute? route,
+    double? speedMps,
   }) {
     return JourneySnapshot._(
       state: state ?? this.state,
@@ -164,8 +174,20 @@ class JourneySnapshot {
       startedAt: startedAt ?? this.startedAt,
       liveUntil: liveUntil ?? this.liveUntil,
       endReason: endReason ?? this.endReason,
+      route: route ?? this.route,
+      speedMps: speedMps ?? this.speedMps,
     );
   }
+
+  /// Remaining metres, preferring the real route over straight-line distance.
+  double? get remainingMeters =>
+      (route != null && !route!.isStale)
+          ? route!.distanceMeters.toDouble()
+          : distanceToDestinationM;
+
+  /// Live ETA in seconds, or null when there is no usable route.
+  int? get etaSeconds =>
+      (route != null && !route!.isStale) ? route!.liveDurationSeconds : null;
 
   @override
   bool operator ==(Object other) =>
@@ -178,11 +200,13 @@ class JourneySnapshot {
       other.distanceToDestinationM == distanceToDestinationM &&
       other.startedAt == startedAt &&
       other.liveUntil == liveUntil &&
-      other.endReason == endReason;
+      other.endReason == endReason &&
+      identical(other.route, route) &&
+      other.speedMps == speedMps;
 
   @override
   int get hashCode => Object.hash(state, messageId, chatId, destination, lastFix,
-      distanceToDestinationM, startedAt, liveUntil, endReason);
+      distanceToDestinationM, startedAt, liveUntil, endReason, route, speedMps);
 }
 
 /// Result of [JourneyEngine.start] so the confirm screen can render the right
@@ -224,6 +248,15 @@ class JourneyEngine with WidgetsBindingObserver {
   static const double arrivalRadiusM = 100;
   static const double arrivalExitRadiusM = 120; // hysteresis
   static const Duration arrivalDwell = Duration(seconds: 60);
+  /// Used when the corroborating signals disagree with the radius (route says
+  /// there is real distance left, or the traveller is still moving). Longer,
+  /// never disabled — auto-arrival degrades to cautious, not absent.
+  static const Duration arrivalDwellUnconfident = Duration(seconds: 120);
+  /// Route distance beyond which "within 100 m" is not believed on its own
+  /// (the classic across-the-river / wrong-side-of-the-highway case).
+  static const double routeArrivalMaxM = 250;
+  /// ~7.2 km/h — above this the traveller is passing through, not arriving.
+  static const double movingSpeedMps = 2.0;
   static const double nearbyRadiusM = 300;
   static const double nearbyExitRadiusM = 360; // hysteresis
   static const double goodAccuracyM = 75;
@@ -243,8 +276,15 @@ class JourneyEngine with WidgetsBindingObserver {
   Timer? _reconnectTimer;
   DateTime? _lastBeatAt;
   GeoPoint? _lastBeatPoint;
+  GeoPoint? _lastRouteFetchPoint;
+  bool _routeFetchInFlight = false;
+  DateTime? _lastRouteFailureAt;
+  static const Duration _routeFailureBackoffMin = Duration(seconds: 30);
+  static const Duration _routeFailureBackoffMax = Duration(minutes: 5);
+  Duration _routeFailureBackoff = _routeFailureBackoffMin;
   int _beatFailStreak = 0;
   int _dwellExitStrikes = 0;
+  bool _dwellStartedConfident = false;
   int _reconnectAttempt = 0;
   bool _foregroundServiceWanted = false;
   /// Generation guard: every start/adopt/end bumps this; async callbacks from
@@ -561,11 +601,78 @@ class JourneyEngine with WidgetsBindingObserver {
     if (gen != _generation || !snapshot.isLive) return;
     final point = GeoPoint(pos.latitude, pos.longitude);
     final distance = _distanceTo(snapshot.destination, pos);
-    _snapshot.value = _snapshot.value._with(lastFix: point, distanceToDestinationM: distance);
+    _snapshot.value = _snapshot.value._with(
+      lastFix: point,
+      distanceToDestinationM: distance,
+      speedMps: _smoothedSpeed(pos),
+    );
 
     // Recovering from an interruption purely via a healthy GPS fix + beat.
     _updateGeometry(pos, distance);
+    unawaited(_maybeRefreshRoute(gen, pos, distance));
     await _maybeBeat(gen, pos);
+  }
+
+  /// Exponentially-smoothed ground speed. Geolocator's per-fix speed is noisy
+  /// (and −1 on some devices), and arrival logic that trusts a single sample
+  /// mistakes a GPS twitch for driving.
+  double? _smoothedSpeed(Position pos) {
+    final raw = pos.speed;
+    if (!raw.isFinite || raw < 0) return snapshot.speedMps;
+    final previous = snapshot.speedMps;
+    if (previous == null) return raw;
+    return previous * 0.7 + raw * 0.3;
+  }
+
+  /// Recompute the route only when it would actually tell us something new
+  /// (see [RouteService.shouldRefresh]). Fire-and-forget: an ETA must never
+  /// delay a position beat, which is what the person waiting actually needs.
+  Future<void> _maybeRefreshRoute(int gen, Position pos, double? straightLine) async {
+    final destination = snapshot.destination;
+    if (destination == null || _routeFetchInFlight) return;
+    // Failure cooldown. Without a route the refresh policy always says "yes",
+    // so a persistently failing endpoint (quota exhausted, outage, an old
+    // build pointed at a backend without the route module) would be retried on
+    // EVERY position fix — several times a minute while driving. Back off
+    // instead, doubling to a ceiling. Cleared on the first success.
+    final failedAt = _lastRouteFailureAt;
+    if (failedAt != null &&
+        DateTime.now().difference(failedAt) < _routeFailureBackoff) {
+      return;
+    }
+    if (!RouteService.shouldRefresh(
+      current: snapshot.route,
+      lastFetchLat: _lastRouteFetchPoint?.latitude,
+      lastFetchLng: _lastRouteFetchPoint?.longitude,
+      nowLat: pos.latitude,
+      nowLng: pos.longitude,
+      straightLineToDestM: straightLine,
+    )) {
+      return;
+    }
+    _routeFetchInFlight = true;
+    try {
+      final route = await RouteService.compute(
+        originLat: pos.latitude,
+        originLng: pos.longitude,
+        destLat: destination.latitude,
+        destLng: destination.longitude,
+      );
+      if (gen != _generation || !snapshot.isLive) return;
+      if (route != null) {
+        _lastRouteFetchPoint = GeoPoint(pos.latitude, pos.longitude);
+        _lastRouteFailureAt = null;
+        _routeFailureBackoff = _routeFailureBackoffMin;
+        _snapshot.value = _snapshot.value._with(route: route);
+      } else {
+        _lastRouteFailureAt = DateTime.now();
+        final doubled = _routeFailureBackoff * 2;
+        _routeFailureBackoff =
+            doubled > _routeFailureBackoffMax ? _routeFailureBackoffMax : doubled;
+      }
+    } finally {
+      _routeFetchInFlight = false;
+    }
   }
 
   void _updateGeometry(Position pos, double? distance) {
@@ -573,17 +680,54 @@ class JourneyEngine with WidgetsBindingObserver {
     final goodFix = pos.accuracy.isFinite && pos.accuracy <= goodAccuracyM;
     if (!goodFix || distance == null) return;
 
-    // Arrival dwell.
+    // ── Arrival dwell (Phase 3: route- and motion-aware) ──
+    //
+    // Phase 2 asked one question: "within 100 m?". That is right but blunt —
+    // 100 m across a river is not arrival, and a provider stopped at a light
+    // 90 m away is not either. The radius still gates entry; these signals
+    // decide how long we insist on before calling it:
+    //
+    //   • route remaining — the honest distance (follows roads, not crow
+    //     flight). If routing says there is still real distance to cover, the
+    //     straight line is lying to us and we hold off.
+    //   • speed — someone genuinely arrived has stopped moving. Still driving
+    //     through the radius means passing by, not arriving.
+    //
+    // Both are advisory: absent routing or speed, behaviour is exactly Phase 2.
     if (distance <= arrivalRadiusM) {
       _dwellExitStrikes = 0;
+      final routeRemaining = (snapshot.route != null && !snapshot.route!.isStale)
+          ? snapshot.route!.distanceMeters.toDouble()
+          : null;
+      final routeSaysFar = routeRemaining != null && routeRemaining > routeArrivalMaxM;
+      final speed = snapshot.speedMps;
+      final stillMoving = speed != null && speed > movingSpeedMps;
+      final confident = !routeSaysFar && !stillMoving;
+      final dwell = confident ? arrivalDwell : arrivalDwellUnconfident;
+
       if (_dwellTimer == null && (state == JourneyState.travelling || state == JourneyState.nearby)) {
-        debugPrint('JourneyEngine: inside ${arrivalRadiusM.toInt()} m — dwell started');
-        _dwellTimer = Timer(arrivalDwell, () {
+        debugPrint('JourneyEngine: inside ${arrivalRadiusM.toInt()} m — dwell started '
+            '(${dwell.inSeconds}s, confident=$confident'
+            '${routeRemaining == null ? '' : ', route ${routeRemaining.round()} m'}'
+            '${speed == null ? '' : ', ${speed.toStringAsFixed(1)} m/s'})');
+        _dwellStartedConfident = confident;
+        _dwellTimer = Timer(dwell, () {
           _dwellTimer = null;
           if (snapshot.isLive) {
             debugPrint('JourneyEngine: dwell complete — auto arrival');
             arrive(auto: true);
           }
+        });
+      } else if (_dwellTimer != null && confident && !_dwellStartedConfident) {
+        // Conditions improved mid-dwell (they parked, or the route caught up):
+        // restart on the shorter, confident timer rather than making a
+        // genuinely-arrived provider wait out the cautious one.
+        debugPrint('JourneyEngine: arrival confidence rose — shortening dwell');
+        _dwellTimer!.cancel();
+        _dwellStartedConfident = true;
+        _dwellTimer = Timer(arrivalDwell, () {
+          _dwellTimer = null;
+          if (snapshot.isLive) arrive(auto: true);
         });
       }
     } else if (_dwellTimer != null && distance > arrivalExitRadiusM) {
@@ -747,8 +891,13 @@ class JourneyEngine with WidgetsBindingObserver {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _dwellExitStrikes = 0;
+    _dwellStartedConfident = false;
     _beatFailStreak = 0;
     _reconnectAttempt = 0;
+    _lastRouteFetchPoint = null;
+    _routeFetchInFlight = false;
+    _lastRouteFailureAt = null;
+    _routeFailureBackoff = _routeFailureBackoffMin;
     _generation++;
   }
 
