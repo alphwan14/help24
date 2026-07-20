@@ -74,18 +74,10 @@ class LocationService {
     }
   }
 
-  /// Stream of position updates at a fixed [intervalSeconds] (e.g. 8).
-  /// Cancel the subscription when live sharing ends.
-  ///
-  /// Legacy polling loop — journeys now use [journeyPositionStream]. Kept for
-  /// any non-journey callers; do not use for new work.
-  static Stream<Position> positionUpdatesEvery({int intervalSeconds = 8}) async* {
-    while (true) {
-      final pos = await getCurrentPosition();
-      if (pos != null) yield pos;
-      await Future<void>.delayed(Duration(seconds: intervalSeconds));
-    }
-  }
+  // Removed: positionUpdatesEvery(), a getCurrentPosition polling loop that
+  // journeys used before Phase 2. Every caller now uses journeyPositionStream
+  // and the old loop had no remaining references — leaving it invited a future
+  // caller to reintroduce polling and the battery cost that came with it.
 
   /// The journey pipeline's position source: a true platform stream (fused
   /// provider callbacks) instead of a getCurrentPosition polling loop — lower

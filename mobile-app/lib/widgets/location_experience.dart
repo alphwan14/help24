@@ -19,6 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:iconsax/iconsax.dart';
@@ -399,7 +400,13 @@ class PlaceCard extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: titleColor),
+                        // The label IS the message ("Black gate, next to the
+                        // kiosk"); it carries the meaning the coordinates
+                        // cannot, so it leads at the card's largest weight.
+                        style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                            color: titleColor),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -411,13 +418,19 @@ class PlaceCard extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           SizedBox(
             width: 240,
-            height: 34,
+            // 44 rather than 34: Navigate is the card's only action and the one
+            // a provider taps while holding a phone in a moving vehicle. The
+            // old height sat under every accessible-target guideline.
+            height: 44,
             child: OutlinedButton.icon(
-              onPressed: () => launchNavigation(lat, lng, label: hasLabel ? message.text : ''),
-              icon: const Icon(Iconsax.routing_2, size: 15),
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                launchNavigation(lat, lng, label: hasLabel ? message.text : '');
+              },
+              icon: const Icon(Iconsax.routing_2, size: 16),
               label: const Text('Navigate'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: mine ? Colors.white : AppTheme.primaryAccent,
@@ -427,8 +440,7 @@ class PlaceCard extends StatelessWidget {
                       : AppTheme.primaryAccent.withValues(alpha: 0.55),
                 ),
                 padding: EdgeInsets.zero,
-                textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
               ),
             ),
           ),
@@ -555,32 +567,71 @@ class JourneyCard extends StatelessWidget {
     // ── Arrived receipt — the journey's permanent conclusion in the thread ──
     if (message.isJourneyArrived) {
       final at = message.liveUntil ?? message.timestamp;
+      // Journey duration comes free from the row: the message timestamp is the
+      // moment sharing began and live_until is the moment it concluded. It
+      // costs nothing and is exactly the detail that makes the receipt read as
+      // a record of work done rather than a status line.
+      final elapsed = at.difference(message.timestamp);
+      final durationText = (elapsed.inMinutes >= 1 && elapsed.inHours < 12)
+          ? (elapsed.inMinutes < 60
+              ? '${elapsed.inMinutes} min journey'
+              : '${elapsed.inHours} h ${elapsed.inMinutes % 60} min journey')
+          : null;
+      final onAccent = mine;
       return Semantics(
-        label: 'Journey completed. Arrived at ${_clockTime(context, at)}.',
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: AppTheme.successGreen.withValues(alpha: mine ? 0.28 : 0.14),
-                shape: BoxShape.circle,
+        label: 'Journey completed. Arrived at ${_clockTime(context, at)}.'
+            '${durationText == null ? '' : ' $durationText.'}',
+        child: Container(
+          // A bordered, tinted block rather than a loose row: this is the
+          // permanent record that someone showed up, and it should look
+          // deliberate enough to be trusted months later.
+          padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
+          decoration: BoxDecoration(
+            color: AppTheme.successGreen.withValues(alpha: onAccent ? 0.20 : 0.10),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: AppTheme.successGreen.withValues(alpha: onAccent ? 0.45 : 0.30),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppTheme.successGreen
+                      .withValues(alpha: onAccent ? 0.40 : 0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.check_rounded,
+                    size: 20,
+                    color: onAccent ? Colors.white : AppTheme.successGreen),
               ),
-              child: Icon(Icons.check_rounded,
-                  size: 18, color: mine ? Colors.white : AppTheme.successGreen),
-            ),
-            const SizedBox(width: 9),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Arrived',
-                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: titleColor)),
-                Text('at ${_clockTime(context, at)}', style: TextStyle(fontSize: 12, color: subColor)),
-              ],
-            ),
-          ],
+              const SizedBox(width: 11),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Arrived',
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.1,
+                          color: titleColor)),
+                  const SizedBox(height: 1),
+                  Text(
+                    [
+                      _clockTime(context, at),
+                      if (durationText != null) durationText,
+                    ].join(' · '),
+                    style: TextStyle(fontSize: 12, color: subColor),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -741,34 +792,41 @@ class JourneyCard extends StatelessWidget {
               width: 240,
               child: Row(
                 children: [
+                  // 44 dp: these are pressed mid-journey, often one-handed and
+                  // in motion. "I've arrived" also stays visually dominant over
+                  // "Stop" — arriving is the expected outcome, stopping is the
+                  // exception, and the hierarchy should say so.
                   Expanded(
                     child: SizedBox(
-                      height: 34,
+                      height: 44,
                       child: FilledButton.icon(
-                        onPressed: onArrived,
-                        icon: const Icon(Icons.check_rounded, size: 16),
+                        onPressed: onArrived == null
+                            ? null
+                            : () {
+                                HapticFeedback.selectionClick();
+                                onArrived!();
+                              },
+                        icon: const Icon(Icons.check_rounded, size: 17),
                         label: const Text("I've arrived"),
                         style: FilledButton.styleFrom(
                           backgroundColor:
                               mine ? Colors.white.withValues(alpha: 0.22) : AppTheme.successGreen,
                           foregroundColor: Colors.white,
                           padding: EdgeInsets.zero,
-                          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
                         ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   SizedBox(
-                    height: 34,
+                    height: 44,
                     child: TextButton(
                       onPressed: onStop,
                       style: TextButton.styleFrom(
                         foregroundColor: mine ? Colors.white70 : AppTheme.errorRed,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
                         textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                       child: const Text('Stop'),
                     ),
@@ -869,7 +927,9 @@ class _RequestCardState extends State<RequestCard> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
-                  height: 32,
+                  // 44 dp — the responder's two choices must be comfortably
+                  // tappable; 32 sat below every accessible-target guideline.
+                  height: 44,
                   child: FilledButton(
                     onPressed: widget.onShareNow,
                     style: FilledButton.styleFrom(
@@ -884,7 +944,9 @@ class _RequestCardState extends State<RequestCard> {
                 ),
                 const SizedBox(width: 8),
                 SizedBox(
-                  height: 32,
+                  // 44 dp — the responder's two choices must be comfortably
+                  // tappable; 32 sat below every accessible-target guideline.
+                  height: 44,
                   child: TextButton(
                     onPressed: () => setState(() => _deferred = true),
                     style: TextButton.styleFrom(
