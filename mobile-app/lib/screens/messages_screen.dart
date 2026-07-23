@@ -33,6 +33,8 @@ import '../widgets/chat_ui.dart';
 import '../widgets/location_experience.dart';
 import '../services/journey_engine.dart';
 import '../services/route_service.dart';
+import 'image_composer_screen.dart';
+import 'image_viewer_screen.dart';
 import 'place_picker_screen.dart';
 import 'journey_confirm_screen.dart';
 import 'review_submission_screen.dart';
@@ -1208,36 +1210,86 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Pick → REVIEW → send. Nothing is uploaded until the user presses send in
+  /// the composer: picking an image is not the same as deciding to send it,
+  /// and photos here are often evidence (damage, receipts, meter readings)
+  /// where sending the wrong shot has real consequences.
   Future<void> _pickAndSendImage() async {
     if (_isSending) return;
     if (!await _ensureChatCreated()) {
       if (mounted) _showError('Could not start chat. Please try again.');
       return;
     }
-    await SupabaseAuthBridge.ensureSessionAsync();
+    List<XFile> picked;
     try {
-      final picker = ImagePicker();
-      final xFile = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1024, imageQuality: 85);
-      if (xFile == null || !mounted) return;
-      setState(() => _isSending = true);
-      final url = await StorageService.uploadChatAttachment(xFile, _chatId);
-      if (!mounted) return;
-      await ChatServiceSupabase.sendAttachmentMessage(
-        chatIdParam: _chatId,
-        senderId: widget.currentUserId,
-        type: 'image',
-        attachmentUrl: url,
-      );
-      if (mounted) {
-        setState(() => _isSending = false);
-        _scrollToBottom();
-      }
+      picked = await ImagePicker().pickMultiImage(maxWidth: 1024, imageQuality: 85);
     } catch (e) {
-      if (mounted) {
-        setState(() => _isSending = false);
-        _showError('Failed to send image.');
+      if (mounted) _showError('Could not open your gallery.');
+      return;
+    }
+    if (picked.isEmpty || !mounted) return;
+
+    final composed = await Navigator.of(context).push<ComposedImages>(
+      MaterialPageRoute(
+        builder: (_) => ImageComposerScreen(
+          initialFiles: picked,
+          partnerName: widget.conversation.userName,
+        ),
+      ),
+    );
+    if (composed == null || composed.files.isEmpty || !mounted) return;
+    await _sendComposedImages(composed);
+  }
+
+  /// Uploads and sends in order. Each image is an independent message, so a
+  /// failure part-way leaves the successful ones delivered rather than
+  /// discarding the batch — and the caption rides the first image, matching
+  /// how every messenger treats a captioned set.
+  Future<void> _sendComposedImages(ComposedImages composed) async {
+    setState(() => _isSending = true);
+    await SupabaseAuthBridge.ensureSessionAsync();
+    var failures = 0;
+    for (var i = 0; i < composed.files.length; i++) {
+      try {
+        final url = await StorageService.uploadChatAttachment(composed.files[i], _chatId);
+        if (!mounted) return;
+        await ChatServiceSupabase.sendAttachmentMessage(
+          chatIdParam: _chatId,
+          senderId: widget.currentUserId,
+          type: 'image',
+          attachmentUrl: url,
+          caption: i == 0 ? composed.caption : '',
+        );
+      } catch (e) {
+        failures++;
+        debugPrint('ChatScreen sendComposedImages [$i]: $e');
       }
     }
+    if (!mounted) return;
+    setState(() => _isSending = false);
+    _scrollToBottom();
+    if (failures > 0) {
+      _showError(failures == composed.files.length
+          ? 'Failed to send. Check your connection and try again.'
+          : "$failures of ${composed.files.length} photos didn't send.");
+    }
+  }
+
+  /// Opens a sent or received photo fullscreen. The hero tag is the message id,
+  /// which is stable and unique, so the thumbnail lifts into the viewer.
+  void _openImageViewer(Message message) {
+    final url = message.attachmentUrl;
+    if (url == null || url.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => ImageViewerScreen(
+          imageUrl: url,
+          heroTag: 'chat_image_${message.id}',
+          caption: message.text == 'Image' ? null : message.text,
+        ),
+      ),
+    );
   }
 
   Future<void> _pickAndSendFile() async {
@@ -2502,6 +2554,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                               ? null
                               : _showMessageActions,
                           onTapReplyQuote: _scrollToMessage,
+                          onTapImage: msgItem.isPending ? null : _openImageViewer,
                         ),
                       );
                     },
@@ -2911,6 +2964,9 @@ class _MessageBubble extends StatelessWidget {
   /// exactly where the message sits on screen.
   final void Function(Message, Rect)? onLongPressMessage;
   final void Function(String replyToId)? onTapReplyQuote;
+  /// Opens a photo fullscreen. Null disables tapping — a pending send has no
+  /// server URL yet, so there is nothing to open.
+  final void Function(Message message)? onTapImage;
 
   const _MessageBubble({
     required this.message,
@@ -2934,6 +2990,7 @@ class _MessageBubble extends StatelessWidget {
     this.isLastInGroup = true,
     this.onLongPressMessage,
     this.onTapReplyQuote,
+    this.onTapImage,
   });
 
   // Computes bubble corner radii based on message position within a sender group.
@@ -3147,24 +3204,49 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 ],
                 if (isImage) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: CachedNetworkImage(
-                      imageUrl: message.attachmentUrl!,
-                      width: 220,
-                      height: 180,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => Container(
-                        width: 220,
-                        height: 180,
-                        color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                      ),
-                      errorWidget: (_, __, ___) => Container(
-                        width: 220,
-                        height: 180,
-                        color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                        child: const Icon(Icons.broken_image_outlined, size: 48),
+                  Semantics(
+                    button: true,
+                    label: message.text.isNotEmpty && message.text != 'Image'
+                        ? 'Photo: ${message.text}. Double tap to view fullscreen.'
+                        : 'Photo. Double tap to view fullscreen.',
+                    child: GestureDetector(
+                      onTap: onTapImage == null ? null : () => onTapImage!(message),
+                      child: Hero(
+                        // Message id is stable and unique, so the thumbnail
+                        // lifts into the viewer instead of cutting to it.
+                        tag: 'chat_image_${message.id}',
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: CachedNetworkImage(
+                            imageUrl: message.attachmentUrl!,
+                            width: 220,
+                            height: 180,
+                            fit: BoxFit.cover,
+                            // Progressive: fade in rather than popping, so a
+                            // thread of photos settles instead of flashing.
+                            fadeInDuration: const Duration(milliseconds: 220),
+                            placeholder: (_, __) => Container(
+                              width: 220,
+                              height: 180,
+                              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                              child: const Center(
+                                  child: CircularProgressIndicator(strokeWidth: 2)),
+                            ),
+                            errorWidget: (_, __, ___) => Container(
+                              width: 220,
+                              height: 180,
+                              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                              child: const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.broken_image_outlined, size: 40),
+                                  SizedBox(height: 6),
+                                  Text("Couldn't load", style: TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
