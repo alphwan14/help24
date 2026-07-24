@@ -2,6 +2,10 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../config/app_firebase.dart';
+import '../config/app_urls.dart';
+import '../utils/auth_error_mapper.dart';
+import '../utils/error_mapper.dart';
+import '../utils/kenyan_phone.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'user_profile_service.dart';
 
@@ -91,11 +95,47 @@ class AppUser {
 
 class AuthResult {
   final bool success;
-  final String? errorMessage;
   final AppUser? user;
 
-  AuthResult.success(this.user) : success = true, errorMessage = null;
-  AuthResult.failure(this.errorMessage) : success = false, user = null;
+  /// Structured, white-labelled failure — title, sentence, and the one action
+  /// that resolves it. Null on success.
+  ///
+  /// Callers must render THIS rather than any provider text: it is the only
+  /// object in the auth path guaranteed free of vendor vocabulary.
+  final AuthFailure? failure;
+
+  AuthResult.success(this.user)
+      : success = true,
+        failure = null;
+
+  AuthResult.failed(this.failure)
+      : success = false,
+        user = null;
+
+  /// Build a failure straight from a caught error, mapping it in one step.
+  factory AuthResult.from(Object? error, AuthFlow flow) =>
+      AuthResult.failed(AuthErrorMapper.toFailure(error, flow: flow));
+
+  String? get errorMessage => failure?.message;
+}
+
+/// What we know about an email address before asking for a password.
+///
+/// Used to route the user to the right next step instead of making them guess
+/// between "Sign In" and "Sign Up" before they have typed anything.
+enum AccountStatus {
+  /// An account exists — ask for the password.
+  exists,
+
+  /// No account — offer to create one.
+  none,
+
+  /// Could not be determined. Modern identity platforms enable email-
+  /// enumeration protection by default, which deliberately makes existence
+  /// unknowable from the client (it is an account-harvesting defence). When
+  /// this comes back, the UI proceeds optimistically to the password step and
+  /// recovers from whatever the sign-in attempt actually reports.
+  unknown,
 }
 
 /// Phone verification state (held by AuthProvider after sendOtp).
@@ -152,7 +192,7 @@ class AuthService {
     if (!isFirebaseConfigured) {
       verificationFailed(FirebaseAuthException(
         code: 'not-configured',
-        message: 'Authentication is not configured.',
+        message: 'Identity provider unavailable (developer log only).',
       ));
       return;
     }
@@ -175,14 +215,19 @@ class AuthService {
     }
   }
 
+  /// Last line of defence before a number reaches the provider.
+  ///
+  /// The UI now hands over a validated E.164 string from [KenyanPhone], so
+  /// this should be a no-op — but a number arriving from an older call path
+  /// (a stored profile value, a resend) still gets normalised rather than
+  /// being sent as `+2540712345678`.
   static String _normalizePhone(String phone) {
-    String s = phone.replaceAll(RegExp(r'\s'), '');
-    if (!s.startsWith('+')) {
-      if (s.startsWith('0')) s = '+254${s.substring(1)}';
-      else if (s.length <= 9) s = '+254$s';
-      else s = '+$s';
-    }
-    return s;
+    final e164 = KenyanPhone.toE164(phone);
+    if (e164 != null) return e164;
+    // Not a Kenyan mobile: pass through in E.164 shape and let the provider
+    // reject it, which the mapper turns into "Check your number".
+    final trimmed = phone.replaceAll(RegExp(r'\s'), '');
+    return trimmed.startsWith('+') ? trimmed : '+$trimmed';
   }
 
   /// Verify OTP and sign in. Returns success with user or failure with message.
@@ -191,7 +236,10 @@ class AuthService {
     required String smsCode,
   }) async {
     if (!isFirebaseConfigured) {
-      return AuthResult.failure('Authentication is not configured.');
+      return AuthResult.from(
+        FirebaseAuthException(code: 'not-configured'),
+        AuthFlow.verifyCode,
+      );
     }
     final auth = _firebaseAuth!;
     try {
@@ -201,7 +249,9 @@ class AuthService {
       );
       final result = await auth.signInWithCredential(credential);
       final user = result.user;
-      if (user == null) return AuthResult.failure('Sign in failed. Please try again.');
+      if (user == null) {
+        return AuthResult.from(null, AuthFlow.verifyCode);
+      }
       final phone = user.phoneNumber ?? _normalizePhone(user.uid);
       await UserProfileService.createUserOnSignup(
         uid: user.uid,
@@ -214,45 +264,91 @@ class AuthService {
       debugPrint('✅ Phone sign in: ${appUser.id}');
       _syncUserToSupabase(user, name: user.displayName, phoneNumber: phone).then((_) => debugPrint('✅ User synced to Supabase'));
       return AuthResult.success(appUser);
-    } on FirebaseAuthException catch (e) {
-      return AuthResult.failure(getPhoneErrorMessage(e));
     } catch (e) {
-      debugPrint('❌ verifyOtp: $e');
-      return AuthResult.failure('Something went wrong. Please try again.');
+      return AuthResult.from(e, AuthFlow.verifyCode);
     }
   }
 
-  static String getPhoneErrorMessage(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'invalid-verification-code':
-        return 'Invalid or expired code. Please check and try again.';
-      case 'session-expired':
-        return 'Verification expired. Please request a new code.';
-      case 'invalid-verification-id':
-        return 'Session expired. Please start again from your phone number.';
-      case 'too-many-requests':
-        return 'Too many attempts. Please try again later.';
-      case 'invalid-phone-number':
-        return 'Please enter a valid phone number (e.g. +254 7XX XXX XXX).';
-      case 'network-request-failed':
-        return 'Network error. Check your connection and try again.';
-      default:
-        return e.message ?? 'Verification failed. Please try again.';
-    }
-  }
+  /// Phone-flow failures, mapped to Help24 copy.
+  ///
+  /// Previously this ended in `return e.message ?? …`, which is precisely how
+  /// the provider's "Play Integrity checks and reCAPTCHA checks were
+  /// unsuccessful" sentence reached real users. The mapper now owns every
+  /// branch and the raw text is logged, never shown.
+  static AuthFailure getPhoneFailure(FirebaseAuthException e) =>
+      AuthErrorMapper.toFailure(e, flow: AuthFlow.sendCode);
 
   // ---------- Email ----------
+
+  /// Settings applied to every outbound auth email (reset, verification).
+  ///
+  /// `url` is where the user lands after the link is consumed, and it is what
+  /// makes the hand-off read as Help24 rather than as an anonymous vendor
+  /// page. The link's own host is set by the custom auth domain configured in
+  /// the identity console — see `_docs/AUTH_WHITE_LABEL_AUDIT.md`; it cannot
+  /// be overridden from the client.
+  /// Must match `applicationId` in android/app/build.gradle — a mismatch makes
+  /// the platform reject the settings and silently fall back to an unbranded
+  /// link, which is the exact failure this whole change set exists to prevent.
+  static const String _androidPackageName = 'com.help24.help24';
+
+  static ActionCodeSettings get _actionCodeSettings => ActionCodeSettings(
+        url: AppUrls.authContinueUrl,
+        handleCodeInApp: false,
+        androidPackageName: _androidPackageName,
+        androidInstallApp: false,
+        androidMinimumVersion: '21',
+      );
+
+  /// Does an account already exist for [email]?
+  ///
+  /// WHY THIS IS BEST-EFFORT AND WHY THAT IS FINE
+  /// -------------------------------------------
+  /// Identity platforms now ship email-enumeration protection ON by default:
+  /// the lookup returns an empty list for every address, precisely so that an
+  /// attacker cannot use this endpoint to harvest which emails are registered.
+  /// That is a defence worth keeping — so this returns [AccountStatus.unknown]
+  /// rather than pretending, and the UI is built to recover gracefully from
+  /// whatever the subsequent sign-in attempt reports.
+  ///
+  /// When the protection is disabled the answer is authoritative and the user
+  /// gets the ideal single-step routing.
+  ///
+  /// The underlying call is deprecated for exactly this reason. It is kept
+  /// because it is a strict UX upgrade where it still works, it is bounded by
+  /// a timeout, and it fails closed to [AccountStatus.unknown] — so the flow
+  /// is already correct for the day the method disappears. Deleting this
+  /// method would change nothing a user can see.
+  static Future<AccountStatus> lookupAccount(String email) async {
+    final auth = _firebaseAuth;
+    if (auth == null) return AccountStatus.unknown;
+    try {
+      final methods = await auth
+          // ignore: deprecated_member_use
+          .fetchSignInMethodsForEmail(email.trim())
+          .timeout(const Duration(seconds: 8));
+      if (methods.isNotEmpty) return AccountStatus.exists;
+      // Empty is ambiguous: either genuinely no account, or enumeration
+      // protection is on. Never assert "no account" from this alone.
+      return AccountStatus.unknown;
+    } catch (e) {
+      debugPrint('[AUTH] account lookup inconclusive: ${e.runtimeType}');
+      return AccountStatus.unknown;
+    }
+  }
 
   static Future<AuthResult> signUp({
     required String email,
     required String password,
     String? name,
   }) async {
-    if (!isFirebaseConfigured) {
-      return AuthResult.failure('Authentication is not configured. Please add Firebase credentials.');
-    }
     final auth = _firebaseAuth;
-    if (auth == null) return AuthResult.failure('Firebase is not initialized.');
+    if (!isFirebaseConfigured || auth == null) {
+      return AuthResult.from(
+        FirebaseAuthException(code: 'not-configured'),
+        AuthFlow.signUp,
+      );
+    }
     try {
       final credential = await auth
           .createUserWithEmailAndPassword(
@@ -261,29 +357,30 @@ class AuthService {
           )
           .timeout(_authTimeout);
       final firebaseUser = credential.user;
-      if (firebaseUser == null) return AuthResult.failure('Failed to create account. Please try again.');
+      if (firebaseUser == null) return AuthResult.from(null, AuthFlow.signUp);
       if (name != null && name.trim().isNotEmpty) {
         await firebaseUser.updateDisplayName(name.trim());
         await firebaseUser.reload();
       }
       final current = auth.currentUser ?? firebaseUser;
+
+      // Prove the address is real. Without this, anyone can register with
+      // someone else's email, and every password-reset path for that account
+      // then points at a mailbox its owner never confirmed. Best-effort: a
+      // failure to send must not block a successful account creation.
+      unawaited(sendVerificationEmail());
+
       final appUser = _appUserFromFirebase(current, nameOverride: name?.trim());
-      debugPrint('✅ User signed up: ${appUser.email}');
+      debugPrint('✅ Account created: ${appUser.id}');
       await UserProfileService.createUserOnSignup(
         uid: current.uid,
         email: current.email ?? '',
         name: name?.trim(),
       );
-      _syncUserToSupabase(current, name: name?.trim()).then((_) => debugPrint('✅ User synced to Supabase'));
+      unawaited(_syncUserToSupabase(current, name: name?.trim()));
       return AuthResult.success(appUser);
-    } on FirebaseAuthException catch (e) {
-      return AuthResult.failure(_getFirebaseErrorMessage(e));
-    } on TimeoutException {
-      debugPrint('❌ Sign up timed out');
-      return AuthResult.failure('The request took too long. Check your connection and try again.');
     } catch (e) {
-      debugPrint('❌ Sign up error: $e');
-      return AuthResult.failure('An unexpected error occurred. Please try again.');
+      return AuthResult.from(e, AuthFlow.signUp);
     }
   }
 
@@ -291,11 +388,13 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    if (!isFirebaseConfigured) {
-      return AuthResult.failure('Authentication is not configured. Please add Firebase credentials.');
-    }
     final auth = _firebaseAuth;
-    if (auth == null) return AuthResult.failure('Firebase is not initialized.');
+    if (!isFirebaseConfigured || auth == null) {
+      return AuthResult.from(
+        FirebaseAuthException(code: 'not-configured'),
+        AuthFlow.signIn,
+      );
+    }
     try {
       final credential = await auth
           .signInWithEmailAndPassword(
@@ -304,20 +403,59 @@ class AuthService {
           )
           .timeout(_authTimeout);
       final firebaseUser = credential.user;
-      if (firebaseUser == null) return AuthResult.failure('Failed to sign in. Please try again.');
+      if (firebaseUser == null) return AuthResult.from(null, AuthFlow.signIn);
       await UserProfileService.setOnline(firebaseUser.uid, true);
       final appUser = _appUserFromFirebase(firebaseUser);
-      debugPrint('✅ User signed in: ${appUser.email}');
-      _syncUserToSupabase(firebaseUser).then((_) => debugPrint('✅ User synced to Supabase'));
+      debugPrint('✅ Signed in: ${appUser.id}');
+      unawaited(_syncUserToSupabase(firebaseUser));
       return AuthResult.success(appUser);
-    } on FirebaseAuthException catch (e) {
-      return AuthResult.failure(_getFirebaseErrorMessage(e));
-    } on TimeoutException {
-      debugPrint('❌ Sign in timed out');
-      return AuthResult.failure('The request took too long. Check your connection and try again.');
     } catch (e) {
-      debugPrint('❌ Sign in error: $e');
-      return AuthResult.failure('An unexpected error occurred. Check your connection.');
+      return AuthResult.from(e, AuthFlow.signIn);
+    }
+  }
+
+  // ---------- Email verification ----------
+
+  /// True when the signed-in user's email has been confirmed. Phone-only
+  /// accounts have no email to verify and are reported as verified so they are
+  /// never nagged.
+  static bool get isEmailVerified {
+    final user = currentFirebaseUser;
+    if (user == null) return false;
+    if ((user.email ?? '').isEmpty) return true;
+    return user.emailVerified;
+  }
+
+  /// Send (or re-send) the address-confirmation email.
+  static Future<AuthResult> sendVerificationEmail() async {
+    final user = currentFirebaseUser;
+    if (user == null || (user.email ?? '').isEmpty) {
+      return AuthResult.from(null, AuthFlow.generic);
+    }
+    try {
+      await user
+          .sendEmailVerification(_actionCodeSettings)
+          .timeout(_authTimeout);
+      debugPrint('✅ Verification email dispatched');
+      return AuthResult.success(null);
+    } catch (e) {
+      return AuthResult.from(e, AuthFlow.generic);
+    }
+  }
+
+  /// Re-read the account from the server to pick up a verification that
+  /// happened in the user's mail app. The local user object caches
+  /// `emailVerified`, so without this refresh the app would keep showing the
+  /// "confirm your email" prompt after the user had already done it.
+  static Future<bool> refreshEmailVerified() async {
+    final user = currentFirebaseUser;
+    if (user == null) return false;
+    try {
+      await user.reload().timeout(const Duration(seconds: 10));
+      return currentFirebaseUser?.emailVerified ?? false;
+    } catch (e) {
+      debugPrint('[AUTH] verification refresh failed: ${e.runtimeType}');
+      return false;
     }
   }
 
@@ -332,22 +470,38 @@ class AuthService {
     }
   }
 
+  /// Send a password-reset link.
+  ///
+  /// Deliberately reports success even when the address has no account: a
+  /// reset form that says "no such user" is an account-enumeration oracle, and
+  /// the UI copy ("if this email is registered, we've sent a link") is written
+  /// to be true either way. Only genuine transport failures surface an error.
   static Future<AuthResult> sendPasswordResetEmail(String email) async {
-    if (!isFirebaseConfigured) return AuthResult.failure('Authentication is not configured.');
     final auth = _firebaseAuth;
-    if (auth == null) return AuthResult.failure('Firebase is not initialized.');
+    if (!isFirebaseConfigured || auth == null) {
+      return AuthResult.from(
+        FirebaseAuthException(code: 'not-configured'),
+        AuthFlow.passwordReset,
+      );
+    }
     try {
-      await auth.sendPasswordResetEmail(email: email.trim()).timeout(_authTimeout);
-      debugPrint('✅ Password reset email sent to: $email');
+      await auth
+          .sendPasswordResetEmail(
+            email: email.trim(),
+            actionCodeSettings: _actionCodeSettings,
+          )
+          .timeout(_authTimeout);
+      debugPrint('✅ Password reset dispatched');
       return AuthResult.success(null);
     } on FirebaseAuthException catch (e) {
-      return AuthResult.failure(_getFirebaseErrorMessage(e));
-    } on TimeoutException {
-      debugPrint('❌ Password reset timed out');
-      return AuthResult.failure('The request took too long. Check your connection and try again.');
+      if (e.code == 'user-not-found') {
+        // Same outcome as success — see above.
+        debugPrint('[AUTH] reset requested for unregistered address (masked)');
+        return AuthResult.success(null);
+      }
+      return AuthResult.from(e, AuthFlow.passwordReset);
     } catch (e) {
-      debugPrint('❌ Password reset error: $e');
-      return AuthResult.failure('Failed to send reset email. Please try again.');
+      return AuthResult.from(e, AuthFlow.passwordReset);
     }
   }
 
@@ -403,7 +557,12 @@ class AuthService {
     String? photoUrl,
   }) async {
     final firebaseUser = currentFirebaseUser;
-    if (firebaseUser == null) return AuthResult.failure('Not logged in.');
+    if (firebaseUser == null) {
+      return AuthResult.failed(const AuthFailure(
+        title: 'Sign in to continue',
+        message: 'Please sign in to update your profile.',
+      ));
+    }
     try {
       if (name != null && name.trim().isNotEmpty) await firebaseUser.updateDisplayName(name.trim());
       if (photoUrl != null) await firebaseUser.updatePhotoURL(photoUrl);
@@ -418,8 +577,14 @@ class AuthService {
       final updatedUser = await getCurrentAppUser();
       return AuthResult.success(updatedUser);
     } catch (e) {
-      debugPrint('Update profile error: $e');
-      return AuthResult.failure('Failed to update profile.');
+      // The name-change cooldown (migration 087) surfaces here as a database
+      // rejection; the mapper turns its marker into the "you can change it
+      // again in N days" rule rather than an error.
+      debugPrint('[AUTH] profile update failed: ${e.runtimeType}');
+      return AuthResult.failed(AuthFailure(
+        title: "We couldn't save that",
+        message: ErrorMapper.toMessage(e, context: ErrorContext.save),
+      ));
     }
   }
 
@@ -465,8 +630,8 @@ class AuthService {
       );
       final inserted = await _supabase.from('users').select().eq('id', firebaseUser.uid).maybeSingle();
       if (inserted != null) {
-        debugPrint('✅ User synced to Supabase: ${firebaseUser.uid} name=${userName.isEmpty ? "(email prefix)" : userName}');
-        return AppUser.fromJson(inserted as Map<String, dynamic>);
+        debugPrint('✅ Profile synced: ${firebaseUser.uid}');
+        return AppUser.fromJson(inserted);
       }
     } catch (e) {
       debugPrint('❌ Supabase user sync failed: $e');
@@ -483,35 +648,6 @@ class AuthService {
     );
   }
 
-  static String _getFirebaseErrorMessage(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'email-already-in-use':
-        return 'This email is already registered. Try signing in instead.';
-      case 'invalid-email':
-        return 'Please enter a valid email address.';
-      case 'operation-not-allowed':
-        return 'Email sign in is not enabled.';
-      case 'weak-password':
-        return 'Password is too weak. Use at least 6 characters.';
-      case 'user-disabled':
-        return 'This account has been disabled. Contact support.';
-      case 'user-not-found':
-        return 'No account found with this email. Sign up instead?';
-      case 'wrong-password':
-        return 'Incorrect password. Please try again.';
-      case 'invalid-credential':
-        return 'Invalid email or password. Please check and try again.';
-      case 'too-many-requests':
-        return 'Too many attempts. Try again in a few minutes.';
-      case 'network-request-failed':
-        return 'Network error. Check your internet connection.';
-      case 'requires-recent-login':
-        return 'Please sign in again to continue.';
-      default:
-        return e.message ?? 'Something went wrong. Please try again.';
-    }
-  }
-
   static Stream<User?> get authStateChanges {
     if (!isFirebaseConfigured) return const Stream.empty();
     try {
@@ -521,13 +657,50 @@ class AuthService {
     }
   }
 
+  /// Email shape check.
+  ///
+  /// The previous pattern capped the TLD at 4 characters, so it rejected real
+  /// addresses at `.online`, `.africa` and `.company` — a validation bug that
+  /// locks genuine users out before a request is ever made. This accepts any
+  /// TLD of two or more letters and leaves true deliverability to the
+  /// verification email, which is the only thing that can actually prove an
+  /// address works.
   static bool isValidEmail(String email) {
-    return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
+    final e = email.trim();
+    if (e.length > 254 || e.contains(' ')) return false;
+    return RegExp(r"^[\w.!#$%&'*+/=?^`{|}~-]+@[\w-]+(\.[\w-]+)*\.[A-Za-z]{2,}$")
+        .hasMatch(e);
   }
 
+  /// Minimum password length. Raised from 6 to 8: six characters is below
+  /// every current baseline (NIST SP 800-63B sets 8), and Help24 accounts hold
+  /// escrow balances and payout numbers.
+  static const int minPasswordLength = 8;
+
   static String? validatePassword(String password) {
-    if (password.isEmpty) return 'Password is required';
-    if (password.length < 6) return 'Password must be at least 6 characters';
+    if (password.isEmpty) return 'Enter a password.';
+    if (password.length < minPasswordLength) {
+      return 'Use at least $minPasswordLength characters.';
+    }
+    if (RegExp(r'^\d+$').hasMatch(password)) {
+      return 'Add letters as well as numbers.';
+    }
     return null;
+  }
+
+  /// Rough strength score in 0–3, for the signup meter. Length dominates,
+  /// because length is what actually resists guessing.
+  static int passwordStrength(String password) {
+    if (password.length < minPasswordLength) return 0;
+    var score = 1;
+    if (password.length >= 12) score++;
+    final classes = [
+      RegExp(r'[a-z]'),
+      RegExp(r'[A-Z]'),
+      RegExp(r'\d'),
+      RegExp(r'[^\w\s]'),
+    ].where((r) => r.hasMatch(password)).length;
+    if (classes >= 3) score++;
+    return score.clamp(0, 3);
   }
 }

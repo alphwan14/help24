@@ -3,7 +3,9 @@ import 'package:local_auth/local_auth.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
+import '../config/app_urls.dart';
 import '../utils/error_mapper.dart';
+import '../utils/external_links.dart';
 import '../utils/phone_utils.dart';
 import '../l10n/app_localizations.dart';
 import '../models/profile_completion.dart';
@@ -18,16 +20,14 @@ import '../services/user_profile_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
+import '../widgets/auth/email_verification_banner.dart';
 import '../widgets/profile_widgets.dart';
 import '../widgets/reputation_widgets.dart';
 import 'auth_screen.dart';
 import 'professional_profile_screen.dart';
-import 'help_center_screen.dart';
 import 'my_posts_screen.dart';
 import 'promotion/promote_business_screen.dart';
 import 'saved_screen.dart';
-import 'terms_screen.dart';
-import 'privacy_screen.dart';
 import 'location_permission_explainer_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -70,9 +70,16 @@ class ProfileScreen extends StatelessWidget {
                     ],
                   );
                 }
-                return _LoggedInSections(
-                  uid: auth.currentUserId ?? '',
-                  authUser: auth.currentUser!,
+                return Column(
+                  children: [
+                    // Asks (never forces) an email-account holder to confirm
+                    // their address — the account-recovery path depends on it.
+                    const EmailVerificationBanner(),
+                    _LoggedInSections(
+                      uid: auth.currentUserId ?? '',
+                      authUser: auth.currentUser!,
+                    ),
+                  ],
                 );
               },
             ),
@@ -210,19 +217,25 @@ class ProfileScreen extends StatelessWidget {
                 _SettingsTile(
                   icon: Iconsax.message_question,
                   title: AppLocalizations.of(context)?.t('help_center') ?? 'Help Center',
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const _ExternalTrailing(),
                   onTap: () => _openHelpCenter(context),
+                ),
+                _SettingsTile(
+                  icon: Icons.support_agent_rounded,
+                  title: AppLocalizations.of(context)?.t('contact_support') ?? 'Contact Support',
+                  trailing: const _ExternalTrailing(),
+                  onTap: () => _openSupport(context),
                 ),
                 _SettingsTile(
                   icon: Iconsax.document_text,
                   title: AppLocalizations.of(context)?.t('terms_of_service') ?? 'Terms of Service',
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const _ExternalTrailing(),
                   onTap: () => _openTerms(context),
                 ),
                 _SettingsTile(
                   icon: Iconsax.shield_tick,
                   title: AppLocalizations.of(context)?.t('privacy_policy') ?? 'Privacy Policy',
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const _ExternalTrailing(),
                   onTap: () => _openPrivacy(context),
                 ),
               ],
@@ -349,32 +362,19 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  void _openHelpCenter(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const HelpCenterScreen(),
-      ),
-    );
-  }
+  // Support/legal rows are now gateways to the website — one source of truth on
+  // help24.co.ke, opened in an in-app browser tab. See utils/external_links.dart.
+  void _openHelpCenter(BuildContext context) =>
+      openHelp24Url(context, AppUrls.helpCentre);
 
-  void _openTerms(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const TermsScreen(),
-      ),
-    );
-  }
+  void _openSupport(BuildContext context) =>
+      openHelp24Url(context, AppUrls.supportPortal);
 
-  void _openPrivacy(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const PrivacyScreen(),
-      ),
-    );
-  }
+  void _openTerms(BuildContext context) =>
+      openHelp24Url(context, AppUrls.termsOfService);
+
+  void _openPrivacy(BuildContext context) =>
+      openHelp24Url(context, AppUrls.privacyPolicy);
 
   /// Theme picker. Applies on tap (the whole app re-themes underneath the
   /// sheet, so the choice is visible before it is confirmed) and closes.
@@ -939,6 +939,22 @@ class _GuestProfile extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Trailing affordance for Support rows that open the Help24 website in an
+/// in-app browser tab — signals the row leaves the app for the web.
+class _ExternalTrailing extends StatelessWidget {
+  const _ExternalTrailing();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Icon(
+      Icons.open_in_new_rounded,
+      size: 18,
+      color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
     );
   }
 }

@@ -43,14 +43,24 @@ class AuthGuard {
   }) async {
     final authProvider = context.read<AuthProvider>();
     
-    // Require real authentication; no guest mode for posting/messaging
-    if (!authProvider.isFirebaseConfigured) {
-      debugPrint('⚠️ Firebase not configured - sign in required for this action');
+    // Require real authentication; no guest mode for posting/messaging.
+    if (!authProvider.isAuthAvailable) {
+      // Developer detail stays in the log. The user gets a calm, actionable
+      // sentence that says nothing about which service is unavailable or why —
+      // "not configured" is a fact about our deployment, not about them.
+      debugPrint('[AUTH][GUARD] identity backend unavailable — action blocked');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sign-in is not configured. Contact support.'),
+          SnackBar(
+            content: const Text(
+              "Signing in isn't available right now. Please try again shortly.",
+            ),
             behavior: SnackBarBehavior.floating,
+            action: SnackBarAction(
+              label: 'Dismiss',
+              onPressed: () =>
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+            ),
           ),
         );
       }
