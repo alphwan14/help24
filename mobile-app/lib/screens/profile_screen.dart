@@ -6,6 +6,8 @@ import 'package:iconsax/iconsax.dart';
 import '../utils/error_mapper.dart';
 import '../utils/phone_utils.dart';
 import '../l10n/app_localizations.dart';
+import '../models/profile_completion.dart';
+import '../models/theme_preference.dart';
 import '../models/user_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
@@ -16,9 +18,10 @@ import '../services/user_profile_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
+import '../widgets/profile_widgets.dart';
 import '../widgets/reputation_widgets.dart';
 import 'auth_screen.dart';
-import 'edit_profile_screen.dart';
+import 'professional_profile_screen.dart';
 import 'help_center_screen.dart';
 import 'my_posts_screen.dart';
 import 'promotion/promote_business_screen.dart';
@@ -57,8 +60,8 @@ class ProfileScreen extends StatelessWidget {
                         children: [
                           _SettingsTile(
                             icon: Iconsax.profile_circle,
-                            title: 'Edit Profile',
-                            subtitle: 'Sign in to edit your profile',
+                            title: 'Professional Profile',
+                            subtitle: 'Sign in to build your profile',
                             trailing: const Icon(Icons.chevron_right),
                             onTap: () => _showAuthModalForEditProfile(context),
                           ),
@@ -79,15 +82,18 @@ class ProfileScreen extends StatelessWidget {
             _SettingsSection(
               title: AppLocalizations.of(context)?.t('preferences') ?? 'Preferences',
               children: [
+                // Theme — three explicit choices instead of a boolean switch.
+                // "Device Default" is a first-class option (and the default for
+                // new installs), so the app can follow the OS schedule.
                 Consumer<AppProvider>(
                   builder: (context, provider, _) {
+                    final preference = provider.themePreference;
                     return _SettingsTile(
-                      icon: provider.isDarkMode ? Iconsax.moon : Iconsax.sun_1,
-                      title: AppLocalizations.of(context)?.t('dark_mode') ?? 'Dark Mode',
-                      trailing: Switch.adaptive(
-                        value: provider.isDarkMode,
-                        onChanged: (_) => provider.toggleTheme(),
-                      ),
+                      icon: preference.icon,
+                      title: AppLocalizations.of(context)?.t('theme') ?? 'Theme',
+                      subtitle: preference.label,
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _showThemeSheet(context, provider),
                     );
                   },
                 ),
@@ -333,10 +339,11 @@ class ProfileScreen extends StatelessWidget {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => EditProfileScreen(
+        builder: (context) => ProfessionalProfileScreen(
           uid: uid,
           initialProfile: profile,
           emailFromAuth: auth.currentUser?.email ?? '',
+          phoneFromAuth: auth.currentUser?.phoneNumber,
         ),
       ),
     );
@@ -366,6 +373,64 @@ class ProfileScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (context) => const PrivacyScreen(),
       ),
+    );
+  }
+
+  /// Theme picker. Applies on tap (the whole app re-themes underneath the
+  /// sheet, so the choice is visible before it is confirmed) and closes.
+  void _showThemeSheet(BuildContext context, AppProvider provider) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final isDark = Theme.of(sheetContext).brightness == Brightness.dark;
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 8),
+                  child: Text('Theme', style: Theme.of(sheetContext).textTheme.titleLarge),
+                ),
+                Consumer<AppProvider>(
+                  builder: (context, live, _) => Column(
+                    children: [
+                      for (final option in ThemePreference.values)
+                        _ThemeOptionTile(
+                          option: option,
+                          selected: live.themePreference == option,
+                          onTap: () {
+                            live.setThemePreference(option);
+                            Navigator.pop(sheetContext);
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -489,6 +554,13 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
     }
   }
 
+  /// Re-subscribe so an edit made on the Professional Profile is reflected the
+  /// instant the user comes back, instead of on the next 15s poll tick.
+  void _resubscribe() {
+    if (!mounted) return;
+    setState(() => _stream = UserProfileService.watchUser(widget.uid));
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<UserModel?>(
@@ -566,21 +638,43 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
             _SettingsSection(
               title: 'Account',
               children: [
-                _SettingsTile(
-                  icon: Iconsax.profile_circle,
-                  title: 'Edit Profile',
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => EditProfileScreen(
-                        uid: widget.uid,
-                        initialProfile: profile,
-                        emailFromAuth: widget.authUser.email ?? '',
-                      ),
+                // Completion lives on the tile so the user sees the gap from
+                // the Account tab without opening anything.
+                Builder(builder: (context) {
+                  final completion = ProfileCompletion.of(
+                    profile,
+                    fallbackPhone: widget.authUser.phoneNumber,
+                  );
+                  return _SettingsTile(
+                    icon: Iconsax.profile_circle,
+                    title: 'Professional Profile',
+                    subtitle: completion.isComplete
+                        ? 'Complete'
+                        : '${completion.percent}% complete'
+                            '${completion.nextStep != null ? ' · next: ${completion.nextStep!.label.toLowerCase()}' : ''}',
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!completion.isComplete)
+                          CompletionRing(percent: completion.percent, size: 34, stroke: 3.5),
+                        const Icon(Icons.chevron_right),
+                      ],
                     ),
-                  ),
-                ),
+                    onTap: () => Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ProfessionalProfileScreen(
+                          uid: widget.uid,
+                          initialProfile: profile,
+                          emailFromAuth: widget.authUser.email ?? '',
+                          phoneFromAuth: widget.authUser.phoneNumber,
+                        ),
+                      ),
+                    ).then((changed) {
+                      if (changed == true) _resubscribe();
+                    }),
+                  );
+                }),
                 _SettingsTile(
                   icon: Iconsax.card,
                   title: 'Payment Settings',
@@ -753,27 +847,24 @@ class _LoggedInProfile extends StatelessWidget {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
 
+        // Profession sits directly under the identity line — it is the primary
+        // professional signal, rendered through the registry so a stored key
+        // shows its canonical label (and legacy free text still shows as typed).
+        if (profile?.profession.trim().isNotEmpty == true) ...[
+          const SizedBox(height: 10),
+          ProfessionChip(profession: profile!.profession, fontSize: 12.5),
+        ],
+
         if (profile?.bio.isNotEmpty == true) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
             profile!.bio,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                  fontStyle: FontStyle.italic,
                 ),
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-          ),
-        ],
-        if (profile?.profession.isNotEmpty == true) ...[
-          const SizedBox(height: 6),
-          Text(
-            profile!.profession,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                  fontWeight: FontWeight.w500,
-                ),
           ),
         ],
         const SizedBox(height: 8),
@@ -955,6 +1046,70 @@ class _SettingsTile extends StatelessWidget {
             ),
             if (trailing != null) trailing!,
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One row of the Theme sheet.
+class _ThemeOptionTile extends StatelessWidget {
+  final ThemePreference option;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ThemeOptionTile({
+    required this.option,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppTheme.primaryAccent.withValues(alpha: 0.08)
+                : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? AppTheme.primaryAccent.withValues(alpha: 0.45) : border,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                option.icon,
+                size: 22,
+                color: selected
+                    ? AppTheme.primaryAccent
+                    : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(option.label, style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 2),
+                    Text(option.description, style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+              if (selected)
+                const Icon(Icons.check_circle_rounded,
+                    color: AppTheme.primaryAccent, size: 22),
+            ],
+          ),
         ),
       ),
     );

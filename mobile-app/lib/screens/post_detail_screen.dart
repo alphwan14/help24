@@ -14,10 +14,12 @@ import '../services/mpesa_service.dart';
 import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
 import '../utils/phone_utils.dart';
 import '../utils/time_utils.dart';
+import '../widgets/applicant_card.dart';
 import '../widgets/auth_guard.dart';
 import '../widgets/post_flows.dart';
 import '../widgets/reputation_widgets.dart';
@@ -1405,11 +1407,10 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-    final textTertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
-    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    // Card colours now live inside ApplicantCard — this section only lays out
+    // the header and the list.
+    final textSecondary =
+        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
     // Use override (post-selection local state) if available; fallback to DB value.
     final effectiveSelectedId =
@@ -1477,205 +1478,66 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
             ),
           )
         else
+          // The SAME card the Applications screen renders. These two lists are
+          // the same decision on two surfaces; keeping one widget is what stops
+          // them drifting apart again (this one used to show no trust signals
+          // at all — just a name and a timestamp).
           ...widget.post.applications.map((app) {
             final isSelected = app.applicantUserId == effectiveSelectedId;
             final isSelecting = _selecting == app.applicantUserId;
-            final canSelect = !anySelected && !isSelecting && app.applicantUserId.isNotEmpty;
+            final canSelect =
+                !anySelected && !isSelecting && app.applicantUserId.isNotEmpty;
 
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: isSelected ? AppTheme.successGreen.withValues(alpha: 0.06) : cardBg,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: isSelected
-                      ? AppTheme.successGreen.withValues(alpha: 0.45)
-                      : borderColor,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Top row: avatar + name + timestamp
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      CircleAvatar(
-                        radius: 18,
-                        backgroundColor: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                        backgroundImage: app.applicantAvatarUrl.isNotEmpty
-                            ? NetworkImage(app.applicantAvatarUrl)
-                            : null,
-                        child: app.applicantAvatarUrl.isEmpty
-                            ? Text(
-                                app.applicantName.isNotEmpty
-                                    ? app.applicantName[0].toUpperCase()
-                                    : '?',
-                                style: const TextStyle(
-                                  color: AppTheme.primaryAccent,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              )
-                            : null,
+            return ApplicantCard(
+              application: app,
+              isSelected: isSelected,
+              isAccepting: isSelecting,
+              canAccept: canSelect,
+              onMessage: () async {
+                if (_chatLoading) return;
+                setState(() => _chatLoading = true);
+                try {
+                  await widget.onChatWithApplicant(app.applicantUserId,
+                      app.applicantName, app.applicantAvatarUrl);
+                } finally {
+                  if (mounted) setState(() => _chatLoading = false);
+                }
+              },
+              onAccept: () async {
+                final clientUserId =
+                    context.read<AuthProvider>().currentUserId ?? '';
+                if (clientUserId.isEmpty) return;
+                // Captured before the await so the failure path never reaches
+                // for a BuildContext across an async gap.
+                final messenger = ScaffoldMessenger.of(context);
+                setState(() => _selecting = app.applicantUserId);
+                try {
+                  await JobsService.selectProvider(
+                    postId: widget.post.id,
+                    providerId: app.applicantUserId,
+                    clientUserId: clientUserId,
+                  );
+                  if (mounted) {
+                    setState(() => _selecting = null);
+                    widget.onProviderSelected(app.applicantUserId);
+                  }
+                } catch (e) {
+                  debugPrint('[SelectProvider] UI caught error: $e');
+                  if (mounted) {
+                    setState(() => _selecting = null);
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(ErrorMapper.toMessage(e,
+                            context: ErrorContext.selectProvider)),
+                        backgroundColor: AppTheme.errorRed,
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          app.applicantName.isNotEmpty ? app.applicantName : 'Anonymous',
-                          style: TextStyle(
-                            color: textPrimary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13.5,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      Text(
-                        formatRelativeTime(app.timestamp),
-                        style: TextStyle(color: textTertiary, fontSize: 11.5),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Message
-                  Text(
-                    app.message.isNotEmpty ? app.message : 'No message provided.',
-                    style: TextStyle(
-                      color: app.message.isNotEmpty ? textSecondary : textTertiary,
-                      fontSize: 12.5,
-                      fontStyle: app.message.isEmpty ? FontStyle.italic : FontStyle.normal,
-                      height: 1.4,
-                    ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Action row
-                  if (isSelected)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppTheme.successGreen.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.check_circle_rounded,
-                              color: AppTheme.successGreen, size: 15),
-                          SizedBox(width: 6),
-                          Text(
-                            'Selected Provider',
-                            style: TextStyle(
-                              color: AppTheme.successGreen,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  else
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        // Chat button
-                        SizedBox(
-                          height: 34,
-                          child: OutlinedButton.icon(
-                            onPressed: (_chatLoading || app.applicantUserId.isEmpty)
-                                ? null
-                                : () async {
-                                    setState(() => _chatLoading = true);
-                                    try {
-                                      await widget.onChatWithApplicant(
-                                          app.applicantUserId,
-                                          app.applicantName,
-                                          app.applicantAvatarUrl);
-                                    } finally {
-                                      if (mounted) setState(() => _chatLoading = false);
-                                    }
-                                  },
-                            icon: const Icon(Iconsax.message, size: 14),
-                            label: const Text('Chat'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 14),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              textStyle: const TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Select button
-                        SizedBox(
-                          height: 34,
-                          child: FilledButton(
-                            onPressed: canSelect
-                                ? () async {
-                                    final clientUserId =
-                                        context.read<AuthProvider>().currentUserId ?? '';
-                                    if (clientUserId.isEmpty) return;
-                                    setState(() => _selecting = app.applicantUserId);
-                                    try {
-                                      await JobsService.selectProvider(
-                                        postId: widget.post.id,
-                                        providerId: app.applicantUserId,
-                                        clientUserId: clientUserId,
-                                      );
-                                      if (mounted) {
-                                        setState(() => _selecting = null);
-                                        widget.onProviderSelected(app.applicantUserId);
-                                      }
-                                    } catch (e) {
-                                      debugPrint('[SelectProvider] UI caught error: $e');
-                                      if (mounted) {
-                                        setState(() => _selecting = null);
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: const Row(children: [
-                                              Icon(Icons.error_outline,
-                                                  color: Colors.white, size: 18),
-                                              SizedBox(width: 10),
-                                              Flexible(
-                                                  child: Text(
-                                                      'Could not select provider. Try again.')),
-                                            ]),
-                                            backgroundColor: AppTheme.errorRed,
-                                            behavior: SnackBarBehavior.floating,
-                                            shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(10)),
-                                          ),
-                                        );
-                                      }
-                                    }
-                                  }
-                                : null,
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 14),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              textStyle: const TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w600),
-                            ),
-                            child: isSelecting
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Text('Select'),
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
+                    );
+                  }
+                }
+              },
             );
           }),
       ],

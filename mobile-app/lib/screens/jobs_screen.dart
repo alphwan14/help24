@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/job_card.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/application_modal.dart';
+import '../widgets/provider_gate.dart';
 
 class JobsScreen extends StatefulWidget {
   const JobsScreen({super.key});
@@ -332,8 +333,22 @@ class _JobsScreenState extends State<JobsScreen> {
     }
   }
 
-  void _showApplyModal(BuildContext context, JobModel job) {
-    showModalBottomSheet(
+  Future<void> _showApplyModal(BuildContext context, JobModel job) async {
+    // Same become-a-provider gate as offering on a request. Applying to a job
+    // used to require nothing at all, which meant a client could be presented
+    // with an applicant who had no profession and no way to be paid.
+    final uid = context.read<AuthProvider>().currentUserId ?? '';
+    if (uid.isNotEmpty) {
+      final ready = await ensureProviderReady(
+        context,
+        uid: uid,
+        action: 'apply for jobs',
+      );
+      if (!context.mounted || !ready) return;
+    }
+
+    if (!context.mounted) return;
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

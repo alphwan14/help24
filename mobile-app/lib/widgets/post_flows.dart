@@ -6,9 +6,9 @@ import '../providers/auth_provider.dart';
 import '../screens/messages_screen.dart';
 import '../services/application_service.dart';
 import '../services/post_service.dart';
-import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import 'application_modal.dart';
+import 'provider_gate.dart';
 
 /// Shared post action flows — used by both the feed cards (discover) and the
 /// post detail screen so the business rules (duplicate-application guard,
@@ -177,31 +177,15 @@ Future<void> openOfferServiceModal(BuildContext context, PostModel post) async {
     return;
   }
 
-  // Providers must have an M-Pesa number so they can receive payment when selected.
-  final phone = await UserProfileService.getMpesaPhone(currentUserId);
-  if (!context.mounted) return;
-  if (phone == null || phone.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.phone_android_rounded, color: Colors.white, size: 18),
-            SizedBox(width: 10),
-            Flexible(
-              child: Text(
-                'Add your M-Pesa number in Profile → Payment Settings to offer services.',
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: AppTheme.warningOrange,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-    return;
-  }
+  // Become-a-provider gate: a confirmed profession (so the client knows who
+  // they are hiring) AND an M-Pesa number (so the provider can be paid). One
+  // gate, shared with the job-apply path — see widgets/provider_gate.dart.
+  final ready = await ensureProviderReady(
+    context,
+    uid: currentUserId,
+    action: 'offer your services',
+  );
+  if (!context.mounted || !ready) return;
 
   await showModalBottomSheet(
     context: context,

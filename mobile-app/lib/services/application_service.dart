@@ -9,7 +9,7 @@ import '../models/post_model.dart';
 class ApplicationService {
   static SupabaseClient get _client => Supabase.instance.client;
 
-  static const _applicationsSelect = '*, users(name, email, profile_image, avatar_url)';
+  static const _applicationsSelect = '*, users(name, email, profile_image, avatar_url, profession)';
 
   // PostgreSQL unique-violation error code.
   static const _pgUniqueViolation = '23505';

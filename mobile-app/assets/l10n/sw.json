@@ -1,7 +1,11 @@
 {
   "app_name": "Help24",
   "edit_profile": "Hariri Wasifu",
-  "dark_mode": "Hali ya Giza",
+  "professional_profile": "Wasifu wa Kitaaluma",
+  "theme": "Mandhari",
+  "theme_system": "Chaguo-msingi la Kifaa",
+  "theme_light": "Nuru",
+  "theme_dark": "Giza",
   "notifications": "Arifa",
   "language": "Lugha",
   "account": "Akaunti",

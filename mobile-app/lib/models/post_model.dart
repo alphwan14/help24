@@ -228,6 +228,13 @@ class Application {
   final String postId;
   final String applicantName;
   final String applicantAvatarUrl;
+
+  /// The applicant's `users.profession` value (a controlled key, or legacy free
+  /// text). Carried on the application so the hiring decision surface can show
+  /// WHAT the applicant does without an extra fetch per card. Always render it
+  /// through `ProfessionRegistry.labelFor`, never raw.
+  final String applicantProfession;
+
   final String applicantTempId;
   final String applicantUserId;
   final String message;
@@ -239,6 +246,7 @@ class Application {
     this.postId = '',
     required this.applicantName,
     this.applicantAvatarUrl = '',
+    this.applicantProfession = '',
     this.applicantTempId = '',
     this.applicantUserId = '',
     required this.message,
@@ -246,7 +254,8 @@ class Application {
     required this.timestamp,
   });
 
-  /// Create from Supabase JSON (supports joined users(name, profile_image, avatar_url))
+  /// Create from Supabase JSON (supports joined
+  /// users(name, profile_image, avatar_url, profession)).
   factory Application.fromJson(Map<String, dynamic> json) {
     final users = json['users'];
     return Application(
@@ -254,6 +263,10 @@ class Application {
       postId: json['post_id'] ?? '',
       applicantName: _userDisplayName(users),
       applicantAvatarUrl: _userAvatarUrl(users),
+      // Absent on older cached payloads and on joins that do not select it —
+      // an empty profession simply renders no chip, never a crash.
+      applicantProfession:
+          (users is Map ? users['profession']?.toString() : null) ?? '',
       applicantTempId: json['applicant_temp_id'] ?? '',
       applicantUserId: json['applicant_user_id']?.toString() ?? '',
       message: json['message'] ?? '',
@@ -284,7 +297,11 @@ class Application {
       'message': message,
       'proposed_price': proposedPrice,
       'created_at': timestamp.toIso8601String(),
-      'users': {'name': applicantName, 'profile_image': applicantAvatarUrl},
+      'users': {
+        'name': applicantName,
+        'profile_image': applicantAvatarUrl,
+        'profession': applicantProfession,
+      },
     };
   }
 }

@@ -8,10 +8,8 @@ import '../services/jobs_service.dart';
 import '../services/post_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
-import '../utils/format_utils.dart';
+import '../widgets/applicant_card.dart';
 import '../widgets/loading_empty_offline.dart';
-import '../utils/time_utils.dart';
-import '../widgets/reputation_widgets.dart';
 import 'messages_screen.dart';
 
 /// Dedicated screen for a post owner to view and manage applications.
@@ -310,224 +308,17 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
       itemCount: _applications.length,
       itemBuilder: (context, index) {
         final app = _applications[index];
-        return _ApplicationCard(
+        return ApplicantCard(
           application: app,
           isSelected: app.applicantUserId == _acceptedProviderId,
           isAccepting: _accepting == app.applicantUserId,
-          canAccept: _acceptedProviderId == null && _accepting == null && app.applicantUserId.isNotEmpty,
-          isDark: isDark,
+          canAccept: _acceptedProviderId == null &&
+              _accepting == null &&
+              app.applicantUserId.isNotEmpty,
           onAccept: () => _accept(app),
-          onChat: () => _openChatWith(app),
+          onMessage: () => _openChatWith(app),
         );
       },
-    );
-  }
-}
-
-class _ApplicationCard extends StatelessWidget {
-  final Application application;
-  final bool isSelected;
-  final bool isAccepting;
-  final bool canAccept;
-  final bool isDark;
-  final VoidCallback onAccept;
-  final VoidCallback onChat;
-
-  const _ApplicationCard({
-    required this.application,
-    required this.isSelected,
-    required this.isAccepting,
-    required this.canAccept,
-    required this.isDark,
-    required this.onAccept,
-    required this.onChat,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-    final textTertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
-    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: isSelected ? AppTheme.successGreen.withValues(alpha: 0.06) : cardBg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isSelected ? AppTheme.successGreen.withValues(alpha: 0.4) : borderColor,
-          width: isSelected ? 1.5 : 1,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header row: avatar + name + time
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 22,
-                  backgroundColor: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                  backgroundImage: application.applicantAvatarUrl.isNotEmpty
-                      ? NetworkImage(application.applicantAvatarUrl)
-                      : null,
-                  child: application.applicantAvatarUrl.isEmpty
-                      ? Text(
-                          application.applicantName.isNotEmpty
-                              ? application.applicantName[0].toUpperCase()
-                              : '?',
-                          style: const TextStyle(
-                            color: AppTheme.primaryAccent,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                          ),
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        application.applicantName.isNotEmpty
-                            ? application.applicantName
-                            : 'Anonymous',
-                        style: TextStyle(
-                          color: textPrimary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        formatRelativeTime(application.timestamp),
-                        style: TextStyle(color: textTertiary, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-                // Proposed price badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryAccent.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    formatPriceDisplay(application.proposedPrice),
-                    style: const TextStyle(
-                      color: AppTheme.primaryAccent,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            // Provider trust block — the highest-priority trust surface (the
-            // client is choosing whom to hire). Backend-sourced, never fabricated.
-            const SizedBox(height: 12),
-            ReputationTrustBlock(providerId: application.applicantUserId),
-
-            // Message
-            if (application.message.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text(
-                application.message,
-                style: TextStyle(
-                  color: textSecondary,
-                  fontSize: 13,
-                  height: 1.45,
-                ),
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-
-            const SizedBox(height: 14),
-
-            // Action row
-            if (isSelected)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: AppTheme.successGreen.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 16),
-                    SizedBox(width: 6),
-                    Text(
-                      'Provider Accepted',
-                      style: TextStyle(
-                        color: AppTheme.successGreen,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  // Chat button
-                  SizedBox(
-                    height: 36,
-                    child: OutlinedButton.icon(
-                      onPressed: onChat,
-                      icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
-                      label: const Text('Chat'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                  // Accept button — shown only while selection is still open (or
-                  // this card is mid-accept). Once a provider is chosen the list
-                  // is locked, so other cards no longer invite an impossible
-                  // selection; they keep only the Chat action.
-                  if (canAccept || isAccepting) ...[
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      height: 36,
-                      child: FilledButton(
-                        onPressed: canAccept ? onAccept : null,
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          backgroundColor: AppTheme.successGreen,
-                          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                        ),
-                        child: isAccepting
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text('Accept Provider'),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-          ],
-        ),
-      ),
     );
   }
 }

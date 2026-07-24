@@ -152,6 +152,11 @@ class UserProfileService {
   }
 
   /// Update profile in Supabase users. Saves profile_image URL (from Supabase Storage), profession.
+  ///
+  /// Prefer the focused writers below ([updateName], [updateProfession],
+  /// [updateBio]) for user-initiated edits — the Professional Profile edits one
+  /// field at a time, so a multi-field PATCH would send unchanged values back
+  /// and, for `name`, would trip the change-guard trigger on a no-op save.
   static Future<void> updateProfile({
     required String uid,
     String? name,
@@ -174,6 +179,69 @@ class UserProfileService {
     } catch (e) {
       debugPrint('UserProfileService updateProfile ($uid): $e');
       rethrow;
+    }
+  }
+
+  /// Save a new display name.
+  ///
+  /// [name] MUST already be the normalized value from `NameValidator.check` —
+  /// this method does not re-validate shape, it owns the WRITE. The 30-day
+  /// cooldown is enforced by the database trigger (migration 087), not here;
+  /// a rejection surfaces as a PostgrestException carrying the
+  /// `HELP24_NAME_COOLDOWN` marker, which ErrorMapper turns into a rule-shaped
+  /// message. Callers should still check the cooldown client-side first so the
+  /// user is told before typing, not after saving.
+  static Future<void> updateName({required String uid, required String name}) async {
+    if (!_isAvailable || uid.isEmpty) return;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw UserProfileException('Enter your name.');
+    }
+    await _client.from('users').update({'name': trimmed}).eq('id', uid);
+    debugPrint('[PROFILE] name updated for $uid');
+  }
+
+  /// Save the profession KEY (`professions.id`, e.g. `electrician`).
+  ///
+  /// Writing the key — not a display label — is what makes provider search,
+  /// filtering and matching possible. Pass an empty string to clear.
+  static Future<void> updateProfession({
+    required String uid,
+    required String professionId,
+  }) async {
+    if (!_isAvailable || uid.isEmpty) return;
+    await _client.from('users').update({'profession': professionId.trim()}).eq('id', uid);
+    debugPrint('[PROFILE] profession set to "${professionId.trim()}" for $uid');
+  }
+
+  /// Save the bio. Trimmed; empty clears it.
+  static Future<void> updateBio({required String uid, required String bio}) async {
+    if (!_isAvailable || uid.isEmpty) return;
+    await _client.from('users').update({'bio': bio.trim()}).eq('id', uid);
+  }
+
+  /// The publicly visible profile of ANY user — powers the provider profile
+  /// screen and the "View Profile" action on applicant cards.
+  ///
+  /// Reads the same `users` row the feed already joins for author name/avatar,
+  /// so it needs no migration and no new grant. When the users-table PII
+  /// lockdown lands, this is the ONE call site to repoint at `public_profiles`
+  /// (which will need profession/bio/created_at added to the view).
+  static Future<UserModel?> getPublicProfile(String userId) async {
+    if (!_isAvailable || userId.isEmpty) return null;
+    try {
+      final row = await _client
+          .from('users')
+          .select('id, name, email, profile_image, avatar_url, bio, profession, created_at')
+          .eq('id', userId)
+          .maybeSingle();
+      if (row == null) return null;
+      // Email is intentionally NOT surfaced by the provider profile UI; it is
+      // selected only because UserModel carries it for the owner's own screen.
+      return UserModel.fromSupabase(row as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('UserProfileService getPublicProfile ($userId): $e');
+      return null;
     }
   }
 
@@ -336,7 +404,7 @@ class UserProfileService {
     final rows = await _client
         .from('posts')
         .select(
-            '*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+            '*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
         .eq('author_user_id', uid)
         .filter('archived_at', 'is', null)
         .order('created_at', ascending: false)

@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/category_schema.dart';
 import '../models/post_model.dart';
+import '../utils/icon_keys.dart';
 
 /// Smart Posting (SP-1): the category registry client.
 ///
@@ -108,42 +109,7 @@ class CategorySchemaService {
 
   /// Server icon keys → Material icons (same set used by [Category.all]).
   /// Unknown keys get a sane default so new server categories render fine
-  /// on old app versions.
-  static IconData _iconFor(String? key) =>
-      _iconMap[key] ?? Icons.work_outline;
-
-  static const Map<String, IconData> _iconMap = {
-    'plumbing': Icons.plumbing,
-    'electrical_services': Icons.electrical_services,
-    'foundation': Icons.foundation,
-    'handyman': Icons.handyman,
-    'format_paint': Icons.format_paint,
-    'construction': Icons.construction,
-    'cleaning_services': Icons.cleaning_services,
-    'local_laundry_service': Icons.local_laundry_service,
-    'grass': Icons.grass,
-    'security': Icons.security,
-    'directions_car': Icons.directions_car,
-    'delivery_dining': Icons.delivery_dining,
-    'car_repair': Icons.car_repair,
-    'local_car_wash': Icons.local_car_wash,
-    'kitchen': Icons.kitchen,
-    'ac_unit': Icons.ac_unit,
-    'phone_android': Icons.phone_android,
-    'computer': Icons.computer,
-    'brush': Icons.brush,
-    'code': Icons.code,
-    'camera_alt': Icons.camera_alt,
-    'videocam': Icons.videocam,
-    'celebration': Icons.celebration,
-    'restaurant': Icons.restaurant,
-    'school': Icons.school,
-    'child_care': Icons.child_care,
-    'favorite': Icons.favorite,
-    'move_up': Icons.move_up,
-    'chair': Icons.chair,
-    'architecture': Icons.architecture,
-    'engineering': Icons.engineering,
-    'more_horiz': Icons.more_horiz,
-  };
+  /// on old app versions. The map itself lives in utils/icon_keys.dart so the
+  /// profession registry shares one vocabulary instead of a second copy.
+  static IconData _iconFor(String? key) => iconForKey(key);
 }

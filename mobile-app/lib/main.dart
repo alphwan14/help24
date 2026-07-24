@@ -9,6 +9,7 @@ import 'config/app_firebase.dart';
 import 'http_client_with_token.dart';
 import 'l10n/app_localizations.dart';
 import 'models/post_model.dart';
+import 'models/theme_preference.dart';
 import 'providers/app_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/connectivity_provider.dart';
@@ -23,6 +24,7 @@ import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'services/category_schema_service.dart';
+import 'services/profession_registry.dart';
 import 'services/chat_local_prefs.dart';
 import 'services/diagnostic_service.dart';
 import 'services/journey_engine.dart';
@@ -74,8 +76,13 @@ void main() async {
   }));
 
   // Load persisted theme before first frame — prevents any dark/light flicker.
+  // Device Default resolves against the OS brightness the platform reports at
+  // launch, so a system-themed user also gets the correct first frame.
   final prefs = await SharedPreferences.getInstance();
-  final isDark = prefs.getBool('isDarkMode') ?? true;
+  final themePreference = await AppProvider.loadThemePreference(prefs);
+  final isDark = themePreference.isDark(
+    WidgetsBinding.instance.platformDispatcher.platformBrightness,
+  );
 
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -84,24 +91,35 @@ void main() async {
     systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
   ));
 
-  runApp(Help24App(initialDarkMode: isDark));
+  runApp(Help24App(initialTheme: themePreference));
 }
 
 class Help24App extends StatefulWidget {
-  final bool initialDarkMode;
+  final ThemePreference initialTheme;
 
-  const Help24App({super.key, this.initialDarkMode = true});
+  const Help24App({super.key, this.initialTheme = ThemePreference.system});
 
   @override
   State<Help24App> createState() => _Help24AppState();
 }
 
-class _Help24AppState extends State<Help24App> {
+class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
   Future<void>? _bootstrapFuture;
+
+  /// Observed so "Device Default" reacts the moment the OS flips (manual
+  /// toggle or a scheduled night mode) — MaterialApp re-themes itself from
+  /// ThemeMode.system, but the system UI overlay style below is ours to keep
+  /// in sync.
+  @override
+  void didChangePlatformBrightness() {
+    super.didChangePlatformBrightness();
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     NotificationService.setNavigatorKey(_navigatorKey);
     NotificationService.setupMessageHandlers(
       onForegroundMessage: _onForegroundMessage,
@@ -115,12 +133,23 @@ class _Help24AppState extends State<Help24App> {
     _bootstrapFuture = _runBackgroundBootstrap();
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> _runBackgroundBootstrap() async {
     try {
       // Warm the category registry (cache-first, 24h TTL) so feed cards can
       // resolve highlight chips without opening the Post screen. Fire-and-
       // forget: never blocks startup, never throws.
       unawaited(CategorySchemaService.instance.warmUp());
+      // Same contract for the profession registry: the profile's profession
+      // selector, every profession chip and the become-a-provider gate all
+      // read it synchronously and fall back to the bundled list, so this
+      // warm-up is a freshness optimisation and never a dependency.
+      unawaited(ProfessionRegistry.instance.warmUp());
       // ✅ Supabase is already initialized in main() - don't reinitialize!
       // Join the Firebase init started in main() (memoized — never runs twice).
       await AppFirebase.initialize();
@@ -482,7 +511,7 @@ class _Help24AppState extends State<Help24App> {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AppProvider(initialDarkMode: widget.initialDarkMode)),
+        ChangeNotifierProvider(create: (_) => AppProvider(initialTheme: widget.initialTheme)),
         ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
@@ -491,14 +520,19 @@ class _Help24AppState extends State<Help24App> {
       child: _SyncOnReconnect(
         child: Consumer2<AppProvider, LocaleProvider>(
           builder: (context, appProvider, localeProvider, _) {
+            // Resolved here rather than read from a boolean: under Device
+            // Default the effective brightness comes from the platform, and
+            // didChangePlatformBrightness above rebuilds this when it flips.
+            final isDark = appProvider.themePreference.isDark(
+              WidgetsBinding.instance.platformDispatcher.platformBrightness,
+            );
             SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
               statusBarColor: Colors.transparent,
-              statusBarIconBrightness:
-                  appProvider.isDarkMode ? Brightness.light : Brightness.dark,
+              statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
               systemNavigationBarColor:
-                  appProvider.isDarkMode ? AppTheme.darkSurface : AppTheme.lightSurface,
+                  isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
               systemNavigationBarIconBrightness:
-                  appProvider.isDarkMode ? Brightness.light : Brightness.dark,
+                  isDark ? Brightness.light : Brightness.dark,
             ));
 
             return AppLocalizationsLoader(
@@ -509,7 +543,7 @@ class _Help24AppState extends State<Help24App> {
                 debugShowCheckedModeBanner: false,
                 theme: AppTheme.lightTheme,
                 darkTheme: AppTheme.darkTheme,
-                themeMode: appProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+                themeMode: appProvider.themeMode,
                 locale: const Locale('en'),
                 localizationsDelegates: const [appLocalizationsDelegate],
                 supportedLocales: const [

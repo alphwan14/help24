@@ -96,7 +96,7 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
           .filter('archived_at', 'is', null); // hide archived (soft-deleted) posts
 
       // Apply filters
@@ -198,7 +198,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
           .filter('archived_at', 'is', null) // hide archived (soft-deleted) posts
           .eq('type', 'request')
           .eq('is_urgent', true)
@@ -227,7 +227,7 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
           .eq('type', 'job')
           .filter('archived_at', 'is', null); // hide archived (soft-deleted) posts
 
@@ -293,7 +293,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
           .filter('archived_at', 'is', null)
           .inFilter('id', ids);
       final posts =
@@ -317,7 +317,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
           .eq('id', id)
           .maybeSingle();
 
@@ -532,7 +532,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url))')
+          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
           .eq('author_user_id', currentUserId)
           .neq('type', 'job')
           .order('created_at', ascending: false);

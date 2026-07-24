@@ -247,6 +247,16 @@ class ErrorMapper {
         message: "This can't be changed while the job is active.",
       );
     }
+    // Name-change cooldown. The database trigger (migration 087) is the
+    // authority — RLS lets a signed-in user write their own row, so the Dart
+    // guard alone would be bypassable. The trigger raises with this marker so
+    // the rejection reads as a rule, not as a failure.
+    if (s.contains('help24_name_cooldown')) {
+      return const AppFailure(
+        title: 'Name recently changed',
+        message: 'You can change your name again 30 days after your last change.',
+      );
+    }
     return null;
   }
 

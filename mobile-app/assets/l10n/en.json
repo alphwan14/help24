@@ -1,7 +1,11 @@
 {
   "app_name": "Help24",
   "edit_profile": "Edit Profile",
-  "dark_mode": "Dark Mode",
+  "professional_profile": "Professional Profile",
+  "theme": "Theme",
+  "theme_system": "Device Default",
+  "theme_light": "Light",
+  "theme_dark": "Dark",
   "notifications": "Notifications",
   "language": "Language",
   "account": "Account",

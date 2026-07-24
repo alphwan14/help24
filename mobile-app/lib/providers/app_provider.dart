@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/post_model.dart';
+import '../models/theme_preference.dart';
 import '../services/post_service.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/application_service.dart';
@@ -17,7 +18,7 @@ import '../services/supabase_auth_bridge.dart';
 import '../utils/error_mapper.dart';
 
 class AppProvider extends ChangeNotifier {
-  bool _isDarkMode = true;
+  ThemePreference _themePreference = ThemePreference.system;
   List<PostModel> _posts = [];
   List<PostModel> _urgentPosts = [];
   List<JobModel> _jobs = [];
@@ -50,7 +51,11 @@ class AppProvider extends ChangeNotifier {
   Set<String> _appliedPostIds = {};
 
   // Getters
-  bool get isDarkMode => _isDarkMode;
+  /// The user's theme choice (Device Default / Light / Dark).
+  ThemePreference get themePreference => _themePreference;
+
+  /// Fed straight to `MaterialApp.themeMode`.
+  ThemeMode get themeMode => _themePreference.themeMode;
   /// Whether the current user has already applied / sent an offer on [postId].
   bool hasAppliedTo(String postId) => _appliedPostIds.contains(postId);
   List<PostModel> get posts => _posts;
@@ -73,7 +78,8 @@ class AppProvider extends ChangeNotifier {
   Urgency? get selectedUrgency => _selectedUrgency;
   String? get priorityLocationCity => _priorityLocationCity;
 
-  AppProvider({bool initialDarkMode = true}) : _isDarkMode = initialDarkMode {
+  AppProvider({ThemePreference initialTheme = ThemePreference.system})
+      : _themePreference = initialTheme {
     _loadInitialData();
   }
 
@@ -756,13 +762,42 @@ class AppProvider extends ChangeNotifier {
 
   // ==================== THEME ====================
 
-  void toggleTheme() {
-    _isDarkMode = !_isDarkMode;
+  /// SharedPreferences key holding a [ThemePreference.storageKey].
+  static const String themePrefsKey = 'themeMode';
+
+  /// Legacy boolean key (pre-Theme milestone). Read once at startup and
+  /// migrated to [themePrefsKey]; never written again.
+  static const String legacyThemePrefsKey = 'isDarkMode';
+
+  void setThemePreference(ThemePreference preference) {
+    if (_themePreference == preference) return;
+    _themePreference = preference;
     notifyListeners();
     // Persist immediately; fire-and-forget (non-blocking).
     SharedPreferences.getInstance().then(
-      (prefs) => prefs.setBool('isDarkMode', _isDarkMode),
+      (prefs) => prefs.setString(themePrefsKey, preference.storageKey),
     );
+  }
+
+  /// Resolve the startup theme, migrating the legacy boolean exactly once.
+  ///
+  /// Migration rule — chosen so NO existing user is flipped:
+  ///   * `themeMode` present  → the user has already used the new picker.
+  ///   * `isDarkMode` present → they explicitly toggled the old switch, so
+  ///     that choice is preserved as an EXPLICIT Light/Dark (not "system",
+  ///     which could visibly change their app on first launch).
+  ///   * neither present      → Device Default, the new default.
+  static Future<ThemePreference> loadThemePreference(SharedPreferences prefs) async {
+    final stored = prefs.getString(themePrefsKey);
+    if (stored != null) return ThemePreference.fromStorage(stored);
+
+    if (prefs.containsKey(legacyThemePrefsKey)) {
+      final wasDark = prefs.getBool(legacyThemePrefsKey) ?? true;
+      final migrated = wasDark ? ThemePreference.dark : ThemePreference.light;
+      await prefs.setString(themePrefsKey, migrated.storageKey);
+      return migrated;
+    }
+    return ThemePreference.system;
   }
 
   // ==================== FILTERS ====================
