@@ -78,6 +78,18 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
   StreamSubscription<List<ConnectivityResult>>? _subscription;
   Timer? _retryTimer;
 
+  /// Fires exactly once each time reachability transitions offline → online.
+  /// Screens subscribe to this to re-run their own load after the connection
+  /// comes back, instead of every screen re-implementing the offline→online
+  /// edge detection. Broadcast so any number of screens can listen.
+  final StreamController<void> _reconnectController =
+      StreamController<void>.broadcast();
+  Stream<void> get onReconnect => _reconnectController.stream;
+
+  void _emitReconnect() {
+    if (!_reconnectController.isClosed) _reconnectController.add(null);
+  }
+
   /// Interface-level state — a cheap trigger, never the answer on its own.
   bool _hasInterface = true;
 
@@ -143,6 +155,7 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
       _retryTimer?.cancel();
       _retryTimer = null;
       notifyListeners();
+      _emitReconnect();
     }
   }
 
@@ -193,6 +206,8 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
       _scheduleRetry();
     }
     if (changed || !ok) notifyListeners();
+    // A probe that flips us from offline back to reachable is a reconnect.
+    if (changed && ok) _emitReconnect();
     return ok;
   }
 
@@ -214,6 +229,7 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (NetworkHealth.onFailure == reportFailure) NetworkHealth.onFailure = null;
     _subscription?.cancel();
     _retryTimer?.cancel();
+    _reconnectController.close();
     super.dispose();
   }
 }

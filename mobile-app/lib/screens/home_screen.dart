@@ -8,10 +8,8 @@ import '../widgets/custom_bottom_nav.dart';
 import '../widgets/auth_guard.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
-import '../providers/connectivity_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/location_provider.dart';
-import '../widgets/loading_empty_offline.dart';
 import 'discover_screen.dart';
 import 'jobs_screen.dart';
 import 'post_screen.dart';
@@ -168,6 +166,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // idempotent, so later tab taps are no-ops. Empty uid resets state on
         // logout.
         context.read<AppProvider>().loadConversations(uid);
+        // Server-derived "Applied / Offer sent" state for feed cards.
+        context.read<AppProvider>().loadMyApplications(uid);
       });
     }
 
@@ -186,10 +186,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         bottom: false,
         child: Column(
         children: [
-          Consumer<ConnectivityProvider>(
-            builder: (_, connectivity, __) =>
-                connectivity.isOffline ? const OfflineBanner() : const SizedBox.shrink(),
-          ),
+          // No connectivity chrome on the tab container: offline is a background
+          // state, communicated where it matters — a subtle indicator on the
+          // Discover feed (live browsing) and contextual snackbars on actions
+          // elsewhere. Keeping the shell calm is deliberate.
           Expanded(
             child: _showPostScreen
                 ? PopScope(

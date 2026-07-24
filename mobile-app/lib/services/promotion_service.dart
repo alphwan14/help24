@@ -234,6 +234,10 @@ class PromotionService {
         if (msg is String && msg.isNotEmpty) return msg;
       }
     } catch (_) {}
-    return 'Something went wrong (HTTP ${response.statusCode}). Please try again.';
+    debugPrint('[PromotionService] request failed status=${response.statusCode} body=${response.body}');
+    if (response.statusCode >= 500) {
+      return "We're having trouble on our end. Please try again shortly.";
+    }
+    return 'Something went wrong. Please try again.';
   }
 }

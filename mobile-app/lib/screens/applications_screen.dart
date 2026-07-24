@@ -5,8 +5,11 @@ import '../models/post_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/application_service.dart';
 import '../services/jobs_service.dart';
+import '../services/post_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
+import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
 import '../widgets/reputation_widgets.dart';
 import 'messages_screen.dart';
@@ -83,9 +86,21 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
     }
     try {
       final apps = await ApplicationService.getApplicationsForPost(widget.postId);
+      // Hydrate the "already assigned" lock from the server, so reopening this
+      // screen after a provider was chosen reflects that state instead of
+      // re-inviting a selection (which then hit a conflict). Only needed until
+      // we know of a selection.
+      String? serverSelected;
+      if (_acceptedProviderId == null) {
+        final post = await PostService.getPostById(widget.postId);
+        serverSelected = post?.selectedProviderUserId;
+      }
       if (!mounted) return;
       setState(() {
         _applications = apps;
+        if (serverSelected != null && serverSelected.isNotEmpty) {
+          _acceptedProviderId = serverSelected;
+        }
         _loading = false;
         if (!silent) _error = null;
       });
@@ -144,7 +159,8 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _accepting = null);
-      final msg = e is JobsException ? e.message : 'Could not accept provider. Please try again.';
+      debugPrint('[Applications] accept provider failed: $e');
+      final msg = ErrorMapper.toMessage(e, context: ErrorContext.selectProvider);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(children: [
@@ -224,10 +240,13 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
             ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        color: AppTheme.primaryAccent,
-        child: _buildBody(isDark, textPrimary, textSecondary),
+      body: ReconnectListener(
+        onReconnect: () => _load(),
+        child: RefreshIndicator(
+          onRefresh: _load,
+          color: AppTheme.primaryAccent,
+          child: _buildBody(isDark, textPrimary, textSecondary),
+        ),
       ),
     );
   }
@@ -476,29 +495,34 @@ class _ApplicationCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  // Accept button
-                  SizedBox(
-                    height: 36,
-                    child: FilledButton(
-                      onPressed: canAccept ? onAccept : null,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        backgroundColor: AppTheme.successGreen,
-                        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  // Accept button — shown only while selection is still open (or
+                  // this card is mid-accept). Once a provider is chosen the list
+                  // is locked, so other cards no longer invite an impossible
+                  // selection; they keep only the Chat action.
+                  if (canAccept || isAccepting) ...[
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      height: 36,
+                      child: FilledButton(
+                        onPressed: canAccept ? onAccept : null,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          backgroundColor: AppTheme.successGreen,
+                          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                        child: isAccepting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Accept Provider'),
                       ),
-                      child: isAccepting
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text('Accept Provider'),
                     ),
-                  ),
+                  ],
                 ],
               ),
           ],

@@ -6,6 +6,8 @@ import '../models/dispute_thread.dart';
 import '../providers/auth_provider.dart';
 import '../services/dispute_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
+import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
 
 /// DisputeThreadScreen — the participant's home for a single dispute. Drives off
@@ -73,7 +75,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.message;
+        _error = ErrorMapper.toMessage(e, context: ErrorContext.loadContent);
       });
     } catch (_) {
       if (!mounted) return;
@@ -93,7 +95,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       _composer.clear();
       await _load();
     } on DisputeException catch (e) {
-      _toast(e.message);
+      _toast(ErrorMapper.toMessage(e, context: ErrorContext.sendMessage));
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -138,7 +140,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       await _load();
       if (mounted) _toast('Evidence submitted.');
     } on DisputeException catch (e) {
-      _toast(e.message);
+      _toast(ErrorMapper.toMessage(e, context: ErrorContext.upload));
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -158,11 +160,14 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
         title: Text(_data?.postTitle ?? widget.postTitle ?? 'Dispute'),
         elevation: 0,
       ),
-      body: Column(
-        children: [
-          Expanded(child: RefreshIndicator(onRefresh: _load, child: _buildBody(isDark))),
-          if (_data != null) _buildComposer(_data!, isDark),
-        ],
+      body: ReconnectListener(
+        onReconnect: () => _load(),
+        child: Column(
+          children: [
+            Expanded(child: RefreshIndicator(onRefresh: _load, child: _buildBody(isDark))),
+            if (_data != null) _buildComposer(_data!, isDark),
+          ],
+        ),
       ),
     );
   }

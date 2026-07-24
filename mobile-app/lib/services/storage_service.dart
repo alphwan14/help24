@@ -222,9 +222,9 @@ class StorageService {
       if (e is StorageException) rethrow;
       final msg = e.toString();
       if (msg.contains('403') || msg.contains('row-level security') || msg.contains('Unauthorized')) {
-        throw StorageException('Upload denied. Ensure the profiles bucket allows uploads for your account.');
+        throw StorageException("We couldn't upload your photo. Please sign in again and try again.");
       }
-      throw StorageException('Failed to upload profile image: $e');
+      throw StorageException("We couldn't upload your photo. Please try again.");
     }
   }
 

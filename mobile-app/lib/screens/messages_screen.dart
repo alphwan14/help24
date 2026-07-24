@@ -483,6 +483,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _isSending = false;
   int _lastMessageCount = 0;
 
+  // ── Offline outbox ──
+  // Messages composed while unsent are queued (persisted per chat) and resent
+  // automatically the moment the connection returns. _inFlightSends guards
+  // against a manual retry racing the auto-flush and double-sending.
+  StreamSubscription<void>? _reconnectSub;
+  final Set<String> _inFlightSends = {};
+
   // ── Journey Engine (Phase 2) ──
   // The screen owns NO journey state: no timers, no position subscriptions,
   // no message-id booleans. JourneyEngine is the single app-level owner; this
@@ -556,6 +563,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _activeChatId = widget.conversation.id;
     _scrollController.addListener(_onScroll);
     _messageController.addListener(_onTypingChanged);
+    // Offline outbox: restore anything queued in a previous session and resend
+    // automatically whenever the connection comes back.
+    _loadOutbox();
+    _reconnectSub =
+        context.read<ConnectivityProvider>().onReconnect.listen((_) {
+      if (mounted) _flushOutbox();
+    });
     if (_chatId.isNotEmpty) {
       _loadLocalPrefs();
       // Existing chat: paint the cached thread instantly (no spinner), then
@@ -677,6 +691,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     JourneyEngine.instance.listenable.removeListener(_onJourneyChanged);
     _journeyEvents?.cancel();
     _journeyUiTimer?.cancel();
+    _reconnectSub?.cancel();
     // Flush any pending thread-cache write so the last messages of the
     // session are on disk for the next instant open.
     _cacheSaveDebounce?.cancel();
@@ -743,11 +758,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       widget.currentUserId,
     ).listen((messages) {
       if (!mounted) return;
+      // An EMPTY emission must never wipe what's already on screen. Offline, the
+      // fetch behind a resync yields nothing (the error is swallowed into an
+      // empty page), and a resync always emits — so without this guard a
+      // background refresh while offline would replace a cached, readable thread
+      // with the "Start the conversation" empty state. Keep the history; only a
+      // real, non-empty update ever changes it.
+      if (messages.isEmpty) {
+        setState(() {
+          _loadingMessages = false;
+          _loadFailed = false;
+        });
+        return;
+      }
       // Merge with older messages already on screen — from pagination or from
       // the cache hydration — so the visible history never shrinks to the
       // realtime window size.
       final List<Message> merged;
-      if (messages.isNotEmpty && _messages.isNotEmpty) {
+      if (_messages.isNotEmpty) {
         final pageOldest = messages.first.timestamp;
         final seen = messages.map((m) => m.id).toSet();
         final older = _messages
@@ -1127,20 +1155,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final text = _messageController.text.trim();
     if (text.isEmpty || _isSending) return;
 
-    // Create the chat row on first send if we're in pending mode.
-    if (!await _ensureChatCreated()) {
-      if (mounted) _showError('Could not start chat. Please try again.');
-      return;
-    }
-
-    _messageController.clear();
-    // Capture reply state before clearing it (cleared after optimistic insert).
+    // Capture reply state before clearing it.
     final replyingTo = _replyToMessage;
-    // Cancel pending typing timers and clear flag immediately on send.
+    _messageController.clear();
     _typingDebounce?.cancel();
     _typingClearTimer?.cancel();
-    ChatServiceSupabase.clearTyping(_chatId, widget.currentUserId);
+    if (_chatId.isNotEmpty) {
+      ChatServiceSupabase.clearTyping(_chatId, widget.currentUserId);
+    }
 
+    // The message enters the thread immediately as an outbox entry. It is never
+    // discarded on failure — it stays visible (clock while queued, retry chip
+    // when it fails) and is resent automatically on reconnect. So composing a
+    // message offline is a normal, safe action, not an error.
     final optimistic = Message(
       id: 'pending_${DateTime.now().millisecondsSinceEpoch}',
       conversationId: _chatId,
@@ -1150,6 +1177,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       timestamp: DateTime.now(),
       isMe: true,
       type: 'text',
+      status: 'sending',
       replyToId: replyingTo?.id,
       replyToSender: replyingTo == null
           ? null
@@ -1162,52 +1190,141 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _pendingMessages.add(optimistic);
       _replyToMessage = null; // clear reply preview immediately on send
     });
+    _persistOutbox();
     _scrollToBottom();
+
+    // Offline: don't burn a long timeout — leave it queued (clock) and reassure
+    // the user it will go out on its own. Online: try now.
+    final offline = mounted && context.read<ConnectivityProvider>().isOffline;
+    if (offline) {
+      // Reassure once, not on every queued message — the clock on each bubble
+      // already shows they're waiting to send.
+      if (_pendingMessages.length == 1) {
+        _showInfo("No internet — we'll send this when you're back online.");
+      }
+      return;
+    }
+    await _attemptSend(optimistic);
+  }
+
+  /// Try to deliver one queued message. Removes it from the outbox on success,
+  /// marks it 'failed' (tap-to-retry) on error, and leaves it 'sending' (queued)
+  /// when we're offline. Safe to call repeatedly — an in-flight id is skipped.
+  Future<void> _attemptSend(Message pending) async {
+    if (_inFlightSends.contains(pending.id)) return;
+
+    final offline = mounted && context.read<ConnectivityProvider>().isOffline;
+    if (offline) {
+      _updatePendingStatus(pending.id, 'sending');
+      return;
+    }
+
+    _inFlightSends.add(pending.id);
+    _updatePendingStatus(pending.id, 'sending');
     try {
+      // Lazy chat creation for a brand-new conversation's first message. Needs
+      // the network, so it lives here: offline it fails and the message simply
+      // stays queued for the next reconnect.
+      if (_chatId.isEmpty && !await _ensureChatCreated()) {
+        throw Exception('chat not created');
+      }
       await SupabaseAuthBridge.ensureSessionAsync();
       final confirmed = await ChatServiceSupabase.sendMessage(
         chatIdParam: _chatId,
         senderId: widget.currentUserId,
-        content: text,
-        replyToId:      replyingTo?.id,
-        replyToSender:  replyingTo == null
-            ? null
-            : (replyingTo.isMe ? 'You' : widget.conversation.userName),
-        replyToPreview: replyingTo?.text.isEmpty == false
-            ? replyingTo!.text.substring(0, replyingTo.text.length.clamp(0, 120))
-            : null,
+        content: pending.text,
+        replyToId: pending.replyToId,
+        replyToSender: pending.replyToSender,
+        replyToPreview: pending.replyToPreview,
       );
-      if (mounted) {
-        setState(() {
-          _pendingMessages.removeWhere((m) => m.id == optimistic.id);
-          // Add the confirmed row directly — don't rely on realtime for own messages.
-          if (!_messages.any((m) => m.id == confirmed.id)) {
-            _messages = [..._messages, confirmed];
-          }
-        });
-        _scrollToBottom();
-      }
+      // Clear it from the outbox FIRST, even if the screen has since closed —
+      // the send succeeded, so it must never be resent (that would duplicate the
+      // message). UI updates below are best-effort and only when still mounted.
+      _pendingMessages.removeWhere((m) => m.id == pending.id);
+      _persistOutbox();
+      if (!mounted) return;
+      setState(() {
+        // Add the confirmed row directly — don't rely on realtime for own messages.
+        if (!_messages.any((m) => m.id == confirmed.id)) {
+          _messages = [..._messages, confirmed];
+        }
+      });
+      _scheduleCacheSave(_messages);
+      _scrollToBottom();
     } catch (e) {
-      String errorDetail;
       if (e is PostgrestException) {
-        // Supabase DB error — surface code + message for debugging.
-        errorDetail = 'DB error ${e.code ?? "?"}: ${e.message}';
-        debugPrint('[CHAT][ERROR] type=postgrest code=${e.code} detail=${e.details} hint=${e.hint} message=${e.message}');
-      } else if (e.toString().toLowerCase().contains('socketexception') ||
-                 e.toString().toLowerCase().contains('network') ||
-                 e.toString().toLowerCase().contains('connection')) {
-        errorDetail = 'Network error — check your connection.';
-        debugPrint('[CHAT][ERROR] type=network detail=$e');
+        debugPrint('[CHAT][SEND] postgrest code=${e.code} msg=${e.message}');
       } else {
-        errorDetail = e.toString();
-        debugPrint('[CHAT][ERROR] type=unknown detail=$e');
+        debugPrint('[CHAT][SEND] failed: $e');
       }
-      if (mounted) {
-        setState(() => _pendingMessages.removeWhere((m) => m.id == optimistic.id));
-        _messageController.text = text;
-        _showError('Failed to send: $errorDetail');
-      }
+      _updatePendingStatus(pending.id, 'failed');
+      _persistOutbox();
+    } finally {
+      _inFlightSends.remove(pending.id);
     }
+  }
+
+  /// Send every queued/failed message, oldest first, preserving order. Fired on
+  /// reconnect and when the thread opens online.
+  Future<void> _flushOutbox() async {
+    if (_pendingMessages.isEmpty) return;
+    final queue = _pendingMessages
+        .where((m) => !_inFlightSends.contains(m.id))
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    for (final m in queue) {
+      if (!mounted) break;
+      await _attemptSend(m);
+    }
+  }
+
+  /// Manual retry from a failed message's "Tap to retry" chip.
+  void _retryPending(Message m) {
+    _updatePendingStatus(m.id, 'sending');
+    _attemptSend(m);
+  }
+
+  void _updatePendingStatus(String id, String status) {
+    final i = _pendingMessages.indexWhere((m) => m.id == id);
+    if (i == -1 || _pendingMessages[i].status == status) return;
+    final updated = _pendingMessages[i].copyWith(status: status);
+    if (mounted) {
+      setState(() => _pendingMessages[i] = updated);
+    } else {
+      _pendingMessages[i] = updated;
+    }
+  }
+
+  void _persistOutbox() {
+    // Keyed by chat id; a brand-new conversation has none yet, so its queue
+    // lives in memory until the chat row exists (created on the first flush).
+    if (_chatId.isEmpty) return;
+    CacheService.saveOutbox(_chatId, List<Message>.of(_pendingMessages));
+  }
+
+  /// Restore messages queued in a previous session and drain them if online.
+  Future<void> _loadOutbox() async {
+    if (_chatId.isEmpty) return;
+    final queued = await CacheService.loadOutbox(_chatId, widget.currentUserId);
+    if (!mounted || queued.isEmpty) return;
+    setState(() {
+      for (final m in queued) {
+        if (!_pendingMessages.any((p) => p.id == m.id)) _pendingMessages.add(m);
+      }
+    });
+    if (!context.read<ConnectivityProvider>().isOffline) {
+      _flushOutbox();
+    }
+  }
+
+  void _showInfo(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   /// Pick → REVIEW → send. Nothing is uploaded until the user presses send in
@@ -2555,6 +2672,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                               : _showMessageActions,
                           onTapReplyQuote: _scrollToMessage,
                           onTapImage: msgItem.isPending ? null : _openImageViewer,
+                          onRetry: msgItem.message.status == 'failed'
+                              ? () => _retryPending(msgItem.message)
+                              : null,
                         ),
                       );
                     },
@@ -2967,6 +3087,9 @@ class _MessageBubble extends StatelessWidget {
   /// Opens a photo fullscreen. Null disables tapping — a pending send has no
   /// server URL yet, so there is nothing to open.
   final void Function(Message message)? onTapImage;
+  /// Retry a failed outbound message. Non-null only when this message failed to
+  /// send; drives the "Tap to retry" chip.
+  final VoidCallback? onRetry;
 
   const _MessageBubble({
     required this.message,
@@ -2991,6 +3114,7 @@ class _MessageBubble extends StatelessWidget {
     this.onLongPressMessage,
     this.onTapReplyQuote,
     this.onTapImage,
+    this.onRetry,
   });
 
   // Computes bubble corner radii based on message position within a sender group.
@@ -3345,10 +3469,32 @@ class _MessageBubble extends StatelessWidget {
                     ),
                     if (message.isMe) ...[
                       const SizedBox(width: 4),
-                      _MessageStatusIcon(
-                        isPending: isPending,
-                        status: message.status,
-                      ),
+                      if (message.status == 'failed')
+                        GestureDetector(
+                          onTap: onRetry,
+                          behavior: HitTestBehavior.opaque,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.error_outline_rounded,
+                                  size: 13, color: Colors.white),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Tap to retry',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        _MessageStatusIcon(
+                          isPending: isPending,
+                          status: message.status,
+                        ),
                     ],
                   ],
                 ),

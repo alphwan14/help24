@@ -5,6 +5,7 @@ import '../models/attribute_display.dart';
 import '../models/post_model.dart';
 import '../services/saved_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_flows.dart';
 import '../widgets/reputation_widgets.dart';
 import 'post_detail_screen.dart';
@@ -114,12 +115,15 @@ class _SavedScreenState extends State<SavedScreen> {
               color: textPrimary, fontWeight: FontWeight.w700, fontSize: 18),
         ),
       ),
-      body: Column(
-        children: [
-          _buildFilterChips(isDark),
-          const SizedBox(height: 4),
-          Expanded(child: _buildBody(isDark)),
-        ],
+      body: ReconnectListener(
+        onReconnect: _load,
+        child: Column(
+          children: [
+            _buildFilterChips(isDark),
+            const SizedBox(height: 4),
+            Expanded(child: _buildBody(isDark)),
+          ],
+        ),
       ),
     );
   }

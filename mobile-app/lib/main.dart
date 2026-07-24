@@ -516,6 +516,12 @@ class _Help24AppState extends State<Help24App> {
                   Locale('en'),
                   Locale('sw'),
                 ],
+                // Offline is a background state, not global chrome: the subtle
+                // indicator lives inside the home shell (below the OS status
+                // bar), never as a full-app overlay. Pushed routes handle
+                // offline contextually instead — silent auto-refresh on
+                // reconnect (ReconnectListener), ErrorRetryView on a failed
+                // load, and ErrorMapper's "You're offline" on actions.
                 home: StartupGate(bootstrapFuture: _bootstrapFuture),
               ),
             );
@@ -561,26 +567,32 @@ class _SyncOnReconnect extends StatefulWidget {
 }
 
 class _SyncOnReconnectState extends State<_SyncOnReconnect> {
-  bool _wasOffline = false;
+  StreamSubscription<void>? _sub;
 
   @override
-  Widget build(BuildContext context) {
-    return Consumer<ConnectivityProvider>(
-      builder: (context, connectivity, _) {
-        final isOffline = connectivity.isOffline;
-        if (_wasOffline && !isOffline) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!context.mounted) return;
-            context.read<AppProvider>().refreshAll();
-            final uid = context.read<AuthProvider>().currentUserId;
-            if (uid != null && uid.isNotEmpty) {
-              context.read<AppProvider>().loadConversations(uid);
-            }
-          });
-        }
-        _wasOffline = isOffline;
-        return widget.child;
-      },
-    );
+  void initState() {
+    super.initState();
+    // One subscription to the single reconnect edge source drives the app-wide
+    // refresh of the AppProvider-backed datasets (posts, jobs, conversations).
+    // Per-screen loaders subscribe to the same stream via ReconnectListener, so
+    // there is exactly one definition of "reconnected" in the app.
+    _sub = context.read<ConnectivityProvider>().onReconnect.listen((_) {
+      if (!mounted) return;
+      context.read<AppProvider>().refreshAll();
+      final uid = context.read<AuthProvider>().currentUserId;
+      if (uid != null && uid.isNotEmpty) {
+        context.read<AppProvider>().loadConversations(uid);
+        context.read<AppProvider>().loadMyApplications(uid);
+      }
+    });
   }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

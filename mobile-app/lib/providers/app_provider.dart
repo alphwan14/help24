@@ -14,6 +14,7 @@ import '../services/cache_service.dart';
 import '../services/jobs_service.dart';
 import '../services/startup_prefetch.dart';
 import '../services/supabase_auth_bridge.dart';
+import '../utils/error_mapper.dart';
 
 class AppProvider extends ChangeNotifier {
   bool _isDarkMode = true;
@@ -42,8 +43,16 @@ class AppProvider extends ChangeNotifier {
   Urgency? _selectedUrgency;
   String? _priorityLocationCity;
 
+  /// Post ids the current user has applied to / sent an offer on. Server-derived
+  /// (from the applications table) so the "Applied / Offer sent" state is TRUE
+  /// across refreshes, tab switches and app restarts — not a per-session flag
+  /// that reverts on the next feed load and re-invites a duplicate.
+  Set<String> _appliedPostIds = {};
+
   // Getters
   bool get isDarkMode => _isDarkMode;
+  /// Whether the current user has already applied / sent an offer on [postId].
+  bool hasAppliedTo(String postId) => _appliedPostIds.contains(postId);
   List<PostModel> get posts => _posts;
   List<JobModel> get jobs => _jobs;
   List<PostModel> get urgentPosts => _urgentPosts;
@@ -148,8 +157,8 @@ class AppProvider extends ChangeNotifier {
         await CacheService.savePosts(_posts);
       }
     } catch (e) {
-      _error = 'Failed to load posts: $e';
-      print(_error);
+      _error = ErrorMapper.toMessage(e, context: ErrorContext.loadFeed);
+      debugPrint('[AppProvider] loadPosts failed: $e');
     } finally {
       // Runs on every exit path (prefetch, offline cache, network): author
       // avatars start caching with the feed so cards render them instantly.
@@ -208,8 +217,8 @@ class AppProvider extends ChangeNotifier {
         await CacheService.saveJobs(_jobs);
       }
     } catch (e) {
-      _error = 'Failed to load jobs: $e';
-      print(_error);
+      _error = ErrorMapper.toMessage(e, context: ErrorContext.loadFeed);
+      debugPrint('[AppProvider] loadJobs failed: $e');
     } finally {
       _warmAvatarUrls(_jobs.map((j) => j.authorAvatarUrl));
       _isLoadingJobs = false;
@@ -249,8 +258,8 @@ class AppProvider extends ChangeNotifier {
       _sortUrgentByProximity(fetched, userLatitude, userLongitude);
       _urgentPosts = fetched;
     } catch (e) {
-      _error = 'Failed to load urgent posts: $e';
-      debugPrint(_error);
+      _error = ErrorMapper.toMessage(e, context: ErrorContext.loadFeed);
+      debugPrint('[AppProvider] loadUrgentPosts failed: $e');
     } finally {
       _warmAvatarUrls(_urgentPosts.map((p) => p.authorAvatar));
       _isLoadingUrgentPosts = false;
@@ -312,8 +321,8 @@ class AppProvider extends ChangeNotifier {
       notifyListeners();
       return createdPost;
     } catch (e) {
-      _error = 'Failed to create post: $e';
-      print(_error);
+      _error = ErrorMapper.toMessage(e, context: ErrorContext.save);
+      debugPrint('[AppProvider] createPost failed: $e');
       return null;
     } finally {
       _isPosting = false;
@@ -348,8 +357,8 @@ class AppProvider extends ChangeNotifier {
       notifyListeners();
       return createdJob;
     } catch (e) {
-      _error = 'Failed to create job: $e';
-      print(_error);
+      _error = ErrorMapper.toMessage(e, context: ErrorContext.save);
+      debugPrint('[AppProvider] createJob failed: $e');
       return null;
     } finally {
       _isPosting = false;
@@ -409,6 +418,29 @@ class AppProvider extends ChangeNotifier {
 
   // ==================== APPLICATIONS ====================
 
+  /// Load the set of posts the user has already applied to, so every card can
+  /// show a stable "Applied / Offer sent" state that survives refresh. One
+  /// query for all of them; safe to call repeatedly (idempotent). Clears on
+  /// logout (empty [userId]).
+  Future<void> loadMyApplications(String? userId) async {
+    if (userId == null || userId.isEmpty) {
+      if (_appliedPostIds.isNotEmpty) {
+        _appliedPostIds = {};
+        notifyListeners();
+      }
+      return;
+    }
+    try {
+      final apps = await ApplicationService.getMyApplications(userId);
+      _appliedPostIds = apps.map((a) => a.postId).where((id) => id.isNotEmpty).toSet();
+      notifyListeners();
+    } catch (e) {
+      // Non-fatal: an unavailable applications query just leaves the last known
+      // set in place (better than dropping every "Applied" badge on a blip).
+      debugPrint('[AppProvider] loadMyApplications failed: $e');
+    }
+  }
+
   /// Submit application to a post. Requires [currentUserId].
   Future<bool> submitApplicationToPost(
     String postId, {
@@ -425,19 +457,23 @@ class AppProvider extends ChangeNotifier {
         proposedPrice: proposedPrice,
       );
 
+      // Server-derived applied state: mark this post so its card flips to the
+      // done state and survives the next feed reload.
+      _appliedPostIds.add(postId);
+
       // Update local post with new application
       final index = _posts.indexWhere((p) => p.id == postId);
       if (index != -1) {
         final post = _posts[index];
         final updatedApplications = [...post.applications, application];
         _posts[index] = post.copyWith(applications: updatedApplications);
-        notifyListeners();
       }
+      notifyListeners();
 
       return true;
     } catch (e) {
-      _error = 'Failed to submit application: $e';
-      print(_error);
+      _error = ErrorMapper.toMessage(e, context: ErrorContext.apply);
+      debugPrint('[AppProvider] submitApplicationToPost failed: $e');
       return false;
     }
   }
@@ -458,6 +494,9 @@ class AppProvider extends ChangeNotifier {
         proposedPrice: proposedPrice,
       );
 
+      // Server-derived applied state so "Applied" survives the next loadJobs().
+      _appliedPostIds.add(jobId);
+
       // Update local job with new application
       final index = _jobs.indexWhere((j) => j.id == jobId);
       if (index != -1) {
@@ -467,13 +506,13 @@ class AppProvider extends ChangeNotifier {
           applications: updatedApplications,
           hasApplied: true,
         );
-        notifyListeners();
       }
+      notifyListeners();
 
       return true;
     } catch (e) {
-      _error = 'Failed to submit application: $e';
-      print(_error);
+      _error = ErrorMapper.toMessage(e, context: ErrorContext.apply);
+      debugPrint('[AppProvider] submitApplicationToJob failed: $e');
       return false;
     }
   }
@@ -575,7 +614,7 @@ class AppProvider extends ChangeNotifier {
         notifyListeners();
       },
       onError: (e) {
-        _error = 'Failed to load conversations: $e';
+        _error = ErrorMapper.toMessage(e, context: ErrorContext.loadContent);
         _isLoadingConversations = false;
         notifyListeners();
       },
@@ -698,8 +737,8 @@ class AppProvider extends ChangeNotifier {
       updateConversation(conv);
       return conv;
     } catch (e) {
-      _error = 'Failed to create conversation: $e';
-      debugPrint(_error);
+      _error = ErrorMapper.toMessage(e, context: ErrorContext.loadContent);
+      debugPrint('[AppProvider] createConversation failed: $e');
       return null;
     }
   }

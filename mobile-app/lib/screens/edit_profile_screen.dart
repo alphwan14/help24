@@ -9,6 +9,7 @@ import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
 
 /// Edit profile: name, bio, profile image. Email read-only.
 /// Saves to Firestore and updates Firebase Auth display name / photo when applicable.
@@ -98,7 +99,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           if (mounted) setState(() => _uploadedImageUrl = uploaded);
         } on UserProfileException catch (e) {
           if (mounted) {
-            setState(() => _error = e.message);
+            setState(() => _error = ErrorMapper.toMessage(e, context: ErrorContext.upload));
             _saving = false;
           }
           return;
@@ -146,7 +147,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         Navigator.of(context).pop(true);
       }
     } on UserProfileException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) setState(() => _error = ErrorMapper.toMessage(e, context: ErrorContext.save));
     } catch (e) {
       if (mounted) setState(() => _error = 'Failed to save. Please try again.');
     } finally {

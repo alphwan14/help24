@@ -6,6 +6,8 @@ import '../providers/auth_provider.dart';
 import '../services/jobs_service.dart';
 import '../services/review_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
+import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
 import '../utils/format_utils.dart';
 import 'approve_or_dispute_screen.dart';
@@ -65,7 +67,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.message;
+        _error = ErrorMapper.toMessage(e, context: ErrorContext.loadContent);
       });
     } catch (_) {
       if (!mounted) return;
@@ -85,9 +87,12 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
         title: Text(_data?.post.title ?? widget.postTitle ?? 'Job Status'),
         elevation: 0,
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _buildBody(isDark),
+      body: ReconnectListener(
+        onReconnect: () => _load(),
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _buildBody(isDark),
+        ),
       ),
     );
   }

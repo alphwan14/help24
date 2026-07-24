@@ -10,6 +10,7 @@ import '../services/post_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
 import '../widgets/auth_guard.dart';
+import '../widgets/loading_empty_offline.dart';
 import 'messages_screen.dart';
 
 class UrgentRequestsScreen extends StatefulWidget {
@@ -25,13 +26,19 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final location = context.read<LocationProvider>();
-      context.read<AppProvider>().loadUrgentPosts(
-            userLatitude: location.latitude,
-            userLongitude: location.longitude,
-            limit: 20,
-          );
+      _load();
     });
+  }
+
+  /// Single reload path shared by first load, pull-to-refresh, the failure-state
+  /// Retry button, and automatic recovery on reconnect.
+  Future<void> _load() {
+    final location = context.read<LocationProvider>();
+    return context.read<AppProvider>().loadUrgentPosts(
+          userLatitude: location.latitude,
+          userLongitude: location.longitude,
+          limit: 20,
+        );
   }
 
   @override
@@ -40,88 +47,130 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
     final location = context.watch<LocationProvider>();
     return Scaffold(
       appBar: AppBar(title: const Text('Urgent Help Needed')),
-      body: Consumer<AppProvider>(
-        builder: (context, provider, _) {
-          final posts = provider.urgentPosts;
-          if (provider.isLoadingUrgentPosts && posts.isEmpty) {
-            return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-          }
-          if (posts.isEmpty) {
-            return const Center(child: Text('No urgent help requests nearby'));
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: posts.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final post = posts[index];
-              final distance = _distanceText(post, location.latitude, location.longitude);
-              return InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () => _showPostQuickView(context, post, distance),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppTheme.errorRed.withValues(alpha: 0.45)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: AppTheme.errorRed.withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          'URGENT',
-                          style: TextStyle(
-                            color: AppTheme.errorRed,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 10.5,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        post.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          const Icon(Icons.location_on_outlined, size: 14, color: AppTheme.primaryAccent),
-                          const SizedBox(width: 4),
-                          Text(distance ?? 'Nearby', style: Theme.of(context).textTheme.bodySmall),
-                          const SizedBox(width: 10),
-                          const Icon(Iconsax.clock, size: 14, color: AppTheme.primaryAccent),
-                          const SizedBox(width: 4),
-                          Text(formatRelativeTime(post.createdAt), style: Theme.of(context).textTheme.bodySmall),
-                        ],
-                      ),
-                    ],
-                  ),
+      body: ReconnectListener(
+        onReconnect: _load,
+        child: Consumer<AppProvider>(
+          builder: (context, provider, _) {
+            final posts = provider.urgentPosts;
+            if (provider.isLoadingUrgentPosts && posts.isEmpty) {
+              return const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2));
+            }
+            if (posts.isEmpty) {
+              // Loading finished with nothing to show — distinguish a real
+              // failure (offer Retry) from a genuinely empty area (reassure).
+              final Widget state = provider.error != null
+                  ? ErrorRetryView(message: provider.error!, onRetry: _load)
+                  : const EmptyStateView(
+                      icon: Iconsax.flash_1,
+                      title: 'No urgent requests nearby',
+                      subtitle:
+                          "When someone nearby needs urgent help, it'll appear here.",
+                    );
+              // Keep it pull-to-refreshable so the user is never stuck.
+              return RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.7,
+                      child: state,
+                    ),
+                  ],
                 ),
               );
-            },
-          );
-        },
+            }
+            return RefreshIndicator(
+              onRefresh: _load,
+              child: ListView.separated(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                itemCount: posts.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final post = posts[index];
+                  final distance = _distanceText(
+                      post, location.latitude, location.longitude);
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () => _showPostQuickView(context, post, distance),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: AppTheme.errorRed.withValues(alpha: 0.45)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppTheme.errorRed.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'URGENT',
+                              style: TextStyle(
+                                color: AppTheme.errorRed,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 10.5,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            post.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(Icons.location_on_outlined,
+                                  size: 14, color: AppTheme.primaryAccent),
+                              const SizedBox(width: 4),
+                              Text(distance ?? 'Nearby',
+                                  style: Theme.of(context).textTheme.bodySmall),
+                              const SizedBox(width: 10),
+                              const Icon(Iconsax.clock,
+                                  size: 14, color: AppTheme.primaryAccent),
+                              const SizedBox(width: 4),
+                              Text(formatRelativeTime(post.createdAt),
+                                  style: Theme.of(context).textTheme.bodySmall),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
-  void _showPostQuickView(BuildContext context, PostModel post, String? distanceText) {
+  void _showPostQuickView(
+      BuildContext context, PostModel post, String? distanceText) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (sheetContext) => Container(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(sheetContext).size.height * 0.8),
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetContext).size.height * 0.8),
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -134,7 +183,8 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
             children: [
               Text(post.title, style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
-              Text(post.description, style: Theme.of(context).textTheme.bodyMedium),
+              Text(post.description,
+                  style: Theme.of(context).textTheme.bodyMedium),
               const SizedBox(height: 12),
               Text(
                 '${distanceText ?? 'Nearby'} • ${formatRelativeTime(post.createdAt)}',
@@ -191,13 +241,17 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (c) => ChatScreen(conversation: conv, currentUserId: currentUserId),
+        builder: (c) =>
+            ChatScreen(conversation: conv, currentUserId: currentUserId),
       ),
     );
   }
 
   String? _distanceText(PostModel post, double? userLat, double? userLng) {
-    if (post.latitude == null || post.longitude == null || userLat == null || userLng == null) {
+    if (post.latitude == null ||
+        post.longitude == null ||
+        userLat == null ||
+        userLng == null) {
       return null;
     }
     final km = _distanceKm(userLat, userLng, post.latitude!, post.longitude!);
@@ -210,7 +264,9 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
     final dLat = _degToRad(lat2 - lat1);
     final dLon = _degToRad(lon2 - lon1);
     final a = (sin(dLat / 2) * sin(dLat / 2)) +
-        cos(_degToRad(lat1)) * cos(_degToRad(lat2)) * (sin(dLon / 2) * sin(dLon / 2));
+        cos(_degToRad(lat1)) *
+            cos(_degToRad(lat2)) *
+            (sin(dLon / 2) * sin(dLon / 2));
     final c = 2 * atan2(sqrt(a), sqrt(1 - a));
     return r * c;
   }

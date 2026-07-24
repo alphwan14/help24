@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/review_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
 
 /// Review submission — star rating (1–5) + optional written feedback.
 /// Reachable from three entry points: the approval success screen, the Job
@@ -49,7 +50,7 @@ class _ReviewSubmissionScreenState extends State<ReviewSubmissionScreen> {
       );
       if (mounted) setState(() => _submitted = true);
     } on ReviewException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) setState(() => _error = ErrorMapper.toMessage(e, context: ErrorContext.save));
     } catch (_) {
       if (mounted) setState(() => _error = 'Could not submit your review. Please try again.');
     } finally {

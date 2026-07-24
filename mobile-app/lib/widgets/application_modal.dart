@@ -41,6 +41,21 @@ class _ApplicationModalState extends State<ApplicationModal> {
     }
   }
 
+  /// Action verb on the submit button — MUST match the header per post type,
+  /// so a "job" never shows "Apply for Job" above a "Send Offer" button.
+  String get _submitLabel {
+    switch (widget.type) {
+      case 'job':
+        return 'Apply';
+      case 'request':
+        return 'Send Offer';
+      case 'offer':
+        return 'Request Service';
+      default:
+        return 'Send Offer';
+    }
+  }
+
   String get _messagePlaceholder {
     switch (widget.type) {
       case 'job':
@@ -175,9 +190,9 @@ class _ApplicationModalState extends State<ApplicationModal> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text(
-                          'Send Offer',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      : Text(
+                          _submitLabel,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                         ),
                 ),
               ),

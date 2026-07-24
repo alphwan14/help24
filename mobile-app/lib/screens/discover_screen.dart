@@ -156,6 +156,17 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Offline indicator ────────────────────────────────
+          // Pinned directly below the status bar, above the Discover/Urgent
+          // header — the rest of the page layout is unchanged. Discover is the
+          // ONLY screen that carries this persistent strip (users browse a live
+          // feed here); it's thin and shows only while offline.
+          Consumer<ConnectivityProvider>(
+            builder: (_, connectivity, __) => connectivity.isOffline
+                ? const OfflineBanner()
+                : const SizedBox.shrink(),
+          ),
+
           // ── Top bar ──────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
@@ -469,11 +480,19 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               },
             );
           }
+          // A load failure is NOT an empty result — show it as a failure with a
+          // Retry, so "we couldn't load" is never mistaken for "there's nothing
+          // here" (which would wrongly tell the user to change their filters).
+          if (provider.error != null) {
+            return ErrorRetryView(
+              message: provider.error!,
+              onRetry: _refreshPosts,
+            );
+          }
           return EmptyStateView(
             icon: Iconsax.document,
             title: 'No posts found',
-            subtitle: provider.error ??
-                'Try adjusting your filters or search. Pull to refresh.',
+            subtitle: 'Try adjusting your filters or search. Pull to refresh.',
             actions: [
               TextButton.icon(
                 onPressed: _refreshPosts,

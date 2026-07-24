@@ -110,6 +110,11 @@ class PhoneVerificationState {
 class AuthService {
   static final _supabase = Supabase.instance.client;
 
+  /// Ceiling for Firebase email auth calls. These go through the Firebase SDK,
+  /// not [HttpClientWithToken], so they need their own bound — otherwise a
+  /// stall on a dead connection leaves the sign-in button spinning forever.
+  static const Duration _authTimeout = Duration(seconds: 30);
+
   static bool get isFirebaseConfigured => AppFirebase.isReady;
 
   static FirebaseAuth? get _firebaseAuth {
@@ -249,10 +254,12 @@ class AuthService {
     final auth = _firebaseAuth;
     if (auth == null) return AuthResult.failure('Firebase is not initialized.');
     try {
-      final credential = await auth.createUserWithEmailAndPassword(
-        email: email.trim(),
-        password: password,
-      );
+      final credential = await auth
+          .createUserWithEmailAndPassword(
+            email: email.trim(),
+            password: password,
+          )
+          .timeout(_authTimeout);
       final firebaseUser = credential.user;
       if (firebaseUser == null) return AuthResult.failure('Failed to create account. Please try again.');
       if (name != null && name.trim().isNotEmpty) {
@@ -271,6 +278,9 @@ class AuthService {
       return AuthResult.success(appUser);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getFirebaseErrorMessage(e));
+    } on TimeoutException {
+      debugPrint('❌ Sign up timed out');
+      return AuthResult.failure('The request took too long. Check your connection and try again.');
     } catch (e) {
       debugPrint('❌ Sign up error: $e');
       return AuthResult.failure('An unexpected error occurred. Please try again.');
@@ -287,10 +297,12 @@ class AuthService {
     final auth = _firebaseAuth;
     if (auth == null) return AuthResult.failure('Firebase is not initialized.');
     try {
-      final credential = await auth.signInWithEmailAndPassword(
-        email: email.trim(),
-        password: password,
-      );
+      final credential = await auth
+          .signInWithEmailAndPassword(
+            email: email.trim(),
+            password: password,
+          )
+          .timeout(_authTimeout);
       final firebaseUser = credential.user;
       if (firebaseUser == null) return AuthResult.failure('Failed to sign in. Please try again.');
       await UserProfileService.setOnline(firebaseUser.uid, true);
@@ -300,6 +312,9 @@ class AuthService {
       return AuthResult.success(appUser);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getFirebaseErrorMessage(e));
+    } on TimeoutException {
+      debugPrint('❌ Sign in timed out');
+      return AuthResult.failure('The request took too long. Check your connection and try again.');
     } catch (e) {
       debugPrint('❌ Sign in error: $e');
       return AuthResult.failure('An unexpected error occurred. Check your connection.');
@@ -322,11 +337,14 @@ class AuthService {
     final auth = _firebaseAuth;
     if (auth == null) return AuthResult.failure('Firebase is not initialized.');
     try {
-      await auth.sendPasswordResetEmail(email: email.trim());
+      await auth.sendPasswordResetEmail(email: email.trim()).timeout(_authTimeout);
       debugPrint('✅ Password reset email sent to: $email');
       return AuthResult.success(null);
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getFirebaseErrorMessage(e));
+    } on TimeoutException {
+      debugPrint('❌ Password reset timed out');
+      return AuthResult.failure('The request took too long. Check your connection and try again.');
     } catch (e) {
       debugPrint('❌ Password reset error: $e');
       return AuthResult.failure('Failed to send reset email. Please try again.');

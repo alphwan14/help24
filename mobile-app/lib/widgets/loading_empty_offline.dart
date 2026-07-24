@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:provider/provider.dart';
@@ -110,6 +112,113 @@ class EmptyStateView extends StatelessWidget {
   }
 }
 
+/// The FAILURE state of the universal load contract: Loading → Success | Empty
+/// | Failure→Retry. Distinct from [EmptyStateView] on purpose — "we couldn't
+/// load this" must never be rendered as "there's nothing here", because the two
+/// call for different user actions (retry vs. nothing to do). Pair the [message]
+/// with an [ErrorMapper]-produced string so it is always human, never technical.
+class ErrorRetryView extends StatelessWidget {
+  final String message;
+  final VoidCallback? onRetry;
+  final IconData icon;
+
+  const ErrorRetryView({
+    super.key,
+    required this.message,
+    this.onRetry,
+    this.icon = Iconsax.warning_2,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 56,
+              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+            ),
+            const SizedBox(height: 18),
+            Text(
+              "We couldn't load this",
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                  ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                  ),
+              textAlign: TextAlign.center,
+            ),
+            if (onRetry != null) ...[
+              const SizedBox(height: 24),
+              FilledButton.tonalIcon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh, size: 20),
+                label: const Text('Retry'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Re-runs [onReconnect] whenever the app transitions offline → online, so a
+/// screen that owns its own fetch (Notifications, Saved, Urgent, …) recovers
+/// automatically without the user leaving and returning. Wrap the screen body:
+///
+///   ReconnectListener(onReconnect: _load, child: ...)
+///
+/// Subscribes to the single [ConnectivityProvider.onReconnect] edge source, so
+/// every screen shares one definition of "reconnected" instead of duplicating
+/// `_wasOffline` bookkeeping.
+class ReconnectListener extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onReconnect;
+
+  const ReconnectListener({
+    super.key,
+    required this.onReconnect,
+    required this.child,
+  });
+
+  @override
+  State<ReconnectListener> createState() => _ReconnectListenerState();
+}
+
+class _ReconnectListenerState extends State<ReconnectListener> {
+  StreamSubscription<void>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    // read (not watch) — we want the stream, not rebuilds on connectivity ticks.
+    _sub = context.read<ConnectivityProvider>().onReconnect.listen((_) {
+      if (mounted) widget.onReconnect();
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 /// Offline empty state when there is no cached data to show.
 class OfflineEmptyView extends StatelessWidget {
   final String? message;
@@ -177,11 +286,14 @@ class OfflineBanner extends StatelessWidget {
     final connectivity = context.watch<ConnectivityProvider>();
     final unreachable = connectivity.isConnectedButUnreachable;
     final checking = connectivity.isProbing;
+    // Brief, calm labels — this is a background state indicator on the Discover
+    // feed, not an alarm. Recovery is automatic, so we don't nag with a Retry
+    // button; the whole strip stays quietly tappable for the impatient.
     final message = checking
-        ? 'Checking your connection…'
+        ? 'Checking connection…'
         : unreachable
-            ? "Connected, but can't reach Help24 — showing saved content"
-            : "You're offline — showing saved content";
+            ? 'Help24 is temporarily unavailable'
+            : 'No internet connection';
 
     return Semantics(
       liveRegion: true,
@@ -189,8 +301,8 @@ class OfflineBanner extends StatelessWidget {
       child: Material(
         color: AppTheme.warningOrange.withValues(alpha: 0.2),
         child: InkWell(
-          // Tapping retries. Recovery is automatic, but a user staring at the
-          // banner wants a way to act rather than wait.
+          // Quietly tappable to force a check, but no loud Retry label —
+          // recovery happens on its own the moment the connection returns.
           onTap: checking ? null : () => connectivity.checkNow(),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -212,15 +324,6 @@ class OfflineBanner extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (!checking)
-                  const Text(
-                    'Retry',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: AppTheme.warningOrange,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
               ],
             ),
           ),

@@ -156,7 +156,11 @@ class MpesaService {
     if (statusCode == 401 || statusCode == 403) return 'Please log in to continue.';
     if (statusCode == 404) return 'Service not found. It may have been removed.';
     if (statusCode == 409) return 'Payment has already been made for this service.';
-    return 'Unable to start payment (HTTP $statusCode). Check backend logs.';
+    debugPrint('[MpesaService] start-payment failed status=$statusCode body=$body');
+    if (statusCode >= 500) {
+      return "We're having trouble reaching M-Pesa. Please try again shortly.";
+    }
+    return 'Payment could not be started. Please try again.';
   }
 
   /// Sandbox smoke-test — calls /mpesa/test-stk with the supplied [phone].

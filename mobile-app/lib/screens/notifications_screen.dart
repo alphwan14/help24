@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import '../theme/app_theme.dart';
+import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
 import 'applications_screen.dart';
 import 'approve_or_dispute_screen.dart';
@@ -494,11 +495,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
         ],
       ),
-      body: _buildBody(
-        isDark: isDark,
-        card: card,
-        textPrimary: textPrimary,
-        textSecondary: textSecondary,
+      body: ReconnectListener(
+        onReconnect: _load,
+        child: _buildBody(
+          isDark: isDark,
+          card: card,
+          textPrimary: textPrimary,
+          textSecondary: textSecondary,
+        ),
       ),
     );
   }

@@ -19,6 +19,20 @@ import 'services/supabase_auth_bridge.dart';
 class HttpClientWithToken extends http.BaseClient {
   final http.Client _inner = http.Client();
 
+  /// Default ceiling for a PostgREST read/write, an auth call, or a
+  /// `functions.invoke`. Without this, an expired data bundle (radio up, no
+  /// bytes) leaves the send Future pending forever and the awaiting screen on
+  /// a skeleton loader. A timeout converts that silent hang into a thrown
+  /// [TimeoutException], which [NetworkHealth.failure] below turns into the
+  /// app's offline signal and [ErrorMapper] turns into "The request took too
+  /// long."
+  static const Duration _defaultTimeout = Duration(seconds: 30);
+
+  /// Storage transfers (image/evidence upload, signed-URL fetch) legitimately
+  /// take longer than a query on a slow connection, so they get more headroom
+  /// while still being bounded — an upload can no longer hang indefinitely.
+  static const Duration _storageTimeout = Duration(seconds: 90);
+
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     // Capture a replay copy BEFORE sending: a BaseRequest body is single-use.
@@ -53,7 +67,17 @@ class HttpClientWithToken extends http.BaseClient {
     if (token != null && token.isNotEmpty) {
       request.headers['Authorization'] = 'Bearer $token';
     }
-    return _inner.send(request);
+    // The timeout bounds the wait for the server's response. It applies to both
+    // the initial send and the post-401 replay, so no Supabase call can hang
+    // forever regardless of which sub-client (PostgREST/storage/functions/auth)
+    // issued it.
+    return _inner.send(request).timeout(_timeoutFor(request));
+  }
+
+  /// Storage transfers get [_storageTimeout]; everything else [_defaultTimeout].
+  Duration _timeoutFor(http.BaseRequest request) {
+    if (request.url.path.contains('/storage/v1/')) return _storageTimeout;
+    return _defaultTimeout;
   }
 
   /// A factory that rebuilds [request] for one retry, or null when replay is

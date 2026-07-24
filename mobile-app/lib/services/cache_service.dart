@@ -8,6 +8,8 @@ class _Keys {
   static const String jobs = 'help24_cache_jobs';
   static const String conversations = 'help24_cache_conversations';
   static const String messagesPrefix = 'help24_cache_messages_';
+  // Unsent messages waiting to reach the server (offline outbox), per chat.
+  static const String outboxPrefix = 'help24_outbox_';
 }
 
 /// Saves and loads posts/jobs for offline use. When offline and cache exists, UI shows cached data.
@@ -116,6 +118,44 @@ class CacheService {
     try {
       final prefs = await _instance;
       final key = '${_Keys.messagesPrefix}$chatId';
+      final json = prefs.getString(key);
+      if (json == null || json.isEmpty) return [];
+      final list = jsonDecode(json) as List<dynamic>?;
+      if (list == null || list.isEmpty) return [];
+      return list
+          .map((e) => Message.fromJson(Map<String, dynamic>.from(e as Map), currentUserId))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // ---------- Outbox per chat (unsent messages, survive restart) ----------
+
+  /// Persist the queue of messages that have not yet reached the server, so a
+  /// message composed offline is not lost when the user leaves the chat or the
+  /// app restarts. Passing an empty list clears the outbox for [chatId].
+  static Future<void> saveOutbox(String chatId, List<Message> outbox) async {
+    if (chatId.isEmpty) return;
+    try {
+      final prefs = await _instance;
+      final key = '${_Keys.outboxPrefix}$chatId';
+      if (outbox.isEmpty) {
+        await prefs.remove(key);
+        return;
+      }
+      final maps = outbox.map((m) => m.toCacheMap()).toList();
+      await prefs.setString(key, jsonEncode(maps));
+    } catch (e) {
+      // Non-critical
+    }
+  }
+
+  static Future<List<Message>> loadOutbox(String chatId, String currentUserId) async {
+    if (chatId.isEmpty) return [];
+    try {
+      final prefs = await _instance;
+      final key = '${_Keys.outboxPrefix}$chatId';
       final json = prefs.getString(key);
       if (json == null || json.isEmpty) return [];
       final list = jsonDecode(json) as List<dynamic>?;

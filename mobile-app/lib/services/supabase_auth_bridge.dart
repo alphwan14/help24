@@ -18,6 +18,11 @@ class SupabaseAuthBridge {
   static const Duration _tokenTtl = Duration(minutes: 50);
   static bool _loggedExchangeUnavailable = false;
 
+  /// Ceiling for Firebase `getIdToken`. It goes through the Firebase SDK, not
+  /// [HttpClientWithToken], so a network stall here would otherwise leave the
+  /// token exchange (and every RLS write/read waiting on it) pending forever.
+  static const Duration _idTokenTimeout = Duration(seconds: 20);
+
   /// Current JWT used for Supabase requests (read by custom HTTP client).
   static String? get currentToken => _accessToken;
 
@@ -51,7 +56,7 @@ class SupabaseAuthBridge {
     try {
       // forceRefresh: true — a stale Firebase ID token would only buy us
       // another expired Supabase JWT.
-      final idToken = await user.getIdToken(true);
+      final idToken = await user.getIdToken(true).timeout(_idTokenTimeout);
       if (idToken == null || idToken.isEmpty) return false;
       return await setSupabaseSessionFromFirebase(idToken);
     } catch (e) {
@@ -74,7 +79,7 @@ class SupabaseAuthBridge {
     final user = AuthService.currentFirebaseUser;
     if (user == null) return false;
     try {
-      final idToken = await user.getIdToken();
+      final idToken = await user.getIdToken().timeout(_idTokenTimeout);
       if (idToken == null || idToken.isEmpty) return false;
       final ok = await setSupabaseSessionFromFirebase(idToken);
       return ok;

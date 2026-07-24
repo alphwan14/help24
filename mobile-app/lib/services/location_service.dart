@@ -2,7 +2,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
+// permission_handler also exports a `ServiceStatus`; we want geolocator's here.
+import 'package:permission_handler/permission_handler.dart' hide ServiceStatus;
 
 /// Handles device location: permission request and current position.
 /// Use for "send current location" and as source for live location updates.
@@ -10,6 +11,17 @@ class LocationService {
   static Future<PermissionStatus> permissionStatus() {
     return Permission.locationWhenInUse.status;
   }
+
+  /// Whether the DEVICE's location service (the OS toggle) is currently on.
+  /// This is independent of app permission — turning off Android's Location
+  /// quick-setting disables the service without revoking `locationWhenInUse`.
+  static Future<bool> isServiceEnabled() => Geolocator.isLocationServiceEnabled();
+
+  /// Live stream of the device location service flipping on/off, mapped to a
+  /// simple bool. Lets the app mirror the OS toggle in real time instead of
+  /// discovering the change only on the next resume or location read.
+  static Stream<bool> serviceEnabledStream() =>
+      Geolocator.getServiceStatusStream().map((s) => s == ServiceStatus.enabled);
 
   /// Request location permission. Returns true if granted or already granted.
   static Future<bool> requestPermission() async {
@@ -41,9 +53,13 @@ class LocationService {
         debugPrint('LocationService: location services disabled');
         return null;
       }
+      // timeLimit ensures a device that never gets a fix throws
+      // TimeoutException instead of leaving this Future (and its callers, e.g.
+      // journey start and captureAndStoreCurrentLocation) pending forever.
       return await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 20),
         ),
       );
     } catch (e) {
@@ -58,7 +74,8 @@ class LocationService {
     required double longitude,
   }) async {
     try {
-      final placemarks = await placemarkFromCoordinates(latitude, longitude);
+      final placemarks = await placemarkFromCoordinates(latitude, longitude)
+          .timeout(const Duration(seconds: 10));
       if (placemarks.isEmpty) return null;
       final p = placemarks.first;
       final city = p.locality?.trim();

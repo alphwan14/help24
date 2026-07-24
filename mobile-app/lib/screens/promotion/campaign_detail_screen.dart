@@ -3,6 +3,7 @@ import 'package:iconsax/iconsax.dart';
 import '../../models/promotion_models.dart';
 import '../../services/promotion_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/error_mapper.dart';
 
 /// Campaign analytics + lifecycle actions. Answers one question:
 /// "Is promoting my business working?"
@@ -41,7 +42,9 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       _reload();
     } on PromotionException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ErrorMapper.toMessage(e))),
+        );
       }
     } catch (_) {
       if (mounted) {

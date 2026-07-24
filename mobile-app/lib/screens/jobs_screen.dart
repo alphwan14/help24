@@ -168,6 +168,14 @@ class _JobsScreenState extends State<JobsScreen> {
                       },
                     );
                   }
+                  // Distinguish a load failure from a genuinely empty list —
+                  // provider.error is only set when the fetch itself failed.
+                  if (provider.error != null) {
+                    return ErrorRetryView(
+                      message: provider.error!,
+                      onRetry: () => provider.loadJobs(),
+                    );
+                  }
                   return EmptyStateView(
                     icon: Iconsax.briefcase,
                     title: 'No jobs available yet',

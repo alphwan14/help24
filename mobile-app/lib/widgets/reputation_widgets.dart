@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/provider_reputation.dart';
+import '../providers/connectivity_provider.dart';
 import '../services/reputation_service.dart';
 import '../theme/app_theme.dart';
 
@@ -283,11 +287,17 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
   // spinner on every rebuild. Caching keeps the stats stable; we only re-fetch
   // when the providerId actually changes.
   late Future<ProviderReputation?> _future;
+  StreamSubscription<void>? _reconnectSub;
 
   @override
   void initState() {
     super.initState();
     _future = ReputationService.getReputation(widget.providerId);
+    // A fetch that failed while offline is NOT cached (only successes are), so
+    // when the connection returns we re-fetch and the "Reputation unavailable"
+    // state fills in on its own — no need to reopen the tab.
+    _reconnectSub =
+        context.read<ConnectivityProvider>().onReconnect.listen((_) => _onReconnect());
   }
 
   @override
@@ -296,6 +306,24 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
     if (oldWidget.providerId != widget.providerId) {
       _future = ReputationService.getReputation(widget.providerId);
     }
+  }
+
+  void _onReconnect() {
+    if (!mounted) return;
+    // Only re-fetch when we don't already hold a fresh value — a prior failure
+    // leaves no cache entry, so this refreshes exactly the unavailable case
+    // without flashing a spinner over reputation that already loaded.
+    if (ReputationService.getCachedSync(widget.providerId) == null) {
+      setState(() {
+        _future = ReputationService.getReputation(widget.providerId);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _reconnectSub?.cancel();
+    super.dispose();
   }
 
   @override

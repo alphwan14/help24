@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/jobs_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
 
 /// Provider screen: mark a job as complete and optionally leave a note.
 class MarkCompleteScreen extends StatefulWidget {
@@ -49,7 +50,7 @@ class _MarkCompleteScreenState extends State<MarkCompleteScreen> {
       if (!mounted) return;
       setState(() => _done = true);
     } on JobsException catch (e) {
-      setState(() => _error = e.message);
+      setState(() => _error = ErrorMapper.toMessage(e));
     } catch (_) {
       setState(() => _error = 'Something went wrong. Please try again.');
     } finally {

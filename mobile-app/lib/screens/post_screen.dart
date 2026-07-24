@@ -16,6 +16,7 @@ import '../services/auth_service.dart';
 import '../services/category_schema_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
 import '../widgets/location_experience.dart';
 import '../widgets/schema_question_flow.dart';
@@ -273,10 +274,11 @@ class _PostScreenState extends State<PostScreen> {
         }
       }
     } catch (e) {
+      debugPrint('[PostScreen] pick images failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error picking images: $e'),
+          const SnackBar(
+            content: Text("We couldn't open your photos. Please try again."),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -329,10 +331,11 @@ class _PostScreenState extends State<PostScreen> {
         });
       }
     } catch (e) {
+      debugPrint('[PostScreen] take photo failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error taking photo: $e'),
+          const SnackBar(
+            content: Text("We couldn't take the photo. Check camera permissions and try again."),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -2155,7 +2158,11 @@ class _PostScreenState extends State<PostScreen> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.white),
                 const SizedBox(width: 12),
-                Expanded(child: Text('Error: $e')),
+                Expanded(
+                  child: Text(
+                    ErrorMapper.toMessage(e, context: ErrorContext.save),
+                  ),
+                ),
               ],
             ),
             behavior: SnackBarBehavior.floating,

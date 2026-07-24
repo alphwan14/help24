@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:iconsax/iconsax.dart';
 import '../models/attribute_display.dart';
 import '../models/post_model.dart';
+import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/category_schema_service.dart';
 import '../theme/app_theme.dart';
@@ -56,6 +57,10 @@ class PostCard extends StatelessWidget {
     final textTertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
 
     final isRequest = post.type == PostType.request;
+    // Server-derived: has the current user already offered on / enquired about
+    // this post? Keeps the feed honest across reloads and blocks a duplicate.
+    final applied =
+        context.select<AppProvider, bool>((p) => p.hasAppliedTo(post.id));
 
     // R-4: intent-aware read side. Schema comes from the cache-first registry;
     // when it isn't loaded yet the chips simply don't render (never blocks).
@@ -373,15 +378,30 @@ class PostCard extends StatelessWidget {
                           : (isRequest && post.status != 'open')
                               // Request already has a provider — never show "Offer Service".
                               ? _RequestTakenChip(status: post.status, isDark: isDark, payoutInProgress: post.payoutInProgress)
-                              : FilledButton(
-                                  onPressed: onRespond ?? onTap,
-                                  style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                                    minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                  child: Text(isRequest ? 'Offer Service' : 'Enquire'),
-                                ),
+                              : applied
+                                  // Already responded — reflect it and block a
+                                  // duplicate instead of re-inviting the action.
+                                  ? FilledButton(
+                                      onPressed: null,
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: borderColor,
+                                        disabledBackgroundColor: borderColor,
+                                        disabledForegroundColor: textTertiary,
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                                        minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      child: Text(isRequest ? 'Offer sent' : 'Enquired'),
+                                    )
+                                  : FilledButton(
+                                      onPressed: onRespond ?? onTap,
+                                      style: FilledButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                                        minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      child: Text(isRequest ? 'Offer Service' : 'Enquire'),
+                                    ),
                     ),
                   ),
                 ],

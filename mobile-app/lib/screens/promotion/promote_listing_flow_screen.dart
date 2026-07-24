@@ -6,6 +6,7 @@ import '../../models/promotion_models.dart';
 import '../../services/post_service.dart';
 import '../../services/promotion_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/error_mapper.dart';
 
 /// The one-minute "Promote Business" flow:
 ///   Choose listing → Choose package → Review → Pay with M-Pesa → live.
@@ -64,7 +65,10 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
         _offersError = null;
       });
     } catch (e) {
-      if (mounted) setState(() => _offersError = '$e');
+      if (mounted) {
+        setState(() => _offersError =
+            ErrorMapper.toMessage(e, context: ErrorContext.loadContent));
+      }
     }
   }
 
@@ -77,7 +81,10 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
         _packagesError = null;
       });
     } catch (e) {
-      if (mounted) setState(() => _packagesError = '$e');
+      if (mounted) {
+        setState(() => _packagesError =
+            ErrorMapper.toMessage(e, context: ErrorContext.loadContent));
+      }
     }
   }
 
@@ -114,7 +121,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
       if (!mounted) return;
       setState(() {
         _phase = _PayPhase.failed;
-        _payMessage = e.message;
+        _payMessage = ErrorMapper.toMessage(e, context: ErrorContext.payment);
       });
     } catch (e) {
       if (!mounted) return;

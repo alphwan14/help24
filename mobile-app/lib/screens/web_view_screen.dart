@@ -36,10 +36,13 @@ class _WebViewScreenState extends State<WebViewScreen> {
             _error = null;
           }),
           onPageFinished: (_) => setState(() => _isLoading = false),
-          onWebResourceError: (e) => setState(() {
-            _isLoading = false;
-            _error = e.description;
-          }),
+          onWebResourceError: (e) {
+            debugPrint('[WebView] resource error: ${e.errorCode} ${e.description}');
+            setState(() {
+              _isLoading = false;
+              _error = "This page couldn't load. Check your connection and try again.";
+            });
+          },
         ),
       );
     if (widget.url.isNotEmpty) {

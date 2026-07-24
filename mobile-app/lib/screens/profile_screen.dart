@@ -3,6 +3,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
+import '../utils/error_mapper.dart';
 import '../utils/phone_utils.dart';
 import '../l10n/app_localizations.dart';
 import '../models/user_model.dart';
@@ -15,7 +16,6 @@ import '../services/user_profile_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
-import '../widgets/loading_empty_offline.dart';
 import '../widgets/reputation_widgets.dart';
 import 'auth_screen.dart';
 import 'edit_profile_screen.dart';
@@ -119,14 +119,21 @@ class ProfileScreen extends StatelessWidget {
                     }
                     final uid = auth.currentUserId ?? '';
                     String subtitle;
-                    if (location.isGranted) {
+                    if (!location.isGranted) {
+                      subtitle = location.isPermanentlyDenied
+                          ? 'Denied · enable in settings'
+                          : 'Not enabled';
+                    } else if (!location.serviceEnabled) {
+                      // Permission granted but the OS location toggle is off —
+                      // mirror that immediately instead of claiming "Enabled".
+                      subtitle = 'Turn on location in device settings';
+                    } else if (location.isLocationOn) {
                       subtitle = location.city == null || location.city!.isEmpty
                           ? 'Enabled'
                           : 'Enabled · ${location.city}';
-                    } else if (location.isPermanentlyDenied) {
-                      subtitle = 'Denied · enable in settings';
                     } else {
-                      subtitle = 'Not enabled';
+                      // OS is fine, but the user disabled location in-app.
+                      subtitle = 'Off · tap to turn on';
                     }
                     return _SettingsTile(
                       icon: Icons.location_on_outlined,
@@ -487,12 +494,13 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
     return StreamBuilder<UserModel?>(
       stream: _stream,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 32),
-            child: LoadingView(message: 'Loading profile...'),
-          );
-        }
+        // Never block the whole screen (settings, logout, activity) on the
+        // profile fetch. We already hold the signed-in user, so the header
+        // renders immediately from [authUser] and upgrades in place when the
+        // richer Supabase profile arrives. This also means a slow or failed
+        // fetch can no longer strand the user on a "Loading profile…" spinner —
+        // watchUser emits null on failure (bounded by the client timeout), and
+        // null simply falls back to authUser below.
         if (snap.data == null &&
             snap.connectionState != ConnectionState.waiting &&
             !_ensureAttempted) {
@@ -1045,10 +1053,11 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
       );
       if (mounted) setState(() { _unlocked = ok; _authenticating = false; });
     } on Exception catch (e) {
+      debugPrint('[Profile] biometric auth failed: $e');
       if (mounted) {
         setState(() {
           _authenticating = false;
-          _error = 'Authentication error: $e';
+          _error = ErrorMapper.toMessage(e, context: ErrorContext.auth);
         });
       }
     }
@@ -1330,6 +1339,19 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
       builder: (context, location, _) {
         final city = location.city;
         final lastUpdated = location.lastUpdated;
+        // Header reflects the real state live: green only when location is truly
+        // on (permission + OS service + a stored location). It flips to amber the
+        // instant the OS toggle is switched off OR the user disables in-app, with
+        // copy that names the actual reason and the way back.
+        final on = location.isLocationOn;
+        final serviceOff = !location.serviceEnabled;
+        final headerColor = on ? AppTheme.successGreen : AppTheme.warningOrange;
+        final headerTitle = on ? 'Location Enabled' : 'Location is off';
+        final headerSubtitle = on
+            ? 'Location access is active'
+            : serviceOff
+                ? 'Turn on location in your device settings'
+                : 'Tap Refresh Location to turn it back on';
 
         return Container(
           decoration: BoxDecoration(
@@ -1366,12 +1388,12 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: AppTheme.successGreen.withValues(alpha: 0.12),
+                      color: headerColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
-                      Icons.location_on_rounded,
-                      color: AppTheme.successGreen,
+                    child: Icon(
+                      on ? Icons.location_on_rounded : Icons.location_off_rounded,
+                      color: headerColor,
                       size: 22,
                     ),
                   ),
@@ -1380,7 +1402,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Location Enabled',
+                        headerTitle,
                         style: TextStyle(
                           color: textPrimary,
                           fontWeight: FontWeight.w700,
@@ -1389,8 +1411,8 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Location access is active',
-                        style: TextStyle(color: AppTheme.successGreen, fontSize: 12),
+                        headerSubtitle,
+                        style: TextStyle(color: headerColor, fontSize: 12),
                       ),
                     ],
                   ),

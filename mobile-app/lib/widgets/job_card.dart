@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:iconsax/iconsax.dart';
 import '../models/post_model.dart';
+import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
@@ -34,6 +35,10 @@ class JobCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    // Applied state is server-derived (survives feed reloads); fall back to the
+    // per-session flag on the model. Rebuilds only when THIS job's state changes.
+    final applied = job.hasApplied ||
+        context.select<AppProvider, bool>((p) => p.hasAppliedTo(job.id));
     final isCurrentUser = job.authorUserId.isNotEmpty && job.authorUserId == auth.currentUserId;
     final authorDisplayName = (job.authorName.isNotEmpty && job.authorName != '?')
         ? job.authorName
@@ -269,8 +274,8 @@ class JobCard extends StatelessWidget {
                       // request with a selected-provider escrow lifecycle), so the
                       // Issue-2 "already taken" gate does not apply here.
                       child: FilledButton(
-                        onPressed: job.hasApplied ? null : onApply,
-                        style: job.hasApplied
+                        onPressed: applied ? null : onApply,
+                        style: applied
                             ? FilledButton.styleFrom(
                                 backgroundColor: borderColor,
                                 foregroundColor: textTertiary,
@@ -283,7 +288,7 @@ class JobCard extends StatelessWidget {
                                 minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
-                        child: Text(job.hasApplied ? 'Application Sent' : 'Apply'),
+                        child: Text(applied ? 'Applied' : 'Apply'),
                       ),
                     ),
                   ),

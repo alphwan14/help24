@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/job_lifecycle.dart';
 import '../services/jobs_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
 import 'review_submission_screen.dart';
 
@@ -101,7 +102,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
     } on JobsException catch (e) {
       if (mounted) setState(() {
         _state = _DecisionState.error;
-        _errorMessage = e.message;
+        _errorMessage = ErrorMapper.toMessage(e);
       });
     } catch (_) {
       if (mounted) setState(() {
@@ -139,7 +140,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
     } on JobsException catch (e) {
       if (mounted) setState(() {
         _state = _DecisionState.error;
-        _errorMessage = e.message;
+        _errorMessage = ErrorMapper.toMessage(e);
       });
     } catch (_) {
       if (mounted) setState(() {

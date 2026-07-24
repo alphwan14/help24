@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,10 +13,49 @@ class LocationProvider extends ChangeNotifier {
   double? _longitude;
   DateTime? _lastUpdated;
 
+  /// The DEVICE location service (OS toggle) on/off — tracked LIVE so the UI
+  /// mirrors Android instantly when the user flips the quick-setting. Optimistic
+  /// at construction; corrected within a frame by the seed read below.
+  bool _serviceEnabled = true;
+  StreamSubscription<bool>? _serviceSub;
+
+  LocationProvider() {
+    _watchServiceStatus();
+  }
+
+  void _watchServiceStatus() {
+    // Seed the current state, then follow every OS toggle in real time.
+    LocationService.isServiceEnabled().then((enabled) {
+      if (_serviceEnabled != enabled) {
+        _serviceEnabled = enabled;
+        notifyListeners();
+      }
+    });
+    _serviceSub = LocationService.serviceEnabledStream().listen((enabled) {
+      if (_serviceEnabled != enabled) {
+        _serviceEnabled = enabled;
+        notifyListeners();
+      }
+    });
+  }
+
   PermissionStatus get status => _status;
   bool get isLoading => _isLoading;
   bool get isGranted => _status.isGranted;
   bool get isPermanentlyDenied => _status.isPermanentlyDenied;
+
+  /// Whether the device location service (OS toggle) is currently on.
+  bool get serviceEnabled => _serviceEnabled;
+
+  /// The OS CAPABILITY: the app has permission AND the device service is on, so
+  /// a fix is obtainable. (Doesn't say the user is actually using location.)
+  bool get isLocationActive => _status.isGranted && _serviceEnabled;
+
+  /// What the Profile UI shows as "Enabled": location is obtainable AND the user
+  /// has an active stored location. In-app "Disable Location" clears that stored
+  /// location (without touching OS permission), so this flips to false the
+  /// moment the user disables — which the OS-capability flags alone never did.
+  bool get isLocationOn => isLocationActive && _latitude != null;
   String? get city => _city;
   double? get latitude => _latitude;
   double? get longitude => _longitude;
@@ -123,5 +164,11 @@ class LocationProvider extends ChangeNotifier {
   Future<void> openSettingsAndRefresh() async {
     await openAppSettings();
     await refreshPermissionStatus();
+  }
+
+  @override
+  void dispose() {
+    _serviceSub?.cancel();
+    super.dispose();
   }
 }
