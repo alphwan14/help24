@@ -7,6 +7,7 @@ import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../services/application_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/filter_pill.dart';
 import '../widgets/job_card.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/application_modal.dart';
@@ -77,54 +78,12 @@ class _JobsScreenState extends State<JobsScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: ['All', 'Full-time', 'Part-time', 'Contract', 'Remote'].map((type) {
-                  final isSelected = _selectedType == type;
                   return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _selectedType = type;
-                        });
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeInOut,
-                        height: 40,
-                        padding: const EdgeInsets.symmetric(horizontal: 18),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppTheme.primaryAccent
-                              : (isDark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA)),
-                          borderRadius: BorderRadius.circular(999),
-                          boxShadow: isSelected
-                              ? [
-                                  BoxShadow(
-                                    color: AppTheme.primaryAccent
-                                        .withValues(alpha: 0.30),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        alignment: Alignment.center,
-                        child: AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 200),
-                          curve: Curves.easeInOut,
-                          style: TextStyle(
-                            color: isSelected
-                                ? Colors.white
-                                : (isDark
-                                    ? AppTheme.darkTextSecondary
-                                    : AppTheme.lightTextSecondary),
-                            fontSize: 14,
-                            fontWeight: isSelected
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                          ),
-                          child: Text(type),
-                        ),
-                      ),
+                    padding: const EdgeInsets.only(right: FilterPill.gap),
+                    child: FilterPill(
+                      label: type,
+                      isActive: _selectedType == type,
+                      onTap: () => setState(() => _selectedType = type),
                     ),
                   );
                 }).toList(),
