@@ -5,6 +5,29 @@ import 'package:geolocator/geolocator.dart';
 // permission_handler also exports a `ServiceStatus`; we want geolocator's here.
 import 'package:permission_handler/permission_handler.dart' hide ServiceStatus;
 
+/// A reverse-geocoded coordinate, split into the parts the product uses.
+@immutable
+class ReverseGeocodeResult {
+  /// Neighbourhood / sub-locality ("Nyali", "Westlands"). Often null upcountry.
+  final String? area;
+
+  /// City or town ("Mombasa", "Naivasha"). Always present.
+  final String city;
+
+  /// County / administrative area, when the geocoder supplies one.
+  final String? county;
+
+  const ReverseGeocodeResult({this.area, required this.city, this.county});
+
+  /// How a person would say it: "Nyali, Mombasa" — or just "Naivasha" when the
+  /// geocoder gave no neighbourhood, or when it echoed the city back as one.
+  String get label {
+    final a = area?.trim();
+    if (a == null || a.isEmpty || a.toLowerCase() == city.toLowerCase()) return city;
+    return '$a, $city';
+  }
+}
+
 /// Handles device location: permission request and current position.
 /// Use for "send current location" and as source for live location updates.
 class LocationService {
@@ -73,20 +96,47 @@ class LocationService {
     required double latitude,
     required double longitude,
   }) async {
+    final resolved = await reverseGeocode(latitude: latitude, longitude: longitude);
+    return resolved?.city;
+  }
+
+  /// Reverse geocode into its two useful PARTS rather than one string.
+  ///
+  /// The city alone is what the app used to keep, and it is not what a person
+  /// says: nobody in Nyali tells you they are "in Mombasa" when arranging a
+  /// job. The neighbourhood is the useful half and the city is the half that
+  /// filters and matching need — so both are returned and the caller decides
+  /// how to compose them.
+  ///
+  /// Null when the geocoder has no answer (it needs network on Android) — the
+  /// caller then falls back to snapping the coordinate to the nearest known
+  /// town, which works offline.
+  static Future<ReverseGeocodeResult?> reverseGeocode({
+    required double latitude,
+    required double longitude,
+  }) async {
     try {
       final placemarks = await placemarkFromCoordinates(latitude, longitude)
           .timeout(const Duration(seconds: 10));
       if (placemarks.isEmpty) return null;
       final p = placemarks.first;
-      final city = p.locality?.trim();
-      if (city != null && city.isNotEmpty) return city;
-      final subAdmin = p.subAdministrativeArea?.trim();
-      if (subAdmin != null && subAdmin.isNotEmpty) return subAdmin;
-      final admin = p.administrativeArea?.trim();
-      if (admin != null && admin.isNotEmpty) return admin;
-      return null;
+      String? clean(String? v) {
+        final t = v?.trim();
+        return (t == null || t.isEmpty) ? null : t;
+      }
+
+      final city = clean(p.locality) ??
+          clean(p.subAdministrativeArea) ??
+          clean(p.administrativeArea);
+      final area = clean(p.subLocality);
+      if (city == null && area == null) return null;
+      return ReverseGeocodeResult(
+        area: area,
+        city: city ?? area!,
+        county: clean(p.subAdministrativeArea) ?? clean(p.administrativeArea),
+      );
     } catch (e) {
-      debugPrint('LocationService getCityFromCoordinates: $e');
+      debugPrint('LocationService reverseGeocode: $e');
       return null;
     }
   }

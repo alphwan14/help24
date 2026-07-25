@@ -25,6 +25,7 @@ import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'services/auth_service.dart';
 import 'services/category_schema_service.dart';
+import 'services/location_registry.dart';
 import 'services/profession_registry.dart';
 import 'services/chat_local_prefs.dart';
 import 'services/diagnostic_service.dart';
@@ -152,6 +153,10 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // read it synchronously and fall back to the bundled list, so this
       // warm-up is a freshness optimisation and never a dependency.
       unawaited(ProfessionRegistry.instance.warmUp());
+      // And the location registry: the posting flow, the filters and the feed's
+      // "near you" prioritisation all read it synchronously off the bundled
+      // dataset, so this warm-up only ever upgrades what is already usable.
+      unawaited(LocationRegistry.instance.warmUp());
       // ✅ Supabase is already initialized in main() - don't reinitialize!
       // Join the Firebase init started in main() (memoized — never runs twice).
       await AppFirebase.initialize();

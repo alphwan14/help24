@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/current_location_service.dart';
 import '../services/location_service.dart';
 
 class LocationProvider extends ChangeNotifier {
@@ -119,10 +120,23 @@ class LocationProvider extends ChangeNotifier {
   Future<bool> captureAndStoreCurrentLocation(String uid) async {
     final pos = await LocationService.getCurrentPosition(requestIfNeeded: false);
     if (pos == null || uid.isEmpty) return false;
-    final resolvedCity = await LocationService.getCityFromCoordinates(
-      latitude: pos.latitude,
-      longitude: pos.longitude,
-    );
+    // Resolve through the registry rather than storing the geocoder's raw
+    // string.
+    //
+    // `_city` is consumed as a CITY NAME — it seeds the posting form and drives
+    // the feed's "near you" prioritisation, which matches it against
+    // `posts.location` as a substring. A geocoder that answers "Nairobi County"
+    // or "Kilimani" therefore silently matched nothing. Reconciling to the
+    // vocabulary (and snapping to the nearest known town when the geocoder is
+    // unreachable) means the value stored here always speaks the same language
+    // as the posts it is compared against.
+    final described =
+        await CurrentLocationService.describe(pos.latitude, pos.longitude);
+    final resolvedCity = described?.cityName ??
+        await LocationService.getCityFromCoordinates(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+        );
     final now = DateTime.now();
     final prefs = await SharedPreferences.getInstance();
     _latitude = pos.latitude;

@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/category_schema.dart';
 import '../models/job_flow.dart';
 import '../models/offer_flow.dart';
+import '../models/place.dart';
 import '../models/post_model.dart';
 import '../models/request_flow.dart';
 import '../providers/app_provider.dart';
@@ -14,11 +15,13 @@ import '../providers/auth_provider.dart';
 import '../providers/location_provider.dart';
 import '../services/auth_service.dart';
 import '../services/category_schema_service.dart';
+import '../services/location_registry.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
 import '../widgets/location_experience.dart';
+import '../widgets/location_picker.dart';
 import '../widgets/schema_question_flow.dart';
 import 'place_picker_screen.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
@@ -55,8 +58,12 @@ class _PostScreenState extends State<PostScreen> {
   Urgency _selectedUrgency = Urgency.flexible;
   PricingType _selectedPricingType = PricingType.task;
   EmploymentType? _selectedEmploymentType;
-  String _selectedCity = '';
-  String _selectedArea = '';
+
+  /// The chosen location — one value instead of the old city/area string pair.
+  /// It carries the label that goes to `posts.location` (identical in shape to
+  /// what the app has always written), the city component the filters use, and
+  /// the coordinates when the choice came from GPS.
+  LocationSelection? _location;
   // Exact job spot pinned on the map (Location Experience, Scenario C):
   // posting must never depend on GPS permission — the map pin is the manual
   // path, and it wins over the silent device position when both exist.
@@ -197,18 +204,58 @@ class _PostScreenState extends State<PostScreen> {
     );
   }
 
+  /// The label written to `posts.location`. "" until a location is chosen.
+  String get _locationLabel => _location?.label.trim() ?? '';
+
+  bool get _hasLocation => _locationLabel.isNotEmpty;
+
+  /// Best-effort prefill from what the device already knows. Silent by design:
+  /// it never prompts for permission and never blocks the form.
+  ///
+  /// Two sources, in order of confidence:
+  ///   1. a stored coordinate → snapped to the nearest known town. Works with
+  ///      no network at all, and is accurate even when the cached city string
+  ///      is stale or was never resolved.
+  ///   2. the cached city name → resolved through the registry.
+  /// Anything unresolvable is left alone; a wrong prefill is worse than none.
   void _prefillLocationFromCache() {
-    if (!mounted) return;
-    final cachedCity = context.read<LocationProvider>().city;
-    if (cachedCity == null || cachedCity.isEmpty || _selectedCity.isNotEmpty) return;
-    // Only autofill when the cached city is in the predefined list.
-    final cities = KenyaLocation.cities;
-    final match = cities.firstWhere(
-      (c) => c.toLowerCase() == cachedCity.toLowerCase(),
-      orElse: () => '',
+    if (!mounted || _hasLocation) return;
+    final provider = context.read<LocationProvider>();
+    final registry = LocationRegistry.instance;
+
+    final lat = provider.latitude;
+    final lng = provider.longitude;
+    if (lat != null && lng != null) {
+      final near = registry.nearest(lat, lng);
+      if (near != null) {
+        setState(() => _location = LocationSelection.fromPlace(near)
+            .copyWith(latitude: lat, longitude: lng));
+        return;
+      }
+    }
+
+    final cachedCity = provider.city;
+    if (cachedCity == null || cachedCity.trim().isEmpty) return;
+    final match = registry.resolveLabel(cachedCity);
+    if (match != null) {
+      setState(() => _location = LocationSelection.fromPlace(match));
+    }
+  }
+
+  Future<void> _chooseLocation() async {
+    final provider = context.read<LocationProvider>();
+    final picked = await showLocationPicker(
+      context,
+      current: _location,
+      deviceLatitude: provider.latitude,
+      deviceLongitude: provider.longitude,
+      title: _isOfferFlow ? 'Where do you work?' : 'Where is this?',
+      subtitle: _isOfferFlow
+          ? 'Clients nearby find you first.'
+          : 'Providers nearby see it first.',
     );
-    if (match.isNotEmpty) {
-      setState(() => _selectedCity = match);
+    if (picked != null && mounted) {
+      setState(() => _location = picked);
     }
   }
 
@@ -774,72 +821,81 @@ class _PostScreenState extends State<PostScreen> {
 
   // ───────────────────────── shared field builders ──────────────────────────
 
-  /// City (+ optional Area) dropdowns — the Location step of all three flows.
+  /// The Location step of all three flows: ONE searchable field.
+  ///
+  /// Was two chained dropdowns (pick a city, then pick an area) over 17 towns.
+  /// A dropdown cannot be searched and cannot hold a national dataset, and the
+  /// chaining forced every town without neighbourhoods to invent one. Now a
+  /// single field opens the picker, where "Use current location", recents,
+  /// nearest towns and the full A–Z list all live.
   List<Widget> _buildLocationFields(bool isDark) {
-    final availableAreas = _selectedCity.isNotEmpty
-        ? KenyaLocation.getByCity(_selectedCity)
-        : <KenyaLocation>[];
+    final selection = _location;
+    final hasLocation = _hasLocation;
     return [
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+      Semantics(
+        button: true,
+        label: hasLocation ? 'Location: ${selection!.label}. Tap to change.' : 'Choose a location',
+        child: InkWell(
+          onTap: _chooseLocation,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-          ),
-        ),
-        child: DropdownButton<String>(
-          value: _selectedCity.isEmpty ? null : _selectedCity,
-          hint: const Text('Select City'),
-          isExpanded: true,
-          underline: const SizedBox(),
-          dropdownColor: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-          items: KenyaLocation.cities.map((city) {
-            return DropdownMenuItem(
-              value: city,
-              child: Text(city),
-            );
-          }).toList(),
-          onChanged: (value) {
-            setState(() {
-              _selectedCity = value ?? '';
-              _selectedArea = '';
-            });
-          },
-        ),
-      ),
-      if (_selectedCity.isNotEmpty && availableAreas.isNotEmpty) ...[
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: hasLocation
+                    ? AppTheme.primaryAccent.withValues(alpha: 0.5)
+                    : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  selection?.isFromDevice == true ? Iconsax.gps : Iconsax.location,
+                  size: 20,
+                  color: hasLocation
+                      ? AppTheme.primaryAccent
+                      : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        hasLocation ? selection!.label : 'Choose a location',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: hasLocation
+                              ? (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary)
+                              : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (selection?.isFromDevice == true) ...[
+                        const SizedBox(height: 2),
+                        const Text(
+                          'From your current location',
+                          style: TextStyle(fontSize: 11.5, color: AppTheme.successGreen),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Icon(
+                  hasLocation ? Icons.edit_rounded : Icons.chevron_right_rounded,
+                  size: hasLocation ? 16 : 20,
+                  color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                ),
+              ],
             ),
           ),
-          child: DropdownButton<String>(
-            value: _selectedArea.isEmpty ? null : _selectedArea,
-            hint: const Text('Select Area'),
-            isExpanded: true,
-            underline: const SizedBox(),
-            dropdownColor: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            items: availableAreas.map((location) {
-              return DropdownMenuItem(
-                value: location.area,
-                child: Text(location.area),
-              );
-            }).toList(),
-            onChanged: (value) {
-              setState(() {
-                _selectedArea = value ?? '';
-              });
-            },
-          ),
         ),
-      ],
+      ),
       // Pin the exact spot (optional). Works with GPS denied — the picker
       // opens on the last-known position or a default region and the user
       // places the pin manually. Never blocks posting. Requests/offers only:
@@ -909,11 +965,15 @@ class _PostScreenState extends State<PostScreen> {
 
   Future<void> _pickExactSpot() async {
     final locationProvider = context.read<LocationProvider>();
+    // Open the map where the user already is, conceptually: their own pin
+    // first, then the town they chose, then the device position.
     final LatLng? start = (_pinnedLat != null && _pinnedLng != null)
         ? LatLng(_pinnedLat!, _pinnedLng!)
-        : (locationProvider.latitude != null && locationProvider.longitude != null)
-            ? LatLng(locationProvider.latitude!, locationProvider.longitude!)
-            : null;
+        : (_location?.hasCoordinates == true)
+            ? LatLng(_location!.latitude!, _location!.longitude!)
+            : (locationProvider.latitude != null && locationProvider.longitude != null)
+                ? LatLng(locationProvider.latitude!, locationProvider.longitude!)
+                : null;
     final picked = await Navigator.of(context).push<PickedPlace>(
       MaterialPageRoute(
         builder: (_) => PlacePickerScreen(
@@ -1427,7 +1487,7 @@ class _PostScreenState extends State<PostScreen> {
       children: [
         ..._buildLocationFields(isDark),
         const SizedBox(height: 10),
-        if (_selectedCity.isNotEmpty)
+        if (_hasLocation)
           Text(
             _isOfferFlow
                 ? 'Clients nearby find you first.'
@@ -1438,7 +1498,7 @@ class _PostScreenState extends State<PostScreen> {
             ),
           ),
         const SizedBox(height: 28),
-        _flowContinueButton(enabled: _selectedCity.isNotEmpty),
+        _flowContinueButton(enabled: _hasLocation),
       ],
     );
   }
@@ -1628,9 +1688,7 @@ class _PostScreenState extends State<PostScreen> {
   Widget _buildPreviewStep() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final price = _effectivePrice;
-    final location = _selectedArea.isNotEmpty
-        ? '$_selectedArea, $_selectedCity'
-        : _selectedCity;
+    final location = _locationLabel;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2030,9 +2088,9 @@ class _PostScreenState extends State<PostScreen> {
 
     final provider = context.read<AppProvider>();
     final price = _effectivePrice;
-    final location = _selectedArea.isNotEmpty
-        ? '$_selectedArea, $_selectedCity'
-        : _selectedCity;
+    // Same string shape this screen has always written ("Area, City" or
+    // "City"), so every existing post, filter and card keeps working.
+    final location = _locationLabel;
 
     // Attach schema answers (pruned: hidden conditionals never leak). Each
     // journey adds its reserved keys (_when / _availability / _start) AFTER
@@ -2087,7 +2145,6 @@ class _PostScreenState extends State<PostScreen> {
           throw Exception(provider.error ?? 'Failed to create job');
         }
       } else {
-        final locationProvider = context.read<LocationProvider>();
         final post = PostModel(
           id: '',
           title: _titleController.text.trim(),
@@ -2104,8 +2161,17 @@ class _PostScreenState extends State<PostScreen> {
           urgentExpiresAt: !_isOfferFlow && _selectedUrgency == Urgency.urgent
               ? DateTime.now().add(const Duration(hours: 1))
               : null,
-          latitude: _pinnedLat ?? locationProvider.latitude,
-          longitude: _pinnedLng ?? locationProvider.longitude,
+          // Coordinate precedence: the map pin the user placed, else the
+          // coordinate of the location they actually chose.
+          //
+          // The device's own position is deliberately NOT a fallback any more.
+          // It used to be, which meant a post labelled "Nakuru" could carry the
+          // coordinates of wherever the poster was standing when they wrote it
+          // — the label and the pin disagreed, and distance sorting trusted the
+          // wrong one. A chosen place now supplies its own coordinate (its own,
+          // or its city's), so the two can no longer contradict each other.
+          latitude: _pinnedLat ?? _location?.latitude,
+          longitude: _pinnedLng ?? _location?.longitude,
           attributes: attributes,
           attributesSchemaVersion: schemaVersion,
         );

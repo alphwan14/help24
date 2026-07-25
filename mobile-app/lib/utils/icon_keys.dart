@@ -55,6 +55,28 @@ const Map<String, IconData> _iconMap = {
   'school': Icons.school,
   'child_care': Icons.child_care,
   'favorite': Icons.favorite,
+  // ── Profession-catalogue category icons (migration 089) ────────────────
+  // One icon per CATEGORY rather than per profession: a profession with no
+  // icon of its own inherits its category's, so a catalogue of hundreds needs
+  // ~34 glyphs instead of hundreds. Adding a category later still only needs
+  // a key that already exists here — an unknown key degrades, never breaks.
+  'home_repair_service': Icons.home_repair_service,
+  'medical_services': Icons.medical_services,
+  'rocket_launch': Icons.rocket_launch,
+  'campaign': Icons.campaign,
+  'agriculture': Icons.agriculture,
+  'local_shipping': Icons.local_shipping,
+  'precision_manufacturing': Icons.precision_manufacturing,
+  'business_center': Icons.business_center,
+  'account_balance': Icons.account_balance,
+  'gavel': Icons.gavel,
+  'apartment': Icons.apartment,
+  'volunteer_activism': Icons.volunteer_activism,
+  'church': Icons.church,
+  'sports_soccer': Icons.sports_soccer,
+  'theater_comedy': Icons.theater_comedy,
+  'pets': Icons.pets,
+  'solar_power': Icons.solar_power,
   // ── Fallback ───────────────────────────────────────────────────────────
   'more_horiz': Icons.more_horiz,
 };

@@ -65,3 +65,7 @@ flutter:
   assets:
     - assets/
     - assets/l10n/
+    # Reference datasets (locations, professions). Bundled so every picker is
+    # complete, searchable and offline-capable on a fresh install, before any
+    # migration is applied. See lib/services/reference_registry.dart.
+    - assets/data/

@@ -58,7 +58,12 @@ class ProfessionChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            resolved?.icon ?? Icons.work_outline,
+            // Resolved through the registry so a profession with no icon of
+            // its own inherits its category's rather than falling to the
+            // generic briefcase.
+            resolved == null
+                ? Icons.work_outline
+                : ProfessionRegistry.instance.iconFor(resolved),
             size: fontSize + 2,
             color: AppTheme.primaryAccent,
           ),

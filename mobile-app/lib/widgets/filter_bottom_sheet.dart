@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
+import '../models/place.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
+import '../providers/location_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
+import 'location_picker.dart';
 
 class FilterBottomSheet extends StatefulWidget {
   const FilterBottomSheet({super.key});
@@ -53,12 +56,43 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     }
   }
 
+  /// The filter's location as one human string. Mirrors exactly what the
+  /// provider matches against (`post.location` contains city AND area), so what
+  /// the chip says and what the query does can never drift apart.
+  String get _locationLabel {
+    if (_selectedCity.isEmpty) return 'Anywhere';
+    return _selectedArea.isEmpty ? _selectedCity : '$_selectedArea, $_selectedCity';
+  }
+
+  Future<void> _chooseLocation() async {
+    final provider = context.read<LocationProvider>();
+    final picked = await showLocationPicker(
+      context,
+      current: _selectedCity.isEmpty
+          ? null
+          : LocationSelection(
+              label: _locationLabel,
+              cityName: _selectedCity,
+              areaName: _selectedArea.isEmpty ? null : _selectedArea,
+            ),
+      deviceLatitude: provider.latitude,
+      deviceLongitude: provider.longitude,
+      title: 'Filter by location',
+      subtitle: 'Show only posts in one place.',
+      allowAnywhere: true,
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      // The "Anywhere" sentinel carries an empty label — that is the filter's
+      // way of saying "no location constraint", which is a real answer.
+      _selectedCity = picked.cityName;
+      _selectedArea = picked.areaName ?? '';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final availableAreas = _selectedCity.isNotEmpty 
-        ? KenyaLocation.getByCity(_selectedCity)
-        : <KenyaLocation>[];
 
     return Container(
       decoration: BoxDecoration(
@@ -221,73 +255,74 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                   ],
                   const SizedBox(height: 24),
 
-                  // Location - City
+                  // Location — one searchable field over the national dataset,
+                  // replacing a 17-item city dropdown chained to an area chip
+                  // row. Same picker as the posting flow, so what people search
+                  // for when posting is what they search for when filtering.
                   Text(
                     'Location',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+                  Semantics(
+                    button: true,
+                    label: 'Filter location: $_locationLabel. Tap to change.',
+                    child: InkWell(
+                      onTap: _chooseLocation,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _selectedCity.isEmpty
+                                ? (isDark ? AppTheme.darkBorder : AppTheme.lightBorder)
+                                : AppTheme.primaryAccent.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Iconsax.location,
+                              size: 20,
+                              color: _selectedCity.isEmpty
+                                  ? (isDark
+                                      ? AppTheme.darkTextTertiary
+                                      : AppTheme.lightTextTertiary)
+                                  : AppTheme.primaryAccent,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _locationLabel,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: _selectedCity.isEmpty
+                                      ? (isDark
+                                          ? AppTheme.darkTextTertiary
+                                          : AppTheme.lightTextTertiary)
+                                      : (isDark
+                                          ? AppTheme.darkTextPrimary
+                                          : AppTheme.lightTextPrimary),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              size: 20,
+                              color: isDark
+                                  ? AppTheme.darkTextTertiary
+                                  : AppTheme.lightTextTertiary,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    child: DropdownButton<String>(
-                      value: _selectedCity.isEmpty ? null : _selectedCity,
-                      hint: const Text('Select City'),
-                      isExpanded: true,
-                      underline: const SizedBox(),
-                      dropdownColor: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                      items: [
-                        const DropdownMenuItem(
-                          value: '',
-                          child: Text('All Cities'),
-                        ),
-                        ...KenyaLocation.cities.map((city) {
-                          return DropdownMenuItem(
-                            value: city,
-                            child: Text(city),
-                          );
-                        }),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedCity = value ?? '';
-                          _selectedArea = '';
-                        });
-                      },
-                    ),
                   ),
-                  // Area selection
-                  if (_selectedCity.isNotEmpty && availableAreas.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      'Area',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: availableAreas.map((location) {
-                        final isSelected = _selectedArea == location.area;
-                        return ChoiceChip(
-                          label: Text(location.area),
-                          selected: isSelected,
-                          onSelected: (selected) {
-                            setState(() {
-                              _selectedArea = selected ? location.area : '';
-                            });
-                          },
-                          selectedColor: AppTheme.primaryAccent.withValues(alpha: 0.2),
-                        );
-                      }).toList(),
-                    ),
-                  ],
                   const SizedBox(height: 24),
 
                   // Price Range

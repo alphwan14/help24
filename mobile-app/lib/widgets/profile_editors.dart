@@ -207,6 +207,7 @@ class _ProfessionPickerSheet extends StatefulWidget {
 
 class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
   final _search = TextEditingController();
+  final _registry = ProfessionRegistry.instance;
   String _query = '';
   String? _saving;
   String? _error;
@@ -214,8 +215,12 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
   @override
   void initState() {
     super.initState();
-    // Best-effort freshness; the list renders immediately from cache/bundled.
-    ProfessionRegistry.instance.warmUp().then((_) {
+    // The bundled catalogue is enough to render everything; both calls are
+    // freshness optimisations that land whenever they land.
+    _registry.ensureBundled().then((_) {
+      if (mounted) setState(() {});
+    });
+    _registry.warmUp().then((_) {
       if (mounted) setState(() {});
     });
   }
@@ -226,11 +231,13 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
     super.dispose();
   }
 
-  List<Profession> get _visible {
-    final all = ProfessionRegistry.instance.all;
-    if (_query.isEmpty) return all;
-    final q = _query.toLowerCase();
-    return all.where((p) => p.name.toLowerCase().contains(q)).toList();
+  /// Browse rows (category headers + professions) when idle; ranked search
+  /// results when typing. With hundreds of professions a flat scroll is not a
+  /// list, it is a haystack — so browsing is grouped and searching is ranked,
+  /// and neither path ever scans the catalogue more than once per keystroke.
+  List<ProfessionRow> get _rows {
+    if (_query.isEmpty) return _registry.browseRows;
+    return _registry.search(_query).map(ProfessionRow.item).toList();
   }
 
   Future<void> _select(Profession profession) async {
@@ -257,10 +264,10 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final selected = ProfessionRegistry.instance.resolve(widget.currentProfession);
+    final selected = _registry.resolve(widget.currentProfession);
     final legacy = widget.currentProfession?.trim() ?? '';
     final hasLegacy = legacy.isNotEmpty && selected == null;
-    final visible = _visible;
+    final rows = _rows;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -322,22 +329,36 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
             ],
             TextField(
               controller: _search,
-              decoration: const InputDecoration(
-                hintText: 'Search professions',
-                prefixIcon: Icon(Icons.search_rounded, size: 20),
+              decoration: InputDecoration(
+                hintText: 'Search ${_registry.all.length}+ professions',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          _search.clear();
+                          setState(() => _query = '');
+                        },
+                      ),
                 isDense: true,
               ),
-              onChanged: (v) => setState(() => _query = v.trim()),
+              onChanged: (v) {
+                final next = v.trim();
+                if (next == _query) return;
+                setState(() => _query = next);
+              },
             ),
             const SizedBox(height: 12),
             Expanded(
-              child: visible.isEmpty
+              child: rows.isEmpty
                   ? Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24),
                         child: Text(
                           'No profession matches "$_query".\n'
-                          'Pick "Other" if none fit.',
+                          'Try a simpler word, or pick "Other" if none fit.',
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
@@ -346,11 +367,41 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
                   : ListView.builder(
                       controller: scrollController,
                       padding: const EdgeInsets.only(bottom: 24),
-                      itemCount: visible.length,
+                      itemCount: rows.length,
                       itemBuilder: (context, i) {
-                        final p = visible[i];
+                        final row = rows[i];
+                        if (row.isHeader) {
+                          return Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 18, 4, 6),
+                            child: Row(
+                              children: [
+                                Icon(row.category!.icon,
+                                    size: 15,
+                                    color: isDark
+                                        ? AppTheme.darkTextTertiary
+                                        : AppTheme.lightTextTertiary),
+                                const SizedBox(width: 8),
+                                Text(
+                                  row.category!.name.toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.8,
+                                    color: isDark
+                                        ? AppTheme.darkTextTertiary
+                                        : AppTheme.lightTextTertiary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        final p = row.profession!;
                         final isSelected = selected?.id == p.id;
                         final isSaving = _saving == p.id;
+                        // When searching, the group is no longer implied by a
+                        // header above the row, so each result carries it.
+                        final category = _registry.categoryOf(p);
                         return ListTile(
                           contentPadding:
                               const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -361,7 +412,8 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
                               color: AppTheme.primaryAccent.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(11),
                             ),
-                            child: Icon(p.icon, size: 20, color: AppTheme.primaryAccent),
+                            child: Icon(_registry.iconFor(p),
+                                size: 20, color: AppTheme.primaryAccent),
                           ),
                           title: Text(
                             p.name,
@@ -370,6 +422,10 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
                                   isSelected ? FontWeight.w700 : FontWeight.w500,
                             ),
                           ),
+                          subtitle: (_query.isNotEmpty && category != null)
+                              ? Text(category.name,
+                                  style: Theme.of(context).textTheme.bodySmall)
+                              : null,
                           trailing: isSaving
                               ? const SizedBox(
                                   width: 18,

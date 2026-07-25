@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../services/location_registry.dart';
 import '../utils/time_utils.dart';
+import 'place.dart';
 
 enum PostType { request, offer, job }
 
@@ -136,7 +138,23 @@ class Category {
   String toJson() => name;
 }
 
-// Kenya locations
+/// DEPRECATED compatibility shim for the old hardcoded (city, area) list.
+///
+/// The location vocabulary now lives in [LocationRegistry] — a versioned,
+/// server-backed registry with a bundled offline dataset covering every Kenyan
+/// city, all 47 county headquarters, every major town and the neighbourhoods of
+/// the large urban centres. This class no longer holds any data; it forwards to
+/// the registry so any straggling call site keeps compiling and keeps working,
+/// and it should not be used in new code.
+///
+/// Note the old list's two structural lies, both fixed by the registry:
+///   • towns with no neighbourhoods were given a fake area called "Town Centre"
+///     purely so the (city, area) tuple could exist;
+///   • Diani and Watamu were filed under Mombasa and Malindi rather than their
+///     real counties (Kwale, Kilifi).
+/// Existing posts that stored either shape still render and still match the
+/// location filters, because those are plain substring matches on the label.
+@Deprecated('Use LocationRegistry.instance / showLocationPicker instead')
 class KenyaLocation {
   final String city;
   final String area;
@@ -145,54 +163,19 @@ class KenyaLocation {
 
   String get fullName => '$area, $city';
 
-  static List<KenyaLocation> all = [
-    // Nairobi
-    KenyaLocation(city: 'Nairobi', area: 'Westlands'),
-    KenyaLocation(city: 'Nairobi', area: 'Kilimani'),
-    KenyaLocation(city: 'Nairobi', area: 'Karen'),
-    KenyaLocation(city: 'Nairobi', area: 'Lavington'),
-    KenyaLocation(city: 'Nairobi', area: 'Kileleshwa'),
-    KenyaLocation(city: 'Nairobi', area: 'Parklands'),
-    KenyaLocation(city: 'Nairobi', area: 'South B'),
-    KenyaLocation(city: 'Nairobi', area: 'South C'),
-    KenyaLocation(city: 'Nairobi', area: 'Eastleigh'),
-    KenyaLocation(city: 'Nairobi', area: 'CBD'),
-    KenyaLocation(city: 'Nairobi', area: 'Kasarani'),
-    KenyaLocation(city: 'Nairobi', area: 'Embakasi'),
-    KenyaLocation(city: 'Nairobi', area: 'Langata'),
-    // Mombasa
-    KenyaLocation(city: 'Mombasa', area: 'Nyali'),
-    KenyaLocation(city: 'Mombasa', area: 'Bamburi'),
-    KenyaLocation(city: 'Mombasa', area: 'Likoni'),
-    KenyaLocation(city: 'Mombasa', area: 'Kisauni'),
-    KenyaLocation(city: 'Mombasa', area: 'Old Town'),
-    KenyaLocation(city: 'Mombasa', area: 'Diani'),
-    KenyaLocation(city: 'Mombasa', area: 'Shanzu'),
-    // Other Cities
-    KenyaLocation(city: 'Nakuru', area: 'Town Centre'),
-    KenyaLocation(city: 'Nakuru', area: 'Milimani'),
-    KenyaLocation(city: 'Nakuru', area: 'Section 58'),
-    KenyaLocation(city: 'Kisumu', area: 'Milimani'),
-    KenyaLocation(city: 'Kisumu', area: 'Town Centre'),
-    KenyaLocation(city: 'Kisumu', area: 'Mamboleo'),
-    KenyaLocation(city: 'Eldoret', area: 'Town Centre'),
-    KenyaLocation(city: 'Eldoret', area: 'Elgon View'),
-    KenyaLocation(city: 'Thika', area: 'Town Centre'),
-    KenyaLocation(city: 'Thika', area: 'Makongeni'),
-    KenyaLocation(city: 'Malindi', area: 'Town Centre'),
-    KenyaLocation(city: 'Malindi', area: 'Watamu'),
-    KenyaLocation(city: 'Voi', area: 'Town Centre'),
-    KenyaLocation(city: 'Machakos', area: 'Town Centre'),
-    KenyaLocation(city: 'Nyeri', area: 'Town Centre'),
-    KenyaLocation(city: 'Meru', area: 'Town Centre'),
-    KenyaLocation(city: 'Kitale', area: 'Town Centre'),
-    KenyaLocation(city: 'Naivasha', area: 'Town Centre'),
-  ];
+  /// Every neighbourhood in the registry, as legacy tuples.
+  static List<KenyaLocation> get all => LocationRegistry.instance.all
+      .where((p) => p.kind == PlaceKind.area)
+      .map((p) => KenyaLocation(city: p.cityName, area: p.name))
+      .toList();
 
-  static List<String> get cities => all.map((l) => l.city).toSet().toList();
-  
-  static List<KenyaLocation> getByCity(String city) => 
-      all.where((l) => l.city == city).toList();
+  /// Every standalone city/town name, alphabetical.
+  static List<String> get cities => LocationRegistry.instance.cityNames;
+
+  static List<KenyaLocation> getByCity(String city) => LocationRegistry.instance
+      .areasOf(city)
+      .map((p) => KenyaLocation(city: p.cityName, area: p.name))
+      .toList();
 }
 
 /// Parse display name from joined users row. Never "Unknown" or "Guest": use name, else email prefix, else single char for avatar.

@@ -69,6 +69,12 @@ class SessionScope {
     'help24_chat_cleared_',
     'help24_chat_hidden_',
     'help24_cn_',
+    // Recently used posting locations. Where a person posts from is theirs, not
+    // the device's — a shared phone must never suggest the previous account's
+    // neighbourhood. RecentLocationsStore also resets itself via SessionScoped;
+    // this entry is the second defence, for the case where the process is
+    // killed and a different account signs in next launch.
+    'help24_recent_locations_',
   ];
 
   /// Legacy device-global keys from before scoping existed. Unattributable, so
