@@ -9,6 +9,7 @@ import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/category_schema_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/post_ownership.dart';
 import '../utils/time_utils.dart';
 import 'marketplace_card_components.dart';
 import 'feed_card_tokens.dart';
@@ -42,7 +43,11 @@ class PostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final isCurrentUser = post.authorUserId.isNotEmpty && post.authorUserId == auth.currentUserId;
+    // One ownership rule for the whole app — see utils/post_ownership.dart.
+    final isCurrentUser = isListingOwner(
+      authorUserId: post.authorUserId,
+      viewerUserId: auth.currentUserId,
+    );
     final authorDisplayName = (post.authorName.isNotEmpty && post.authorName != '?')
         ? post.authorName
         : (isCurrentUser && auth.currentUserName.isNotEmpty
@@ -61,6 +66,14 @@ class PostCard extends StatelessWidget {
     // this post? Keeps the feed honest across reloads and blocks a duplicate.
     final applied =
         context.select<AppProvider, bool>((p) => p.hasAppliedTo(post.id));
+    // One CTA decision for every surface — see utils/post_ownership.dart.
+    final cta = listingCtaFor(
+      type: post.type,
+      authorUserId: post.authorUserId,
+      viewerUserId: auth.currentUserId ?? '',
+      status: post.status,
+      hasApplied: applied,
+    );
 
     // R-4: intent-aware read side. Schema comes from the cache-first registry;
     // when it isn't loaded yet the chips simply don't render (never blocks).
@@ -374,11 +387,17 @@ class PostCard extends StatelessWidget {
                     child: Align(
                       alignment: Alignment.centerRight,
                       child: isCurrentUser
-                          ? _OwnerCta(post: post, onTap: onTap, isDark: isDark)
-                          : (isRequest && post.status != 'open')
+                          ? OwnerCta(
+                              type: post.type,
+                              status: post.status,
+                              applicationCount: post.applications.length,
+                              payoutInProgress: post.payoutInProgress,
+                              onTap: onTap,
+                            )
+                          : cta == ListingCta.unavailable
                               // Request already has a provider — never show "Offer Service".
                               ? _RequestTakenChip(status: post.status, isDark: isDark, payoutInProgress: post.payoutInProgress)
-                              : applied
+                              : cta == ListingCta.applied
                                   // Already responded — reflect it and block a
                                   // duplicate instead of re-inviting the action.
                                   ? FilledButton(
@@ -391,7 +410,11 @@ class PostCard extends StatelessWidget {
                                         minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
                                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                       ),
-                                      child: Text(isRequest ? 'Offer sent' : 'Enquired'),
+                                      child: Text(switch (post.type) {
+                                        PostType.request => 'Offer sent',
+                                        PostType.job => 'Applied',
+                                        PostType.offer => 'Enquired',
+                                      }),
                                     )
                                   : FilledButton(
                                       onPressed: onRespond ?? onTap,
@@ -400,7 +423,14 @@ class PostCard extends StatelessWidget {
                                         minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
                                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                       ),
-                                      child: Text(isRequest ? 'Offer Service' : 'Enquire'),
+                                      // A job says "Apply" here exactly as it
+                                      // does in the Jobs tab — the same listing
+                                      // must not offer two different verbs.
+                                      child: Text(switch (post.type) {
+                                        PostType.request => 'Offer Service',
+                                        PostType.job => 'Apply',
+                                        PostType.offer => 'Enquire',
+                                      }),
                                     ),
                     ),
                   ),
@@ -597,90 +627,9 @@ class _CategoryBadge extends StatelessWidget {
   }
 }
 
-/// Owner CTA — replaces the action button when the current user authored the post.
-/// Uses an outlined style to visually distinguish "this is mine" from "do something".
-class _OwnerCta extends StatelessWidget {
-  final PostModel post;
-  final VoidCallback? onTap;
-  final bool isDark;
-
-  const _OwnerCta({required this.post, required this.onTap, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    if (post.type == PostType.offer) {
-      return OutlinedButton.icon(
-        onPressed: onTap,
-        icon: const Icon(Icons.storefront_outlined, size: 15),
-        label: const Text('My Offer'),
-        style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-      );
-    }
-
-    // Request post — label and colour driven by lifecycle status.
-    switch (post.status) {
-      case 'assigned':
-        return OutlinedButton.icon(
-          onPressed: onTap,
-          icon: const Icon(Icons.build_circle_outlined, size: 15),
-          label: const Text('In Progress'),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: AppTheme.primaryAccent,
-          ),
-        );
-      case 'completed':
-        return OutlinedButton.icon(
-          onPressed: onTap,
-          icon: Icon(post.payoutInProgress ? Icons.hourglass_top_rounded : Icons.check_circle_outline, size: 15),
-          label: Text(post.payoutInProgress ? 'Finalizing' : 'Completed'),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: post.payoutInProgress ? AppTheme.warningOrange : AppTheme.successGreen,
-          ),
-        );
-      case 'disputed':
-        return OutlinedButton.icon(
-          onPressed: onTap,
-          icon: const Icon(Icons.flag_outlined, size: 15),
-          label: const Text('Disputed'),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: AppTheme.errorRed,
-          ),
-        );
-      default: // 'open'
-        final count = post.applications.length;
-        final hasApps = count > 0;
-        return OutlinedButton.icon(
-          onPressed: onTap,
-          icon: Icon(
-            hasApps ? Icons.people_rounded : Icons.people_outline,
-            size: 15,
-          ),
-          label: Text(hasApps ? 'Applications ($count)' : 'Manage'),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: hasApps
-                ? AppTheme.primaryAccent
-                : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
-          ),
-        );
-    }
-  }
-}
+// _OwnerCta removed: it is now the shared `OwnerCta` in
+// marketplace_card_components.dart, so the Jobs tab renders the same button for
+// the same listing instead of an Apply the author could press.
 
 // _UserRatingChip removed (Phase 3.2C): replaced by ReputationCompact, which is
 // sourced from the backend reputation endpoint instead of the fake PostModel.rating.

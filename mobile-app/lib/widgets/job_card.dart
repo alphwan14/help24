@@ -8,6 +8,7 @@ import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
+import '../utils/post_ownership.dart';
 import '../utils/time_utils.dart';
 import 'reputation_widgets.dart';
 import 'marketplace_card_components.dart';
@@ -39,7 +40,20 @@ class JobCard extends StatelessWidget {
     // per-session flag on the model. Rebuilds only when THIS job's state changes.
     final applied = job.hasApplied ||
         context.select<AppProvider, bool>((p) => p.hasAppliedTo(job.id));
-    final isCurrentUser = job.authorUserId.isNotEmpty && job.authorUserId == auth.currentUserId;
+    // Same rule the detail screen and Discover use — see post_ownership.dart.
+    // This was already computed here but only ever used to pick a display name,
+    // which is why the author's own job kept offering them an Apply button.
+    final isCurrentUser = isListingOwner(
+      authorUserId: job.authorUserId,
+      viewerUserId: auth.currentUserId,
+    );
+    final cta = listingCtaFor(
+      type: PostType.job,
+      authorUserId: job.authorUserId,
+      viewerUserId: auth.currentUserId ?? '',
+      status: job.status,
+      hasApplied: applied,
+    );
     final authorDisplayName = (job.authorName.isNotEmpty && job.authorName != '?')
         ? job.authorName
         : (isCurrentUser && auth.currentUserName.isNotEmpty
@@ -270,26 +284,39 @@ class JobCard extends StatelessWidget {
                   Expanded(
                     child: Align(
                       alignment: Alignment.centerRight,
-                      // Note: JobModel is an employment-job posting (not a service
-                      // request with a selected-provider escrow lifecycle), so the
-                      // Issue-2 "already taken" gate does not apply here.
-                      child: FilledButton(
-                        onPressed: applied ? null : onApply,
-                        style: applied
-                            ? FilledButton.styleFrom(
-                                backgroundColor: borderColor,
-                                foregroundColor: textTertiary,
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                                minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              )
-                            : FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                                minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                        child: Text(applied ? 'Applied' : 'Apply'),
-                      ),
+                      // The author gets management, never an Apply — the same
+                      // OwnerCta Discover and My Posts render for this listing.
+                      // Apply is not merely disabled for them: it is not built,
+                      // so no tap can reach the network (see Issue 3).
+                      child: isCurrentUser
+                          ? OwnerCta(
+                              type: PostType.job,
+                              status: job.status,
+                              applicationCount: job.applications.length,
+                              onTap: onTap,
+                            )
+                          : FilledButton(
+                              onPressed: cta == ListingCta.apply ? onApply : null,
+                              style: cta == ListingCta.apply
+                                  ? FilledButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                                      minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    )
+                                  : FilledButton.styleFrom(
+                                      backgroundColor: borderColor,
+                                      disabledBackgroundColor: borderColor,
+                                      disabledForegroundColor: textTertiary,
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                                      minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                              child: Text(switch (cta) {
+                                ListingCta.applied => 'Applied',
+                                ListingCta.unavailable => 'Closed',
+                                _ => 'Apply',
+                              }),
+                            ),
                     ),
                   ),
                 ],

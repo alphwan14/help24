@@ -10,6 +10,7 @@ import '../services/post_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
+import '../utils/post_ownership.dart';
 import 'application_modal.dart';
 import 'provider_gate.dart';
 
@@ -77,10 +78,15 @@ void openPostFromFeed(BuildContext context, PostModel post) {
 String? inPlaceAnswerFor(PostModel post, String viewerUserId) {
   final reason = closedListingReason(post);
   if (reason == null) return null;
-  // An empty uid must not match an empty authorUserId on a legacy row and hand
-  // a signed-out browser the owner's screen.
-  if (viewerUserId.isNotEmpty &&
-      (post.authorUserId == viewerUserId ||
+  // The owner and the selected provider always get the full screen — theirs has
+  // actions on it. `isListingOwner` is the shared rule: an empty uid must not
+  // match an empty authorUserId on a legacy row and hand a signed-out browser
+  // the owner's screen.
+  if (isListingOwner(
+        authorUserId: post.authorUserId,
+        viewerUserId: viewerUserId,
+      ) ||
+      (viewerUserId.isNotEmpty &&
           post.selectedProviderUserId == viewerUserId)) {
     return null;
   }
@@ -124,7 +130,13 @@ Future<bool> confirmAndDeletePost(BuildContext context, PostModel post) async {
   final success = await appProvider.deletePost(post.id, currentUserId);
   if (!context.mounted) return success;
   if (success) {
-    await appProvider.loadPosts();
+    // Job posts live in their own list (the Jobs tab reads `jobs`, not
+    // `posts`), so reloading only posts left a deleted job on screen. Deleting
+    // now happens on the shared detail screen for every type, so this has to
+    // refresh whichever list the listing came from.
+    await (post.type == PostType.job
+        ? appProvider.loadJobs()
+        : appProvider.loadPosts());
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -220,34 +232,69 @@ Future<void> _openPrivateChat(BuildContext context, PostModel post) async {
   );
 }
 
-/// Open ApplicationModal to let a user offer service on a request.
+/// Open the OWNER's management experience for [post].
+///
+/// The single entry point for "this is mine, let me manage it", called from
+/// Discover, the Jobs tab and Profile → My Posts. All three used to go
+/// somewhere different: Discover pushed the detail screen (which showed a job
+/// author nothing but "You posted this job"), the Jobs tab opened a private
+/// bottom sheet with an Apply button on it, and My Posts jumped straight to the
+/// lifecycle view. One destination now, so arriving from a different screen can
+/// never mean a different experience.
+void openListingManagement(BuildContext context, PostModel post) =>
+    _pushPostDetail(context, post);
+
+/// Open ApplicationModal so a user can respond to a listing that takes
+/// applications — offering service on a request, or applying to a job post.
+///
+/// THE ONLY APPLY PATH. The Jobs tab used to build its own, which skipped the
+/// ownership and duplicate checks this one performs; pressing Apply on your own
+/// job therefore reached the database, hit the `trg_block_self_application`
+/// trigger, and surfaced as the generic "We couldn't send your response."
+/// Everything routes here now, so the guards cannot be bypassed by arriving
+/// from a different screen.
 ///
 /// Invoked from `onAuthenticated:` callbacks typed as `VoidCallback`, so the
 /// returned Future is discarded by the framework and any throw becomes an
 /// unhandled async error — invisible. The whole body is therefore wrapped: an
 /// exception on the way to the modal is reported, never dropped.
-Future<void> openOfferServiceModal(BuildContext context, PostModel post) async {
+Future<void> applyToListing(BuildContext context, PostModel post) async {
   try {
-    await _openOfferServiceModal(context, post);
+    await _applyToListing(context, post);
   } catch (e) {
     if (!context.mounted) {
-      debugPrint('[POST_FLOWS] offer flow failed after unmount: $e');
+      debugPrint('[POST_FLOWS] apply flow failed after unmount: $e');
       return;
     }
     ActionFeedback.failure(context, e, context_: ErrorContext.apply);
   }
 }
 
-Future<void> _openOfferServiceModal(BuildContext context, PostModel post) async {
+Future<void> _applyToListing(BuildContext context, PostModel post) async {
+  final isJob = post.type == PostType.job;
   final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
   if (currentUserId.isEmpty) {
     // Previously a bare `return` — a tap that produced nothing at all.
-    ActionFeedback.info(context, 'Please sign in to offer your services');
+    ActionFeedback.info(
+      context,
+      isJob ? 'Please sign in to apply' : 'Please sign in to offer your services',
+    );
     return;
   }
 
-  if (post.authorUserId == currentUserId) {
-    ActionFeedback.info(context, 'This is your own request');
+  // Ownership first, and before ANY network call. The CTAs above this point
+  // already refuse to offer Apply to an author; this is the guard for every
+  // path that reaches the flow anyway (deep link, stale card, race).
+  if (isListingOwner(
+    authorUserId: post.authorUserId,
+    viewerUserId: currentUserId,
+  )) {
+    ActionFeedback.info(
+      context,
+      isJob ? 'This is your own job post' : 'This is your own request',
+      actionLabel: 'Manage',
+      onAction: () => openListingManagement(context, post),
+    );
     return;
   }
 
@@ -255,36 +302,51 @@ Future<void> _openOfferServiceModal(BuildContext context, PostModel post) async 
   final alreadyApplied = await ApplicationService.hasApplied(post.id, currentUserId);
   if (!context.mounted) return;
   if (alreadyApplied) {
-    ActionFeedback.info(context, 'You already applied to this request.');
+    ActionFeedback.info(
+      context,
+      isJob ? 'You already applied to this job.' : 'You already applied to this request.',
+    );
     return;
   }
 
   // Become-a-provider gate: a confirmed profession (so the client knows who
   // they are hiring) AND an M-Pesa number (so the provider can be paid). One
-  // gate, shared with the job-apply path — see widgets/provider_gate.dart.
+  // gate for both listing kinds — see widgets/provider_gate.dart.
   final ready = await ensureProviderReady(
     context,
     uid: currentUserId,
-    action: 'offer your services',
+    action: isJob ? 'apply for jobs' : 'offer your services',
   );
   if (!context.mounted || !ready) return;
+
+  // Captured before the sheet: the modal's callback outlives this context.
+  final appProvider = context.read<AppProvider>();
 
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => ApplicationModal(
-      title: post.title,
-      type: 'request',
-      // Does the work and nothing else. Success and every failure — including
-      // the duplicate-application race, which ErrorMapper renders as "You've
-      // already applied" — are reported by the modal. See its class comment for
-      // why this used to be split across both sides and reported by neither.
-      onSubmit: (message) => ApplicationService.submitApplication(
-        postId: post.id,
-        currentUserId: currentUserId,
-        message: message,
-        proposedPrice: 0,
+    builder: (_) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: ApplicationModal(
+        title: post.title,
+        type: isJob ? 'job' : 'request',
+        // Does the work and nothing else. Success and every failure — including
+        // the duplicate-application race, which ErrorMapper renders as "You've
+        // already applied" — are reported by the modal. See its class comment for
+        // why this used to be split across both sides and reported by neither.
+        onSubmit: (message) async {
+          await ApplicationService.submitApplication(
+            postId: post.id,
+            currentUserId: currentUserId,
+            message: message,
+            proposedPrice: 0,
+            postAuthorUserId: post.authorUserId,
+          );
+          // Only after a successful write: the card flips to its done state
+          // immediately instead of waiting for the next loadMyApplications.
+          appProvider.markApplied(post.id);
+        },
       ),
     ),
   );

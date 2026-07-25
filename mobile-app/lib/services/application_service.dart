@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/api_config.dart';
 import '../models/post_model.dart';
+import '../utils/post_ownership.dart';
+import 'auth_service.dart';
 import 'supabase_auth_bridge.dart';
 
 /// Service for handling job/post applications with Supabase. Uses real user ids.
@@ -16,15 +18,34 @@ class ApplicationService {
   static const _pgUniqueViolation = '23505';
 
   /// Submit an application. Requires [currentUserId]. Name/avatar come from users join on read.
-  /// Throws [DuplicateApplicationException] if the user has already applied to this post.
+  ///
+  /// Pass [postAuthorUserId] whenever the caller knows it (every UI path does):
+  /// applying to your own post is then rejected locally, before any I/O.
+  ///
+  /// Throws [SelfApplicationException] when the applicant authored the post,
+  /// and [DuplicateApplicationException] if they have already applied.
   static Future<Application> submitApplication({
     required String postId,
     required String currentUserId,
     required String message,
     required double proposedPrice,
+    String? postAuthorUserId,
   }) async {
     if (currentUserId.isEmpty) {
       throw ApplicationServiceException('Sign in to submit an application.');
+    }
+
+    // Layer A: ownership. The database has enforced this since migration 030
+    // (trg_block_self_application), but only AFTER a round trip — and its
+    // rejection arrives as a PostgrestException the mapper can only render as
+    // the generic "We couldn't send your response". The rule is decidable here
+    // with data the caller already holds, so it is decided here and no request
+    // is made at all.
+    if (isListingOwner(
+      authorUserId: postAuthorUserId,
+      viewerUserId: currentUserId,
+    )) {
+      throw SelfApplicationException();
     }
 
     // Layer B: check before insert so the caller can show a clean message
@@ -39,6 +60,12 @@ class ApplicationService {
     // a degraded session. Every other write path in the app already does this;
     // this one did not.
     await SupabaseAuthBridge.ensureSessionForWriteAsync();
+
+    // `applications.applicant_user_id` is a foreign key into `users`, so the
+    // signed-in Firebase user must exist there before the insert. The Jobs tab
+    // did this in its own submit wrapper and the request path did not — the
+    // guarantee now lives at the single choke point both go through.
+    await AuthService.ensureCurrentUserInSupabase();
 
     try {
       final applicationData = {
@@ -229,4 +256,13 @@ class ApplicationServiceException implements Exception {
 class DuplicateApplicationException implements Exception {
   @override
   String toString() => 'DuplicateApplicationException: already applied to this post';
+}
+
+/// Thrown when a user tries to apply to their own post. Raised before any
+/// network call — the UI should never have offered the action in the first
+/// place, so reaching this is a bug worth seeing rather than a failure to
+/// dress up as one.
+class SelfApplicationException implements Exception {
+  @override
+  String toString() => 'SelfApplicationException: cannot apply to your own post';
 }

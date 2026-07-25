@@ -103,6 +103,12 @@ class ErrorMapper {
 
     // 4) Postgrest / database.
     if (error is PostgrestException) {
+      // Checked before the generic branches: the self-application trigger
+      // (migration 030) raises a check_violation whose message is the rule
+      // itself. Without this it fell through to the context fallback and the
+      // author of a post was told "We couldn't send your response", as if the
+      // network had failed, for an action that is simply not a thing.
+      if (_isSelfApplication(error.message)) return _selfApplicationFailure;
       if (_isUniqueViolation(error.code, error.message)) {
         return const AppFailure(
           title: 'Already done',
@@ -187,6 +193,20 @@ class ErrorMapper {
         s.contains('invalid claim');
   }
 
+  /// "You cannot apply to your own post." — the wording raised by
+  /// `fn_block_self_application`, plus the local [SelfApplicationException]
+  /// that now stops the request before it is sent.
+  static bool _isSelfApplication(String? message) {
+    final m = (message ?? '').toLowerCase();
+    return m.contains('selfapplicationexception') ||
+        (m.contains('own post') && m.contains('apply'));
+  }
+
+  static const AppFailure _selfApplicationFailure = AppFailure(
+    title: 'This is your post',
+    message: "You can't apply to your own post — open it to manage applicants.",
+  );
+
   static bool _isUniqueViolation(String? code, String? message) {
     if (code == '23505') return true;
     final m = (message ?? '').toLowerCase();
@@ -208,6 +228,9 @@ class ErrorMapper {
     if (raw == null) return null;
     final s = raw.toLowerCase();
 
+    // Matched before 'already applied' etc. so the local pre-flight guard and
+    // the database trigger produce the identical sentence.
+    if (_isSelfApplication(raw)) return _selfApplicationFailure;
     if (s.contains('already applied')) {
       return const AppFailure(
         title: 'Already applied',

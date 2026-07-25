@@ -19,6 +19,7 @@ import 'notifications_screen.dart';
 import '../models/promotion_models.dart';
 import '../services/promotion_service.dart';
 import '../utils/feed_composer.dart';
+import '../utils/post_ownership.dart';
 import '../utils/promotion_tracker.dart';
 import '../widgets/post_flows.dart';
 
@@ -555,13 +556,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                   // search. See openPostFromFeed.
                   openPostFromFeed(context, post);
                 },
-                onRespond: post.type == PostType.request
+                // Requests and job posts both respond by applying, through the
+                // one guarded flow. A job used to fall into the `else` here and
+                // open a chat ("Enquire"), while the Jobs tab showed the same
+                // job an "Apply" — one listing, two different verbs.
+                onRespond: listingTakesApplications(post.type)
                     ? () {
                         AuthGuard.requireAuth(
                           context,
-                          action: 'offer service on this request',
-                          onAuthenticated: () =>
-                              openOfferServiceModal(context, post),
+                          action: post.type == PostType.job
+                              ? 'apply for this job'
+                              : 'offer service on this request',
+                          onAuthenticated: () => applyToListing(context, post),
                         );
                       }
                     : () {

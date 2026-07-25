@@ -6,12 +6,18 @@ import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_card.dart';
-import 'job_lifecycle_screen.dart';
+import '../widgets/post_flows.dart';
 
 /// The profile's activity-management surface: every post the user has
 /// authored (requests, offers and job posts), newest first, rendered with the
-/// standard feed card. Tapping a post opens the Job Lifecycle Detail — the
-/// single management view for status, payment, completion and disputes.
+/// standard feed card.
+///
+/// Tapping a post opens [openListingManagement] — the same canonical detail
+/// screen Discover and the Jobs tab open. This screen used to jump straight to
+/// the Job Lifecycle Detail, which meant the owner of one job saw applicants
+/// from one entry point and a payment timeline from another. The lifecycle view
+/// is now one tap further in, on the listing itself, where both roles can reach
+/// it.
 class MyPostsScreen extends StatefulWidget {
   final String userId;
 
@@ -86,12 +92,7 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
                 final post = posts[i];
                 return PostCard(
                   post: post,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => JobLifecycleScreen(postId: post.id),
-                    ),
-                  ),
+                  onTap: () => openListingManagement(context, post),
                 );
               },
             ),

@@ -21,6 +21,7 @@ import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
 import '../utils/phone_utils.dart';
+import '../utils/post_ownership.dart';
 import '../utils/time_utils.dart';
 import '../widgets/applicant_card.dart';
 import '../widgets/auth_guard.dart';
@@ -28,6 +29,7 @@ import '../widgets/post_flows.dart';
 import '../widgets/reputation_widgets.dart';
 import 'applications_screen.dart';
 import 'approve_or_dispute_screen.dart';
+import 'job_lifecycle_screen.dart';
 import 'mark_complete_screen.dart';
 import 'payment_screen.dart';
 
@@ -44,6 +46,14 @@ import 'payment_screen.dart';
 /// All business rules are inherited unchanged from the old sheet:
 /// duplicate-apply guard, M-Pesa prechecks, payment-secured lock, provider
 /// selection, job lifecycle actions, archive-on-delete.
+///
+/// THE CANONICAL OWNER SURFACE. Every entry point that opens a listing — the
+/// Discover feed, the Jobs tab, Profile → My Posts, Saved, a chat's post
+/// banner — lands here, so the author gets the same management experience
+/// regardless of where they came from. Its owner affordances are gated on
+/// [listingTakesApplications], NOT on `type == PostType.request`: that
+/// mis-gate is what left a job author with a dead sentence ("You posted this
+/// job") and no route to their applicants.
 class PostDetailScreen extends StatefulWidget {
   final PostModel post;
 
@@ -82,10 +92,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   // One-shot checks mirror the old sheet: they run from build the first time
   // their preconditions hold (auth may arrive after the screen opens).
   void _runOneShotChecks(String currentUserId, bool isAuthor) {
+    // Job posts take applications too — checking only requests meant a user who
+    // had already applied to a job was invited to apply again from here.
     if (!_appliedChecked &&
         !isAuthor &&
         currentUserId.isNotEmpty &&
-        post.type == PostType.request) {
+        listingTakesApplications(post.type)) {
       _appliedChecked = true;
       ApplicationService.hasApplied(post.id, currentUserId).then((applied) {
         if (applied && mounted) setState(() => _hasApplied = true);
@@ -131,9 +143,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     return Consumer2<AuthProvider, ConnectivityProvider>(
       builder: (context, auth, connectivity, _) {
         final currentUserId = auth.currentUserId ?? '';
-        final isAuthor = currentUserId.isNotEmpty &&
-            post.authorUserId.isNotEmpty &&
-            post.authorUserId == currentUserId;
+        // Shared rule — see utils/post_ownership.dart.
+        final isAuthor = isListingOwner(
+          authorUserId: post.authorUserId,
+          viewerUserId: currentUserId,
+        );
         final isOffline = connectivity.isOffline;
 
         final showPayButton = post.type == PostType.request &&
@@ -248,7 +262,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                         const SizedBox(height: 24),
                         _PaymentProtectionCard(isDark: isDark),
                       ],
-                      if (post.type == PostType.request && isAuthor) ...[
+                      // Applicants: for EVERY listing that takes them, which is
+                      // requests and job posts alike. This condition used to
+                      // read `post.type == PostType.request`, so a job author
+                      // opening their own post from Discover was shown nothing
+                      // to manage — the bug this whole change exists to fix.
+                      if (listingTakesApplications(post.type) && isAuthor) ...[
                         const SizedBox(height: 24),
                         _ApplicantsSection(
                           post: post,
@@ -299,6 +318,17 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           isAuthor: isAuthor,
                           postStatus: post.status,
                         ),
+                      ],
+                      // Route to the money/timeline view. Profile → My Posts
+                      // used to open that screen DIRECTLY, which is why it and
+                      // Discover disagreed; now every entry point lands here
+                      // and the lifecycle stays one tap away for the people the
+                      // backend scopes it to (author and selected provider).
+                      if ((isAuthor || isSelectedProvider) &&
+                          post.status.isNotEmpty &&
+                          post.status != 'open') ...[
+                        const SizedBox(height: 20),
+                        _LifecycleLink(post: post, isDark: isDark),
                       ],
                       const SizedBox(height: 12),
                     ],
@@ -586,7 +616,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       );
     } else if (!isAuthor &&
         _hasApplied &&
-        post.type == PostType.request) {
+        listingTakesApplications(post.type)) {
       content = Container(
         width: double.infinity,
         height: 52,
@@ -601,7 +631,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 20),
             SizedBox(width: 8),
             Text(
-              'You already applied to this request',
+              'You already applied',
               style: TextStyle(
                 color: AppTheme.successGreen,
                 fontWeight: FontWeight.w600,
@@ -612,8 +642,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         ),
       );
     } else if (!isAuthor &&
-        post.type == PostType.request &&
-        post.status != 'open') {
+        !listingIsOpen(type: post.type, status: post.status)) {
       content = Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 15),
@@ -643,11 +672,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           onPressed: () {
             AuthGuard.requireAuth(
               context,
-              action: post.type == PostType.request
-                  ? 'offer service on this request'
-                  : 'request this service',
-              onAuthenticated: () => post.type == PostType.request
-                  ? openOfferServiceModal(context, post)
+              action: switch (post.type) {
+                PostType.request => 'offer service on this request',
+                PostType.job => 'apply for this job',
+                PostType.offer => 'request this service',
+              },
+              // Jobs go through the SAME guarded apply flow as requests (it was
+              // "Contact Poster" here while the Jobs tab said "Apply" — two
+              // answers for one listing). Offers are enquired about in chat.
+              onAuthenticated: () => listingTakesApplications(post.type)
+                  ? applyToListing(context, post)
                   : openPrivateChat(context, post),
             );
           },
@@ -660,7 +694,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           icon: Icon(
             switch (post.type) {
               PostType.offer => Icons.handshake_outlined,
-              PostType.job => Iconsax.message,
+              PostType.job => Iconsax.send_2,
               PostType.request => Iconsax.send_2,
             },
             size: 20,
@@ -668,7 +702,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           label: Text(
             switch (post.type) {
               PostType.offer => 'Request Service',
-              PostType.job => 'Contact Poster',
+              PostType.job => 'Apply for this Job',
               PostType.request => 'Offer Service',
             },
             maxLines: 1,
@@ -677,18 +711,24 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           ),
         ),
       );
-    } else if (post.type == PostType.request) {
-      // Author of a request with no selection yet. One full-size element —
-      // the applicant count folds into the button label (the Applicants
-      // section above already shows the detail; a side-by-side text + small
-      // button squeezed both).
+    } else if (listingTakesApplications(post.type)) {
+      // Author of a request or a JOB POST with no selection yet. One full-size
+      // element — the applicant count folds into the button label (the
+      // Applicants section above already shows the detail; a side-by-side text
+      // + small button squeezed both).
+      //
+      // Gating this on `request` is what produced the reported bug: a job
+      // author reached the `else` below and was told "You posted this job",
+      // with their applicants sitting unreachable on the same screen.
       final count = post.applications.length;
       content = count == 0
           ? Container(
               height: 52,
               alignment: Alignment.center,
               child: Text(
-                'No offers yet — providers will apply here',
+                post.type == PostType.job
+                    ? 'No applicants yet — they will appear here'
+                    : 'No offers yet — providers will apply here',
                 style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
@@ -729,7 +769,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               ),
             );
     } else {
-      // Author viewing their own offer / job post.
+      // Author viewing their own OFFER. An offer has no applicants and no
+      // lifecycle — it is a standing advert, so a statement is the honest
+      // answer here. (Jobs no longer land in this branch.)
       content = Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -739,7 +781,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
           const SizedBox(width: 8),
           Text(
-            'You posted this ${post.type == PostType.offer ? 'service' : 'job'}',
+            'You posted this ${listingNoun(post.type)}',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
@@ -1399,12 +1441,56 @@ class _PaymentProtectionCard extends StatelessWidget {
   }
 }
 
+/// Link to the Job Lifecycle Detail — payment, completion, dispute, timeline.
+///
+/// That screen is the money view; this one is the listing view. Profile → My
+/// Posts used to open it *instead of* the listing, which is how the same job
+/// came to have two different "owner experiences". It is now reached from here,
+/// so there is one destination and no lost capability.
+class _LifecycleLink extends StatelessWidget {
+  final PostModel post;
+  final bool isDark;
+
+  const _LifecycleLink({required this.post, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => JobLifecycleScreen(postId: post.id, postTitle: post.title),
+          ),
+        ),
+        icon: const Icon(Icons.timeline_rounded, size: 18),
+        label: const Text('Job status & payment'),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Applicants (request owner) — moved unchanged from the old sheet ─────────
 
 class _ApplicantsSection extends StatefulWidget {
   final PostModel post;
   final bool isDark;
   final String? overrideSelectedId;
+
+  /// Whether choosing an applicant starts the escrow lifecycle (select →
+  /// secure payment → mark complete → approve).
+  ///
+  /// True for REQUESTS only. An employment job post has no payment step — the
+  /// action bar's "Secure Service" button is request-gated — so accepting an
+  /// applicant there would move the post to 'assigned' with no way to pay,
+  /// complete or release it. The job owner gets the full applicant list, trust
+  /// signals and messaging; hiring is concluded in conversation, not escrow.
+  bool get canSelectProvider => post.type == PostType.request;
   final Function(String userId) onProviderSelected;
   final Future<void> Function(String applicantUserId, String applicantName,
       String applicantAvatarUrl) onChatWithApplicant;
@@ -1506,8 +1592,10 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
           ...widget.post.applications.map((app) {
             final isSelected = app.applicantUserId == effectiveSelectedId;
             final isSelecting = _selecting == app.applicantUserId;
-            final canSelect =
-                !anySelected && !isSelecting && app.applicantUserId.isNotEmpty;
+            final canSelect = widget.canSelectProvider &&
+                !anySelected &&
+                !isSelecting &&
+                app.applicantUserId.isNotEmpty;
 
             return ApplicantCard(
               application: app,

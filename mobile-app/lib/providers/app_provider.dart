@@ -473,81 +473,27 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     }
   }
 
-  /// Submit application to a post. Requires [currentUserId].
-  Future<bool> submitApplicationToPost(
-    String postId, {
-    required String? currentUserId,
-    required String message,
-    required double proposedPrice,
-  }) async {
-    try {
-      await AuthService.ensureCurrentUserInSupabase();
-      final application = await ApplicationService.submitApplication(
-        postId: postId,
-        currentUserId: currentUserId ?? '',
-        message: message,
-        proposedPrice: proposedPrice,
-      );
-
-      // Server-derived applied state: mark this post so its card flips to the
-      // done state and survives the next feed reload.
-      _appliedPostIds.add(postId);
-
-      // Update local post with new application
-      final index = _posts.indexWhere((p) => p.id == postId);
-      if (index != -1) {
-        final post = _posts[index];
-        final updatedApplications = [...post.applications, application];
-        _posts[index] = post.copyWith(applications: updatedApplications);
-      }
-      notifyListeners();
-
-      return true;
-    } catch (e) {
-      _error = ErrorMapper.toMessage(e, context: ErrorContext.apply);
-      debugPrint('[AppProvider] submitApplicationToPost failed: $e');
-      return false;
-    }
+  /// Record that the current user has just responded to [postId], so every
+  /// card showing it flips to its done state without waiting for the next
+  /// [loadMyApplications].
+  ///
+  /// Called by the ONE apply flow (`post_flows.applyToListing`). It replaced a
+  /// pair of near-identical `submitApplicationToX` methods that each re-did the
+  /// submission and its bookkeeping — the Jobs tab used one, nothing used the
+  /// other, and the shared flow used neither.
+  void markApplied(String postId) {
+    if (postId.isEmpty || _appliedPostIds.contains(postId)) return;
+    _appliedPostIds.add(postId);
+    notifyListeners();
   }
 
-  /// Submit application to a job. Requires [currentUserId].
-  Future<bool> submitApplicationToJob(
-    String jobId, {
-    required String? currentUserId,
-    required String message,
-    required double proposedPrice,
-  }) async {
-    try {
-      await AuthService.ensureCurrentUserInSupabase();
-      final application = await ApplicationService.submitApplication(
-        postId: jobId,
-        currentUserId: currentUserId ?? '',
-        message: message,
-        proposedPrice: proposedPrice,
-      );
-
-      // Server-derived applied state so "Applied" survives the next loadJobs().
-      _appliedPostIds.add(jobId);
-
-      // Update local job with new application
-      final index = _jobs.indexWhere((j) => j.id == jobId);
-      if (index != -1) {
-        final job = _jobs[index];
-        final updatedApplications = [...job.applications, application];
-        _jobs[index] = job.copyWith(
-          applications: updatedApplications,
-          hasApplied: true,
-        );
-      }
-      notifyListeners();
-
-      return true;
-    } catch (e) {
-      _error = ErrorMapper.toMessage(e, context: ErrorContext.apply);
-      debugPrint('[AppProvider] submitApplicationToJob failed: $e');
-      return false;
-    }
-  }
+  // submitApplicationToPost / submitApplicationToJob removed. They were two
+  // copies of one submission — the Jobs tab called the second, nothing called
+  // the first, and the shared apply flow called neither, which is how the job
+  // path came to have an ownership story of its own. Submission now happens in
+  // exactly one place (ApplicationService.submitApplication, reached only via
+  // post_flows.applyToListing) and the applied state is recorded by
+  // [markApplied] above.
 
   /// Legacy method for backward compatibility
   void addApplicationToPost(String postId, Application application) {

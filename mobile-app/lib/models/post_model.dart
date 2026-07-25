@@ -741,6 +741,33 @@ class JobModel {
   final Map<String, dynamic> attributes;
   final int? attributesSchemaVersion;
 
+  // ── Fields shared with PostModel ───────────────────────────────────────────
+  //
+  // A job IS a `posts` row with type='job' — JobModel is only a display-side
+  // projection of it. These used to be dropped on the floor during parsing,
+  // which is why the Jobs tab could not open the canonical detail screen and
+  // grew a private bottom sheet instead. They are parsed from the same JSON
+  // the row already returns, so carrying them costs nothing.
+
+  /// Numeric salary. [pay] is the formatted display string built from this.
+  final double price;
+
+  /// Lifecycle state: open | assigned | completed | disputed | cancelled.
+  final String status;
+
+  /// Applicant chosen by the author, if any.
+  final String? selectedProviderUserId;
+
+  /// True when the author has an M-Pesa number on file.
+  final bool authorHasPhone;
+
+  /// Employment type as the enum PostModel uses (the [type] field above is its
+  /// display string, e.g. "Full-time").
+  final EmploymentType? employmentType;
+
+  final double? latitude;
+  final double? longitude;
+
   JobModel({
     required this.id,
     required this.title,
@@ -765,7 +792,51 @@ class JobModel {
     this.pricingType = PricingType.task,
     this.attributes = const {},
     this.attributesSchemaVersion,
+    this.price = 0,
+    this.status = 'open',
+    this.selectedProviderUserId,
+    this.authorHasPhone = false,
+    this.employmentType,
+    this.latitude,
+    this.longitude,
   }) : postedAt = postedAt ?? DateTime.now();
+
+  /// The same listing as a [PostModel] — the shape every canonical screen
+  /// (detail, applicants, lifecycle) already speaks.
+  ///
+  /// This is what lets the Jobs tab open the SAME screen Discover and My Posts
+  /// open, instead of the reduced bottom sheet it used to build itself.
+  PostModel toPostModel() {
+    return PostModel(
+      id: id,
+      title: title,
+      description: description,
+      category: Category.fromName(categoryName),
+      location: location,
+      price: price,
+      urgency: urgency,
+      type: PostType.job,
+      pricingType: pricingType,
+      employmentType: employmentType,
+      difficulty: difficulty,
+      rating: rating,
+      authorReviewCount: authorReviewCount,
+      authorName: authorName,
+      authorAvatar: authorAvatarUrl,
+      authorTempId: authorTempId,
+      authorUserId: authorUserId,
+      createdAt: postedAt,
+      latitude: latitude,
+      longitude: longitude,
+      images: images,
+      applications: applications,
+      selectedProviderUserId: selectedProviderUserId,
+      authorHasPhone: authorHasPhone,
+      status: status,
+      attributes: attributes,
+      attributesSchemaVersion: attributesSchemaVersion,
+    );
+  }
 
   bool get hasAuthorRatings => authorReviewCount > 0;
 
@@ -845,6 +916,16 @@ class JobModel {
       attributes: json['attributes'] is Map
           ? Map<String, dynamic>.from(json['attributes'] as Map)
           : const {},
+      attributesSchemaVersion: json['attributes_schema_version'] is int
+          ? json['attributes_schema_version'] as int
+          : null,
+      price: (json['price'] ?? 0).toDouble(),
+      status: json['status']?.toString() ?? 'open',
+      selectedProviderUserId: json['selected_provider_id']?.toString(),
+      authorHasPhone: _userHasPhone(authorUsers),
+      employmentType: PostModel._parseEmploymentType(json['employment_type']),
+      latitude: (json['latitude'] is num) ? (json['latitude'] as num).toDouble() : null,
+      longitude: (json['longitude'] is num) ? (json['longitude'] as num).toDouble() : null,
     );
   }
 
@@ -928,12 +1009,26 @@ class JobModel {
       'created_at': postedAt.toIso8601String(),
       'post_images': images.map((u) => {'image_url': u}).toList(),
       'applications': applications.map((a) => a.toCacheMap()).toList(),
-      'users': {'name': authorName, 'profile_image': authorAvatarUrl},
+      'users': {
+        'name': authorName,
+        'profile_image': authorAvatarUrl,
+        if (authorHasPhone) 'phone_number': '1',
+      },
       'category': categoryName,
       'difficulty': difficulty.name,
       'urgency': urgency.name,
       'rating': rating,
       'author_review_count': authorReviewCount,
+      // Ownership and lifecycle must survive the offline round-trip: a cached
+      // job that lost its status/author would render the wrong CTA on relaunch.
+      'price': price,
+      'status': status,
+      if (selectedProviderUserId != null) 'selected_provider_id': selectedProviderUserId,
+      if (employmentType != null) 'employment_type': PostModel._employmentTypeToDb(employmentType!),
+      'pricing_type': pricingType.name,
+      if (attributes.isNotEmpty) 'attributes': attributes,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
     };
   }
 
@@ -958,6 +1053,16 @@ class JobModel {
     Difficulty? difficulty,
     Urgency? urgency,
     String? categoryName,
+    PricingType? pricingType,
+    Map<String, dynamic>? attributes,
+    int? attributesSchemaVersion,
+    double? price,
+    String? status,
+    String? selectedProviderUserId,
+    bool? authorHasPhone,
+    EmploymentType? employmentType,
+    double? latitude,
+    double? longitude,
   }) {
     return JobModel(
       id: id ?? this.id,
@@ -980,6 +1085,16 @@ class JobModel {
       difficulty: difficulty ?? this.difficulty,
       urgency: urgency ?? this.urgency,
       categoryName: categoryName ?? this.categoryName,
+      pricingType: pricingType ?? this.pricingType,
+      attributes: attributes ?? this.attributes,
+      attributesSchemaVersion: attributesSchemaVersion ?? this.attributesSchemaVersion,
+      price: price ?? this.price,
+      status: status ?? this.status,
+      selectedProviderUserId: selectedProviderUserId ?? this.selectedProviderUserId,
+      authorHasPhone: authorHasPhone ?? this.authorHasPhone,
+      employmentType: employmentType ?? this.employmentType,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
     );
   }
 }

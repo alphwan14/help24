@@ -2,11 +2,113 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post_model.dart';
 import '../theme/app_theme.dart';
+import 'feed_card_tokens.dart';
 
 /// Spacing constants for card layout (8–12px system).
 const double kCardPadding = 12;
 const double kCardGap = 8;
 const double kCardRadius = 12;
+
+/// The button an author sees on their OWN listing, on every feed surface.
+///
+/// Lives here — not inside one card — because Discover (`PostCard`) and the
+/// Jobs tab (`JobCard`) render the same listing. `JobCard` used to draw a plain
+/// "Apply" regardless of ownership, so the same job invited its author to apply
+/// on one tab and offered management on another. One widget, one answer.
+///
+/// It never says "Apply". It opens management: applicants while the listing is
+/// open, job status once it has progressed.
+class OwnerCta extends StatelessWidget {
+  final PostType type;
+
+  /// Lifecycle state: open | assigned | completed | disputed | cancelled.
+  final String status;
+
+  /// Number of applications received — folded into the label so the author can
+  /// see there is something waiting without opening anything.
+  final int applicationCount;
+
+  /// True when the job is 'completed' but the payout has not settled yet.
+  final bool payoutInProgress;
+
+  final VoidCallback? onTap;
+
+  const OwnerCta({
+    super.key,
+    required this.type,
+    required this.status,
+    this.applicationCount = 0,
+    this.payoutInProgress = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (type == PostType.offer) {
+      return _button(
+        icon: Icons.storefront_outlined,
+        label: 'My Offer',
+        color: null,
+      );
+    }
+
+    // Requests and job posts — label and colour driven by lifecycle status.
+    switch (status) {
+      case 'assigned':
+        return _button(
+          icon: Icons.build_circle_outlined,
+          label: 'In Progress',
+          color: AppTheme.primaryAccent,
+        );
+      case 'completed':
+        return _button(
+          icon: payoutInProgress
+              ? Icons.hourglass_top_rounded
+              : Icons.check_circle_outline,
+          label: payoutInProgress ? 'Finalizing' : 'Completed',
+          color: payoutInProgress ? AppTheme.warningOrange : AppTheme.successGreen,
+        );
+      case 'disputed':
+        return _button(
+          icon: Icons.flag_outlined,
+          label: 'Disputed',
+          color: AppTheme.errorRed,
+        );
+      case 'cancelled':
+        return _button(
+          icon: Icons.do_not_disturb_on_outlined,
+          label: 'Closed',
+          color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+        );
+      default: // 'open'
+        final hasApps = applicationCount > 0;
+        return _button(
+          icon: hasApps ? Icons.people_rounded : Icons.people_outline,
+          label: hasApps ? 'Applications ($applicationCount)' : 'Manage',
+          color: hasApps
+              ? AppTheme.primaryAccent
+              : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+        );
+    }
+  }
+
+  /// Outlined on purpose: "this is mine" must not look like "do something".
+  Widget _button({required IconData icon, required String label, required Color? color}) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 15),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: color,
+      ),
+    );
+  }
+}
 
 /// Circular avatar with optional image URL; uses placeholder if empty.
 class MarketplaceAvatar extends StatelessWidget {

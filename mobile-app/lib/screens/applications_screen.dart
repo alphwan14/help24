@@ -39,6 +39,13 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
   // Once a provider is accepted we lock the entire list.
   String? _acceptedProviderId;
 
+  /// Whether accepting an applicant starts the escrow lifecycle. Requests only
+  /// — see `_ApplicantsSection.canSelectProvider` in post_detail_screen.dart
+  /// for why an employment job must not enter it. Assumed true until the post
+  /// is loaded, then corrected; the Accept button only renders once
+  /// [_acceptedProviderId] has been resolved by that same load.
+  bool _canSelectProvider = true;
+
   RealtimeChannel? _realtimeChannel;
 
   @override
@@ -89,13 +96,17 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
       // re-inviting a selection (which then hit a conflict). Only needed until
       // we know of a selection.
       String? serverSelected;
+      PostModel? post;
       if (_acceptedProviderId == null) {
-        final post = await PostService.getPostById(widget.postId);
+        post = await PostService.getPostById(widget.postId);
         serverSelected = post?.selectedProviderUserId;
       }
       if (!mounted) return;
       setState(() {
         _applications = apps;
+        if (post != null) {
+          _canSelectProvider = post.type == PostType.request;
+        }
         if (serverSelected != null && serverSelected.isNotEmpty) {
           _acceptedProviderId = serverSelected;
         }
@@ -312,7 +323,8 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
           application: app,
           isSelected: app.applicantUserId == _acceptedProviderId,
           isAccepting: _accepting == app.applicantUserId,
-          canAccept: _acceptedProviderId == null &&
+          canAccept: _canSelectProvider &&
+              _acceptedProviderId == null &&
               _accepting == null &&
               app.applicantUserId.isNotEmpty,
           onAccept: () => _accept(app),

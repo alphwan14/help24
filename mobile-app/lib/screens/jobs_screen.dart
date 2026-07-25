@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
-import '../models/post_model.dart';
 import '../providers/app_provider.dart';
-import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
-import '../services/application_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/auth_guard.dart';
 import '../widgets/filter_pill.dart';
 import '../widgets/job_card.dart';
 import '../widgets/loading_empty_offline.dart';
-import '../widgets/application_modal.dart';
-import '../widgets/provider_gate.dart';
+import '../widgets/post_flows.dart';
 
 class JobsScreen extends StatefulWidget {
   const JobsScreen({super.key});
@@ -158,10 +155,21 @@ class _JobsScreenState extends State<JobsScreen> {
                     itemCount: jobs.length,
                     itemBuilder: (context, index) {
                       final job = jobs[index];
+                      // A job IS a post — open the canonical detail screen, the
+                      // same one Discover and My Posts open. This tab used to
+                      // build its own bottom sheet (title, description and an
+                      // Apply button the author could press on their own post);
+                      // that sheet is gone, and with it the second definition
+                      // of what a job detail is.
+                      final post = job.toPostModel();
                       return JobCard(
                         job: job,
-                        onTap: () => _showJobDetails(context, job),
-                        onApply: () => _showApplyModal(context, job),
+                        onTap: () => openPostFromFeed(context, post),
+                        onApply: () => AuthGuard.requireAuth(
+                          context,
+                          action: 'apply for this job',
+                          onAuthenticated: () => applyToListing(context, post),
+                        ),
                       );
                     },
                   ),
@@ -170,175 +178,6 @@ class _JobsScreenState extends State<JobsScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Future<void> _showJobDetails(BuildContext context, JobModel job) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
-    final isAuthor = currentUserId.isNotEmpty && job.authorUserId == currentUserId;
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Container(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(sheetContext).size.height * 0.7),
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.close, color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                    onPressed: () => Navigator.pop(sheetContext),
-                  ),
-                  if (isAuthor)
-                    // Completion is NOT done here: marking a job complete must flow
-                    // through the escrow lifecycle (provider marks done → client
-                    // approves on the Approve/Dispute screen) so job state and
-                    // payment state can never diverge. Only Delete remains.
-                    TextButton.icon(
-                      onPressed: () => _confirmAndDeleteJob(sheetContext, context, job),
-                      icon: Icon(Icons.delete_outline, size: 20, color: AppTheme.errorRed),
-                      label: Text('Delete', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
-                    )
-                  else
-                    const SizedBox(width: 48),
-                ],
-              ),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(job.title, style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 8),
-                    Text(job.description, style: Theme.of(context).textTheme.bodyMedium),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(sheetContext);
-                          _showApplyModal(context, job);
-                        },
-                        icon: const Icon(Iconsax.send_2),
-                        label: const Text('Apply'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _confirmAndDeleteJob(BuildContext sheetContext, BuildContext parentContext, JobModel job) async {
-    final confirmed = await showDialog<bool>(
-      context: sheetContext,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove job?'),
-        content: const Text(
-            'This removes the post from your feeds. Your reviews, payments and dispute history are kept. '
-            'Jobs with a protected payment or an active dispute cannot be removed.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Remove', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !parentContext.mounted) return;
-    final appProvider = parentContext.read<AppProvider>();
-    final currentUserId = parentContext.read<AuthProvider>().currentUserId;
-    final success = await appProvider.deletePost(job.id, currentUserId);
-    if (!sheetContext.mounted) return;
-    Navigator.pop(sheetContext);
-    if (!parentContext.mounted) return;
-    if (success) {
-      await appProvider.loadJobs();
-      ScaffoldMessenger.of(parentContext).showSnackBar(
-        SnackBar(
-          content: const Row(children: [Icon(Icons.check_circle, color: Colors.white), SizedBox(width: 12), Text('Job removed')]),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppTheme.successGreen,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(parentContext).showSnackBar(
-        SnackBar(
-          content: Text(appProvider.error ?? 'Failed to delete'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppTheme.errorRed,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-    }
-  }
-
-  Future<void> _showApplyModal(BuildContext context, JobModel job) async {
-    // Same become-a-provider gate as offering on a request. Applying to a job
-    // used to require nothing at all, which meant a client could be presented
-    // with an applicant who had no profession and no way to be paid.
-    final uid = context.read<AuthProvider>().currentUserId ?? '';
-    if (uid.isNotEmpty) {
-      final ready = await ensureProviderReady(
-        context,
-        uid: uid,
-        action: 'apply for jobs',
-      );
-      if (!context.mounted || !ready) return;
-    }
-
-    if (!context.mounted) return;
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: ApplicationModal(
-          title: job.title,
-          type: 'job',
-          // Throws on failure so the modal STAYS OPEN with the message intact.
-          // It used to return normally either way, which popped the sheet on
-          // failure too — the user's text was destroyed and an error appeared
-          // over the feed they had just been returned to.
-          onSubmit: (message) async {
-            final provider = context.read<AppProvider>();
-            final currentUserId = context.read<AuthProvider>().currentUserId;
-            final success = await provider.submitApplicationToJob(
-              job.id,
-              currentUserId: currentUserId,
-              message: message,
-              proposedPrice: 0,
-            );
-            if (!success) {
-              throw ApplicationServiceException(
-                provider.error ?? 'Failed to submit',
-              );
-            }
-          },
-        ),
       ),
     );
   }
