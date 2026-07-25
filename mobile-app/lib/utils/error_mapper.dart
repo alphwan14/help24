@@ -211,7 +211,9 @@ class ErrorMapper {
     if (s.contains('already applied')) {
       return const AppFailure(
         title: 'Already applied',
-        message: "You've already applied for this job.",
+        // Neutral wording: this same path covers offering on a request, where
+        // "for this job" was simply the wrong noun.
+        message: "You've already responded to this.",
       );
     }
     if ((s.contains('provider') &&

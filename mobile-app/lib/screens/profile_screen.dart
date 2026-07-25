@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -21,9 +23,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
 import '../widgets/auth/email_verification_banner.dart';
+import '../widgets/auth_guard.dart';
 import '../widgets/profile_widgets.dart';
 import '../widgets/reputation_widgets.dart';
-import 'auth_screen.dart';
 import 'professional_profile_screen.dart';
 import 'my_posts_screen.dart';
 import 'promotion/promote_business_screen.dart';
@@ -301,48 +303,28 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
+  /// Sign in from the Profile tab.
+  ///
+  /// Routed through [AuthGuard] rather than pushing [AuthScreen] directly:
+  /// these two entry points each had their own copy of the presentation, and a
+  /// copy is exactly how one of them ends up depending on a pop result again.
+  /// There is now one implementation, with one dismissal rule.
   void _navigateToAuth(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AuthScreen(
-          isModal: false,
-          onSuccess: () {
-            if (context.mounted) Navigator.of(context).pop(true);
-          },
-        ),
-      ),
-    );
+    unawaited(AuthGuard.present(context, showModal: false));
   }
 
   void _showAuthModalForEditProfile(BuildContext context) {
-    showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      enableDrag: true,
-      builder: (modalContext) => DraggableScrollableSheet(
-        initialChildSize: 0.92,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (_, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: Theme.of(modalContext).scaffoldBackgroundColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: AuthScreen(
-            action: 'edit your profile',
-            isModal: true,
-            onSuccess: () => Navigator.pop(modalContext, true),
-          ),
-        ),
+    unawaited(
+      AuthGuard.requireAuth(
+        context,
+        action: 'edit your profile',
+        // Runs when the user is signed in after the screen closes — however it
+        // closed. Previously this was gated on the sheet popping with `true`,
+        // so a drag-dismiss after a successful sign-in silently dropped the
+        // edit the user had asked for.
+        onAuthenticated: () => _openEditProfile(context, null),
       ),
-    ).then((value) {
-      if (value == true && context.mounted) {
-        final auth = context.read<AuthProvider>();
-        if (auth.currentUserId != null) _openEditProfile(context, null);
-      }
-    });
+    );
   }
 
   void _openEditProfile(BuildContext context, UserModel? profile) {

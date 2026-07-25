@@ -13,11 +13,12 @@ import '../services/application_service.dart';
 import '../services/auth_service.dart';
 import '../services/cache_service.dart';
 import '../services/jobs_service.dart';
+import '../services/session_scope.dart';
 import '../services/startup_prefetch.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../utils/error_mapper.dart';
 
-class AppProvider extends ChangeNotifier {
+class AppProvider extends ChangeNotifier implements SessionScoped {
   ThemePreference _themePreference = ThemePreference.system;
   List<PostModel> _posts = [];
   List<PostModel> _urgentPosts = [];
@@ -80,7 +81,32 @@ class AppProvider extends ChangeNotifier {
 
   AppProvider({ThemePreference initialTheme = ThemePreference.system})
       : _themePreference = initialTheme {
+    SessionScope.instance.register(this);
     _loadInitialData();
+  }
+
+  /// Destroy everything derived from the signed-in user.
+  ///
+  /// Synchronous by contract: it runs before the identity provider signs out,
+  /// so no frame can paint the previous account's data during the transition.
+  /// Posts, jobs and urgent posts are public marketplace data and deliberately
+  /// survive — clearing them would blank the feed on every sign-out for no
+  /// privacy gain.
+  @override
+  void resetForSignOut() {
+    _conversationStreamSubscription?.cancel();
+    _conversationStreamSubscription = null;
+    _conversationsUserId = '';
+    _conversations = [];
+    _pagedConversationIds.clear();
+    _hasMoreConversations = true;
+    _isLoadingConversations = false;
+    _loadingMoreConversations = false;
+    _appliedPostIds = {};
+    _activeChatId = null;
+    _warmedAvatarUrls.clear();
+    _error = null;
+    notifyListeners();
   }
 
   /// Load initial data from Supabase (conversations loaded when Messages screen opens with user id)
@@ -553,6 +579,18 @@ class AppProvider extends ChangeNotifier {
   /// User id the active conversation stream belongs to ('' = none).
   String _conversationsUserId = '';
 
+  /// Ids appended by [loadMoreConversations] — i.e. conversations that exist
+  /// beyond the realtime stream's first page.
+  ///
+  /// This replaces a length comparison (`list + _conversations.sublist(...)`)
+  /// that tried to infer "these are paginated extras" from list SIZE. When the
+  /// incoming list belonged to a different, smaller account, that heuristic
+  /// re-installed the previous user's conversations instead — the mechanism
+  /// behind the cross-account leak. Tracking the ids we actually paginated
+  /// makes the distinction explicit and account-safe: an id nobody paged in for
+  /// THIS user can never be preserved.
+  final Set<String> _pagedConversationIds = {};
+
   /// Real-time chat list from Supabase, designed so the Messages tab paints
   /// instantly:
   ///
@@ -566,17 +604,19 @@ class AppProvider extends ChangeNotifier {
   ///    pop-in.
   Future<void> loadConversations(String currentUserId) async {
     if (currentUserId.isEmpty) {
-      _conversations = [];
-      _hasMoreConversations = true;
-      _conversationsUserId = '';
-      _conversationStreamSubscription?.cancel();
-      _conversationStreamSubscription = null;
-      notifyListeners();
+      resetForSignOut();
       return;
     }
     if (_conversationsUserId == currentUserId &&
         _conversationStreamSubscription != null) {
       return; // Already syncing for this user — nothing to do.
+    }
+    // Switching users: drop the outgoing account's list BEFORE anything can
+    // paint. Previously this was left in place and merged against, so the new
+    // account inherited whatever the old one had.
+    if (_conversationsUserId != currentUserId) {
+      _conversations = [];
+      _pagedConversationIds.clear();
     }
     _conversationsUserId = currentUserId;
     _error = null;
@@ -585,9 +625,14 @@ class AppProvider extends ChangeNotifier {
     _conversationStreamSubscription = null;
 
     // Disk hydration first: whatever we knew last session shows instantly.
+    // Scoped to this uid, so the cache physically cannot hold another account's
+    // conversations. The post-await re-check also confirms the user has not
+    // changed again while the disk read was in flight.
     if (_conversations.isEmpty) {
-      final cached = await CacheService.loadConversations();
-      if (_conversations.isEmpty && cached.isNotEmpty) {
+      final cached = await CacheService.loadConversations(currentUserId);
+      if (_conversationsUserId == currentUserId &&
+          _conversations.isEmpty &&
+          cached.isNotEmpty) {
         _conversations = cached;
         _warmAvatarCache(cached);
       }
@@ -607,19 +652,32 @@ class AppProvider extends ChangeNotifier {
 
     _conversationStreamSubscription = ChatServiceSupabase.watchConversations(currentUserId).listen(
       (list) {
-        if (_conversations.length > list.length) {
-          _conversations = list + _conversations.sublist(list.length);
-        } else {
-          _conversations = list;
-        }
+        // A stream started for a previous user can still deliver after the
+        // switch (cancel() does not retroactively drop an in-flight event).
+        // Anything not addressed to the current session is discarded.
+        if (_conversationsUserId != currentUserId) return;
+
+        // The stream is authoritative for its page. Only conversations we
+        // explicitly paginated in — for THIS user — are preserved beyond it.
+        final incomingIds = list.map((c) => c.id).toSet();
+        final pagedTail = _conversations
+            .where((c) =>
+                !incomingIds.contains(c.id) &&
+                _pagedConversationIds.contains(c.id))
+            .toList();
+        _conversations = [...list, ...pagedTail];
+
         _isLoadingConversations = false;
-        if (list.isNotEmpty) {
-          CacheService.saveConversations(list);
-          _warmAvatarCache(list);
-        }
+        // Written unconditionally, including an empty list: "this account has
+        // no conversations" is a fact worth persisting. Skipping the write for
+        // empty results is what let one account's cached list outlive it and
+        // surface under the next.
+        CacheService.saveConversations(currentUserId, list);
+        if (list.isNotEmpty) _warmAvatarCache(list);
         notifyListeners();
       },
       onError: (e) {
+        if (_conversationsUserId != currentUserId) return;
         _error = ErrorMapper.toMessage(e, context: ErrorContext.loadContent);
         _isLoadingConversations = false;
         notifyListeners();
@@ -631,6 +689,13 @@ class AppProvider extends ChangeNotifier {
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
     _conversationsUserId = '';
+  }
+
+  @override
+  void dispose() {
+    SessionScope.instance.unregister(this);
+    _conversationStreamSubscription?.cancel();
+    super.dispose();
   }
 
   /// URLs already fed to the image cache this session (avoid re-resolving).
@@ -695,6 +760,7 @@ class AppProvider extends ChangeNotifier {
   /// Load next page of conversations (lazy load). Call when user scrolls near bottom.
   Future<void> loadMoreConversations(String currentUserId) async {
     if (currentUserId.isEmpty || !_hasMoreConversations || _isLoadingConversations || _loadingMoreConversations) return;
+    if (_conversationsUserId != currentUserId) return;
     _loadingMoreConversations = true;
     notifyListeners();
     try {
@@ -702,12 +768,18 @@ class AppProvider extends ChangeNotifier {
         currentUserId,
         offset: _conversations.length,
       );
+      // The page was requested for a user who may have signed out while it was
+      // in flight; appending it now would repopulate a cleared list.
+      if (_conversationsUserId != currentUserId) return;
       if (result.list.isEmpty) {
         _hasMoreConversations = false;
       } else {
         final existingIds = _conversations.map((c) => c.id).toSet();
         final newList = result.list.where((c) => !existingIds.contains(c.id)).toList();
         _conversations = _conversations + newList;
+        // Remember these so a later realtime emission (which only covers page
+        // one) does not drop them.
+        _pagedConversationIds.addAll(newList.map((c) => c.id));
         _hasMoreConversations = result.hasMore;
       }
       notifyListeners();

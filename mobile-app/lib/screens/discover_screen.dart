@@ -20,7 +20,6 @@ import '../services/promotion_service.dart';
 import '../utils/feed_composer.dart';
 import '../utils/promotion_tracker.dart';
 import '../widgets/post_flows.dart';
-import 'post_detail_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
@@ -550,12 +549,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 sponsored: entry.sponsored,
                 onTap: () {
                   trackSponsoredClick();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PostDetailScreen(post: post),
-                    ),
-                  );
+                  // A closed listing answers in place instead of taking the
+                  // screen — the feed keeps its scroll position, filters and
+                  // search. See openPostFromFeed.
+                  openPostFromFeed(context, post);
                 },
                 onRespond: post.type == PostType.request
                     ? () {

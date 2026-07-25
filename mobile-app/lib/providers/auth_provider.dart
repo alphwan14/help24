@@ -5,6 +5,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../config/app_firebase.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
+import '../services/session_scope.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../utils/auth_error_mapper.dart';
 
@@ -96,6 +97,7 @@ class AuthProvider extends ChangeNotifier {
 
   void _onAuthStateChanged(User? firebaseUser) {
     final uid = firebaseUser?.uid;
+    final previousUid = _lastHandledUid;
     final isRepeat = uid == _lastHandledUid;
     _lastHandledUid = uid;
 
@@ -105,8 +107,23 @@ class AuthProvider extends ChangeNotifier {
       _resendToken = null;
       _pendingPhoneNumber = null;
       SupabaseAuthBridge.clearSupabaseSession();
+      // The session can also end without anyone pressing "Sign out" — a
+      // revoked token, a deleted account, a sign-out on another device. Those
+      // paths must tear down exactly as much state as the button does, so the
+      // teardown hangs off the auth state itself rather than off the UI action.
+      // Idempotent: a normal sign-out reaches this after signOut() already ran.
+      unawaited(_endSession(previousUid));
       notifyListeners();
       return;
+    }
+
+    // A DIFFERENT user just signed in on this device. Anything still held from
+    // the previous session is destroyed before the new session populates, so a
+    // switch can never blend two accounts — even if the previous sign-out was
+    // interrupted or never completed cleanly.
+    if (previousUid != null && previousUid.isNotEmpty && previousUid != uid) {
+      debugPrint('[SESSION] account switch detected — clearing prior session');
+      unawaited(_endSession(previousUid));
     }
     // Set the session user immediately so the UI can proceed. Everything below is
     // background work that MUST NOT block sign-in navigation.
@@ -382,10 +399,10 @@ class AuthProvider extends ChangeNotifier {
   Future<void> signOut() async {
     _isLoading = true;
     notifyListeners();
+    final uid = _currentUser?.id;
     try {
       // Push hygiene: a signed-out device must not keep receiving this
       // account's notifications. Best-effort (never blocks sign-out).
-      final uid = _currentUser?.id;
       if (uid != null && uid.isNotEmpty) {
         await NotificationService.removeTokenOnLogout(uid);
       }
@@ -399,8 +416,26 @@ class AuthProvider extends ChangeNotifier {
       // signed-in state because a cleanup call failed.
       _currentUser = null;
     } finally {
+      // Ending the session is NOT part of the try: a failed token removal or a
+      // provider error must never leave the previous account's caches on the
+      // device. This is the one step that has to happen unconditionally.
+      await _endSession(uid);
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  /// Destroy every user-scoped cache, stream and provider cache for [uid].
+  ///
+  /// Sign-out used to clear only the identity (`_currentUser` + the Supabase
+  /// JWT) and leave everything derived from it in place, which is how one
+  /// account's conversations survived into the next session. Session teardown
+  /// is now a single owned operation — see [SessionScope].
+  Future<void> _endSession(String? uid) async {
+    try {
+      await SessionScope.instance.endSession(uid);
+    } catch (e) {
+      debugPrint('[AUTH] session teardown error: ${e.runtimeType}');
     }
   }
 
@@ -434,6 +469,34 @@ class AuthProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Load the authoritative profile from our own store and adopt its name.
+  ///
+  /// [needsProfileSetup] is derived from the identity provider's `displayName`,
+  /// which phone accounts frequently do not carry — the name lives in the
+  /// Help24 profile, not in the credential. Without this, a RETURNING phone
+  /// user who signs in successfully is sent to "choose your name" and the auth
+  /// screen never dismisses: authentication worked, but the user is stuck
+  /// looking at it. Called before that routing decision is made.
+  ///
+  /// Returns true once the account is known to have a usable name.
+  Future<bool> resolveProfile() async {
+    if (_currentUser == null) return false;
+    try {
+      final resolved = await AuthService.getCurrentAppUser()
+          .timeout(const Duration(seconds: 6));
+      if (resolved != null) {
+        _currentUser = resolved;
+        notifyListeners();
+      }
+    } catch (e) {
+      // Unresolvable (offline, slow): fall through to whatever we already know.
+      // Asking a returning user for their name once is recoverable; blocking
+      // sign-in on a profile read is not.
+      debugPrint('[AUTH] profile resolve unavailable: ${e.runtimeType}');
+    }
+    return _currentUser?.hasProfile ?? false;
   }
 
   /// Poll the server for a verification that happened in the user's mail app.

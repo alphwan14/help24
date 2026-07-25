@@ -5,6 +5,7 @@ import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
+import '../services/application_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/job_card.dart';
 import '../widgets/loading_empty_offline.dart';
@@ -359,6 +360,10 @@ class _JobsScreenState extends State<JobsScreen> {
         child: ApplicationModal(
           title: job.title,
           type: 'job',
+          // Throws on failure so the modal STAYS OPEN with the message intact.
+          // It used to return normally either way, which popped the sheet on
+          // failure too — the user's text was destroyed and an error appeared
+          // over the feed they had just been returned to.
           onSubmit: (message) async {
             final provider = context.read<AppProvider>();
             final currentUserId = context.read<AuthProvider>().currentUserId;
@@ -368,30 +373,9 @@ class _JobsScreenState extends State<JobsScreen> {
               message: message,
               proposedPrice: 0,
             );
-            if (!context.mounted) return;
-            if (success) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.white),
-                      SizedBox(width: 12),
-                      Text('Application submitted!'),
-                    ],
-                  ),
-                  behavior: SnackBarBehavior.floating,
-                  backgroundColor: AppTheme.successGreen,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(provider.error ?? 'Failed to submit'),
-                  behavior: SnackBarBehavior.floating,
-                  backgroundColor: AppTheme.errorRed,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
+            if (!success) {
+              throw ApplicationServiceException(
+                provider.error ?? 'Failed to submit',
               );
             }
           },

@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/api_config.dart';
 import '../models/post_model.dart';
+import 'supabase_auth_bridge.dart';
 
 /// Service for handling job/post applications with Supabase. Uses real user ids.
 class ApplicationService {
@@ -32,6 +33,12 @@ class ApplicationService {
     if (alreadyApplied) {
       throw DuplicateApplicationException();
     }
+
+    // The applications table is RLS-protected. Without a fresh Supabase JWT the
+    // insert is rejected — which is exactly how "sending an offer" failed under
+    // a degraded session. Every other write path in the app already does this;
+    // this one did not.
+    await SupabaseAuthBridge.ensureSessionForWriteAsync();
 
     try {
       final applicationData = {
@@ -65,7 +72,12 @@ class ApplicationService {
         throw DuplicateApplicationException();
       }
       debugPrint('❌ Application submit failed: $e');
-      throw ApplicationServiceException('Failed to submit application: $e');
+      // Rethrown rather than wrapped in a string. Flattening a
+      // PostgrestException into `'Failed to submit application: $e'` destroyed
+      // the type ErrorMapper classifies on, so a permission or unique-violation
+      // rejection degraded into the vaguest possible fallback. The mapper is
+      // the only thing that should decide what a user reads.
+      rethrow;
     }
   }
 

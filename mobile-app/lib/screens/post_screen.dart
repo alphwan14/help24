@@ -2175,6 +2175,10 @@ class _PostScreenState extends State<PostScreen> {
               textColor: Colors.white,
               onPressed: _submitPost,
             ),
+            // Flutter defaults `persist` to `action != null`, which would leave
+            // this error bar on screen until it was tapped. Offering a retry
+            // must not turn a notification into permanent furniture.
+            persist: false,
           ),
         );
       }

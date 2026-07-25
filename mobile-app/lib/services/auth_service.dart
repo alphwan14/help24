@@ -259,7 +259,7 @@ class AuthService {
         name: user.displayName,
         phone: phone,
       );
-      await UserProfileService.setOnline(user.uid, true);
+      unawaited(UserProfileService.setOnline(user.uid, true));
       final appUser = _appUserFromFirebase(user, nameOverride: user.displayName);
       debugPrint('✅ Phone sign in: ${appUser.id}');
       _syncUserToSupabase(user, name: user.displayName, phoneNumber: phone).then((_) => debugPrint('✅ User synced to Supabase'));
@@ -404,7 +404,12 @@ class AuthService {
           .timeout(_authTimeout);
       final firebaseUser = credential.user;
       if (firebaseUser == null) return AuthResult.from(null, AuthFlow.signIn);
-      await UserProfileService.setOnline(firebaseUser.uid, true);
+      // Presence is not part of signing in. Awaiting it added a network
+      // round-trip between "the password is correct" and "the screen may
+      // close", which is precisely the window a competing modal used to slip
+      // into. HomeScreen starts the presence heartbeat on the uid change
+      // anyway, so nothing is lost by not waiting.
+      unawaited(UserProfileService.setOnline(firebaseUser.uid, true));
       final appUser = _appUserFromFirebase(firebaseUser);
       debugPrint('✅ Signed in: ${appUser.id}');
       unawaited(_syncUserToSupabase(firebaseUser));
@@ -426,11 +431,35 @@ class AuthService {
     return user.emailVerified;
   }
 
+  /// Codes the identity provider returns when it refuses the continue URL.
+  ///
+  /// The URL's domain must be listed in the provider console's authorized
+  /// domains. `help24.co.ke` is still pending that console/DNS work (see
+  /// `_docs/AUTH_WHITE_LABEL_AUDIT.md` §281-286), so every outbound auth email
+  /// was being rejected before it left — and the UI, which never read the
+  /// failure, showed nothing at all.
+  static const Set<String> _continueUrlRejections = {
+    'unauthorized-continue-uri',
+    'invalid-continue-uri',
+    'missing-continue-uri',
+    'invalid-dynamic-link-domain',
+  };
+
   /// Send (or re-send) the address-confirmation email.
+  ///
+  /// Falls back to a plain send if the branded continue URL is refused: an
+  /// unbranded email that ARRIVES beats a branded one that never sends. The
+  /// rejection is logged loudly because it is a deployment fault, not a user
+  /// one — but it must never be the user's problem.
   static Future<AuthResult> sendVerificationEmail() async {
     final user = currentFirebaseUser;
     if (user == null || (user.email ?? '').isEmpty) {
-      return AuthResult.from(null, AuthFlow.generic);
+      return AuthResult.failed(const AuthFailure(
+        title: 'No email on this account',
+        message:
+            'This account signs in by phone. Add an email in your profile to '
+            'confirm one.',
+      ));
     }
     try {
       await user
@@ -438,6 +467,24 @@ class AuthService {
           .timeout(_authTimeout);
       debugPrint('✅ Verification email dispatched');
       return AuthResult.success(null);
+    } on FirebaseAuthException catch (e) {
+      if (_continueUrlRejections.contains(e.code)) {
+        debugPrint(
+          '[AUTH][CONFIG] continue URL rejected (${e.code}) — '
+          'add ${AppUrls.website} to the identity console authorized domains. '
+          'Falling back to an unbranded link.',
+        );
+        try {
+          await user.sendEmailVerification().timeout(_authTimeout);
+          debugPrint('✅ Verification email dispatched (no continue URL)');
+          return AuthResult.success(null);
+        } catch (fallbackError) {
+          debugPrint('[AUTH] verification fallback failed: $fallbackError');
+          return AuthResult.from(fallbackError, AuthFlow.generic);
+        }
+      }
+      debugPrint('[AUTH] verification send rejected: ${e.code}');
+      return AuthResult.from(e, AuthFlow.generic);
     } catch (e) {
       return AuthResult.from(e, AuthFlow.generic);
     }
@@ -499,6 +546,29 @@ class AuthService {
         debugPrint('[AUTH] reset requested for unregistered address (masked)');
         return AuthResult.success(null);
       }
+      // Same continue-URL fallback as verification: a user locked out of their
+      // account must never be blocked by our branding being unfinished.
+      if (_continueUrlRejections.contains(e.code)) {
+        debugPrint(
+          '[AUTH][CONFIG] reset continue URL rejected (${e.code}) — '
+          'falling back to an unbranded link.',
+        );
+        try {
+          await auth
+              .sendPasswordResetEmail(email: email.trim())
+              .timeout(_authTimeout);
+          debugPrint('✅ Password reset dispatched (no continue URL)');
+          return AuthResult.success(null);
+        } on FirebaseAuthException catch (fallbackError) {
+          if (fallbackError.code == 'user-not-found') {
+            return AuthResult.success(null);
+          }
+          return AuthResult.from(fallbackError, AuthFlow.passwordReset);
+        } catch (fallbackError) {
+          return AuthResult.from(fallbackError, AuthFlow.passwordReset);
+        }
+      }
+      debugPrint('[AUTH] reset rejected: ${e.code}');
       return AuthResult.from(e, AuthFlow.passwordReset);
     } catch (e) {
       return AuthResult.from(e, AuthFlow.passwordReset);

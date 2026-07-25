@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
@@ -14,6 +16,7 @@ import '../services/mpesa_service.dart';
 import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
@@ -94,6 +97,20 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       _jobStatusChecked = true;
       _refreshJobStatus();
     }
+  }
+
+  /// Save/unsave, with the failure stated rather than implied.
+  ///
+  /// The service reverts its optimistic flip when the write is rejected, so
+  /// the bookmark used to quietly un-fill itself and the user was left unsure
+  /// whether the tap had registered at all.
+  void _toggleSaved(BuildContext context, Future<bool> Function() toggle) {
+    unawaited(() async {
+      final ok = await toggle();
+      if (!ok && context.mounted) {
+        ActionFeedback.failure(context, null, context_: ErrorContext.save);
+      }
+    }());
   }
 
   void _refreshJobStatus() {
@@ -183,15 +200,18 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                         AuthGuard.requireAuth(
                                           context,
                                           action: 'save this provider',
-                                          onAuthenticated: () {
-                                            final uid = context
-                                                    .read<AuthProvider>()
-                                                    .currentUserId ??
-                                                '';
-                                            SavedService.instance
+                                          onAuthenticated: () =>
+                                              _toggleSaved(
+                                            context,
+                                            () => SavedService.instance
                                                 .toggleProvider(
-                                                    uid, post.authorUserId);
-                                          },
+                                              context
+                                                      .read<AuthProvider>()
+                                                      .currentUserId ??
+                                                  '',
+                                              post.authorUserId,
+                                            ),
+                                          ),
                                         );
                                       },
                                       icon: Icon(
@@ -335,11 +355,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   AuthGuard.requireAuth(
                     context,
                     action: 'save this post',
-                    onAuthenticated: () {
-                      final uid =
-                          context.read<AuthProvider>().currentUserId ?? '';
-                      SavedService.instance.togglePost(uid, post.id);
-                    },
+                    onAuthenticated: () => _toggleSaved(
+                      context,
+                      () => SavedService.instance.togglePost(
+                        context.read<AuthProvider>().currentUserId ?? '',
+                        post.id,
+                      ),
+                    ),
                   );
                 },
               );
@@ -601,11 +623,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           borderRadius: BorderRadius.circular(14),
         ),
         child: Text(
-          post.status == 'completed'
-              ? 'This job is completed'
-              : post.status == 'disputed'
-                  ? 'This job is in dispute'
-                  : 'This request already has a selected provider',
+          // Same sentence the feed shows when it declines to navigate here, so
+          // a user who taps "View" is not told two different things.
+          closedListingReason(post) ?? 'This listing is closed.',
+          textAlign: TextAlign.center,
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
       );

@@ -23,12 +23,14 @@ import 'screens/review_submission_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'services/auth_service.dart';
 import 'services/category_schema_service.dart';
 import 'services/profession_registry.dart';
 import 'services/chat_local_prefs.dart';
 import 'services/diagnostic_service.dart';
 import 'services/journey_engine.dart';
 import 'services/notification_service.dart';
+import 'services/session_scope.dart';
 import 'services/startup_prefetch.dart';
 import 'services/supabase_auth_bridge.dart';
 import 'theme/app_theme.dart';
@@ -153,6 +155,14 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // ✅ Supabase is already initialized in main() - don't reinitialize!
       // Join the Firebase init started in main() (memoized — never runs twice).
       await AppFirebase.initialize();
+
+      // Session hygiene, before any screen can read a cache. Destroys every
+      // user-scoped key that does NOT belong to the restored session: data left
+      // by a previous account, and the pre-scoping device-global keys that
+      // caused the cross-account leak. Devices that ran the leaking build are
+      // cleaned on their first launch after this update.
+      await SessionScope.instance.purgeForeignScopes(await _restoredUid());
+
       if (AppFirebase.isReady) {
         await NotificationService.initialize();
       }
@@ -162,6 +172,27 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('Background bootstrap error: $e');
+    }
+  }
+
+  /// The uid of the session Firebase restored from disk, once it is KNOWN.
+  ///
+  /// `currentUser` is null for a short window after `initializeApp` while
+  /// persistence is still being read, so asking it directly would sometimes
+  /// report "signed out" for a user who is signed in — and the session sweep
+  /// would then delete that user's own caches. `authStateChanges` emits exactly
+  /// once persistence has settled, which is the signal we actually need.
+  ///
+  /// On timeout we fall back to `currentUser` rather than to null: guessing
+  /// "signed out" is the answer that destroys data, so it is never the default.
+  Future<String?> _restoredUid() async {
+    if (!AppFirebase.isReady) return null;
+    try {
+      final user = await AuthService.authStateChanges.first
+          .timeout(const Duration(seconds: 5));
+      return user?.uid;
+    } catch (_) {
+      return AuthService.currentFirebaseUser?.uid;
     }
   }
 

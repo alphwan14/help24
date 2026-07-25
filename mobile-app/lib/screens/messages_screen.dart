@@ -697,7 +697,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _cacheSaveDebounce?.cancel();
     final pendingSave = _pendingCacheSave;
     if (pendingSave != null) {
-      CacheService.saveMessages(_chatId, _capForCache(pendingSave));
+      CacheService.saveMessages(
+          widget.currentUserId, _chatId, _capForCache(pendingSave));
     }
     _scrollController.removeListener(_onScroll);
     _messageController.removeListener(_onTypingChanged);
@@ -890,7 +891,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final messages = _pendingCacheSave;
       _pendingCacheSave = null;
       if (messages != null && messages.isNotEmpty) {
-        CacheService.saveMessages(_chatId, _capForCache(messages));
+        CacheService.saveMessages(
+            widget.currentUserId, _chatId, _capForCache(messages));
       }
     });
   }
@@ -1299,7 +1301,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Keyed by chat id; a brand-new conversation has none yet, so its queue
     // lives in memory until the chat row exists (created on the first flush).
     if (_chatId.isEmpty) return;
-    CacheService.saveOutbox(_chatId, List<Message>.of(_pendingMessages));
+    CacheService.saveOutbox(
+        widget.currentUserId, _chatId, List<Message>.of(_pendingMessages));
   }
 
   /// Restore messages queued in a previous session and drain them if online.
@@ -2219,7 +2222,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _cacheSaveDebounce?.cancel();
     _cacheSaveDebounce = null;
     _pendingCacheSave = null;
-    await CacheService.saveMessages(_chatId, []);
+    await CacheService.saveMessages(widget.currentUserId, _chatId, []);
     // Repaint the Messages tab so its tile stops echoing the old preview
     // the moment the user navigates back.
     if (mounted) context.read<AppProvider>().touchConversations();

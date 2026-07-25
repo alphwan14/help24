@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,6 +11,8 @@ import '../services/reputation_service.dart';
 import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/action_feedback.dart';
+import '../utils/error_mapper.dart';
 import '../utils/time_utils.dart';
 import '../widgets/auth_guard.dart';
 import '../widgets/profile_widgets.dart';
@@ -175,10 +179,18 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                   onPressed: () => AuthGuard.requireAuth(
                     context,
                     action: 'save this provider',
-                    onAuthenticated: () {
-                      final uid = context.read<AuthProvider>().currentUserId ?? '';
-                      SavedService.instance.toggleProvider(uid, widget.providerId);
-                    },
+                    onAuthenticated: () => unawaited(() async {
+                      final uid =
+                          context.read<AuthProvider>().currentUserId ?? '';
+                      final ok = await SavedService.instance
+                          .toggleProvider(uid, widget.providerId);
+                      // A rejected write reverts the bookmark on its own; say
+                      // why instead of letting it silently flip back.
+                      if (!ok && context.mounted) {
+                        ActionFeedback.failure(context, null,
+                            context_: ErrorContext.save);
+                      }
+                    }()),
                   ),
                 );
               },

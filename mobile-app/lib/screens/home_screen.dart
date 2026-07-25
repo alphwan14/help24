@@ -251,10 +251,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     await location.initializeForUser(uid);
+    if (!mounted) return;
     app.setPriorityLocationCity(location.city);
 
     final shouldShow = await location.shouldShowExplainer(uid);
     if (!mounted || !shouldShow || _locationPromptInFlight) return;
+
+    // This runs because the uid just changed — which, on a fresh sign-in, is
+    // the same instant the auth screen is dismissing itself. Opening a second
+    // sheet into that window put two modals on one navigator and left the auth
+    // screen stranded behind this one. Wait for auth to finish presenting; the
+    // permission ask is not urgent and reads better on its own anyway.
+    await AuthGuard.settled;
+    if (!mounted || _locationPromptInFlight) return;
     _locationPromptInFlight = true;
     await showModalBottomSheet<bool>(
       context: context,

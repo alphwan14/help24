@@ -80,15 +80,21 @@ class SavedService extends ChangeNotifier {
     }
   }
 
-  Future<void> togglePost(String userId, String postId) =>
+  /// Returns true when the change reached the server.
+  ///
+  /// Previously `Future<void>`: on failure the optimistic flip was silently
+  /// reverted, so the bookmark un-filled itself with no explanation and the
+  /// user was left guessing whether the tap had registered. Callers now have
+  /// something to report.
+  Future<bool> togglePost(String userId, String postId) =>
       _toggle(userId, 'post', postId, _postIds);
 
-  Future<void> toggleProvider(String userId, String providerId) =>
+  Future<bool> toggleProvider(String userId, String providerId) =>
       _toggle(userId, 'provider', providerId, _providerIds);
 
-  Future<void> _toggle(
+  Future<bool> _toggle(
       String userId, String itemType, String itemId, Set<String> ids) async {
-    if (userId.isEmpty || itemId.isEmpty) return;
+    if (userId.isEmpty || itemId.isEmpty) return false;
     final wasSaved = ids.contains(itemId);
     // Optimistic flip.
     if (wasSaved) {
@@ -112,6 +118,7 @@ class SavedService extends ChangeNotifier {
           ignoreDuplicates: true,
         );
       }
+      return true;
     } catch (e) {
       debugPrint('[SAVED] toggle $itemType/$itemId failed: $e');
       // Revert the optimistic flip.
@@ -121,6 +128,7 @@ class SavedService extends ChangeNotifier {
         ids.remove(itemId);
       }
       notifyListeners();
+      return false;
     }
   }
 

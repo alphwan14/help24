@@ -4,15 +4,95 @@ import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/messages_screen.dart';
+import '../screens/post_detail_screen.dart';
 import '../services/application_service.dart';
 import '../services/post_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/action_feedback.dart';
+import '../utils/error_mapper.dart';
 import 'application_modal.dart';
 import 'provider_gate.dart';
 
 /// Shared post action flows — used by both the feed cards (discover) and the
 /// post detail screen so the business rules (duplicate-application guard,
 /// M-Pesa requirement, pending-conversation pattern) live in exactly one place.
+
+/// Why a listing can no longer be responded to, as one plain sentence — or null
+/// while it is still open.
+///
+/// One definition, read by the feed (to answer in place) and by the detail
+/// screen's action bar (to replace its CTA), so the two can never disagree
+/// about what a status means.
+String? closedListingReason(PostModel post) {
+  if (post.status == 'open') return null;
+  if (post.status == 'completed') {
+    return post.payoutInProgress
+        ? 'This job is completed — payment is being finalised.'
+        : 'This job is completed.';
+  }
+  if (post.status == 'disputed') return 'This job is in dispute.';
+  if (post.status == 'cancelled') return 'This listing was closed.';
+  return 'This request already has a provider.';
+}
+
+/// Open a post from a BROWSING surface (the Discover feed).
+///
+/// WHY THIS IS NOT JUST `Navigator.push`
+/// -------------------------------------
+/// Tapping a completed or already-taken listing used to push the full detail
+/// screen, whose entire answer was a single sentence in the action bar. The
+/// user paid a screen transition, lost their place in the feed, read one line,
+/// and pressed Back. An informational state should never cost the user their
+/// context.
+///
+/// So: a closed listing answers IN PLACE and the feed stays exactly where it
+/// was — same scroll offset, same filters, same search. The detail screen is
+/// still reachable on purpose (the "View" action), because "don't interrupt
+/// browsing" must not become "you may never look at this".
+///
+/// People with real business on the post — its author, and the provider who was
+/// selected for it — always get the full screen, since theirs has actions on it.
+void openPostFromFeed(BuildContext context, PostModel post) {
+  final uid = context.read<AuthProvider>().currentUserId ?? '';
+  final reason = inPlaceAnswerFor(post, uid);
+
+  if (reason == null) {
+    _pushPostDetail(context, post);
+    return;
+  }
+
+  ActionFeedback.info(
+    context,
+    reason,
+    actionLabel: 'View',
+    onAction: () => _pushPostDetail(context, post),
+  );
+}
+
+/// What a tap on [post] should say instead of navigating — or null when the
+/// tap should open the post normally.
+///
+/// Separated from the navigation so the rule is decidable (and testable)
+/// without building the detail screen.
+String? inPlaceAnswerFor(PostModel post, String viewerUserId) {
+  final reason = closedListingReason(post);
+  if (reason == null) return null;
+  // An empty uid must not match an empty authorUserId on a legacy row and hand
+  // a signed-out browser the owner's screen.
+  if (viewerUserId.isNotEmpty &&
+      (post.authorUserId == viewerUserId ||
+          post.selectedProviderUserId == viewerUserId)) {
+    return null;
+  }
+  return reason;
+}
+
+void _pushPostDetail(BuildContext context, PostModel post) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)),
+  );
+}
 
 /// Confirm + archive the current user's post. Returns true when the post was
 /// deleted (caller decides whether to pop a screen); shows result snackbars on
@@ -76,16 +156,25 @@ Future<bool> confirmAndDeletePost(BuildContext context, PostModel post) async {
 
 /// Open private chat with the post author. No public application list;
 /// messages only in the Messages tab. The chat row is created on first send.
+///
+/// Wrapped for the same reason as [openOfferServiceModal]: it is invoked as a
+/// `VoidCallback`, so an escaping exception would be discarded unseen.
 Future<void> openPrivateChat(BuildContext context, PostModel post) async {
+  try {
+    await _openPrivateChat(context, post);
+  } catch (e) {
+    if (!context.mounted) {
+      debugPrint('[POST_FLOWS] open chat failed after unmount: $e');
+      return;
+    }
+    ActionFeedback.failure(context, e, context_: ErrorContext.sendMessage);
+  }
+}
+
+Future<void> _openPrivateChat(BuildContext context, PostModel post) async {
   final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
   if (currentUserId.isEmpty) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Please sign in to message providers'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    ActionFeedback.info(context, 'Please sign in to message providers');
     return;
   }
 
@@ -100,25 +189,14 @@ Future<void> openPrivateChat(BuildContext context, PostModel post) async {
     }
   }
 
+  if (!context.mounted) return;
   if (authorId.isEmpty) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Unable to contact this provider right now'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    ActionFeedback.info(context, 'Unable to contact this provider right now');
     return;
   }
 
   if (authorId == currentUserId) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('This is your own post'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    ActionFeedback.info(context, 'This is your own post');
     return;
   }
 
@@ -143,17 +221,33 @@ Future<void> openPrivateChat(BuildContext context, PostModel post) async {
 }
 
 /// Open ApplicationModal to let a user offer service on a request.
+///
+/// Invoked from `onAuthenticated:` callbacks typed as `VoidCallback`, so the
+/// returned Future is discarded by the framework and any throw becomes an
+/// unhandled async error — invisible. The whole body is therefore wrapped: an
+/// exception on the way to the modal is reported, never dropped.
 Future<void> openOfferServiceModal(BuildContext context, PostModel post) async {
+  try {
+    await _openOfferServiceModal(context, post);
+  } catch (e) {
+    if (!context.mounted) {
+      debugPrint('[POST_FLOWS] offer flow failed after unmount: $e');
+      return;
+    }
+    ActionFeedback.failure(context, e, context_: ErrorContext.apply);
+  }
+}
+
+Future<void> _openOfferServiceModal(BuildContext context, PostModel post) async {
   final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
-  if (currentUserId.isEmpty) return;
+  if (currentUserId.isEmpty) {
+    // Previously a bare `return` — a tap that produced nothing at all.
+    ActionFeedback.info(context, 'Please sign in to offer your services');
+    return;
+  }
 
   if (post.authorUserId == currentUserId) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('This is your own request'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    ActionFeedback.info(context, 'This is your own request');
     return;
   }
 
@@ -161,19 +255,7 @@ Future<void> openOfferServiceModal(BuildContext context, PostModel post) async {
   final alreadyApplied = await ApplicationService.hasApplied(post.id, currentUserId);
   if (!context.mounted) return;
   if (alreadyApplied) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
-            SizedBox(width: 10),
-            Flexible(child: Text('You already applied to this request.')),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
+    ActionFeedback.info(context, 'You already applied to this request.');
     return;
   }
 
@@ -194,50 +276,16 @@ Future<void> openOfferServiceModal(BuildContext context, PostModel post) async {
     builder: (_) => ApplicationModal(
       title: post.title,
       type: 'request',
-      onSubmit: (message) async {
-        try {
-          await ApplicationService.submitApplication(
-            postId: post.id,
-            currentUserId: currentUserId,
-            message: message,
-            proposedPrice: 0,
-          );
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Row(
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.white),
-                    SizedBox(width: 12),
-                    Text('Offer sent!'),
-                  ],
-                ),
-                behavior: SnackBarBehavior.floating,
-                backgroundColor: AppTheme.successGreen,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            );
-          }
-        } on DuplicateApplicationException {
-          // Race condition: user applied between the pre-check and the insert.
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Row(
-                  children: [
-                    Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
-                    SizedBox(width: 10),
-                    Flexible(child: Text('You already applied to this request.')),
-                  ],
-                ),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            );
-          }
-          rethrow; // Causes ApplicationModal to reset its spinner instead of popping.
-        }
-      },
+      // Does the work and nothing else. Success and every failure — including
+      // the duplicate-application race, which ErrorMapper renders as "You've
+      // already applied" — are reported by the modal. See its class comment for
+      // why this used to be split across both sides and reported by neither.
+      onSubmit: (message) => ApplicationService.submitApplication(
+        postId: post.id,
+        currentUserId: currentUserId,
+        message: message,
+        proposedPrice: 0,
+      ),
     ),
   );
 }

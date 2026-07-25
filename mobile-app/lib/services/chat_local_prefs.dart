@@ -18,11 +18,10 @@ class ChatLocalPrefs {
   static const _kClearedPrefix = 'help24_chat_cleared_';
   static const _kHiddenPrefix = 'help24_chat_hidden_';
 
-  static SharedPreferences? _prefs;
-  static Future<SharedPreferences> get _instance async {
-    _prefs ??= await SharedPreferences.getInstance();
-    return _prefs!;
-  }
+  /// See the note in `CacheService`: one shared handle, so a session purge is
+  /// immediately visible to the next read here.
+  static Future<SharedPreferences> get _instance =>
+      SharedPreferences.getInstance();
 
   // ── Mute ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +30,18 @@ class ChatLocalPrefs {
   static Set<String> _mutedCache = {};
   static final Map<String, DateTime> _clearedCache = {};
   static bool _loaded = false;
+
+  /// Drop the in-memory mirrors at the end of a session.
+  ///
+  /// Purging the SharedPreferences keys alone was not enough: these statics
+  /// outlive the session, so the next account would keep answering mute and
+  /// clear-watermark questions with the previous account's answers until the
+  /// process restarted. Called by `SessionScope.endSession`.
+  static void resetForSignOut() {
+    _mutedCache = {};
+    _clearedCache.clear();
+    _loaded = false;
+  }
 
   /// Loads the muted set and clear-watermarks into memory once per session.
   /// Cheap; call from any screen that needs a synchronous answer.

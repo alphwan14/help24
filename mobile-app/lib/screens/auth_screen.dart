@@ -74,6 +74,12 @@ class _AuthScreenState extends State<AuthScreen> {
   /// pop the wrong route or throw.
   bool _dismissed = false;
 
+  /// True while [_afterCredential] confirms the account's name against the
+  /// profile store. Short, but it must be VISIBLE — an auth screen that sits
+  /// there doing nothing after a correct password is the exact experience this
+  /// change set exists to remove.
+  bool _resolvingProfile = false;
+
   void _goTo(_AuthStep step) {
     if (!mounted) return;
     context.read<AuthProvider>().clearError();
@@ -130,35 +136,51 @@ class _AuthScreenState extends State<AuthScreen> {
         backgroundColor:
             isDark ? AppTheme.darkBackground : AppTheme.lightBackground,
         body: SafeArea(
-          child: Column(
+          child: Stack(
             children: [
-              _buildTopBar(isDark),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  physics: const ClampingScrollPhysics(),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    transitionBuilder: (child, animation) => FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(0.04, 0),
-                          end: Offset.zero,
-                        ).animate(CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.easeOutCubic,
-                        )),
-                        child: child,
+              Column(
+                children: [
+                  _buildTopBar(isDark),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      physics: const ClampingScrollPhysics(),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        transitionBuilder: (child, animation) => FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                            position: Tween<Offset>(
+                              begin: const Offset(0.04, 0),
+                              end: Offset.zero,
+                            ).animate(CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOutCubic,
+                            )),
+                            child: child,
+                          ),
+                        ),
+                        child: KeyedSubtree(
+                          key: ValueKey(_step),
+                          child: _buildStep(isDark),
+                        ),
                       ),
                     ),
-                    child: KeyedSubtree(
-                      key: ValueKey(_step),
-                      child: _buildStep(isDark),
-                    ),
+                  ),
+                ],
+              ),
+              // Signed in, finishing up. Blocks input so a second tap cannot
+              // start another credential flow underneath.
+              if (_resolvingProfile)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: (isDark
+                            ? AppTheme.darkBackground
+                            : AppTheme.lightBackground)
+                        .withValues(alpha: 0.72),
+                    child: const Center(child: CircularProgressIndicator()),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -250,13 +272,27 @@ class _AuthScreenState extends State<AuthScreen> {
   /// Google): decide whether the account still needs a name before letting it
   /// loose in the marketplace, where the name is attached to every job and
   /// review.
-  void _afterCredential() {
+  Future<void> _afterCredential() async {
     if (!mounted) return;
     final auth = context.read<AuthProvider>();
-    if (auth.needsProfileSetup) {
-      _goTo(_AuthStep.profileSetup);
-    } else {
+    if (!auth.needsProfileSetup) {
       _onSuccess();
+      return;
+    }
+
+    // The credential says there is no name — but for phone accounts the name
+    // lives in the Help24 profile, not in the credential, so a RETURNING user
+    // would be asked to name themselves again and the screen would never
+    // dismiss. Confirm against the profile store before stopping them.
+    setState(() => _resolvingProfile = true);
+    final hasProfile = await auth.resolveProfile();
+    if (!mounted) return;
+    setState(() => _resolvingProfile = false);
+
+    if (hasProfile) {
+      _onSuccess();
+    } else {
+      _goTo(_AuthStep.profileSetup);
     }
   }
 }
