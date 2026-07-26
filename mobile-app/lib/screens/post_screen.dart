@@ -159,8 +159,13 @@ class _PostScreenState extends State<PostScreen> {
     _priceController.addListener(_onFormChanged);
     // Warm the category registry (cache-first, fire-and-forget — never blocks).
     CategorySchemaService.instance.warmUp();
-    // Pre-fill city from cached location (non-blocking, never prevents posting).
-    WidgetsBinding.instance.addPostFrameCallback((_) => _prefillLocationFromCache());
+    // Pre-fill the location from what the device already knows (non-blocking,
+    // never prevents posting). It must wait for the bundled dataset: the
+    // registry loads its asset asynchronously, so a bare post-frame callback
+    // runs while it is still empty and the prefill silently resolves nothing.
+    LocationRegistry.instance
+        .ensureBundled()
+        .then((_) => _prefillLocationFromCache());
   }
 
   bool get _isEmergency => _selectedUrgency == Urgency.urgent;
