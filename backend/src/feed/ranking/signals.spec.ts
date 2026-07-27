@@ -198,7 +198,7 @@ describe('signal 4 — urgency', () => {
   });
 
   // Matrix 10 — the rule that keeps the urgent flag meaningful.
-  it('drops the emergency boost entirely once the window has expired', () => {
+  it('drops the emergency boost once the window has expired, leaving only the decaying enum', () => {
     const expired = makeCandidate({
       isUrgent: true,
       urgency: 'urgent',
@@ -207,10 +207,14 @@ describe('signal 4 — urgency', () => {
     });
     const live = liveUrgent(1);
 
-    expect(urgencySignal.score(expired, viewer, CONFIG)).toBe(CONFIG.urgency.enumScores.urgent);
-    expect(urgencySignal.score(live, viewer, CONFIG)!).toBeGreaterThan(
-      urgencySignal.score(expired, viewer, CONFIG)!,
-    );
+    // An hour old, so the enum has barely decayed — but it HAS decayed. It used
+    // to return a flat 0.5 forever, which is how a five-month-old "urgent" post
+    // kept collecting 9 of 18 points (see regressions.spec.ts).
+    const score = urgencySignal.score(expired, viewer, CONFIG)!;
+    expect(score).toBeLessThan(CONFIG.urgency.enumScores.urgent);
+    expect(score).toBeGreaterThan(CONFIG.urgency.enumScores.urgent * 0.95);
+
+    expect(urgencySignal.score(live, viewer, CONFIG)!).toBeGreaterThan(score);
   });
 
   it('ranks the urgency enum urgent > soon > flexible for non-emergency posts', () => {
@@ -221,10 +225,18 @@ describe('signal 4 — urgency', () => {
   });
 
   it('never scores a decayed emergency below its own enum floor', () => {
-    const old = liveUrgent(47); // anchors have almost run out
-    expect(urgencySignal.score(old, viewer, CONFIG)!).toBeGreaterThanOrEqual(
-      CONFIG.urgency.enumScores.urgent,
-    );
+    const hoursOld = 47; // the anchor curve has almost run out here
+    const old = liveUrgent(hoursOld);
+
+    // The floor itself now ages, so compare against the floor AT THIS AGE
+    // rather than against the undecayed constant. The invariant being
+    // protected is unchanged: an open emergency window never scores a post
+    // lower than the same post would score with no window at all.
+    const decayedFloor =
+      CONFIG.urgency.enumScores.urgent *
+      Math.pow(0.5, hoursOld / CONFIG.urgency.enumHalfLifeHours);
+
+    expect(urgencySignal.score(old, viewer, CONFIG)!).toBeGreaterThanOrEqual(decayedFloor);
   });
 });
 

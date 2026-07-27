@@ -105,10 +105,10 @@ Adding signal #16 is one file plus one registry line.
 
 | # | Key | Weight | Shape |
 |---|---|---:|---|
-| 1 | `distance` | **30** | `1 / (1 + (d/d₀)^p)`, `d₀=15 km`, `p=1.5`. 1 km→0.98, 5→0.84, 20→0.39, 100→0.06. No post coords → **0.5 (neutral, never punished)**. No viewer coords → `null`. |
+| 1 | `distance` | **30** | `1 / (1 + (d/d₀)^p)`, `d₀=15 km`, `p=1.5`. 1 km→0.98, 5→0.84, 20→0.39, 100→0.06. No post coords → scored at the **median distance of the candidates that have coords** (see below). No viewer coords → `null`. |
 | 2 | `profession` | **25** | viewer's profession → `professions.category_id` → `categories.name`. Exact category match 1.0; same profession *group* 0.55; alias/token hit in title+description 0.35. |
 | 3 | `skills` | **10** | identical matcher over `user_skills` (secondary), best match × the skill's own weight. Table ships now, empty by default → `null`. |
-| 4 | `urgency` | **18** | live `is_urgent` → piecewise-linear decay over anchors `[0h:1.0, 2h:0.85, 6h:0.6, 24h:0.25, 48h:0]`. Past `urgent_expires_at` → falls back to the `urgency` enum (`urgent` 0.5 × freshness, `soon` 0.25, `flexible` 0). |
+| 4 | `urgency` | **18** | live `is_urgent` → piecewise-linear decay over anchors `[0h:1.0, 2h:0.85, 6h:0.6, 24h:0.25, 48h:0]`. Past `urgent_expires_at` → the `urgency` enum (`urgent` 0.5, `soon` 0.25, `flexible` 0), **itself decayed on a 72 h half-life** — a stated priority is a claim about a moment. |
 | 5 | `freshness` | **10** | `0.5 ^ (hoursOld / 24)`. |
 | 6 | `engagement` | **5** | intent over popularity: `0.5·sat(applications,4) + 0.3·sat(saves,5) + 0.2·sat(messages,5)`, `sat(x,k)=x/(x+k)`; views contribute nothing directly. **Crowding penalty:** a request/job past `crowd_threshold` (10) applications is multiplied by `threshold/count` — an over-subscribed request is a worse *match*, and matches are what we optimise. |
 | 7 | `availability` | **5** | `offer` posts only (else `null`): `available_until > now` → 1.0; else `last_active_at` < 24 h → 0.5, < 7 d → 0.35, else 0.15. |
@@ -119,6 +119,33 @@ Adding signal #16 is one file plus one registry line.
 | 12 | `trust` | **5** | `0.4·verified + 0.2·business + 0.4·tier` (`trusted_professional` 1.0 → `new_provider` 0.0). |
 | — | `ownPost` | **−25** | the viewer's own listing is never the opportunity they are looking for. Demoted, **never hidden**. |
 | — | `alreadyApplied` | **−30** | already responded → strongly demoted. |
+| — | `staleness` | **−22** | 0 until 30 days old, ramping to full by 90. A months-old `open` request in a same-day marketplace was resolved offline. Demoted, never hidden. |
+
+### The three rules that only a real corpus could have taught us
+
+Shipped in generation 1.1, after a viewer in **Mombasa** was served a
+five-month-old **Nairobi** "urgent" request as their #1 recommendation. Three
+individually defensible rules combined into an absurd result — and none of the
+78 original tests could catch it, because each tested one signal against a
+neutral fixture. The failure existed only in the interaction. `regressions.spec.ts`
+now pins the whole scenario end-to-end.
+
+1. **"Unknown distance is neutral" must be relative, not absolute.** A flat 0.5
+   means "treat it as 15 km away". Fine in a Nairobi-centric corpus; for a
+   Mombasa viewer every post *with* coordinates is ~440 km (≈0.006), so any post
+   *missing* coordinates collected 15 of 30 points and won outright. Don't-punish
+   -missing-data had become reward-missing-data. Unknown distance is now scored
+   at the **median of the known distances in that request's candidate set**, so
+   neutral means *typical for this feed* — generous in a dense city, correctly
+   not a free pass far from everything. Median, not mean: one mis-geocoded post
+   3 000 km away would otherwise make every coordinate-less post look local.
+2. **A stated priority ages.** The enum fallback returned a flat 0.5 forever, so
+   a request marked urgent in February still drew 9 of 18 points in July. The
+   doc had always said "× freshness"; the code never multiplied.
+3. **Freshness cannot express "dead".** It only declines to award its 10 points.
+   In a thin feed, where most signals sit at neutral, an abandoned post drifts to
+   the top on the absence of competition. That needs a penalty, not a smaller
+   bonus — hence `staleness`.
 
 Signals 12 (diversity), 13 (anti-spam) and 15 (sponsored) are *not* scores — they are
 composition rules, §4.
@@ -291,9 +318,12 @@ Unit (pure, no DB) — `backend/src/feed/ranking/*.spec.ts`:
 | 20 | Own post | present but demoted below an equivalent foreign post |
 | 21 | Already applied | demoted below an equivalent un-applied post |
 | 22 | Explainability | `Σ points == score` (within float epsilon) for every item |
-| 23 | **Large dataset** | 5 000 candidates × full registry scores in < 150 ms |
+| 23 | **Scale** | scoring is linear in candidate count (5× the rows < 12× the time — separates O(n) from O(n²)); 400 candidates < 50 ms. Asserted as a *ratio*, because an absolute wall-clock bound measures how busy the CI box is and duly went flaky the first time a signal was added |
 | 24 | Empty candidate set | returns `[]`, no throw |
 | 25 | All-null signals (anonymous viewer, no location, no profession) | still ranks by freshness/urgency/trust; no NaN, no divide-by-zero |
+| 26 | **Mombasa regression** | far-from-corpus viewer + coordinate-less post → the post scores as *far*, not as neutral |
+| 27 | **Aged urgency** | an "urgent" post 5 months old scores < 0.01; one from today still scores > 0.4 |
+| 28 | **Staleness** | 150-day-old post takes the full penalty and lands last, but is still *returned* when it is all there is |
 
 Manual checklist: [`RECOMMENDATION_ENGINE_TESTING.md`](./RECOMMENDATION_ENGINE_TESTING.md).
 
@@ -308,14 +338,16 @@ Manual checklist: [`RECOMMENDATION_ENGINE_TESTING.md`](./RECOMMENDATION_ENGINE_T
 - `093_users_trust_availability_skills.sql` — `is_verified`, `account_type`, `available_until`, `user_skills`
 - `094_feed_indexes.sql` — the indexes ranking actually needs
 - `095_fn_feed_candidates.sql` — multi-pool retrieval
+- `096_feed_settings_staleness.sql` — staleness curve + weight, urgency enum
+  half-life (writes only keys that are absent; never clobbers a tuned value)
 
 **Backend** (`backend/src/feed/`)
 - `ranking/` — pure engine, no Nest imports, no I/O, no clock reads:
   `types.ts`, `curves.ts`, `defaults.ts`, `text-index.ts`,
   `signals/*.signal.ts` (one file per signal) + `signals/profession-match.ts`,
   `signal-registry.ts`, `scorer.ts`, `diversity.ts`
-- `ranking/signals.spec.ts`, `ranking/scorer.spec.ts`, `ranking/test-fixtures.ts`
-  — 78 tests covering the matrix above
+- `ranking/signals.spec.ts`, `ranking/scorer.spec.ts`, `ranking/regressions.spec.ts`,
+  `ranking/test-fixtures.ts` — 96 tests covering the matrix above
 - `feed-settings.service.ts`, `viewer-context.service.ts`, `feed.repository.ts`,
   `feed.service.ts`, `feed.controller.ts`, `feed.module.ts`, `dto/feed.dto.ts`
 

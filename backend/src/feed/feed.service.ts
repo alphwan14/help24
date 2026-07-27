@@ -5,7 +5,7 @@ import { ViewerContextService } from './viewer-context.service';
 import { FeedRepository } from './feed.repository';
 import { scoreCandidates, maxPossibleScore } from './ranking/scorer';
 import { diversify } from './ranking/diversity';
-import { FeedConfig, ScoredCandidate, ViewerContext } from './ranking/types';
+import { FeedConfig, RankingCandidate, ScoredCandidate, ViewerContext } from './ranking/types';
 import { FeedQueryDto, IngestInteractionsDto, SetAvailabilityDto } from './dto/feed.dto';
 
 /**
@@ -115,7 +115,16 @@ export class FeedService {
       };
     }
 
-    const scored = scoreCandidates(candidates, viewer, config, { explain });
+    // Anchor "unknown distance" to what a typical candidate in THIS set looks
+    // like, before scoring. Without it a post with no coordinates was scored as
+    // a flat 15 km, which is generous in Nairobi and simply wrong for a viewer
+    // in Mombasa — there it beat every real post in the country.
+    const scoringViewer: ViewerContext = {
+      ...viewer,
+      medianKnownDistanceKm: this.medianKnownDistance(candidates),
+    };
+
+    const scored = scoreCandidates(candidates, scoringViewer, config, { explain });
 
     // Diversity runs over the WHOLE scored list and then slices, so page 2
     // inherits page 1's composition history instead of restarting the same
@@ -296,6 +305,25 @@ export class FeedService {
 
     if (names.size === 0) return null;
     return [...names].slice(0, Math.max(config.behaviour.maxKeys, 10));
+  }
+
+  /**
+   * Median distance across the candidates that have coordinates, or null when
+   * none do.
+   *
+   * Median rather than mean on purpose: a single mis-geocoded post 3 000 km
+   * away would drag a mean far enough to make every coordinate-less post look
+   * local, which is the exact failure this is here to prevent.
+   */
+  private medianKnownDistance(candidates: RankingCandidate[]): number | null {
+    const known: number[] = [];
+    for (const c of candidates) {
+      if (c.distanceKm != null && Number.isFinite(c.distanceKm)) known.push(c.distanceKm);
+    }
+    if (known.length === 0) return null;
+    known.sort((a, b) => a - b);
+    const mid = known.length >> 1;
+    return known.length % 2 === 1 ? known[mid] : (known[mid - 1] + known[mid]) / 2;
   }
 
   private isPersonalised(viewer: ViewerContext): boolean {

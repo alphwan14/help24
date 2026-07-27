@@ -14,6 +14,7 @@ import { timeOfDaySignal } from './signals/time-of-day.signal';
 import { trustSignal } from './signals/trust.signal';
 import { ownPostSignal } from './signals/own-post.signal';
 import { alreadyAppliedSignal } from './signals/already-applied.signal';
+import { stalenessSignal } from './signals/staleness.signal';
 
 /**
  * THE REGISTRY — the whole ranking model, in one readable list.
@@ -53,6 +54,7 @@ export const FEED_SIGNALS: readonly FeedSignal[] = Object.freeze([
   // ── Penalties: things that are never the opportunity ────────────────────
   ownPostSignal,
   alreadyAppliedSignal,
+  stalenessSignal, //     a months-old "open" request was resolved offline
 ]);
 
 /**

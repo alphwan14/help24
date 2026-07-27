@@ -1,5 +1,5 @@
 import { FeedSignal } from '../types';
-import { hoursBetween, interpolate, clamp } from '../curves';
+import { halfLifeDecay, hoursBetween, interpolate, clamp } from '../curves';
 
 /**
  * Signal 4 — Urgency. A strong boost that expires.
@@ -17,6 +17,13 @@ import { hoursBetween, interpolate, clamp } from '../curves';
  * emergency that keeps its boost is worse than no urgency feature at all,
  * because it teaches users the flag is noise.
  *
+ * **The enum score decays too.** This was documented from the start and not
+ * implemented, and the gap was visible in production: a request marked urgent
+ * five months ago still collected 9 of the 18 points, forever, because the
+ * fallback returned a flat 0.5. Nobody's emergency is still an emergency in
+ * February. `enumHalfLifeHours` (72 h) means a post marked urgent today keeps
+ * its modest edge and one from last season keeps nothing.
+ *
  * Decay is measured from `created_at` (a reliable TIMESTAMPTZ) rather than from
  * `urgent_expires_at` (a naked TIMESTAMP the app writes from local time — see
  * migration 095). `urgent_expires_at` is used only as the on/off cutoff, where
@@ -32,21 +39,25 @@ export const urgencySignal: FeedSignal = {
   weight: (config) => config.weights.urgency,
 
   score: (candidate, viewer, config) => {
-    const enumScore = clamp(config.urgency.enumScores[candidate.urgency] ?? 0);
+    const hoursOld = hoursBetween(viewer.now, candidate.createdAt);
+
+    // A stated priority is a claim about a moment, so it ages like one.
+    const enumScore =
+      clamp(config.urgency.enumScores[candidate.urgency] ?? 0) *
+      halfLifeDecay(hoursOld, config.urgency.enumHalfLifeHours);
 
     const windowOpen =
       candidate.isUrgent &&
       candidate.urgentExpiresAt != null &&
       candidate.urgentExpiresAt.getTime() > viewer.now.getTime();
 
-    if (!windowOpen) return enumScore;
+    if (!windowOpen) return clamp(enumScore);
 
-    const hoursOld = hoursBetween(viewer.now, candidate.createdAt);
     const emergency = clamp(interpolate(hoursOld, config.urgency.anchors));
 
     // Never let a decayed emergency score BELOW what the same post would get
     // from its enum alone — decay reduces the bonus, it does not invert it.
-    return Math.max(emergency, enumScore);
+    return clamp(Math.max(emergency, enumScore));
   },
 
   detail: (candidate, viewer) => ({

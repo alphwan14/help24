@@ -69,10 +69,15 @@ export function makeViewer(overrides: Partial<ViewerContext> = {}): ViewerContex
     authorAffinity: new Map(),
     recentSearches: [],
     localHour: 9,
+    medianKnownDistanceKm: null,
     now: NOW,
     ...overrides,
   };
 }
+
+/** Nairobi and Mombasa — ~440 km apart, the pair that exposed the distance bug. */
+export const NAIROBI = { latitude: -1.2921, longitude: 36.8219 };
+export const MOMBASA = { latitude: -4.0435, longitude: 39.6682 };
 
 export function makeProfession(overrides: Partial<ViewerProfession> = {}): ViewerProfession {
   return {

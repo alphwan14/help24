@@ -43,7 +43,13 @@ interface ProfessionRegistry {
 }
 
 interface CachedViewer {
-  profile: Omit<ViewerContext, 'latitude' | 'longitude' | 'localHour' | 'now'>;
+  // `medianKnownDistanceKm` is deliberately excluded: it is a property of the
+  // retrieved candidate SET, computed per request by FeedService, and caching
+  // it against a user would carry one request's corpus into the next.
+  profile: Omit<
+    ViewerContext,
+    'latitude' | 'longitude' | 'localHour' | 'now' | 'medianKnownDistanceKm'
+  >;
   expiresAt: number;
 }
 
@@ -311,6 +317,9 @@ export class ViewerContextService {
       latitude: this.finiteOrNull(params.latitude),
       longitude: this.finiteOrNull(params.longitude),
       localHour: this.localHour(now, params.timezoneOffsetMinutes),
+      // Filled by FeedService once the candidate set exists — it is a property
+      // of the retrieved set, not of the viewer's profile.
+      medianKnownDistanceKm: null,
       now,
     };
   }

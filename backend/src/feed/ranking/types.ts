@@ -106,6 +106,20 @@ export interface ViewerContext {
   recentSearches: RecentSearch[];
   /** Viewer-local hour, 0–23. Falls back to server UTC hour when unknown. */
   localHour: number;
+
+  /**
+   * Median distance across the candidates that DO have coordinates, or null
+   * when none do. Set once per request from the retrieved set.
+   *
+   * This is what makes "unknown distance is neutral" mean *typical for this
+   * feed* rather than a fixed 15 km. A flat constant reads as reasonable in a
+   * Nairobi-centric corpus and becomes badly wrong the moment a viewer is far
+   * from everything: for a user in Mombasa every real post is ~440 km (scoring
+   * ~0.006), so a post with NO coordinates scoring the flat 0.5 collected 15 of
+   * 30 points and won the feed outright. "Don't punish missing data" had
+   * quietly become "reward missing data".
+   */
+  medianKnownDistanceKm: number | null;
   /** The instant the request is being served. Never read from the clock inside a signal. */
   now: Date;
 }
@@ -126,7 +140,8 @@ export type SignalKey =
   | 'trust'
   | 'timeOfDay'
   | 'ownPost'
-  | 'alreadyApplied';
+  | 'alreadyApplied'
+  | 'staleness';
 
 export type FeedWeights = Record<SignalKey, number>;
 
@@ -140,6 +155,18 @@ export interface UrgencyConfig {
   /** `[hoursSinceCreated, score]` anchors, ascending by hours. */
   anchors: [number, number][];
   enumScores: Record<string, number>;
+  /**
+   * Half-life applied to `enumScores`. A stated priority ages: "urgent" means
+   * urgent now, not urgent forever.
+   */
+  enumHalfLifeHours: number;
+}
+
+export interface StalenessConfig {
+  /** No penalty at all before this age. */
+  staleAfterDays: number;
+  /** Full penalty from this age onward. */
+  deadAfterDays: number;
 }
 
 export interface FreshnessConfig {
@@ -219,6 +246,7 @@ export interface FeedConfig {
   distance: DistanceConfig;
   urgency: UrgencyConfig;
   freshness: FreshnessConfig;
+  staleness: StalenessConfig;
   engagement: EngagementConfig;
   behaviour: BehaviourConfig;
   availability: AvailabilityConfig;

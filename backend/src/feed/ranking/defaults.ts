@@ -30,6 +30,7 @@ export const DEFAULT_FEED_CONFIG: FeedConfig = {
     timeOfDay: 4,
     ownPost: -25,
     alreadyApplied: -30,
+    staleness: -22,
   },
 
   distance: {
@@ -47,10 +48,16 @@ export const DEFAULT_FEED_CONFIG: FeedConfig = {
       [48, 0],
     ],
     enumScores: { urgent: 0.5, soon: 0.25, flexible: 0 },
+    enumHalfLifeHours: 72,
   },
 
   freshness: {
     halfLifeHours: 24,
+  },
+
+  staleness: {
+    staleAfterDays: 30,
+    deadAfterDays: 90,
   },
 
   engagement: {

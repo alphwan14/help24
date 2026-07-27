@@ -18,6 +18,7 @@ Supabase SQL editor, **in order**. Each is additive and re-runnable.
 093_users_trust_availability_skills.sql-- is_verified, account_type, available_until, user_skills
 094_feed_indexes.sql                   -- the indexes ranking needs  ⚠️ see note
 095_fn_feed_candidates.sql             -- multi-pool retrieval
+096_feed_settings_staleness.sql        -- staleness + urgency-enum decay knobs
 ```
 
 ⚠️ **094 takes a SHARE lock on `posts`** for the duration of each `CREATE INDEX`
@@ -76,6 +77,12 @@ The engine is optional by design. If these three fail, nothing else matters.
       position.
 - [ ] A post with **no coordinates** ranks between near and far posts, never
       last by default.
+- [ ] **Far-from-corpus check (the Mombasa regression).** Browse from a location
+      with no nearby posts — Mombasa against a Nairobi-heavy corpus. → A
+      coordinate-less Nairobi post must **not** outrank a real nearby one, and
+      must not lead the feed. In `explain=1`, `distance.detail.assumedKm` shows
+      what it was scored as; it should be close to the typical real distance
+      (~440), not 15.
 
 ## 3. Profession — signal 2
 
@@ -112,6 +119,13 @@ values ('<your-uid>', 'solar-technician', 0.8);
       gone; the post ranks like a normal one. *(Verify with `explain=1`:
       `urgency.detail.windowOpen` flips to `false`.)*
 - [ ] Two urgent posts, 10 minutes vs 5 hours old. → The newer ranks higher.
+- [ ] **An old "urgent" post carries no urgency.** Find (or fake) a request with
+      `urgency='urgent'` created months ago. → `explain=1` shows its `urgency`
+      contribution at roughly **zero**, not ~9 points. A stated priority ages on
+      a 72 h half-life.
+- [ ] **Months-old listings sink.** A 5-month-old `open` request ranks at the
+      bottom (full `staleness` penalty, −22) but is still **returned** — it is
+      demoted, never filtered. Confirm `staleness.detail.ageDays` in `explain=1`.
 
 ## 6. Freshness, engagement, trust — signals 5, 6, 14
 
@@ -260,3 +274,33 @@ Recorded so they are not mistaken for regressions.
 4. **`view_count` lags.** The engagement trigger fires on `open` and `message`,
    not on `impression`, so impression-only posts carry a stale view count.
    Harmless: raw views contribute **zero** to the engagement score by design.
+
+5. **Posts never expire in the DATA — only in ranking.** 🔴 *The real bug behind
+   the Mombasa report.* A request nobody has touched in five months is still
+   `status = 'open'`, so it is a live row everywhere: it inflates counts, it can
+   still be applied to, it still notifies its author, and it will pollute any
+   future analytics. The `staleness` signal stops the **feed** repeating that
+   lie; it does not make the row true.
+
+   The fix is a lifecycle sweep — auto-close `open` posts with no application,
+   message or edit for N days, with the author notified beforehand and able to
+   renew. That is a product decision (what is N, who gets told, is it reversible)
+   and a behaviour change to existing data, so it was deliberately not bundled
+   into ranking work. Recommended as the next piece.
+
+   Interim check on how much of the corpus this affects:
+   ```sql
+   select
+     count(*) filter (where created_at < now() - interval '90 days')  as probably_dead,
+     count(*) filter (where created_at < now() - interval '30 days')  as ageing,
+     count(*)                                                          as open_total
+   from public.posts
+   where status = 'open' and archived_at is null;
+   ```
+
+6. **The ⚡ urgent BADGE ignores expiry.** `PostModel.isUrgent` is
+   `is_urgent == true || urgency == 'urgent'` and never consults
+   `urgent_expires_at`, so a months-old request still renders with the red
+   urgent styling even though ranking now correctly gives it nothing. Cosmetic,
+   client-side, and a separate change — but it is why the reported post *looked*
+   urgent at the top of the feed.

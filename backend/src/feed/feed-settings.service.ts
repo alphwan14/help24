@@ -121,6 +121,7 @@ export class FeedSettingsService {
       distance: this.merge(d.distance, rows['distance']),
       urgency: this.mergeUrgency(rows['urgency']),
       freshness: this.merge(d.freshness, rows['freshness']),
+      staleness: this.merge(d.staleness, rows['staleness']),
       engagement: this.merge(d.engagement, rows['engagement']),
       behaviour,
       availability: this.merge(d.availability, rows['availability']),
@@ -135,9 +136,14 @@ export class FeedSettingsService {
   /** Urgency carries an anchor array; validate its shape before trusting it. */
   private mergeUrgency(stored?: Record<string, unknown>): FeedConfig['urgency'] {
     const d = DEFAULT_FEED_CONFIG.urgency;
+    const halfLife = stored?.['enumHalfLifeHours'];
     const out: FeedConfig['urgency'] = {
       anchors: d.anchors,
       enumScores: this.mergeNumberMap(d.enumScores, stored?.['enumScores']),
+      enumHalfLifeHours:
+        typeof halfLife === 'number' && Number.isFinite(halfLife) && halfLife > 0
+          ? halfLife
+          : d.enumHalfLifeHours,
     };
 
     const anchors = stored?.['anchors'];
