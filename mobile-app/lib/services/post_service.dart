@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
+import '../utils/feed_scope.dart';
 import 'reputation_service.dart';
 import 'storage_service.dart';
 
@@ -12,7 +13,24 @@ class PostFilters {
   final List<String>? categories;
   final String? city;
   final String? area;
-  final String? type; // 'request', 'offer', 'job', or null for all
+
+  /// `posts.type` values to admit; null means every type.
+  ///
+  /// Was a single `String? type`, which could not express what the ranking
+  /// engine expresses. Discover's "All" scope is `['request', 'offer']` — two
+  /// types, not one and not all — so the old field forced the fallback to send
+  /// `null` (no filter), which is how job posts appeared in Discover whenever
+  /// ranking was unavailable. Supply these from [FeedScope.postTypes] rather
+  /// than by hand.
+  final List<String>? types;
+
+  /// `posts.status` values to admit; null means every status.
+  ///
+  /// Browsing surfaces pass [kBrowsableStatuses]; Saved and My Posts pass null,
+  /// because a shortlist and a management screen must keep showing listings
+  /// through their whole lifecycle.
+  final List<String>? statuses;
+
   final String? urgency;
   final double? minPrice;
   final double? maxPrice;
@@ -25,7 +43,8 @@ class PostFilters {
     this.categories,
     this.city,
     this.area,
-    this.type,
+    this.types,
+    this.statuses,
     this.urgency,
     this.minPrice,
     this.maxPrice,
@@ -33,6 +52,23 @@ class PostFilters {
     this.limit = 50,
     this.offset = 0,
   });
+
+  /// This filter set restricted to [scope], with the browsing status rule
+  /// applied — the ONE place a client-side query is aligned with the engine.
+  PostFilters forScope(FeedScope scope) => PostFilters(
+        searchQuery: searchQuery,
+        categories: categories,
+        city: city,
+        area: area,
+        types: scope.postTypes,
+        statuses: kBrowsableStatuses,
+        urgency: urgency,
+        minPrice: minPrice,
+        maxPrice: maxPrice,
+        difficulty: difficulty,
+        limit: limit,
+        offset: offset,
+      );
 }
 
 /// Exception for post service errors
@@ -49,7 +85,29 @@ class PostServiceException implements Exception {
 /// Service for handling post-related operations with Supabase
 class PostService {
   static get _client => Supabase.instance.client;
-  
+
+  /// THE feed row shape. One definition, used by every read AND by the two
+  /// writes that return a post.
+  ///
+  /// WHY THIS IS A CONSTANT
+  /// ----------------------
+  /// This string was previously copy-pasted at five read sites, and the two
+  /// CREATE paths used a bare `.select()` instead — no author join. That is the
+  /// whole reason a freshly posted card rendered `?` for a name, no avatar, no
+  /// reputation and an "Offer Service" button on the poster's own post: the
+  /// object handed back to the UI was the client's own draft with an id stapled
+  /// to it, and a draft has no author. Making the shape a constant is what makes
+  /// "a created post is indistinguishable from a fetched one" a property of the
+  /// code rather than a thing someone has to remember.
+  ///
+  /// Byte-identical to `FEED_ROW_SELECT` in backend/src/feed/feed.repository.ts,
+  /// so a ranked row, a fallback row and a just-created row all parse through
+  /// the same `PostModel.fromJson` into the same object.
+  static const String feedRowSelect =
+      '*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), '
+      'post_images(image_url), '
+      'applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))';
+
   /// Batch-warm the reputation cache for every distinct author in [authorIds]
   /// with ONE read of the public_provider_reputation view (migration 079, same
   /// shape as GET /reputation/:id), so cards paint their trust line together
@@ -96,14 +154,23 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
+          .select(feedRowSelect)
           .filter('archived_at', 'is', null); // hide archived (soft-deleted) posts
 
       // Apply filters
       if (filters != null) {
-        // Type filter (request/offer/job)
-        if (filters.type != null && filters.type!.isNotEmpty) {
-          query = query.eq('type', filters.type!);
+        // Type filter — a LIST, so this path can express exactly what
+        // fn_feed_candidates expresses (see FeedScope). A single type could
+        // not describe Discover's "requests and offers, but not jobs".
+        if (filters.types != null && filters.types!.isNotEmpty) {
+          query = query.inFilter('type', filters.types!);
+        }
+
+        // Lifecycle filter. fn_feed_candidates has always restricted the ranked
+        // feed to `status = 'open'`; this path never did, so the SAME tab showed
+        // assigned, completed and disputed listings whenever ranking was down.
+        if (filters.statuses != null && filters.statuses!.isNotEmpty) {
+          query = query.inFilter('status', filters.statuses!);
         }
 
         // Category filter
@@ -198,9 +265,14 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
+          .select(feedRowSelect)
           .filter('archived_at', 'is', null) // hide archived (soft-deleted) posts
           .eq('type', 'request')
+          // Same browsing rule as Discover and Jobs. An urgent request that
+          // already has a provider is not an emergency anyone can answer, and
+          // listing it under "Urgent Help Needed" — and counting it in the
+          // Discover badge — invited responses that would be refused.
+          .inFilter('status', kBrowsableStatuses)
           .eq('is_urgent', true)
           .gt('urgent_expires_at', DateTime.now().toUtc().toIso8601String())
           .order('created_at', ascending: false)
@@ -227,12 +299,20 @@ class PostService {
     try {
       var query = _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
+          .select(feedRowSelect)
           .eq('type', 'job')
           .filter('archived_at', 'is', null); // hide archived (soft-deleted) posts
 
       // Apply filters (aligned with posts): location, category, price, difficulty, urgency, search)
       if (filters != null) {
+        // Same lifecycle rule as Discover. The ranked jobs feed runs through
+        // fn_feed_candidates, which admits only `status = 'open'`; without this
+        // the Jobs tab gained filled and completed roles the moment ranking
+        // became unavailable. The `type` is fixed to 'job' by the query above,
+        // so filters.types is intentionally not consulted here.
+        if (filters.statuses != null && filters.statuses!.isNotEmpty) {
+          query = query.inFilter('status', filters.statuses!);
+        }
         if (filters.city != null && filters.city!.isNotEmpty) {
           query = query.ilike('location', '%${filters.city}%');
         }
@@ -293,7 +373,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
+          .select(feedRowSelect)
           .filter('archived_at', 'is', null)
           .inFilter('id', ids);
       final posts =
@@ -317,7 +397,7 @@ class PostService {
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
+          .select(feedRowSelect)
           .eq('id', id)
           .maybeSingle();
 
@@ -346,10 +426,13 @@ class PostService {
         postData['urgent_expires_at'] = DateTime.now().add(const Duration(hours: 1)).toIso8601String();
       }
 
+      // Returns the row in FEED SHAPE — same select as every read, in the SAME
+      // round-trip as the insert. There is no second fetch here: PostgREST
+      // resolves the author join as part of `RETURNING`.
       final postResponse = await _client
           .from('posts')
           .insert(postData)
-          .select()
+          .select(feedRowSelect)
           .single();
 
       final postId = postResponse['id'] as String;
@@ -415,10 +498,29 @@ class PostService {
         debugPrint('📤 No images to upload for this post');
       }
 
-      return post.copyWith(
-        id: postId,
-        authorTempId: '',
+      // Parsed with the SAME fromJson the feed uses, so the card that renders
+      // next is fed a real post — author id, name, avatar, M-Pesa flag, server
+      // timestamp and status all present — instead of the caller's draft.
+      final created = PostModel.fromJson(postResponse);
+
+      // Warm this author's reputation before the post reaches the UI, exactly as
+      // the feed does, so the trust line paints with the rest of the card rather
+      // than popping in a round-trip later. Bounded and best-effort.
+      await _warmReputations([created.authorUserId]);
+
+      return created.copyWith(
+        // The relation was empty at RETURNING time — images are written to
+        // post_images after the insert. These are the URLs we just uploaded.
         images: imageUrls,
+        // Ownership must not be able to depend on a join succeeding. The insert
+        // set author_user_id to exactly this value, so asserting it here gives
+        // the owner check a second, independent guarantee.
+        //
+        // This also means PostCard's existing "show my own name instead of '?'"
+        // fallback finally works: it was gated on isCurrentUser, which could
+        // never be true while the author id was empty.
+        authorUserId:
+            created.authorUserId.isNotEmpty ? created.authorUserId : currentUserId,
       );
     } catch (e) {
       throw PostServiceException('Failed to create post: $e');
@@ -440,10 +542,11 @@ class PostService {
       jobData['author_user_id'] = currentUserId;
       jobData['author_temp_id'] = '';
 
+      // Feed shape, same round-trip — see createPost.
       final response = await _client
           .from('posts')
           .insert(jobData)
-          .select()
+          .select(feedRowSelect)
           .single();
 
       final jobId = response['id'] as String;
@@ -464,10 +567,13 @@ class PostService {
         }
       }
 
-      return job.copyWith(
-        id: jobId,
-        authorTempId: '',
+      final created = JobModel.fromJson(response);
+      await _warmReputations([created.authorUserId]);
+
+      return created.copyWith(
         images: imageUrls,
+        authorUserId:
+            created.authorUserId.isNotEmpty ? created.authorUserId : currentUserId,
       );
     } catch (e) {
       throw PostServiceException('Failed to create job: $e');
@@ -526,16 +632,32 @@ class PostService {
     }
   }
 
-  /// Get posts by the current user. Returns empty list if [currentUserId] is null.
-  static Future<List<PostModel>> getMyPosts(String? currentUserId) async {
+  /// Every post the user has authored — ALL types, all lifecycle states,
+  /// newest first. The single "my listings" query.
+  ///
+  /// It used to be two. This one excluded job posts (`.neq('type', 'job')`)
+  /// while `UserProfileService.getAuthoredPosts` included them and re-declared
+  /// the feed select by hand — so "my posts" meant different things depending on
+  /// which screen asked, and one of them could never show a user their own job.
+  ///
+  /// The browsing filters ([kBrowsableStatuses], [FeedScope]) are deliberately
+  /// NOT applied: managing your listings means seeing the assigned, completed
+  /// and disputed ones too. That is the difference between a management surface
+  /// and a browsing surface, and it is the reason this is a separate method
+  /// rather than a scope.
+  static Future<List<PostModel>> getMyPosts(
+    String? currentUserId, {
+    int limit = 100,
+  }) async {
     if (currentUserId == null || currentUserId.isEmpty) return [];
     try {
       final response = await _client
           .from('posts')
-          .select('*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
+          .select(feedRowSelect)
           .eq('author_user_id', currentUserId)
-          .neq('type', 'job')
-          .order('created_at', ascending: false);
+          .filter('archived_at', 'is', null)
+          .order('created_at', ascending: false)
+          .limit(limit);
 
       return (response as List)
           .map((json) => PostModel.fromJson(json))

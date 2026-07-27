@@ -127,10 +127,12 @@ class _JobsScreenState extends State<JobsScreen> {
                     );
                   }
                   // Distinguish a load failure from a genuinely empty list —
-                  // provider.error is only set when the fetch itself failed.
-                  if (provider.error != null) {
+                  // jobsError is set only when THIS tab's fetch failed. It used
+                  // to read a slot Discover and the posting flow also wrote, so
+                  // a failed post could render here as a jobs failure.
+                  if (provider.jobsError != null) {
                     return ErrorRetryView(
-                      message: provider.error!,
+                      message: provider.jobsError!,
                       onRetry: () => provider.loadJobs(),
                     );
                   }

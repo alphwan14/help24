@@ -2147,7 +2147,7 @@ class _PostScreenState extends State<PostScreen> {
         );
 
         if (createdJob == null) {
-          throw Exception(provider.error ?? 'Failed to create job');
+          throw Exception(provider.postingError ?? 'Failed to create job');
         }
       } else {
         final post = PostModel(
@@ -2197,7 +2197,7 @@ class _PostScreenState extends State<PostScreen> {
         );
 
         if (createdPost == null) {
-          throw Exception(provider.error ?? 'Failed to create post');
+          throw Exception(provider.postingError ?? 'Failed to create post');
         }
       }
 

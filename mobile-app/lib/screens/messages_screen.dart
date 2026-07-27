@@ -28,6 +28,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
+import '../services/adaptive_poll.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/chat_ui.dart';
 import '../widgets/location_experience.dart';
@@ -79,7 +80,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
   Future<void> _refreshConversations() async {
     final uid = _currentUserId;
     if (uid.isEmpty) return;
-    await context.read<AppProvider>().loadConversations(uid);
+    final app = context.read<AppProvider>();
+    // loadConversations is idempotent by design — it no-ops when a stream is
+    // already running. That is right for tab switches and wrong for a pull-to-
+    // refresh, which is the user asking for an attempt NOW. Dropping the
+    // subscription first makes the re-subscribe fetch immediately; the list
+    // itself is never cleared, so nothing blinks.
+    app.stopListeningToConversations();
+    await app.loadConversations(uid);
   }
 
   @override
@@ -117,6 +125,12 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
                 if (conversations.isEmpty) {
                   // Offline with no cached conversations: show offline empty state.
+                  //
+                  // Reaching this while offline now means what it says — we have
+                  // never successfully loaded this account's chats on this
+                  // device. It used to be reachable with months of history on
+                  // disk, because a failed poll was published as an empty list
+                  // and overwrote both the list and its cache.
                   if (connectivity.isOffline) {
                     return OfflineEmptyView(
                       message: 'No internet connection',
@@ -124,6 +138,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         connectivity.checkNow();
                         _refreshConversations();
                       },
+                    );
+                  }
+                  // "We couldn't load your chats" is not "you have no chats" —
+                  // same distinction the Discover feed makes.
+                  if (provider.messagesError != null) {
+                    return ErrorRetryView(
+                      message: provider.messagesError!,
+                      onRetry: _refreshConversations,
                     );
                   }
                   return EmptyStateView(
@@ -474,8 +496,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   RealtimeChannel? _chatRowChannel;
   Timer? _typingExpireTimer;
   // Fallback typing poll — retired the moment the realtime channel proves
-  // alive (first chats-row event).
-  Timer? _typingPollTimer;
+  // alive (first chats-row event). Built in one place so both start sites (an
+  // existing chat, and a pending chat that just got its first message) share
+  // one cadence and one offline policy.
+  AdaptivePoll? _typingPoll;
+
+  AdaptivePoll _makeTypingPoll() => AdaptivePoll(
+        interval: const Duration(seconds: 3),
+        onTick: () {
+          if (mounted) _checkTyping();
+        },
+        debugLabel: 'chat/typing',
+      );
   // Debounced thread-cache persistence (one disk write per burst, not per
   // message), capped to the newest messages.
   Timer? _cacheSaveDebounce;
@@ -521,7 +553,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   // Online status (shown in AppBar subtitle)
   String _onlineStatus = '';
-  Timer? _onlineStatusTimer;
+  AdaptivePoll? _onlineStatusPoll;
 
   // Backend-sourced trust signal for the header (rating + verified tick).
   // Seeded synchronously from ReputationService's cache; refreshed once.
@@ -580,9 +612,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       });
       _startRealtimeMessages();
       _startChatRowRealtime();
-      _typingPollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-        if (mounted) _checkTyping();
-      });
+      _typingPoll = _makeTypingPoll()..start();
       _markSeenNow();
     } else {
       // Pending chat: show empty state, no realtime until first send.
@@ -592,9 +622,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // refreshed live while the chat is open.
     _seedOnlineStatusFromConversation();
     _loadOnlineStatus();
-    _onlineStatusTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) _loadOnlineStatus();
-    });
+    // Both chat pollers park while offline and resume with one immediate run.
+    // At 3s and 30s they were the app's chattiest timers, and neither can
+    // possibly succeed without a network — a chat open in a tunnel used to fire
+    // roughly twenty doomed requests a minute.
+    _onlineStatusPoll = AdaptivePoll(
+      interval: const Duration(seconds: 30),
+      onTick: () {
+        if (mounted) _loadOnlineStatus();
+      },
+      debugLabel: 'chat/presence',
+      // _loadOnlineStatus() was just called directly above.
+      tickOnStart: false,
+    )..start();
     // Trust signal for the header. ReputationService caches with TTL and
     // deduplicates in-flight requests, so this is at most one network call.
     final participantId = widget.conversation.participantId;
@@ -682,10 +722,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _realtimeSubscription?.cancel();
     _chatRowChannel?.unsubscribe();
     _typingExpireTimer?.cancel();
-    _typingPollTimer?.cancel();
+    _typingPoll?.dispose();
     _typingDebounce?.cancel();
     _typingClearTimer?.cancel();
-    _onlineStatusTimer?.cancel();
+    _onlineStatusPoll?.dispose();
     // Deliberately NOT stopping the journey: it belongs to the engine and
     // keeps sharing while the user navigates elsewhere in the app.
     JourneyEngine.instance.listenable.removeListener(_onJourneyChanged);
@@ -849,8 +889,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           callback: (payload) {
             if (!mounted) return;
-            _typingPollTimer?.cancel();
-            _typingPollTimer = null;
+            // Realtime proved itself — the fallback poll is redundant.
+            _typingPoll?.dispose();
+            _typingPoll = null;
             final row = payload.newRecord;
             final typingUser = row['typing_user_id']?.toString();
             final typingAt = row['typing_at'] != null
@@ -1140,9 +1181,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       // Start realtime and typing now that the chat exists.
       _startRealtimeMessages();
       _startChatRowRealtime();
-      _typingPollTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
-        if (mounted) _checkTyping();
-      });
+      _typingPoll ??= _makeTypingPoll()..start();
       context.read<AppProvider>()
         ..setActiveChatId(_chatId)
         ..updateConversation(conv);

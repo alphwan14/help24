@@ -488,6 +488,12 @@ class PostModel {
       'users': {'name': authorName, 'profile_image': authorAvatar, if (authorHasPhone) 'phone_number': '1'},
       if (selectedProviderUserId != null) 'selected_provider_id': selectedProviderUserId,
       'status': status,
+      // The offline card must be the same card. Omitting the answers meant a
+      // relaunch on a plane dropped every intent chip the online feed showed —
+      // JobModel.toCacheMap already persisted them.
+      if (attributes.isNotEmpty) 'attributes': attributes,
+      if (attributes.isNotEmpty && attributesSchemaVersion != null)
+        'attributes_schema_version': attributesSchemaVersion,
     };
   }
 
@@ -595,6 +601,13 @@ class PostModel {
     String? selectedProviderUserId,
     bool? authorHasPhone,
     String? status,
+    // Smart Posting answers were absent from this list, so EVERY copyWith
+    // silently reset them to `{}`: the freshly created post lost its category
+    // answers on the way back from PostService (no time-signal chip, no
+    // highlight chips), and addApplicationToPost stripped them off any card it
+    // touched. A copyWith that drops fields is a copy in name only.
+    Map<String, dynamic>? attributes,
+    int? attributesSchemaVersion,
   }) {
     return PostModel(
       id: id ?? this.id,
@@ -624,6 +637,9 @@ class PostModel {
       selectedProviderUserId: selectedProviderUserId ?? this.selectedProviderUserId,
       authorHasPhone: authorHasPhone ?? this.authorHasPhone,
       status: status ?? this.status,
+      attributes: attributes ?? this.attributes,
+      attributesSchemaVersion:
+          attributesSchemaVersion ?? this.attributesSchemaVersion,
     );
   }
 

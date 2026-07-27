@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../services/adaptive_poll.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../services/user_profile_service.dart';
 import '../widgets/custom_bottom_nav.dart';
@@ -37,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// presence reflect observed liveness. Readers treat presence as valid only
   /// while this beat is fresh (see _presenceStaleAfter in ChatScreen).
   static const Duration _presenceHeartbeat = Duration(seconds: 60);
-  Timer? _presenceTimer;
+  AdaptivePoll? _presencePoll;
 
   Future<void> _beatPresence() async {
     final uid = context.read<AuthProvider>().currentUserId;
@@ -52,11 +53,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _startPresence() {
-    _presenceTimer?.cancel();
-    _beatPresence();
-    _presenceTimer = Timer.periodic(_presenceHeartbeat, (_) {
-      if (mounted) _beatPresence();
-    });
+    _presencePoll?.dispose();
+    // Parks while offline and beats once immediately on reconnect — which is
+    // exactly right for presence: a heartbeat sent with no network is a write
+    // that cannot land, and the FIRST thing anyone wants after reconnecting is
+    // to stop looking offline to the person they are chatting with.
+    _presencePoll = AdaptivePoll(
+      interval: _presenceHeartbeat,
+      onTick: () {
+        if (mounted) _beatPresence();
+      },
+      debugLabel: 'presence',
+    )..start();
+  }
+
+  void _stopPresence() {
+    _presencePoll?.dispose();
+    _presencePoll = null;
   }
 
   @override
@@ -78,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _presenceTimer?.cancel();
+    _stopPresence();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -99,8 +112,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       case AppLifecycleState.inactive:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
-        _presenceTimer?.cancel();
-        _presenceTimer = null;
+        _stopPresence();
         UserProfileService.setOnline(uid, false);
         break;
     }
@@ -154,8 +166,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // so initState ran while uid was still empty). This is the first point
         // where a presence write can pass RLS.
         if (uid.isEmpty) {
-          _presenceTimer?.cancel();
-          _presenceTimer = null;
+          _stopPresence();
         } else {
           _startPresence();
         }

@@ -32,12 +32,29 @@ class PostCard extends StatelessWidget {
   /// tag and a faint highlight border. Never banners, never overlays.
   final bool sponsored;
 
+  /// "400 m away" — supplied by PROXIMITY surfaces (Urgent), which have the
+  /// viewer's coordinates and for which distance is the deciding fact. Omitted
+  /// in Discover, where the feed is already distance-ranked and a per-card
+  /// number would be noise.
+  final String? distanceLabel;
+
+  /// Live countdown for an urgent window, e.g. "12 min left".
+  ///
+  /// Passed only by a surface that REBUILDS on a timer — a countdown rendered
+  /// once and left alone is worse than none, so the card never invents one from
+  /// `post.urgentExpiresAt` on its own. When present it replaces the plain
+  /// "Urgent" tag: the state and the time left are the same fact, and showing
+  /// both twice reads as two separate warnings.
+  final String? urgentCountdown;
+
   const PostCard({
     super.key,
     required this.post,
     this.onTap,
     this.onRespond,
     this.sponsored = false,
+    this.distanceLabel,
+    this.urgentCountdown,
   });
 
   @override
@@ -196,10 +213,25 @@ class PostCard extends StatelessWidget {
                     spacing: 6,
                     runSpacing: 6,
                     children: [
-                      if (post.type == PostType.request)
+                      // A live window beats a static label: "12 min left" tells
+                      // a provider whether it is worth answering; "Urgent" does
+                      // not. Falls back to the ordinary tag off urgency surfaces.
+                      if (urgentCountdown != null)
+                        _SmallTag(
+                          label: urgentCountdown!,
+                          color: AppTheme.errorRed,
+                          icon: Iconsax.timer_1,
+                        )
+                      else if (post.type == PostType.request)
                         _SmallTag(
                           label: post.urgencyText,
                           color: post.urgencyColor,
+                        ),
+                      if (distanceLabel != null)
+                        _SmallTag(
+                          label: distanceLabel!,
+                          color: AppTheme.primaryAccent,
+                          icon: Icons.near_me_outlined,
                         ),
                       if (timeSignal != null)
                         _SmallTag(

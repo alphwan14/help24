@@ -116,6 +116,10 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
         _payMessage = message;
       });
       _polls = 0;
+      // Deliberately a plain Timer, not an AdaptivePoll: `_polls` counts against
+      // `_maxPolls` as a wall-clock proxy for the STK prompt's own expiry, so
+      // these ticks must keep running even offline. See the longer note on
+      // PaymentScreen._startPolling.
       _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _poll(campaign.id));
     } on PromotionException catch (e) {
       if (!mounted) return;

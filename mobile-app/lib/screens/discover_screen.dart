@@ -22,6 +22,7 @@ import '../services/promotion_service.dart';
 import '../utils/feed_composer.dart';
 import '../utils/post_ownership.dart';
 import '../utils/promotion_tracker.dart';
+import '../utils/urgent_window.dart';
 import '../widgets/post_flows.dart';
 
 class DiscoverScreen extends StatefulWidget {
@@ -234,7 +235,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     // urgent requests ("Right now" posts within their window).
                     Consumer<AppProvider>(
                       builder: (_, provider, __) {
-                        final urgentCount = provider.urgentPosts.length;
+                        // Counts only requests whose window is still open. The
+                        // list is loaded once and held, so without this the
+                        // badge kept counting emergencies that had already
+                        // expired — and every caller now loads the same page
+                        // size, so this is a count rather than a page length.
+                        final urgentCount =
+                            openUrgentPosts(provider.urgentPosts, DateTime.now())
+                                .length;
                         return GestureDetector(
                           onTap: () => Navigator.push(
                             context,
@@ -494,9 +502,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           // A load failure is NOT an empty result — show it as a failure with a
           // Retry, so "we couldn't load" is never mistaken for "there's nothing
           // here" (which would wrongly tell the user to change their filters).
-          if (provider.error != null) {
+          if (provider.discoverError != null) {
             return ErrorRetryView(
-              message: provider.error!,
+              message: provider.discoverError!,
               onRetry: _refreshPosts,
             );
           }

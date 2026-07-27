@@ -48,11 +48,58 @@ import '../config/api_config.dart';
 /// other's world.
 class NetworkHealth {
   NetworkHealth._();
+
+  // ── Write side: plain networking code reports what it observed ────────────
   static void Function()? onSuccess;
   static void Function()? onFailure;
 
   static void success() => onSuccess?.call();
   static void failure() => onFailure?.call();
+
+  // ── Read side: context-free code asks whether it is worth trying ──────────
+  //
+  // Services (ChatServiceSupabase, UserProfileService) have no BuildContext and
+  // so could not consult ConnectivityProvider at all. They polled regardless —
+  // every 15s, forever, through an outage — and every tick failed. That is why
+  // this seam gained a read half: the answer already existed, it just was not
+  // reachable from the code that needed it most.
+
+  static bool _offline = false;
+
+  /// Reachability as last evidenced by [ConnectivityProvider]. Optimistic
+  /// before the first evidence arrives, matching the provider's own default —
+  /// a healthy start must never look offline.
+  static bool get isOffline => _offline;
+
+  /// Broadcasts `true` when the app goes offline and `false` when it returns.
+  /// Emits ONLY on a change, so every event is a real edge.
+  static final StreamController<bool> _statusController =
+      StreamController<bool>.broadcast();
+
+  /// Every offline↔online transition.
+  static Stream<bool> get onStatusChange => _statusController.stream;
+
+  /// THE offline→online edge, for the whole app.
+  ///
+  /// There is exactly one definition of "reconnected": this stream.
+  /// [ConnectivityProvider.onReconnect] is a view onto it, so widgets
+  /// (ReconnectListener) and context-free services (AdaptivePoll) can never
+  /// disagree about when the network came back.
+  static Stream<void> get onReconnect =>
+      _statusController.stream.where((offline) => !offline).map<void>((_) {});
+
+  /// Publish a reachability verdict. Called ONLY by [ConnectivityProvider],
+  /// which owns the evidence; everything else reads.
+  static void publish({required bool offline}) {
+    if (_offline == offline) return; // not an edge — say nothing
+    _offline = offline;
+    if (!_statusController.isClosed) _statusController.add(offline);
+  }
+
+  /// Test seam: forget the last verdict without touching the stream, so an
+  /// isolated test starts from the same optimistic default as a cold app.
+  @visibleForTesting
+  static void resetForTest() => _offline = false;
 }
 
 class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
@@ -81,14 +128,20 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// Fires exactly once each time reachability transitions offline → online.
   /// Screens subscribe to this to re-run their own load after the connection
   /// comes back, instead of every screen re-implementing the offline→online
-  /// edge detection. Broadcast so any number of screens can listen.
-  final StreamController<void> _reconnectController =
-      StreamController<void>.broadcast();
-  Stream<void> get onReconnect => _reconnectController.stream;
+  /// edge detection.
+  ///
+  /// A VIEW onto [NetworkHealth.onReconnect], not a second source. This used to
+  /// own its own controller and emit from three call sites by hand, which meant
+  /// a state change that forgot to call `_emitReconnect` was a silently missed
+  /// reconnect — and left context-free services with no way to observe the edge
+  /// at all. Publishing after every mutation instead makes the edge impossible
+  /// to miss and available to everyone.
+  Stream<void> get onReconnect => NetworkHealth.onReconnect;
 
-  void _emitReconnect() {
-    if (!_reconnectController.isClosed) _reconnectController.add(null);
-  }
+  /// Hand the current verdict to the app-wide seam. Called after EVERY mutation
+  /// of [_hasInterface] or [_reachable]; [NetworkHealth.publish] de-duplicates,
+  /// so calling it redundantly is free and forgetting it is the only mistake.
+  void _publish() => NetworkHealth.publish(offline: isOffline);
 
   /// Interface-level state — a cheap trigger, never the answer on its own.
   bool _hasInterface = true;
@@ -123,6 +176,7 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
       // No interface at all is proof enough; don't waste a probe.
       _reachable = false;
       _retryTimer?.cancel();
+      _publish();
       notifyListeners();
       return;
     }
@@ -132,6 +186,7 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
       _backoffIndex = 0;
       checkNow();
     } else {
+      _publish();
       notifyListeners();
     }
   }
@@ -154,8 +209,8 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
       _backoffIndex = 0;
       _retryTimer?.cancel();
       _retryTimer = null;
+      _publish();
       notifyListeners();
-      _emitReconnect();
     }
   }
 
@@ -205,9 +260,10 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
     } else {
       _scheduleRetry();
     }
+    // Published BEFORE notifying: a listener rebuilding on this notification
+    // must not be able to read a stale NetworkHealth.isOffline.
+    _publish();
     if (changed || !ok) notifyListeners();
-    // A probe that flips us from offline back to reachable is a reconnect.
-    if (changed && ok) _emitReconnect();
     return ok;
   }
 
@@ -229,7 +285,9 @@ class ConnectivityProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (NetworkHealth.onFailure == reportFailure) NetworkHealth.onFailure = null;
     _subscription?.cancel();
     _retryTimer?.cancel();
-    _reconnectController.close();
+    // NetworkHealth's stream is app-wide and deliberately outlives any single
+    // provider instance — closing it here would silence every service-level
+    // poller the moment a widget test tore a provider down.
     super.dispose();
   }
 }

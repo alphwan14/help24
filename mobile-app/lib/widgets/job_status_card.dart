@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/auth_provider.dart';
+import '../services/adaptive_poll.dart';
 import '../services/jobs_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
@@ -116,7 +117,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
   _JobData? _data;
   _JobState _state = _JobState.loading;
   String? _error;
-  Timer? _pollTimer;
+  AdaptivePoll? _poll;
   bool _actionLoading = false;
 
   @override
@@ -124,8 +125,15 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadData();
-    // Poll every 30 seconds to stay in sync with backend events.
-    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadData(silent: true));
+    // Poll every 30 seconds to stay in sync with backend events. Parks while
+    // offline and refreshes once immediately on reconnect — a job whose state
+    // changed during an outage is exactly what the user needs to see first.
+    _poll = AdaptivePoll(
+      interval: const Duration(seconds: 30),
+      onTick: () => _loadData(silent: true),
+      debugLabel: 'jobStatus',
+      tickOnStart: false, // _loadData() ran above
+    )..start();
   }
 
   @override
@@ -136,7 +144,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    _poll?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

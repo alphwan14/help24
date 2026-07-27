@@ -6,6 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import '../models/user_model.dart';
 import '../utils/phone_utils.dart';
+import 'adaptive_poll.dart';
+import 'post_service.dart';
 import 'storage_service.dart';
 
 /// User profile: Supabase `users` table + Supabase Storage bucket `profiles` for avatar.
@@ -114,12 +116,13 @@ class UserProfileService {
     if (!_isAvailable || uid == null || uid.isEmpty) return Stream.value(null);
 
     final controller = StreamController<UserModel?>.broadcast();
-    Timer? timer;
+    var hasDelivered = false;
 
     Future<void> fetch() async {
       try {
         final r = await _client.from('users').select().eq('id', uid).maybeSingle();
         if (controller.isClosed) return;
+        hasDelivered = true;
         if (r != null) {
           controller.add(UserModel.fromSupabase(r as Map<String, dynamic>));
         } else {
@@ -127,13 +130,23 @@ class UserProfileService {
         }
       } catch (e) {
         debugPrint('UserProfileService watchUser fetch: $e');
-        if (!controller.isClosed) controller.add(null);
+        if (controller.isClosed) return;
+        // An error is not an emptiness — the same rule the conversation stream
+        // follows. `add(null)` here means "there is no such user", and emitting
+        // it on a failed fetch blanked a profile that was on screen a moment
+        // earlier. Once we have delivered a real answer, a failure delivers
+        // nothing and the last known profile stands.
+        if (!hasDelivered) controller.addError(e);
       }
     }
 
-    fetch();
-    timer = Timer.periodic(const Duration(seconds: 15), (_) => fetch());
-    controller.onCancel = () => timer?.cancel();
+    final poll = AdaptivePoll(
+      interval: const Duration(seconds: 15),
+      onTick: fetch,
+      debugLabel: 'watchUser',
+    );
+    poll.start();
+    controller.onCancel = poll.dispose;
 
     return controller.stream;
   }
@@ -399,19 +412,16 @@ class UserProfileService {
   /// same joins the feed uses so PostCard renders identically. Powers the
   /// profile's My Posts screen. Throws on failure — the screen shows a real
   /// error state instead of silently rendering "no posts".
+  /// Delegates to [PostService.getMyPosts] — the single "my listings" query.
+  ///
+  /// This used to be a second, hand-written copy of the same read, including a
+  /// sixth transcription of the feed select string, and it disagreed with
+  /// `getMyPosts` about whether job posts count as your posts. Two queries
+  /// answering one question is how a user's own job became invisible from one
+  /// entry point and visible from another.
   static Future<List<PostModel>> getAuthoredPosts(String uid, {int limit = 100}) async {
     if (!_isAvailable || uid.isEmpty) return const [];
-    final rows = await _client
-        .from('posts')
-        .select(
-            '*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), post_images(image_url), applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))')
-        .eq('author_user_id', uid)
-        .filter('archived_at', 'is', null)
-        .order('created_at', ascending: false)
-        .limit(limit);
-    return (rows as List)
-        .map((json) => PostModel.fromJson(json as Map<String, dynamic>))
-        .toList();
+    return PostService.getMyPosts(uid, limit: limit);
   }
 
   // REMOVED (Phase 3.2B): incrementCompletedJobsCount — a client-side "current + 1"
@@ -450,7 +460,7 @@ class UserProfileService {
       return Stream.value((notificationsEnabled: true, language: 'en'));
     }
     final controller = StreamController<({bool notificationsEnabled, String language})>.broadcast();
-    Timer? timer;
+    var hasDelivered = false;
 
     Future<void> fetch() async {
       try {
@@ -459,15 +469,27 @@ class UserProfileService {
         final enabled = r?['notifications_enabled'] as bool? ?? true;
         final lang = r?['language']?.toString();
         final language = (lang == 'sw' || lang == 'en') ? lang! : 'en';
+        hasDelivered = true;
         controller.add((notificationsEnabled: enabled, language: language));
       } catch (e) {
-        if (!controller.isClosed) controller.add((notificationsEnabled: true, language: 'en'));
+        if (controller.isClosed) return;
+        // Publishing the DEFAULTS on failure is worse than publishing nothing:
+        // a user who had switched notifications off would watch the toggle flip
+        // back on because a poll timed out. Defaults are for a first load with
+        // no answer, not for an answer we failed to get.
+        if (!hasDelivered) {
+          controller.add((notificationsEnabled: true, language: 'en'));
+        }
       }
     }
 
-    fetch();
-    timer = Timer.periodic(const Duration(seconds: 15), (_) => fetch());
-    controller.onCancel = () => timer?.cancel();
+    final poll = AdaptivePoll(
+      interval: const Duration(seconds: 15),
+      onTick: fetch,
+      debugLabel: 'watchUserPrefs',
+    );
+    poll.start();
+    controller.onCancel = poll.dispose;
     return controller.stream;
   }
 }
