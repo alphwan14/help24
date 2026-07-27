@@ -38,6 +38,16 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalFilters(new AllExceptionsFilter());
 
+  // Without this, Nest ignores SIGTERM and the process is simply killed — so
+  // onModuleDestroy() never runs and the three background sweeps (event retry,
+  // promotions lifecycle, dispute SLA) are terminated mid-tick. Enabling the
+  // hooks makes SIGTERM drain in-flight HTTP and clear every interval first.
+  //
+  // This is how every orchestrator asks a process to stop: `docker stop` and
+  // `docker compose down` send SIGTERM then SIGKILL after a grace period, and
+  // Render does the same on redeploy. Correct in both, container or not.
+  app.enableShutdownHooks();
+
   // Bind 0.0.0.0 so the container/host (Render) can route external traffic.
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');

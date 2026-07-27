@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Help24 Local",
+      "Group": "Help24",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "help24",
+      "Username": "help24",
+      "SSLMode": "prefer",
+      "Comment": "Docker PostgreSQL (compose profile: db). Host is the compose service name, resolved over the help24_data network - not localhost, which inside this container means pgAdmin itself. Password is POSTGRES_PASSWORD from docker.env; pgAdmin asks for it once and can remember it. NOTE: this file is static - if you change POSTGRES_USER or POSTGRES_DB in docker.env, update Username/MaintenanceDB here to match."
+    }
+  }
+}

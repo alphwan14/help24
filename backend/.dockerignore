@@ -1,0 +1,55 @@
+# =============================================================================
+# Help24 backend — Docker build context exclusions
+# =============================================================================
+# Two jobs:
+#   1. SPEED — everything listed here is never uploaded to the daemon, so the
+#      context stays a few hundred KB instead of ~400 MB (node_modules alone).
+#      A small context also means the `COPY` layers change less often, which is
+#      what actually makes the build cache work.
+#   2. SAFETY — `.env` must never enter a layer. Layers are permanent and
+#      readable by anyone who can pull the image. Secrets are injected at RUN
+#      time via compose `env_file:`, never at BUILD time.
+#
+# NOTE: *.spec.ts is deliberately NOT excluded — the Dockerfile has an optional
+# `test` stage for CI. Spec files never reach the runtime image anyway, because
+# tsconfig.build.json excludes them from `dist/` and the runner only copies
+# `dist/`.
+# =============================================================================
+
+# ── Installed / generated artefacts ──────────────────────────────────────────
+# node_modules is reinstalled inside the image from package-lock.json. Copying
+# the host's copy would bake in Windows-native binaries that break on Linux.
+node_modules
+dist
+*.tsbuildinfo
+coverage
+
+# ── Secrets — never bake these into an image ─────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+serviceAccount*.json
+firebase-adminsdk*.json
+google-services.json
+
+# ── VCS, tooling, editors ────────────────────────────────────────────────────
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose*.yml
+.vscode
+.idea
+*.md
+
+# ── Logs & OS noise ──────────────────────────────────────────────────────────
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
