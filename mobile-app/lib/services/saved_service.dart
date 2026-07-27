@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
+import 'interaction_tracker.dart';
 import 'post_service.dart';
 
 /// A saved provider row for the shortlist (joined from public_profiles).
@@ -86,8 +87,29 @@ class SavedService extends ChangeNotifier {
   /// reverted, so the bookmark un-filled itself with no explanation and the
   /// user was left guessing whether the tap had registered. Callers now have
   /// something to report.
-  Future<bool> togglePost(String userId, String postId) =>
-      _toggle(userId, 'post', postId, _postIds);
+  /// [category] and [authorId] are optional context for the recommendation
+  /// engine — a save is one of the strongest intent signals it receives
+  /// (weight 3), and knowing WHICH category was saved is what turns it into
+  /// personalisation rather than a bare counter. Callers that have the post
+  /// should pass them; the toggle works identically without.
+  Future<bool> togglePost(
+    String userId,
+    String postId, {
+    String? category,
+    String? authorId,
+  }) async {
+    final wasSaved = _postIds.contains(postId);
+    final ok = await _toggle(userId, 'post', postId, _postIds);
+    if (ok) {
+      InteractionTracker.instance.trackSaveById(
+        postId,
+        saved: !wasSaved,
+        category: category,
+        authorId: authorId,
+      );
+    }
+    return ok;
+  }
 
   Future<bool> toggleProvider(String userId, String providerId) =>
       _toggle(userId, 'provider', providerId, _providerIds);

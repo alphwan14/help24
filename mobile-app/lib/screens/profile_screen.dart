@@ -181,7 +181,11 @@ class ProfileScreen extends StatelessWidget {
                         final appProvider = context.read<AppProvider>();
                         await locationProvider.initializeForUser(uid);
                         if (!context.mounted) return;
-                        appProvider.setPriorityLocationCity(locationProvider.city);
+                        appProvider.setViewer(
+                          userId: uid,
+                          latitude: locationProvider.latitude,
+                          longitude: locationProvider.longitude,
+                        );
                       },
                     );
                   },
@@ -1454,8 +1458,13 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
         _feedback = ok ? 'Location updated.' : 'Could not get location. Try again.';
       });
       if (ok) {
-        context.read<AppProvider>().setPriorityLocationCity(
-              context.read<LocationProvider>().city,
+        // New coordinates → the distance signal has something better to work
+        // with, so the feed is re-ranked from where the user actually is.
+        final location = context.read<LocationProvider>();
+        context.read<AppProvider>().setViewer(
+              userId: widget.userId,
+              latitude: location.latitude,
+              longitude: location.longitude,
             );
       }
     } finally {
@@ -1473,7 +1482,15 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
           .read<LocationProvider>()
           .disableLocation(widget.userId);
       if (!mounted) return;
-      context.read<AppProvider>().setPriorityLocationCity(null);
+      // Location disabled in-app: drop the coordinates so ranking stops using
+      // them. The distance signal then reports "not applicable" and its weight
+      // leaves the calculation entirely — the feed re-ranks on everything else
+      // rather than scoring every post as though it were nowhere.
+      context.read<AppProvider>().setViewer(
+            userId: widget.userId,
+            latitude: null,
+            longitude: null,
+          );
       Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _disabling = false);

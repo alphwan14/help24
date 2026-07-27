@@ -12,6 +12,8 @@ import '../services/chat_service_supabase.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
 import '../services/cache_service.dart';
+import '../services/feed_service.dart';
+import '../services/interaction_tracker.dart';
 import '../services/jobs_service.dart';
 import '../services/session_scope.dart';
 import '../services/startup_prefetch.dart';
@@ -43,7 +45,34 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   RangeValues _priceRange = const RangeValues(0, 100000);
   Difficulty? _selectedDifficulty;
   Urgency? _selectedUrgency;
-  String? _priorityLocationCity;
+
+  // ── Viewer context (drives the recommendation engine) ────────────────────
+  //
+  // Replaces `_priorityLocationCity`, which was set on every sign-in and read
+  // by nothing: no sort, no filter, no query parameter. Proximity is now real
+  // coordinates travelling to the ranking engine, never a city substring —
+  // see _docs/RECOMMENDATION_ENGINE_AUDIT.md §3.2.
+  String? _viewerUserId;
+  double? _viewerLatitude;
+  double? _viewerLongitude;
+
+  /// Where the current feed page came from, and why each post is where it is.
+  /// `feedSignals` is a debugging surface — no layout depends on it.
+  FeedSource _feedSource = FeedSource.fallback;
+  Map<String, double> _feedScores = const {};
+  Map<String, List<FeedSignalBreakdown>> _feedSignals = const {};
+  bool _feedPersonalised = false;
+
+  /// Monotonic request ids. Typing "electrician" used to fire eleven full feed
+  /// queries with nothing sequencing them, so a slow early response could land
+  /// after a fast later one and overwrite it (audit §3.7).
+  int _postsRequestSeq = 0;
+  int _jobsRequestSeq = 0;
+  Timer? _searchDebounce;
+
+  /// Long enough to swallow a burst of typing, short enough that the feed
+  /// still feels like it is responding to the keyboard.
+  static const Duration _searchDebounceDelay = Duration(milliseconds: 350);
 
   /// Post ids the current user has applied to / sent an offer on. Server-derived
   /// (from the applications table) so the "Applied / Offer sent" state is TRUE
@@ -77,7 +106,21 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   RangeValues get priceRange => _priceRange;
   Difficulty? get selectedDifficulty => _selectedDifficulty;
   Urgency? get selectedUrgency => _selectedUrgency;
-  String? get priorityLocationCity => _priorityLocationCity;
+
+  /// True when the last page came from the ranking engine rather than the
+  /// chronological fallback.
+  bool get isFeedRanked => _feedSource == FeedSource.ranked;
+
+  /// True when the server had enough about this viewer to personalise.
+  bool get isFeedPersonalised => _feedPersonalised;
+
+  /// Final recommendation score for [postId], when the page was ranked.
+  double? feedScoreFor(String postId) => _feedScores[postId];
+
+  /// Per-signal breakdown for [postId] — "Distance +28.4, Profession +25.0".
+  /// Explainability surface for debugging and weight tuning.
+  List<FeedSignalBreakdown> feedSignalsFor(String postId) =>
+      _feedSignals[postId] ?? const [];
 
   AppProvider({ThemePreference initialTheme = ThemePreference.system})
       : _themePreference = initialTheme {
@@ -106,6 +149,16 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _activeChatId = null;
     _warmedAvatarUrls.clear();
     _error = null;
+    // Personalisation is per-account: the outgoing user's profession, affinity
+    // and queued behavioural events must not follow them out. Posts stay (they
+    // are public marketplace data) but the ranking that shaped them does not.
+    _viewerUserId = null;
+    _viewerLatitude = null;
+    _viewerLongitude = null;
+    _feedScores = const {};
+    _feedSignals = const {};
+    _feedPersonalised = false;
+    InteractionTracker.instance.setUser(null);
     notifyListeners();
   }
 
@@ -129,6 +182,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// Load posts from Supabase with current filters.
   /// When offline: keeps cached _posts, does not clear or show endless loading.
   Future<void> loadPosts() async {
+    final seq = ++_postsRequestSeq;
     _isLoadingPosts = true;
     _error = null;
     notifyListeners();
@@ -146,9 +200,16 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         final prefetched = await prefetch;
         if (prefetched != null) {
           _posts = prefetched;
+          _feedSource = FeedSource.fallback; // prefetch is chronological
           if (_posts.isNotEmpty) {
             await CacheService.savePosts(_posts);
           }
+          // Paint instantly from the prefetch, then RANK. Without this second
+          // pass a cold start would leave the reader on chronological posts
+          // until they pulled to refresh — and a signed-out browser, whose
+          // setViewer call is a no-op (nothing changed), would never rank at
+          // all. The prefetch is take-once, so this cannot recurse.
+          unawaited(Future.microtask(loadPosts));
           return;
         }
       }
@@ -184,25 +245,60 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         difficulty: _selectedDifficulty?.name,
       );
 
-      _posts = await PostService.fetchPosts(filters: filters);
+      // The ranked feed. On any failure — cold backend, timeout, 5xx — this
+      // degrades inside FeedService to the exact `created_at DESC` Supabase
+      // query the app used before the engine existed, so ranking can never be
+      // the reason Discover is empty.
+      final result = await FeedService.fetchFeed(
+        userId: _viewerUserId,
+        latitude: _viewerLatitude,
+        longitude: _viewerLongitude,
+        scope: _scopeForFilter,
+        filters: filters,
+      );
+
+      // A newer load started while this one was in flight — drop it rather than
+      // letting a stale page overwrite a fresh one.
+      if (seq != _postsRequestSeq) return;
+
+      _posts = result.items;
+      _feedSource = result.source;
+      _feedScores = result.scores;
+      _feedSignals = result.signals;
+      _feedPersonalised = result.personalised;
+      // A fresh page is a fresh impression session.
+      InteractionTracker.instance.resetImpressions();
       if (_posts.isNotEmpty) {
         await CacheService.savePosts(_posts);
       }
     } catch (e) {
+      if (seq != _postsRequestSeq) return;
       _error = ErrorMapper.toMessage(e, context: ErrorContext.loadFeed);
       debugPrint('[AppProvider] loadPosts failed: $e');
     } finally {
-      // Runs on every exit path (prefetch, offline cache, network): author
-      // avatars start caching with the feed so cards render them instantly.
-      _warmAvatarUrls(_posts.map((p) => p.authorAvatar));
-      _isLoadingPosts = false;
-      notifyListeners();
+      // Only the newest request owns the loading flag: an outdated response
+      // must not clear a spinner that belongs to a load still running.
+      if (seq == _postsRequestSeq) {
+        // Runs on every exit path (prefetch, offline cache, network): author
+        // avatars start caching with the feed so cards render them instantly.
+        _warmAvatarUrls(_posts.map((p) => p.authorAvatar));
+        _isLoadingPosts = false;
+        notifyListeners();
+      }
     }
   }
+
+  /// Discover tab → the ranking engine's scope parameter.
+  String get _scopeForFilter => switch (_selectedFilter) {
+        'Requests' => 'requests',
+        'Offers' => 'offers',
+        _ => 'all',
+      };
 
   /// Load jobs from Supabase.
   /// When offline: keeps cached _jobs, does not clear or show endless loading.
   Future<void> loadJobs() async {
+    final seq = ++_jobsRequestSeq;
     _isLoadingJobs = true;
     _error = null;
     notifyListeners();
@@ -244,17 +340,32 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         maxPrice: _priceRange.end < 100000 ? _priceRange.end : null,
         difficulty: _selectedDifficulty?.name,
       );
-      _jobs = await PostService.fetchJobs(filters: filters);
+      // Jobs run through the SAME engine as Discover (scope=jobs). The tab
+      // used to be a second, weaker copy of the feed query — same table,
+      // narrower search, no ranking (audit §3.11). An electrician now sees
+      // electrical jobs first here for the same reason they do in Discover.
+      final result = await FeedService.fetchJobsFeed(
+        userId: _viewerUserId,
+        latitude: _viewerLatitude,
+        longitude: _viewerLongitude,
+        filters: filters,
+      );
+      if (seq != _jobsRequestSeq) return;
+
+      _jobs = result.items;
       if (_jobs.isNotEmpty) {
         await CacheService.saveJobs(_jobs);
       }
     } catch (e) {
+      if (seq != _jobsRequestSeq) return;
       _error = ErrorMapper.toMessage(e, context: ErrorContext.loadFeed);
       debugPrint('[AppProvider] loadJobs failed: $e');
     } finally {
-      _warmAvatarUrls(_jobs.map((j) => j.authorAvatarUrl));
-      _isLoadingJobs = false;
-      notifyListeners();
+      if (seq == _jobsRequestSeq) {
+        _warmAvatarUrls(_jobs.map((j) => j.authorAvatarUrl));
+        _isLoadingJobs = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -641,6 +752,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   void dispose() {
     SessionScope.instance.unregister(this);
     _conversationStreamSubscription?.cancel();
+    _searchDebounce?.cancel();
     super.dispose();
   }
 
@@ -820,16 +932,38 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
   // ==================== FILTERS ====================
 
-  void setSearchQuery(String query) {
+  /// Update the search box.
+  ///
+  /// Debounced: this used to fire a FULL feed query — 50 rows with joined
+  /// users, images and every applicant — on every single keystroke, unthrottled
+  /// and unsequenced (audit §3.7). Typing "electrician" cost eleven of them.
+  /// The text still updates instantly (the client-side filter in
+  /// [filteredPosts] keeps the list responsive); only the network call waits.
+  ///
+  /// Set [submitted] when the user actually commits the search — that, and
+  /// only that, is recorded as a behavioural signal. Prefixes like "electr"
+  /// are not things anyone searched for, and storing them would fill the
+  /// affinity table with fragments.
+  void setSearchQuery(String query, {bool submitted = false}) {
     _searchQuery = query;
     notifyListeners();
-    // Reload posts with new search query
-    loadPosts();
+
+    _searchDebounce?.cancel();
+    if (submitted) {
+      InteractionTracker.instance.trackSearch(query);
+      loadPosts();
+      return;
+    }
+    _searchDebounce = Timer(_searchDebounceDelay, loadPosts);
   }
 
   void setSelectedFilter(String filter) {
     _selectedFilter = filter;
     notifyListeners();
+    // An explicit reload supersedes a pending debounced one. Switching tabs
+    // clears the search box first, so without this the tab's own load would be
+    // followed 350 ms later by an identical duplicate.
+    _searchDebounce?.cancel();
     loadPosts();
   }
 
@@ -838,6 +972,9 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       _selectedCategories.remove(category);
     } else {
       _selectedCategories.add(category);
+      // Choosing a category is one of the clearest statements of intent the
+      // app receives — ranking signal 9 reads it back as category affinity.
+      InteractionTracker.instance.trackCategoryOpen(category);
     }
     notifyListeners();
   }
@@ -876,19 +1013,38 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _selectedDifficulty = null;
     _selectedUrgency = null;
     notifyListeners();
+    _searchDebounce?.cancel();
     loadPosts();
   }
 
-  /// Prioritize posts near the user's detected city without filtering out others.
-  void setPriorityLocationCity(String? city) {
-    final next = city?.trim();
-    if (_priorityLocationCity == next) return;
-    _priorityLocationCity = (next == null || next.isEmpty) ? null : next;
+  /// Tell the recommendation engine who is looking and from where.
+  ///
+  /// This replaces `setPriorityLocationCity`, which stored a city name that
+  /// nothing ever read. Ranking uses real coordinates: distance is measured,
+  /// not inferred from whether two location strings happen to share a word.
+  ///
+  /// Reloads the feed only when something material actually changed, so the
+  /// presence heartbeat and lifecycle callbacks that call this on every resume
+  /// do not each cost a feed query.
+  void setViewer({String? userId, double? latitude, double? longitude}) {
+    final nextUserId = (userId?.trim().isEmpty ?? true) ? null : userId!.trim();
+    final changed = nextUserId != _viewerUserId ||
+        latitude != _viewerLatitude ||
+        longitude != _viewerLongitude;
+    if (!changed) return;
+
+    _viewerUserId = nextUserId;
+    _viewerLatitude = latitude;
+    _viewerLongitude = longitude;
+    InteractionTracker.instance.setUser(nextUserId);
     notifyListeners();
+    loadPosts();
+    loadJobs();
   }
 
   /// Apply current filters and reload posts
   Future<void> applyFilters() async {
+    _searchDebounce?.cancel();
     await loadPosts();
   }
 
@@ -940,10 +1096,13 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         return false;
       }
 
-      // Price filter
-      if (post.price < _priceRange.start || post.price > _priceRange.end) {
-        return false;
-      }
+      // Price filter — applied ONLY when the slider has actually been moved,
+      // which is what the server does. Applying it unconditionally meant a
+      // post priced 0 ("negotiable") was returned by the query and then hidden
+      // by the client the moment the minimum was above zero: a post that
+      // existed, matched, and was invisible (audit §3.5).
+      if (_priceRange.start > 0 && post.price < _priceRange.start) return false;
+      if (_priceRange.end < 100000 && post.price > _priceRange.end) return false;
 
       // Difficulty filter
       if (_selectedDifficulty != null && post.difficulty != _selectedDifficulty) {

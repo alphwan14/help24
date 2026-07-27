@@ -14,6 +14,7 @@ import { ReputationModule } from './reputation/reputation.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { PromotionsModule } from './promotions/promotions.module';
 import { RoutesModule } from './routes/routes.module';
+import { FeedModule } from './feed/feed.module';
 import { HealthController, RootController } from './health.controller';
 import { DevModule } from './dev/dev.module';
 
@@ -40,6 +41,10 @@ import { DevModule } from './dev/dev.module';
     // Business Promotion ("Promote Business"): campaigns, packages, M-Pesa
     // purchase, placement serving, analytics, moderation.
     PromotionsModule,
+    // Discover recommendation engine: signal-aware candidate retrieval,
+    // modular scoring, diversity/anti-spam composition, behavioural ingest.
+    // The client falls back to its direct Supabase read if this is down.
+    FeedModule,
     // Journey routing (Phase 3): Google Routes proxy for ETA, remaining
     // distance and polyline. Keeps the billable key off the device.
     RoutesModule,

@@ -246,13 +246,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final location = context.read<LocationProvider>();
     final app = context.read<AppProvider>();
     if (uid.isEmpty) {
-      app.setPriorityLocationCity(null);
+      app.setViewer(userId: null, latitude: null, longitude: null);
       return;
     }
 
     await location.initializeForUser(uid);
     if (!mounted) return;
-    app.setPriorityLocationCity(location.city);
+    // Hand the ranking engine who is looking and from where. Coordinates —
+    // not the city string — are what proximity is measured from.
+    app.setViewer(
+      userId: uid,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    );
 
     final shouldShow = await location.shouldShowExplainer(uid);
     if (!mounted || !shouldShow || _locationPromptInFlight) return;
@@ -274,6 +280,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _locationPromptInFlight = false;
     if (!mounted) return;
     await location.initializeForUser(uid);
-    app.setPriorityLocationCity(location.city);
+    // Permission may have just been granted — re-arm the engine with the
+    // coordinates that are now available, which reloads the feed with the
+    // distance signal in play for the first time.
+    app.setViewer(
+      userId: uid,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    );
   }
 }

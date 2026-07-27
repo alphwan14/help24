@@ -377,8 +377,12 @@ class _SavedPostRow extends StatelessWidget {
                 tooltip: 'Remove from saved',
                 icon: const Icon(Icons.bookmark_rounded,
                     color: AppTheme.primaryAccent, size: 22),
-                onPressed: () =>
-                    SavedService.instance.togglePost(userId, post.id),
+                onPressed: () => SavedService.instance.togglePost(
+                  userId,
+                  post.id,
+                  category: post.category.name,
+                  authorId: post.authorUserId,
+                ),
               ),
             ],
           ),

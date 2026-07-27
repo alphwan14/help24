@@ -17,6 +17,7 @@ import '../providers/auth_provider.dart';
 import 'urgent_requests_screen.dart';
 import 'notifications_screen.dart';
 import '../models/promotion_models.dart';
+import '../services/interaction_tracker.dart';
 import '../services/promotion_service.dart';
 import '../utils/feed_composer.dart';
 import '../utils/post_ownership.dart';
@@ -75,6 +76,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     _slotsDebounce?.cancel();
     // Flush any queued impressions/clicks before the screen goes away.
     PromotionTracker.instance.flush();
+    // Same for organic behavioural events (ranking signals 9 and 10).
+    InteractionTracker.instance.flush();
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -306,7 +309,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                   // releases focus immediately.
                   onTapOutside: (_) => _searchFocus.unfocus(),
                   textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _searchFocus.unfocus(),
+                  onSubmitted: (value) {
+                    _searchFocus.unfocus();
+                    // A COMMITTED search: reloads immediately (no debounce) and
+                    // is the only form recorded as a behavioural signal.
+                    // Prefixes typed on the way here are not searches.
+                    provider.setSearchQuery(value, submitted: true);
+                    _scheduleSlotReload();
+                  },
                   onChanged: (value) {
                     provider.setSearchQuery(value);
                     _scheduleSlotReload();
@@ -535,6 +545,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                   placement: _slots.placement,
                   viewerUserId: context.read<AuthProvider>().currentUserId,
                 );
+              } else {
+                // Organic impression — the weakest behavioural signal (0.05),
+                // deduped per feed session so scrolling back and forth does
+                // not tell the engine you love a post you scrolled past four
+                // times.
+                InteractionTracker.instance.trackImpression(post);
               }
 
               void trackSponsoredClick() {

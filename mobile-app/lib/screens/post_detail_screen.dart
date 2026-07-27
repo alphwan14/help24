@@ -390,6 +390,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       () => SavedService.instance.togglePost(
                         context.read<AuthProvider>().currentUserId ?? '',
                         post.id,
+                        category: post.category.name,
+                        authorId: post.authorUserId,
                       ),
                     ),
                   );

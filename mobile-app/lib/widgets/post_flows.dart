@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../screens/messages_screen.dart';
 import '../screens/post_detail_screen.dart';
 import '../services/application_service.dart';
+import '../services/interaction_tracker.dart';
 import '../services/post_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/action_feedback.dart';
@@ -94,6 +95,11 @@ String? inPlaceAnswerFor(PostModel post, String viewerUserId) {
 }
 
 void _pushPostDetail(BuildContext context, PostModel post) {
+  // Recorded HERE rather than in each caller, because this is the one place
+  // every entry point converges: Discover, Jobs, Saved, My Posts, deep links.
+  // An `open` is the clearest evidence of interest short of applying, and
+  // ranking signal 9 reads it back as category, profession and author affinity.
+  InteractionTracker.instance.trackOpen(post);
   Navigator.push(
     context,
     MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)),
@@ -224,6 +230,10 @@ Future<void> _openPrivateChat(BuildContext context, PostModel post) async {
     postTitle: post.title,
   );
   if (!context.mounted) return;
+  // Reaching a chat about a listing is a strong intent signal (weight 4) — the
+  // step before hiring. Recorded once the destination is certain, not on the
+  // tap that might still bounce off a guard above.
+  InteractionTracker.instance.trackMessage(post);
   Navigator.push(
     context,
     MaterialPageRoute(
@@ -346,6 +356,9 @@ Future<void> _applyToListing(BuildContext context, PostModel post) async {
           // Only after a successful write: the card flips to its done state
           // immediately instead of waiting for the next loadMyApplications.
           appProvider.markApplied(post.id);
+          // Also only after a successful write — an abandoned modal is not an
+          // application, and must not train the feed as though it were.
+          InteractionTracker.instance.trackApply(post);
         },
       ),
     ),
