@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { PeriodicTask } from '../common/periodic-task';
 import { CampaignsService } from './campaigns.service';
 
 const SWEEP_INTERVAL_MS = 60_000;
@@ -15,36 +16,30 @@ const SWEEP_INTERVAL_MS = 60_000;
 @Injectable()
 export class PromotionsSweepService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PromotionsSweepService.name);
-  private timer?: ReturnType<typeof setInterval>;
-  private running = false;
+  private readonly task = new PeriodicTask('PROMO][SWEEP', this.logger);
 
   constructor(private readonly campaigns: CampaignsService) {}
 
   onModuleInit(): void {
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, SWEEP_INTERVAL_MS);
+    this.task.start(() => this.tick(), SWEEP_INTERVAL_MS);
     this.logger.log('[PROMO][SWEEP][START] Lifecycle sweep started — interval=60s');
   }
 
-  onModuleDestroy(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.logger.log('[PROMO][SWEEP][STOP] Lifecycle sweep cleared');
-    }
+  /**
+   * Async so Nest AWAITS it. A campaign transitioning to expired mid-tick used
+   * to be cut off by the shutdown signal; now the sweep finishes (or is given
+   * up on after 10s) before the process goes.
+   */
+  async onModuleDestroy(): Promise<void> {
+    await this.task.stop();
+    this.logger.log('[PROMO][SWEEP][STOP] Lifecycle sweep cleared');
   }
 
+  /**
+   * Overlap prevention and error containment now live in PeriodicTask, which
+   * applies them to all three sweeps rather than only to this one.
+   */
   private async tick(): Promise<void> {
-    if (this.running) return; // never overlap a slow sweep with the next tick
-    this.running = true;
-    try {
-      await this.campaigns.sweepLifecycle();
-    } catch (err) {
-      this.logger.error(
-        `[PROMO][SWEEP] tick failed: ${err instanceof Error ? err.message : err}`,
-      );
-    } finally {
-      this.running = false;
-    }
+    await this.campaigns.sweepLifecycle();
   }
 }

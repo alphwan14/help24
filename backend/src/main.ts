@@ -40,12 +40,24 @@ async function bootstrap(): Promise<void> {
 
   // Without this, Nest ignores SIGTERM and the process is simply killed — so
   // onModuleDestroy() never runs and the three background sweeps (event retry,
-  // promotions lifecycle, dispute SLA) are terminated mid-tick. Enabling the
-  // hooks makes SIGTERM drain in-flight HTTP and clear every interval first.
+  // promotions lifecycle, dispute SLA) are terminated mid-tick.
+  //
+  // With it, SIGTERM closes the HTTP server and awaits every destroy hook.
+  // Those hooks are async and drain the sweep in flight (see PeriodicTask),
+  // which is the half that actually protects a payout retry or a dispute
+  // escalation from being cut in two. Nest re-raises the original signal once
+  // they resolve, so a lingering handle can never leave the process hanging —
+  // and PeriodicTask bounds its own drain at 10s, well inside the 30s grace
+  // period, so shutdown is predictable even when a sweep is wedged.
   //
   // This is how every orchestrator asks a process to stop: `docker stop` and
   // `docker compose down` send SIGTERM then SIGKILL after a grace period, and
   // Render does the same on redeploy. Correct in both, container or not.
+  //
+  // ⚠️ Only reaches Node if Node is the process that receives the signal. The
+  // Dockerfile guarantees that (dumb-init as PID 1 + exec-form CMD). On Render,
+  // the start command must be `node dist/main.js` — a shell-form wrapper eats
+  // SIGTERM and none of this runs.
   app.enableShutdownHooks();
 
   // Bind 0.0.0.0 so the container/host (Render) can route external traffic.

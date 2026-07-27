@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { PeriodicTask } from '../../common/periodic-task';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { DecisionsService } from './decisions.service';
 
@@ -18,7 +19,7 @@ const NON_TERMINAL = ['open', 'reviewing', 'under_review'];
 @Injectable()
 export class DisputeSlaService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DisputeSlaService.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private readonly task = new PeriodicTask('SLA', this.logger);
 
   constructor(
     private readonly supabase: SupabaseService,
@@ -26,12 +27,19 @@ export class DisputeSlaService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    this.timer = setInterval(() => void this.sweep(), SWEEP_INTERVAL_MS);
+    this.task.start(async () => {
+      await this.sweep();
+    }, SWEEP_INTERVAL_MS);
     this.logger.log(`[SLA] monitor started — interval=30m escalateAfter=${AUTO_ESCALATE_AFTER_DAYS}d`);
   }
 
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
+  /**
+   * Async so Nest AWAITS it. This sweep ESCALATES disputes — a half-written
+   * escalation is a case that is neither open nor escalated, which is the one
+   * state nobody is watching. Draining it is worth the wait.
+   */
+  async onModuleDestroy(): Promise<void> {
+    await this.task.stop();
   }
 
   /** Find and escalate stale cases. Public so it can be triggered/tested manually. */

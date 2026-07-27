@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { PeriodicTask } from '../common/periodic-task';
 import { SupabaseService } from '../supabase/supabase.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MpesaService } from '../mpesa/mpesa.service';
@@ -25,7 +26,7 @@ const MAX_RETRIES       = 3;      // failures before dead_letter
 @Injectable()
 export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EventProcessorService.name);
-  private retryTimer?: ReturnType<typeof setInterval>;
+  private readonly task = new PeriodicTask('PROCESSOR', this.logger);
 
   // In-memory health signals (reset on restart — intentional).
   private _startedAt      = new Date();
@@ -44,17 +45,18 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     this._startedAt  = new Date();
     this._lastTickAt = new Date();
-    this.retryTimer  = setInterval(() => {
-      void this.retryUnprocessed();
-    }, RETRY_INTERVAL_MS);
+    this.task.start(() => this.retryUnprocessed(), RETRY_INTERVAL_MS);
     this.logger.log('[PROCESSOR][START] Retry loop started — interval=60s maxRetries=3');
   }
 
-  onModuleDestroy() {
-    if (this.retryTimer) {
-      clearInterval(this.retryTimer);
-      this.logger.log('[PROCESSOR][STOP] Retry loop cleared');
-    }
+  /**
+   * Async so Nest AWAITS it. This loop retries PAYOUT events — being cut off
+   * mid-retry is how an event ends up marked attempted but never delivered, so
+   * finishing the tick in progress matters more here than anywhere else.
+   */
+  async onModuleDestroy(): Promise<void> {
+    await this.task.stop();
+    this.logger.log('[PROCESSOR][STOP] Retry loop cleared');
   }
 
   // ── Health status ─────────────────────────────────────────────────────────
