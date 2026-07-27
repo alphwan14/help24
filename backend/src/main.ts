@@ -58,6 +58,28 @@ async function bootstrap(): Promise<void> {
   // Dockerfile guarantees that (dumb-init as PID 1 + exec-form CMD). On Render,
   // the start command must be `node dist/main.js` — a shell-form wrapper eats
   // SIGTERM and none of this runs.
+  //
+  // Which is precisely why the signal is logged the instant it lands. Whether
+  // SIGTERM arrives at all depends on deployment configuration nobody can see
+  // from inside the code, and its absence is silent: the process just stops. A
+  // line in the log turns "did shutdown work?" from a guess into a fact.
+  //
+  // `once`, and registered BEFORE enableShutdownHooks, for a reason that is easy
+  // to get wrong. Nest's handler ends by re-raising the same signal to let the
+  // DEFAULT action terminate the process — but Node only performs the default
+  // action when no listener remains. A persistent listener here would swallow
+  // that re-raise and hang the process until SIGKILL, turning an observability
+  // aid into an outage. `once` removes itself after the first delivery, so the
+  // re-raise finds nothing and terminates cleanly.
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => {
+      console.log(
+        `[Help24][SHUTDOWN] ${signal} received — draining HTTP and background ` +
+          `sweeps (uptime=${Math.round(process.uptime())}s)`,
+      );
+    });
+  }
+
   app.enableShutdownHooks();
 
   // Bind 0.0.0.0 so the container/host (Render) can route external traffic.
