@@ -89,6 +89,17 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// A newer ranking, computed and waiting for permission to land.
   FeedSnapshot? _pending;
 
+  /// Bumped every time a snapshot is installed. Discover keys its list on this
+  /// so a REPLACEMENT crossfades, while an in-place edit of the same ranking (an
+  /// optimistic insert, an archive, an "Applied" badge flipping) rebuilds the
+  /// existing list and keeps its scroll position.
+  int _feedGeneration = 0;
+
+  /// Whether the Jobs tab has ever completed a load. Same distinction Discover
+  /// draws with [FeedPresentation]: until a request has actually answered, an
+  /// empty list means "not yet", not "there are no jobs".
+  bool _jobsResolved = false;
+
   /// Whether Discover is the visible tab. A rebuild that arrives while the user
   /// is somewhere else can simply be installed — there is nothing on screen to
   /// disturb, which is the quietest possible way to refresh.
@@ -172,6 +183,45 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   RangeValues get priceRange => _priceRange;
   Difficulty? get selectedDifficulty => _selectedDifficulty;
   Urgency? get selectedUrgency => _selectedUrgency;
+
+  /// Identity of the installed snapshot, bumped on every replacement. Discover
+  /// keys its list on this to crossfade one ranking into the next.
+  int get feedGeneration => _feedGeneration;
+
+  /// What Discover is entitled to render right now — see [FeedPresentation].
+  ///
+  /// The screen used to derive this from `isLoadingPosts` and `posts.isEmpty`,
+  /// which cannot distinguish "no request has run yet" from "the request ran and
+  /// found nothing". At cold start the first ranking waits for the viewer
+  /// identity ([_viewerGrace]), so for that window nothing was loading and the
+  /// list was empty — and Discover announced an empty marketplace to every user
+  /// opening the app, before the skeletons it should have shown instead.
+  ///
+  /// Absence of an answer resolves to [FeedPresentation.loading], the default.
+  /// [FeedPresentation.empty] requires evidence and is terminal.
+  FeedPresentation get feedPresentation => FeedPresentation.resolve(
+        hasVisiblePosts: filteredPosts.isNotEmpty,
+        hasAnswerForCurrentQuery: _hasAnswerForCurrentQuery,
+        isLoading: _isLoadingPosts,
+        hasError: _errors[AppFeature.discover] != null,
+      );
+
+  /// Whether a COMPLETED load stands behind what is (or is not) on screen for
+  /// the question being asked right now.
+  ///
+  /// Excludes the on-disk placeholder deliberately: it is old by definition, so
+  /// it may keep the screen alive but may never be the evidence behind "no posts
+  /// found". Excludes a snapshot built for another tab or another filter set for
+  /// the obvious reason — the Offers page says nothing about Requests.
+  bool get _hasAnswerForCurrentQuery {
+    final installed = _installed;
+    if (installed == null || installed.fromCache) return false;
+    return installed.identity
+        .answersSameQuestionAs(_identityFor(_scopeForFilter, _currentFilters));
+  }
+
+  /// Whether the Jobs tab's empty list is an answer or an absence of one.
+  bool get hasResolvedJobs => _jobsResolved;
 
   /// True when the ranking on screen came from the recommendation engine rather
   /// than the chronological fallback.
@@ -300,6 +350,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// paint, and then re-rank a second later when the restored session resolves,
   /// which is the cold-start reshuffle users were reporting.
   Future<void> _loadInitialData() async {
+    // Disk first, and NOT awaited by anything else: the last feed we had is on
+    // screen within a frame or two of the widget tree building, long before the
+    // viewer identity resolves and the first ranking is even requested. A warm
+    // launch therefore shows posts, not skeletons.
+    unawaited(_hydrateFromCache());
     _viewerGraceTimer?.cancel();
     _viewerGraceTimer = Timer(_viewerGrace, () {
       if (_viewerResolved) return;
@@ -309,6 +364,83 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     });
     // Keeps the Discover header's Urgent count live across refresh/reconnect.
     await loadUrgentPosts();
+  }
+
+  /// The query every cold start begins on: All tab, no search, no filters.
+  ///
+  /// The disk cache holds exactly this page and nothing else (see [loadPosts]),
+  /// so it is only ever written and read as an answer to this one question.
+  /// Caching a filtered page would mean the next cold start opened on someone's
+  /// leftover "plumbing in Kilimani" as though it were the marketplace.
+  static final String _defaultQueryKey =
+      FeedIdentity.describeQuery(FeedScope.all, const PostFilters());
+
+  bool get _isDefaultQuery =>
+      FeedIdentity.describeQuery(_scopeForFilter, _currentFilters) ==
+          _defaultQueryKey;
+
+  /// Search box empty and no explicit filters — the Jobs tab's equivalent of
+  /// [_isDefaultQuery] (it has one scope, so the Discover tab selection is not
+  /// part of its question).
+  bool get _isUnfilteredQuery => _searchQuery.isEmpty && !hasActiveFilters;
+
+  /// Persist the feed for the next cold start — but only when what is in memory
+  /// IS what a cold start opens on.
+  ///
+  /// Every write goes through these two so the rule cannot be forgotten at one
+  /// of the five call sites. Caching a filtered, searched or tab-scoped list
+  /// would hydrate the next launch with an answer to a question nobody asked,
+  /// and the user would open the app on a marketplace that looked like their
+  /// last search.
+  void _cachePostsIfDefault() {
+    if (!_isDefaultQuery || _posts.isEmpty) return;
+    unawaited(CacheService.savePosts(_posts));
+  }
+
+  void _cacheJobsIfDefault() {
+    if (!_isUnfilteredQuery || _jobs.isEmpty) return;
+    unawaited(CacheService.saveJobs(_jobs));
+  }
+
+  /// Put the last known feed on screen while the live one is computed.
+  ///
+  /// Installed as a PLACEHOLDER ([FeedSnapshot.fromCache]), which has two
+  /// consequences that matter: it can never be mistaken for evidence that the
+  /// marketplace is empty, and the first real snapshot replaces it outright
+  /// instead of being held back behind a "New recommendations" prompt — nobody
+  /// is attached to the order of a page we read off the disk.
+  ///
+  /// Silent on every failure. A cache miss simply leaves the screen in
+  /// [FeedPresentation.loading], which is where a fresh install belongs.
+  Future<void> _hydrateFromCache() async {
+    if (_installed != null) return;
+    final cached = await CacheService.loadPosts();
+    // Re-checked across the await: a live load, a sign-in or a filter change may
+    // have overtaken the disk read, and disk data must never win against any of
+    // them.
+    if (cached.isEmpty || _installed != null || !_isDefaultQuery) return;
+    _install(FeedSnapshot(
+      posts: cached,
+      source: FeedSource.fallback,
+      identity: _identityFor(FeedScope.all, const PostFilters()),
+      // Born expired: these posts were never ranked for this viewer, so the very
+      // next thing that considers refreshing should rebuild rather than wait out
+      // a ten-minute TTL.
+      generatedAt: DateTime.now().subtract(FeedSnapshot.ttl),
+      fromCache: true,
+    ));
+    notifyListeners();
+
+    // Same contract for Jobs — the tab opens on content instead of skeletons.
+    // `_jobsResolved` stays false: this is a placeholder, so an empty Jobs list
+    // still reads as "not yet", never as "no jobs exist".
+    if (_jobs.isEmpty) {
+      final cachedJobs = await CacheService.loadJobs();
+      if (cachedJobs.isNotEmpty && _jobs.isEmpty) {
+        _jobs = cachedJobs;
+        notifyListeners();
+      }
+    }
   }
 
   /// Refresh all data
@@ -393,8 +525,14 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     final filters = _currentFilters;
     final identity = _identityFor(scope, filters);
 
-    // Only show a spinner when there is nothing to look at. A background
-    // rebuild must be completely invisible until it has something to offer.
+    // Only show a spinner when there is genuinely nothing to look at — not even
+    // the on-disk placeholder. A background rebuild must be completely invisible
+    // until it has something to offer.
+    //
+    // Note this is NOT what drives the skeletons any more: an empty Discover
+    // with no request in flight already resolves to FeedPresentation.loading. It
+    // survives as the "this load has nothing behind it" flag that decides
+    // whether a failure is the user's problem.
     final firstPaint = _installed == null;
     if (firstPaint) {
       _isLoadingPosts = true;
@@ -433,6 +571,12 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
               // first thing that wakes the app after connectivity returns
               // should rebuild rather than wait out a ten-minute TTL.
               generatedAt: DateTime.now().subtract(FeedSnapshot.ttl),
+              // Disk, therefore a placeholder — same as [_hydrateFromCache].
+              // Without this the offline feed would count as an answer, so a
+              // reconnect would offer its replacement behind a "New
+              // recommendations" prompt instead of simply landing, and an old
+              // cached page could stand behind "No posts found".
+              fromCache: true,
             ));
           }
         }
@@ -466,6 +610,9 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         generatedAt: DateTime.now(),
       );
 
+      // The request answered, so whatever failure was on screen is over.
+      _errors.clear(AppFeature.discover);
+
       if (_shouldInstall(snapshot, reason)) {
         _dropPendingFeed();
         _install(snapshot);
@@ -474,15 +621,22 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         debugPrint('[FEED] rebuild held (${reason.name}) — offering it instead');
       }
 
-      if (snapshot.posts.isNotEmpty) {
+      // Written from the SNAPSHOT, not from `_posts` — this page may have been
+      // held back as `_pending` rather than installed, and the freshest full
+      // page is still the right thing for the next cold start to open on.
+      // Gated by the same default-page rule as _cachePostsIfDefault, keyed off
+      // the identity this request was actually issued under.
+      if (snapshot.posts.isNotEmpty && identity.queryKey == _defaultQueryKey) {
         await CacheService.savePosts(snapshot.posts);
       }
     } catch (e) {
       if (seq != _postsRequestSeq) return;
       // A background rebuild that fails is not the user's problem: they are
-      // reading a perfectly good feed. Only a load with nothing behind it may
-      // report failure.
-      if (firstPaint) {
+      // reading a perfectly good feed. Failure is reported only when nothing on
+      // screen actually answers the question being asked — which includes the
+      // case where a placeholder or another tab's page is showing, since neither
+      // is an answer to this one.
+      if (!_hasAnswerForCurrentQuery) {
         _errors.set(
             AppFeature.discover, ErrorMapper.toMessage(e, context: ErrorContext.loadFeed));
       }
@@ -516,6 +670,13 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   bool _shouldInstall(FeedSnapshot next, FeedInvalidation reason) {
     final current = _installed;
     if (current == null) return true;
+    // What is on screen is the disk placeholder. It was never a ranking — it is
+    // the last page we happened to have, shown so the screen was not blank while
+    // this request ran. Holding a real snapshot back behind a "New
+    // recommendations" prompt would leave the user reading stale posts and
+    // asking them to approve the actual feed, so a placeholder is always
+    // replaced. Discover crossfades the swap; see feedGeneration.
+    if (current.fromCache) return true;
     if (reason.replacesVisibleFeed) return true;
     // Gaining a position where there was none is not a re-ranking. The distance
     // signal goes from not participating at all to carrying the heaviest weight
@@ -536,6 +697,10 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   void _install(FeedSnapshot snapshot) {
     _installed = snapshot;
     _posts = [...snapshot.posts];
+    // A replacement, not an edit — Discover crossfades on this changing. Local
+    // splices into `_posts` deliberately leave it alone so an optimistic insert
+    // does not restart the list (and lose the reader's scroll position).
+    _feedGeneration++;
     // A fresh page is a fresh impression session.
     InteractionTracker.instance.resetImpressions();
   }
@@ -562,7 +727,10 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _jobsIdentity = identity;
 
     final seq = ++_jobsRequestSeq;
-    _isLoadingJobs = true;
+    // Only spin when there is nothing to look at. Cached jobs hydrated at
+    // startup count as something: a refresh underneath them must not replace the
+    // tab with skeletons.
+    _isLoadingJobs = _jobs.isEmpty;
     _errors.clear(AppFeature.jobs);
     notifyListeners();
 
@@ -573,9 +741,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         final prefetched = await prefetch;
         if (prefetched != null) {
           _jobs = prefetched;
-          if (_jobs.isNotEmpty) {
-            await CacheService.saveJobs(_jobs);
-          }
+          _jobsResolved = true;
+          _cacheJobsIfDefault();
           return;
         }
       }
@@ -606,9 +773,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       if (seq != _jobsRequestSeq) return;
 
       _jobs = result.items;
-      if (_jobs.isNotEmpty) {
-        await CacheService.saveJobs(_jobs);
-      }
+      _jobsResolved = true;
+      _cacheJobsIfDefault();
     } catch (e) {
       if (seq != _jobsRequestSeq) return;
       _errors.set(AppFeature.jobs, ErrorMapper.toMessage(e, context: ErrorContext.loadFeed));
@@ -739,9 +905,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         _posts.insert(0, createdPost);
       }
       _warmAvatarUrls([createdPost.authorAvatar]);
-      if (_posts.isNotEmpty) {
-        CacheService.savePosts(_posts);
-      }
+      _cachePostsIfDefault();
       // Emergency posts must surface in the Urgent section immediately.
       if (createdPost.isUrgent || createdPost.urgency == Urgency.urgent) {
         unawaited(loadUrgentPosts());
@@ -790,9 +954,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         _jobs.insert(0, createdJob);
       }
       _warmAvatarUrls([createdJob.authorAvatarUrl]);
-      if (_jobs.isNotEmpty) {
-        CacheService.saveJobs(_jobs);
-      }
+      _cacheJobsIfDefault();
       notifyListeners();
       return createdJob;
     } catch (e) {
@@ -833,8 +995,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       await JobsService.archivePost(postId: postId, userId: currentUserId);
       _posts.removeWhere((p) => p.id == postId);
       _jobs.removeWhere((j) => j.id == postId);
-      if (_posts.isNotEmpty) CacheService.savePosts(_posts);
-      if (_jobs.isNotEmpty) CacheService.saveJobs(_jobs);
+      _cachePostsIfDefault();
+      _cacheJobsIfDefault();
       notifyListeners();
       return true;
     } on JobsException catch (e) {

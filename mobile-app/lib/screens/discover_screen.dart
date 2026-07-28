@@ -17,6 +17,7 @@ import '../providers/auth_provider.dart';
 import 'urgent_requests_screen.dart';
 import 'notifications_screen.dart';
 import '../models/promotion_models.dart';
+import '../services/feed_snapshot.dart';
 import '../services/interaction_tracker.dart';
 import '../services/promotion_service.dart';
 import '../utils/feed_composer.dart';
@@ -580,145 +581,204 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   // ── Feed widgets ────────────────────────────────────────────────
 
+  /// Discover's four states, and nothing else.
+  ///
+  /// WHAT THIS REPLACED
+  /// ------------------
+  /// The old version branched on `isLoadingPosts && posts.isEmpty` → skeletons,
+  /// then `posts.isEmpty` → "No posts found". Between those two lines sat a
+  /// state neither of them described: the app has started, no request is in
+  /// flight yet (the first ranking waits for the viewer identity to resolve),
+  /// and the list is empty because nothing has been asked for. That state fell
+  /// through to the empty view — so the first thing every user saw on opening
+  /// Help24 was the marketplace declaring itself empty, followed by skeletons,
+  /// followed by the feed.
+  ///
+  /// [AppProvider.feedPresentation] now names the state explicitly and defaults
+  /// to loading, so the empty view is reachable only from a completed load for
+  /// the question currently being asked. Every transition between the four is a
+  /// crossfade; the feed is never cleared to reach one.
   Widget _buildPostsFeed() {
     return Consumer2<AppProvider, ConnectivityProvider>(
       builder: (context, provider, connectivity, _) {
-        final posts = provider.filteredPosts;
+        final presentation = provider.feedPresentation;
 
-        if (provider.isLoadingPosts && posts.isEmpty) {
-          return const FeedSkeletonList();
-        }
-
-        if (posts.isEmpty) {
-          if (connectivity.isOffline) {
-            return OfflineEmptyView(
-              message: 'No internet connection',
-              onRetry: () {
-                connectivity.checkNow();
-                _refreshPosts();
-              },
-            );
-          }
-          // A load failure is NOT an empty result — show it as a failure with a
-          // Retry, so "we couldn't load" is never mistaken for "there's nothing
-          // here" (which would wrongly tell the user to change their filters).
-          if (provider.discoverError != null) {
-            return ErrorRetryView(
-              message: provider.discoverError!,
-              onRetry: _refreshPosts,
-            );
-          }
-          return EmptyStateView(
-            icon: Iconsax.document,
-            title: 'No posts found',
-            subtitle: 'Try adjusting your filters or search. Pull to refresh.',
-            actions: [
-              TextButton.icon(
-                onPressed: _refreshPosts,
-                icon: const Icon(Icons.refresh, size: 20),
-                label: const Text('Refresh'),
-              ),
-              if (provider.hasActiveFilters)
-                TextButton.icon(
-                  onPressed: () => provider.clearFilters(),
-                  icon: const Icon(Iconsax.close_circle, size: 20),
-                  label: const Text('Clear Filters'),
-                ),
-            ],
-          );
-        }
-
-        // Business Promotion: interleave sponsored offer cards per the
-        // server-configured cadence (pure composition — organic order is
-        // never changed, sponsored cards never cluster).
-        final entries = FeedComposer.compose(
-          organic: posts,
-          slots: _slots.items,
-          config: _slots.serving,
-        );
-
-        return RefreshIndicator(
-          onRefresh: _refreshPosts,
-          child: ListView.builder(
-            controller: _feedScroll,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: entries.length,
-            itemBuilder: (context, index) {
-              final entry = entries[index];
-              final post = entry.post;
-
-              if (entry.sponsored) {
-                // Rendered ⇒ visible impression (deduped per feed session).
-                PromotionTracker.instance.trackImpression(
-                  campaignId: entry.campaignId!,
-                  placement: _slots.placement,
-                  viewerUserId: context.read<AuthProvider>().currentUserId,
-                );
-              } else {
-                // Organic impression — the weakest behavioural signal (0.05),
-                // deduped per feed session so scrolling back and forth does
-                // not tell the engine you love a post you scrolled past four
-                // times.
-                InteractionTracker.instance.trackImpression(post);
-              }
-
-              void trackSponsoredClick() {
-                if (!entry.sponsored) return;
-                PromotionTracker.instance.trackClick(
-                  campaignId: entry.campaignId!,
-                  placement: _slots.placement,
-                  viewerUserId: context.read<AuthProvider>().currentUserId,
-                );
-              }
-
-              return PostCard(
-                post: post,
-                sponsored: entry.sponsored,
-                onTap: () {
-                  trackSponsoredClick();
-                  // A closed listing answers in place instead of taking the
-                  // screen — the feed keeps its scroll position, filters and
-                  // search. See openPostFromFeed.
-                  openPostFromFeed(context, post);
-                },
-                // Requests and job posts both respond by applying, through the
-                // one guarded flow. A job used to fall into the `else` here and
-                // open a chat ("Enquire"), while the Jobs tab showed the same
-                // job an "Apply" — one listing, two different verbs.
-                onRespond: listingTakesApplications(post.type)
-                    ? () {
-                        AuthGuard.requireAuth(
-                          context,
-                          action: post.type == PostType.job
-                              ? 'apply for this job'
-                              : 'offer service on this request',
-                          onAuthenticated: () => applyToListing(context, post),
-                        );
-                      }
-                    : () {
-                        // Offer post: "Enquire" opens a direct chat with the provider.
-                        trackSponsoredClick();
-                        if (entry.sponsored) {
-                          PromotionTracker.instance.trackAction(
-                            campaignId: entry.campaignId!,
-                            eventType: 'message',
-                            placement: _slots.placement,
-                            viewerUserId:
-                                context.read<AuthProvider>().currentUserId,
-                          );
-                        }
-                        AuthGuard.requireAuth(
-                          context,
-                          action: 'enquire about this service',
-                          onAuthenticated: () => openPrivateChat(context, post),
-                        );
-                      },
-              );
+        // Offline outranks the rest ONLY when there is nothing to render. With
+        // posts on screen — cached or live — the thin banner at the top of the
+        // screen is the whole story, and the feed stays readable.
+        if (presentation != FeedPresentation.content && connectivity.isOffline) {
+          return _crossfade(OfflineEmptyView(
+            key: const ValueKey('feed-offline'),
+            message: 'No internet connection',
+            onRetry: () {
+              connectivity.checkNow();
+              _refreshPosts();
             },
-          ),
-        );
+          ));
+        }
+
+        return _crossfade(switch (presentation) {
+          // Shimmer is the loading UI, shown from the first frame — there is no
+          // intermediate text, blank page or empty state ahead of it.
+          FeedPresentation.loading =>
+            const FeedSkeletonList(key: ValueKey('feed-loading')),
+
+          // A load failure is NOT an empty result — it gets a Retry, so "we
+          // couldn't load" is never mistaken for "there's nothing here" (which
+          // would wrongly tell the user to change their filters).
+          FeedPresentation.failed => ErrorRetryView(
+              key: const ValueKey('feed-failed'),
+              message: provider.discoverError ?? 'Something went wrong.',
+              onRetry: _refreshPosts,
+            ),
+
+          // Terminal. Reached only once the request completed, the ranking
+          // engine (or its fallback) answered, the filters were applied and the
+          // result really was zero rows for this exact question.
+          FeedPresentation.empty => EmptyStateView(
+              key: const ValueKey('feed-empty'),
+              icon: Iconsax.document,
+              title: 'No posts found',
+              subtitle: 'Try adjusting your filters or search. Pull to refresh.',
+              actions: [
+                TextButton.icon(
+                  onPressed: _refreshPosts,
+                  icon: const Icon(Icons.refresh, size: 20),
+                  label: const Text('Refresh'),
+                ),
+                if (provider.hasActiveFilters)
+                  TextButton.icon(
+                    onPressed: () => provider.clearFilters(),
+                    icon: const Icon(Iconsax.close_circle, size: 20),
+                    label: const Text('Clear Filters'),
+                  ),
+              ],
+            ),
+
+          // Keyed by the snapshot generation so REPLACING a ranking crossfades,
+          // while editing the posts within one (an optimistic insert, an
+          // "Applied" badge) rebuilds the existing list in place and keeps the
+          // reader where they were.
+          FeedPresentation.content => KeyedSubtree(
+              key: ValueKey('feed-${provider.feedGeneration}'),
+              child: _buildFeedList(provider.filteredPosts),
+            ),
+        });
       },
     );
   }
 
+  /// Fade one state into the next. Deliberately fade-only: a size or scale
+  /// transition would make the swap itself the thing the user notices, which is
+  /// the opposite of the point. The stack layout keeps both children at full
+  /// size for the duration, so nothing collapses, expands or reflows.
+  Widget _crossfade(Widget child) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 240),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) =>
+          FadeTransition(opacity: animation, child: child),
+      layoutBuilder: (currentChild, previousChildren) => Stack(
+        fit: StackFit.expand,
+        children: [
+          ...previousChildren,
+          if (currentChild != null) currentChild,
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildFeedList(List<PostModel> posts) {
+    // Business Promotion: interleave sponsored offer cards per the
+    // server-configured cadence (pure composition — organic order is
+    // never changed, sponsored cards never cluster).
+    final entries = FeedComposer.compose(
+      organic: posts,
+      slots: _slots.items,
+      config: _slots.serving,
+    );
+
+    return RefreshIndicator(
+      onRefresh: _refreshPosts,
+      child: ListView.builder(
+        controller: _feedScroll,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: entries.length,
+        itemBuilder: (context, index) {
+          final entry = entries[index];
+          final post = entry.post;
+
+          if (entry.sponsored) {
+            // Rendered ⇒ visible impression (deduped per feed session).
+            PromotionTracker.instance.trackImpression(
+              campaignId: entry.campaignId!,
+              placement: _slots.placement,
+              viewerUserId: context.read<AuthProvider>().currentUserId,
+            );
+          } else {
+            // Organic impression — the weakest behavioural signal (0.05),
+            // deduped per feed session so scrolling back and forth does
+            // not tell the engine you love a post you scrolled past four
+            // times.
+            InteractionTracker.instance.trackImpression(post);
+          }
+
+          void trackSponsoredClick() {
+            if (!entry.sponsored) return;
+            PromotionTracker.instance.trackClick(
+              campaignId: entry.campaignId!,
+              placement: _slots.placement,
+              viewerUserId: context.read<AuthProvider>().currentUserId,
+            );
+          }
+
+          return PostCard(
+            post: post,
+            sponsored: entry.sponsored,
+            onTap: () {
+              trackSponsoredClick();
+              // A closed listing answers in place instead of taking the
+              // screen — the feed keeps its scroll position, filters and
+              // search. See openPostFromFeed.
+              openPostFromFeed(context, post);
+            },
+            // Requests and job posts both respond by applying, through the
+            // one guarded flow. A job used to fall into the `else` here and
+            // open a chat ("Enquire"), while the Jobs tab showed the same
+            // job an "Apply" — one listing, two different verbs.
+            onRespond: listingTakesApplications(post.type)
+                ? () {
+                    AuthGuard.requireAuth(
+                      context,
+                      action: post.type == PostType.job
+                          ? 'apply for this job'
+                          : 'offer service on this request',
+                      onAuthenticated: () => applyToListing(context, post),
+                    );
+                  }
+                : () {
+                    // Offer post: "Enquire" opens a direct chat with the provider.
+                    trackSponsoredClick();
+                    if (entry.sponsored) {
+                      PromotionTracker.instance.trackAction(
+                        campaignId: entry.campaignId!,
+                        eventType: 'message',
+                        placement: _slots.placement,
+                        viewerUserId:
+                            context.read<AuthProvider>().currentUserId,
+                      );
+                    }
+                    AuthGuard.requireAuth(
+                      context,
+                      action: 'enquire about this service',
+                      onAuthenticated: () => openPrivateChat(context, post),
+                    );
+                  },
+          );
+        },
+      ),
+    );
+  }
 }

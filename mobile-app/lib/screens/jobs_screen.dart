@@ -112,7 +112,18 @@ class _JobsScreenState extends State<JobsScreen> {
                   }
                 }
 
-                if (provider.isLoadingJobs && jobs.isEmpty) {
+                // Skeletons cover BOTH "a request is in flight" and "no request
+                // has answered yet" — at startup the first jobs load waits for
+                // the viewer identity to resolve, and during that window nothing
+                // is loading and the list is empty. Reading that as emptiness is
+                // what made this tab open on "No jobs available yet" before the
+                // jobs arrived. An empty list is only an answer once a load has
+                // completed; cached jobs hydrated from disk are not one.
+                // Tested against the PROVIDER's list, not the locally filtered
+                // one: once jobs exist, narrowing them to nothing with the
+                // search box or the type chips is a real empty result and says
+                // so. Skeletons are for having nothing at all, unasked.
+                if (provider.jobs.isEmpty && !provider.hasResolvedJobs) {
                   return const FeedSkeletonList();
                 }
 

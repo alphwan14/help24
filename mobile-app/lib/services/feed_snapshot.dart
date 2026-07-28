@@ -57,6 +57,16 @@ class FeedSnapshot {
   /// Whether the server had enough about this viewer to personalise.
   final bool personalised;
 
+  /// This snapshot is the last feed we had on DISK, shown so the screen has
+  /// something real on it while the first live ranking is computed.
+  ///
+  /// A placeholder is deliberately NOT an answer to anything. It renders, it
+  /// keeps the screen alive, and it is replaced by the first real snapshot
+  /// whatever that snapshot says — but it may never be the evidence behind
+  /// "there are no posts", because the marketplace it describes is however old
+  /// the disk is. See [FeedPresentation.empty].
+  final bool fromCache;
+
   /// Frozen on the way in, on EVERY path.
   ///
   /// The unmodifiable copy is not defensive-programming habit: `_install` hands
@@ -73,6 +83,7 @@ class FeedSnapshot {
     Map<String, double> scores = const {},
     Map<String, List<FeedSignalBreakdown>> signals = const {},
     bool personalised = false,
+    bool fromCache = false,
   }) =>
       FeedSnapshot._(
         posts: List.unmodifiable(posts),
@@ -83,6 +94,7 @@ class FeedSnapshot {
         scores: scores,
         signals: signals,
         personalised: personalised,
+        fromCache: fromCache,
       );
 
   const FeedSnapshot._({
@@ -94,6 +106,7 @@ class FeedSnapshot {
     this.scores = const {},
     this.signals = const {},
     this.personalised = false,
+    this.fromCache = false,
   });
 
   /// Build a snapshot from a freshly fetched page.
@@ -170,7 +183,73 @@ class FeedSnapshot {
         scores: scores,
         signals: signals,
         personalised: personalised,
+        fromCache: fromCache,
       );
+}
+
+/// What Discover is entitled to put on screen right now.
+///
+/// THE STATE THAT WAS MISSING
+/// --------------------------
+/// The screen used to decide with two booleans: `isLoadingPosts && isEmpty` →
+/// skeletons, `isEmpty` → "No posts found". That has no way to express *"we
+/// have not asked yet"* — and at cold start that is exactly the state the app
+/// is in, because the first ranking deliberately waits for the viewer identity
+/// to resolve (see AppProvider._viewerGrace). No request was in flight, the
+/// list was empty, so the first thing a brand-new user saw was the app telling
+/// them the marketplace was empty. Skeletons, then the real feed, arrived after.
+///
+/// Absence of an answer is now its own state, and it is the DEFAULT. [empty] is
+/// reachable only from evidence: a completed load, for the question being asked
+/// right now, that returned nothing.
+enum FeedPresentation {
+  /// No answer for the current question yet — a load is in flight, waiting to
+  /// start, or was never able to run. Renders skeletons.
+  ///
+  /// This is the state a fresh install begins in, and the state a tab switch
+  /// falls into when the snapshot on screen holds nothing for the new tab.
+  loading,
+
+  /// There are posts to render. Includes a stale-but-relevant list being
+  /// refreshed underneath and the on-disk placeholder at cold start: whatever
+  /// happens next, content stays on screen until its replacement is complete.
+  content,
+
+  /// A completed load for the CURRENT question returned nothing. Terminal —
+  /// the only state that may say "No posts found".
+  empty,
+
+  /// The load failed and there is nothing to show in its place. Distinct from
+  /// [empty] because the two ask for different things from the user: retry
+  /// versus change your filters.
+  failed;
+
+  /// The decision, as a pure function of the four facts it turns on — so the
+  /// rule is testable without a provider, a network or a widget tree.
+  ///
+  /// The order of the checks IS the contract:
+  ///
+  ///   1. posts on screen beat everything. No refresh, re-rank, reconnect,
+  ///      profile edit or failed background rebuild may replace content the
+  ///      user is reading with a spinner or an apology;
+  ///   2. an empty list is [empty] only with a completed load behind it, for
+  ///      this exact question — that is what [hasAnswerForCurrentQuery] means;
+  ///   3. otherwise a recorded failure is [failed];
+  ///   4. and everything left over — including "we have not asked yet", which
+  ///      is where every cold start begins — is [loading].
+  ///
+  /// Rule 4 being the fallthrough rather than [empty] is the whole fix.
+  static FeedPresentation resolve({
+    required bool hasVisiblePosts,
+    required bool hasAnswerForCurrentQuery,
+    required bool isLoading,
+    required bool hasError,
+  }) {
+    if (hasVisiblePosts) return FeedPresentation.content;
+    if (hasAnswerForCurrentQuery && !isLoading) return FeedPresentation.empty;
+    if (hasError) return FeedPresentation.failed;
+    return FeedPresentation.loading;
+  }
 }
 
 /// Why a snapshot stopped being valid. Each value is a DIFFERENT decision about
@@ -323,6 +402,23 @@ class FeedIdentity {
     if (_movedSignificantly(next)) return FeedInvalidation.location;
     return FeedInvalidation.none;
   }
+
+  /// Whether a snapshot computed under [this] is still answering the same
+  /// QUESTION as [next] — same viewer, same tab, same explicit filters.
+  ///
+  /// Narrower than [invalidationFrom] on purpose, and the two are not
+  /// interchangeable. Moving a kilometre or editing a profession changes what
+  /// the best ORDER is; it does not change which posts exist. So a snapshot
+  /// that has gone stale for ranking purposes is still perfectly good evidence
+  /// of whether the marketplace has anything in it — while a snapshot of the
+  /// Offers tab is no evidence at all about the Requests tab.
+  ///
+  /// This is what makes "No posts found" honest: it may only be shown when the
+  /// list on screen was computed for the question currently being asked.
+  bool answersSameQuestionAs(FeedIdentity next) =>
+      version == next.version &&
+      userId == next.userId &&
+      queryKey == next.queryKey;
 
   /// Gaining or losing coordinates entirely is always significant — the
   /// distance signal switches between contributing 30 points and not
