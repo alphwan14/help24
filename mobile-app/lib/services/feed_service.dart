@@ -67,6 +67,14 @@ class FeedResult<T> {
   /// Whether the server personalised this page (profession / behaviour known).
   final bool personalised;
 
+  /// The server's bucketed ranking clock for this page, when it sent one.
+  ///
+  /// Two pages sharing an epoch were scored against the same instant, so any
+  /// difference between them is a real change in the corpus or the viewer
+  /// rather than time passing. Null on the fallback path — a chronological read
+  /// has no ranking epoch to report.
+  final String? rankingEpoch;
+
   const FeedResult({
     required this.items,
     required this.source,
@@ -74,6 +82,7 @@ class FeedResult<T> {
     this.scores = const {},
     this.signals = const {},
     this.personalised = false,
+    this.rankingEpoch,
   });
 
   bool get isRanked => source == FeedSource.ranked;
@@ -107,6 +116,12 @@ class FeedService {
   ///
   /// [filters] carries the user's EXPLICIT filters, which the server applies as
   /// hard constraints — ranking never overrides what someone asked for.
+  /// [warmFallback] is an already-in-flight chronological read (the splash
+  /// prefetch) offered as the degradation source. It saves a round trip on the
+  /// one path that needs it — a backend too cold to rank — and is ignored
+  /// entirely when ranking succeeds. It is never PAINTED before the ranked
+  /// result: painting a chronological page and replacing it a second later is
+  /// exactly the cold-start reshuffle this engine had to stop doing.
   static Future<FeedResult<PostModel>> fetchFeed({
     String? userId,
     double? latitude,
@@ -115,6 +130,7 @@ class FeedService {
     PostFilters? filters,
     int page = 0,
     int? pageSize,
+    Future<List<PostModel>?>? warmFallback,
   }) {
     return _fetch<PostModel>(
       userId: userId,
@@ -126,9 +142,9 @@ class FeedService {
       pageSize: pageSize,
       parse: PostModel.fromJson,
       idOf: (post) => post.id,
-      fallback: () async => PostService.fetchPosts(
-        filters: _forScope(filters, scope),
-      ),
+      fallback: () async =>
+          (warmFallback == null ? null : await warmFallback) ??
+          await PostService.fetchPosts(filters: _forScope(filters, scope)),
     );
   }
 
@@ -311,6 +327,7 @@ class FeedService {
       scores: scores,
       signals: signals,
       personalised: body['personalised'] == true,
+      rankingEpoch: body['ranking_epoch']?.toString(),
     );
   }
 

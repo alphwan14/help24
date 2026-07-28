@@ -84,6 +84,34 @@ export function saturate(x: number, k: number): number {
   return clamp(x / (x + kk));
 }
 
+/**
+ * Floor an instant onto a fixed grid of `minutes`-wide buckets.
+ *
+ * WHY RANKING MUST NOT READ A FREE-RUNNING CLOCK
+ * ----------------------------------------------
+ * Freshness, urgency and staleness are all functions of `now`. With a raw wall
+ * clock, two identical requests three seconds apart score every candidate
+ * slightly differently, and any pair of posts sitting within that epsilon of
+ * each other trade places. The user sees cards swap while they read — the
+ * engine "working" in public, which is precisely what a recommendation feed
+ * must never look like.
+ *
+ * Bucketing makes the ranking a pure function of (corpus, viewer, epoch): every
+ * request inside one bucket gets a byte-identical ordering, and the ordering
+ * changes at most once per bucket. It is also what lets the client tell "the
+ * feed genuinely moved on" from "the clock ticked".
+ *
+ * FLOOR, never round: a rounded bucket can sit in the FUTURE, which would expire
+ * an urgent post before its deadline. Erring backwards keeps a just-expired post
+ * for at most one bucket, which is the harmless direction.
+ */
+export function bucketInstant(instant: Date, minutes: number): Date {
+  const span = Number.isFinite(minutes) && minutes > 0 ? minutes * 60_000 : 60_000;
+  const ms = instant.getTime();
+  if (!Number.isFinite(ms)) return instant;
+  return new Date(Math.floor(ms / span) * span);
+}
+
 /** Hours between two instants; negative differences clamp to 0. */
 export function hoursBetween(later: Date, earlier: Date): number {
   const ms = later.getTime() - earlier.getTime();

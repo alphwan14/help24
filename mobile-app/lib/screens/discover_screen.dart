@@ -48,6 +48,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   int _slotsRequestSeq = 0;
   Timer? _slotsDebounce;
 
+  /// Owned here so applying a waiting ranking can also return the reader to the
+  /// top — installing a new order while someone is 30 cards down would leave
+  /// them somewhere arbitrary in a list they did not ask to have rearranged.
+  final ScrollController _feedScroll = ScrollController();
+
   @override
   void initState() {
     super.initState();
@@ -81,7 +86,24 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     InteractionTracker.instance.flush();
     _searchController.dispose();
     _searchFocus.dispose();
+    _feedScroll.dispose();
     super.dispose();
+  }
+
+  /// Show the ranking that has been waiting, and put the reader back at the top
+  /// of it. This is the ONLY path by which a background rebuild reaches the
+  /// screen while Discover is in front of the user — and it runs because they
+  /// tapped it.
+  void _applyPendingFeed() {
+    context.read<AppProvider>().applyPendingFeed();
+    if (_feedScroll.hasClients) {
+      _feedScroll.animateTo(
+        0,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    }
+    _loadSponsoredSlots();
   }
 
   /// Maps the current feed context to a promotion placement and fetches
@@ -470,11 +492,89 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           const SizedBox(height: 8),
 
           // ── Feed ─────────────────────────────────────────────
+          //
+          // The prompt floats OVER the list rather than sitting above it: it
+          // must not push the feed down when it appears, because moving the
+          // cards is the exact thing this whole mechanism exists to avoid.
           Expanded(
-            child: _buildPostsFeed(),
+            child: Stack(
+              children: [
+                Positioned.fill(child: _buildPostsFeed()),
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: Center(child: _buildNewRecommendationsPill()),
+                ),
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  /// "New recommendations available" — the offer.
+  ///
+  /// A better ranking has been computed while the user was reading. It is NOT
+  /// applied: the reader decides when the feed rearranges. This is the standard
+  /// production behaviour for a live-ranked feed, and the reason Discover can be
+  /// both fresh and calm at the same time.
+  Widget _buildNewRecommendationsPill() {
+    return Consumer<AppProvider>(
+      builder: (context, provider, _) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final newPosts = provider.pendingFeedNewPostCount;
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: SizeTransition(sizeFactor: animation, child: child),
+          ),
+          child: !provider.hasPendingFeed
+              ? const SizedBox.shrink()
+              : Semantics(
+                  button: true,
+                  label: 'Show new recommendations',
+                  child: Material(
+                    color: AppTheme.primaryAccent,
+                    borderRadius: BorderRadius.circular(24),
+                    elevation: 4,
+                    shadowColor: Colors.black.withValues(alpha: isDark ? 0.5 : 0.25),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(24),
+                      onTap: _applyPendingFeed,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 9),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.arrow_upward_rounded,
+                                size: 16, color: Colors.white),
+                            const SizedBox(width: 7),
+                            Text(
+                              // Says something true, or says nothing specific.
+                              // "3 new posts" when three arrived; the generic
+                              // line when the change is a re-ranking rather
+                              // than new listings.
+                              newPosts > 0
+                                  ? '$newPosts new ${newPosts == 1 ? 'post' : 'posts'}'
+                                  : 'New recommendations',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+        );
+      },
     );
   }
 
@@ -540,6 +640,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         return RefreshIndicator(
           onRefresh: _refreshPosts,
           child: ListView.builder(
+            controller: _feedScroll,
             padding: const EdgeInsets.symmetric(horizontal: 20),
             itemCount: entries.length,
             itemBuilder: (context, index) {

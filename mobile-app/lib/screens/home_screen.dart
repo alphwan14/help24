@@ -107,6 +107,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // Re-check location permission in case user granted it in Settings
         // while the app was in the background.
         context.read<LocationProvider>().refreshPermissionStatus();
+        // Refresh the position only if the stored one has gone stale, and only
+        // then re-arm the ranking engine. This is the "app starts (if stale)"
+        // rule: no GPS on every resume, no feed query on every resume.
+        unawaited(_refreshLocationIfStale(uid));
+        // Rebuild the ranking if — and only if — something that feeds it moved
+        // on. Nothing on screen changes; a better feed is OFFERED.
+        unawaited(context.read<AppProvider>().maybeRefreshFeed());
         break;
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
@@ -152,6 +159,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _showPostScreen = false;
       });
     }
+    _syncDiscoverVisibility();
+  }
+
+  /// Tell AppProvider whether Discover is the tab in front of the user.
+  ///
+  /// A ranking that lands while they are reading Messages can just be installed
+  /// — there is nothing on screen to disturb. This is most of what "the user
+  /// should hardly see the rebuild" means in practice: the swap happens in the
+  /// gap between glances, and Discover is simply correct when they return.
+  void _syncDiscoverVisibility() {
+    if (!mounted) return;
+    context
+        .read<AppProvider>()
+        .setDiscoverVisible(!_showPostScreen && _currentIndex == 0);
+  }
+
+  /// Refresh the stored position only when it has actually gone stale.
+  ///
+  /// Deliberately NOT a GPS read on every resume: a fix costs battery, and a
+  /// location that was accurate four minutes ago is still accurate. See
+  /// LocationProvider.refreshIfStale for the threshold and the accuracy gate.
+  Future<void> _refreshLocationIfStale(String uid) async {
+    final location = context.read<LocationProvider>();
+    final moved = await location.refreshIfStale(uid);
+    if (!mounted || !moved) return;
+    // The position genuinely changed. Re-arm the engine — which, for a move,
+    // rebuilds quietly and offers the result rather than reordering the screen.
+    context.read<AppProvider>().setViewer(
+          userId: uid,
+          latitude: location.latitude,
+          longitude: location.longitude,
+        );
   }
 
   @override
@@ -191,6 +230,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onPopInvokedWithResult: (didPop, _) {
         if (didPop || _showPostScreen) return;
         setState(() => _currentIndex = 0);
+        _syncDiscoverVisibility();
       },
       child: Scaffold(
       body: SafeArea(
@@ -211,6 +251,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           _showPostScreen = false;
                           _currentIndex = 0;
                         });
+                        _syncDiscoverVisibility();
                       }
                     },
                     child: PostScreen(
@@ -219,6 +260,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           _showPostScreen = false;
                           _currentIndex = 0;
                         });
+                        _syncDiscoverVisibility();
                       },
                     ),
                   )
