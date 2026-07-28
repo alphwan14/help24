@@ -16,7 +16,7 @@ class AppTheme {
   static const Color lightBorder = Color(0xFFE5E7EB);
 
   // Accent Colors
-  static const Color primaryAccent = Color(0xFF6366F1);
+  static const Color primaryAccent = Color(0xFF6265F0);
   static const Color secondaryAccent = Color(0xFF22D3EE);
   static const Color successGreen = Color(0xFF10B981);
   static const Color warningOrange = Color(0xFFF59E0B);
