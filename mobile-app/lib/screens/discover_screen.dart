@@ -54,9 +54,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   /// them somewhere arbitrary in a list they did not ask to have rearranged.
   final ScrollController _feedScroll = ScrollController();
 
+  /// Past the first card. Below this the reader is still at the top of the feed
+  /// and a swap costs them nothing; above it, they are reading, and a ranking
+  /// that lands unannounced moves what is under their thumb.
+  static const double _engagedOffset = 160;
+
   @override
   void initState() {
     super.initState();
+    _feedScroll.addListener(_reportEngagement);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       // At cold start the filter is already 'All' and AppProvider's constructor
@@ -78,8 +84,19 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     });
   }
 
+  /// Tell the provider whether someone is reading, so a rebuild that finishes
+  /// mid-scroll is OFFERED rather than applied. Cheap enough to run on every
+  /// scroll notification: the provider ignores anything that is not a change.
+  void _reportEngagement() {
+    if (!mounted || !_feedScroll.hasClients) return;
+    context
+        .read<AppProvider>()
+        .setFeedEngaged(_feedScroll.offset > _engagedOffset);
+  }
+
   @override
   void dispose() {
+    _feedScroll.removeListener(_reportEngagement);
     _slotsDebounce?.cancel();
     // Flush any queued impressions/clicks before the screen goes away.
     PromotionTracker.instance.flush();

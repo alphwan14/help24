@@ -105,19 +105,53 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// disturb, which is the quietest possible way to refresh.
   bool _discoverVisible = true;
 
-  /// Whether [setViewer] has been heard from yet.
+  /// Whether the identity the feed is ranked for is KNOWN.
   ///
   /// The first ranking waits for it. Without this the cold start ranks
   /// anonymously, paints, and then re-ranks the instant the restored session
   /// resolves — a full reorder about a second after Discover appears, every
   /// single launch.
+  ///
+  /// Normally set by the launch ranking (StartupPrefetch resolves the restored
+  /// uid before the first frame); [setViewer] and [_viewerGrace] are the two
+  /// fallbacks for when that could not run.
   bool _viewerResolved = false;
   Timer? _viewerGraceTimer;
 
   /// How long the first ranking waits for an identity before going ahead
   /// without one. Long enough for a restored Firebase session to resolve, short
   /// enough that a signed-out browser is not kept waiting.
+  ///
+  /// A BACKSTOP now rather than the normal path: the launch ranking already
+  /// waited for Firebase off-screen, so this only fires when the prefetch never
+  /// ran (widget tests) or died.
   static const Duration _viewerGrace = Duration(milliseconds: 900);
+
+  /// Whether the reader is somewhere other than the top of the feed.
+  ///
+  /// Scrolling is the clearest statement of "I am reading this" the app ever
+  /// receives, and the two remaining paths that may replace a visible feed
+  /// without being asked — swapping out the on-disk placeholder, and gaining
+  /// coordinates for the first time — are exactly the ones that land a second or
+  /// two into a launch, which is precisely when someone has started to scroll.
+  /// While this is true they are offered instead. See [_shouldInstall].
+  bool _readerEngaged = false;
+
+  /// Rankings for questions the user has recently asked, keyed by
+  /// [FeedIdentity.queryKey] — All, Requests, Offers, and whatever filtered
+  /// pages they passed through.
+  ///
+  /// Switching tabs used to mean skeletons: the installed page answered another
+  /// question, so Discover had nothing to render until a scoped fetch came back.
+  /// The ranking for that tab was usually a few seconds old and perfectly good —
+  /// it had simply been thrown away. Keeping it makes a tab switch instant, and
+  /// [_warmOtherScopes] makes the FIRST switch instant too by computing the
+  /// other two tabs at launch, while nobody is looking at them.
+  final Map<String, FeedSnapshot> _snapshotsByQuery = {};
+
+  /// Enough for the three tabs plus a couple of filtered pages. Bounded because
+  /// this is a convenience cache, not a store of record.
+  static const int _rememberedQueries = 6;
 
   /// Identity of the last jobs query, so the Jobs tab stops re-fetching (and
   /// re-ordering) for changes that cannot affect its ranking.
@@ -213,7 +247,16 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// it may keep the screen alive but may never be the evidence behind "no posts
   /// found". Excludes a snapshot built for another tab or another filter set for
   /// the obvious reason — the Offers page says nothing about Requests.
+  ///
+  /// And excludes EVERYTHING until the viewer is resolved. A page fetched before
+  /// the app knows who is signed in was computed for a viewer that is about to
+  /// stop existing; treating it as an answer is what let a pre-identity result
+  /// put "No posts found" on screen and then send Discover back to skeletons the
+  /// moment the real identity landed — the empty→shimmer→feed sequence, which
+  /// the presentation rule alone could not prevent because the pre-identity page
+  /// looked like a perfectly good answer to a question nobody had asked yet.
   bool get _hasAnswerForCurrentQuery {
+    if (!_viewerResolved) return false;
     final installed = _installed;
     if (installed == null || installed.fromCache) return false;
     return installed.identity
@@ -280,6 +323,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _discoverVisible = visible;
     // Leaving Discover is the ideal moment to cash in anything that was waiting.
     if (!visible && _pending != null) {
+      // Nobody is reading it any more, so nothing can be disturbed by the swap.
+      _readerEngaged = false;
       applyPendingFeed();
     }
   }
@@ -337,6 +382,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     // no installed snapshot means.
     _installed = null;
     _pending = null;
+    _snapshotsByQuery.clear();
+    _readerEngaged = false;
     _jobsIdentity = null;
     InteractionTracker.instance.setUser(null);
     notifyListeners();
@@ -355,15 +402,204 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     // viewer identity resolves and the first ranking is even requested. A warm
     // launch therefore shows posts, not skeletons.
     unawaited(_hydrateFromCache());
+    unawaited(_openWithLaunchRanking());
+    // Keeps the Discover header's Urgent count live across refresh/reconnect.
+    await loadUrgentPosts();
+  }
+
+  /// Open on the ranking that was computed while the splash was still up.
+  ///
+  /// THE SEQUENCING THIS FIXES
+  /// -------------------------
+  /// The first ranking used to be requested from HomeScreen's post-frame
+  /// callback, after auth restored and the location provider had read its prefs
+  /// — a second or more after Discover was already on screen. Whatever it
+  /// returned therefore arrived on a reader, and because a viewer change
+  /// replaces the visible feed, it rearranged the cards under their thumb. The
+  /// 900 ms grace timer made it worse on slow starts: it gave up waiting and
+  /// ranked ANONYMOUSLY, so the sequence was a pre-identity page, then the real
+  /// one, then a scroll position nobody chose.
+  ///
+  /// StartupPrefetch resolves the restored uid and the stored coordinates
+  /// without a widget tree, so the ranked request goes out during the splash.
+  /// This adopts BOTH the page and the identity it was computed under, which is
+  /// what makes HomeScreen's later `setViewer` recognise it has nothing to do.
+  ///
+  /// Falls back to the old path on every failure: no prefetch (widget tests), a
+  /// dead network, or a viewer that resolved elsewhere first.
+  Future<void> _openWithLaunchRanking() async {
+    final pending = StartupPrefetch.takeFeed();
+    if (pending == null) {
+      _armViewerGrace();
+      return;
+    }
+    unawaited(_paintEarlyPageIfRankingIsSlow(pending));
+    StartupFeed? startup;
+    try {
+      startup = await pending;
+    } catch (e) {
+      debugPrint('[AppProvider] launch ranking unavailable: $e');
+    }
+
+    // A live load already owns the feed — a tab, a filter, an explicit refresh.
+    // Whatever the splash computed answers a question nobody is asking now.
+    if (_postsRequestSeq > 0) return;
+    // The viewer resolved to someone other than the person this was ranked for
+    // (a sign-in during startup). Their feed is not this one.
+    if (_viewerResolved &&
+        !StartupPrefetch.answers(
+          userId: _viewerUserId,
+          latitude: _viewerLatitude,
+          longitude: _viewerLongitude,
+        )) {
+      return;
+    }
+
+    if (startup == null || startup.result.items.isEmpty) {
+      // Nothing usable. If setViewer already deferred to this request, the load
+      // is now ours to issue; otherwise leave it to the identity path, which
+      // still has a viewer to wait for.
+      if (_viewerResolved) {
+        unawaited(loadPosts(reason: FeedInvalidation.explicit));
+        unawaited(loadJobs(force: true));
+      } else {
+        _armViewerGrace();
+      }
+      return;
+    }
+
+    final viewer = startup.viewer;
+    _viewerUserId = viewer.userId;
+    _viewerLatitude = viewer.latitude;
+    _viewerLongitude = viewer.longitude;
+    InteractionTracker.instance.setUser(viewer.userId);
+    _viewerResolved = true;
     _viewerGraceTimer?.cancel();
+    _viewerGraceTimer = null;
+
+    final snapshot = FeedSnapshot.fromResult(
+      startup.result,
+      identity: _identityFor(FeedScope.all, const PostFilters()),
+      generatedAt: DateTime.now(),
+    );
+    if (_isDefaultQuery) {
+      _install(snapshot);
+      _remember(snapshot);
+      unawaited(CacheService.savePosts(snapshot.posts));
+    } else {
+      // The user changed the question before the splash answered. Keep the page
+      // for when they come back to it; do not put it on screen.
+      _remember(snapshot);
+    }
+    _warmAvatarUrls(snapshot.posts.map((p) => p.authorAvatar));
+    notifyListeners();
+    unawaited(loadJobs(force: true));
+    unawaited(_warmOtherScopes());
+  }
+
+  /// How long Discover waits for a RANKED launch page before putting the
+  /// chronological one on screen instead.
+  ///
+  /// The ranking backend sleeps when idle, and the client's own timeout is eight
+  /// seconds — so the first launch of the day could mean eight seconds of
+  /// shimmer over a page the app had already fetched and was holding in memory.
+  /// Long enough that a healthy backend always wins the race (a warm ranked
+  /// response lands in a few hundred milliseconds, and nothing is painted
+  /// twice); short enough that a cold one costs a beat, not a wait.
+  static const Duration _rankingPatience = Duration(milliseconds: 1200);
+
+  /// Put the chronological splash page on screen if ranking is taking too long.
+  ///
+  /// Installed as a PLACEHOLDER, which is the whole reason this is safe: it can
+  /// never be the evidence behind "No posts found", and the ranked page replaces
+  /// it outright the moment it lands — unless the reader has started scrolling,
+  /// in which case [FeedArrival] holds it back and offers it. Nothing is painted
+  /// at all when the disk cache already filled the screen, when the user has
+  /// changed the question, or when ranking simply arrives first.
+  Future<void> _paintEarlyPageIfRankingIsSlow(Future<StartupFeed?> ranking) async {
+    final early = StartupPrefetch.earlyPosts;
+    if (early == null) return;
+    var ranked = false;
+    unawaited(ranking.then((_) => ranked = true, onError: (_) => ranked = true));
+
+    List<PostModel>? posts;
+    try {
+      posts = await early;
+    } catch (_) {
+      return;
+    }
+    if (posts == null || posts.isEmpty) return;
+    await Future<void>.delayed(_rankingPatience);
+    if (ranked ||
+        _installed != null ||
+        _postsRequestSeq > 0 ||
+        !_isDefaultQuery) {
+      return;
+    }
+    debugPrint('[FEED] ranking still out at ${_rankingPatience.inMilliseconds}ms '
+        '— showing the chronological page meanwhile');
+    _install(FeedSnapshot(
+      posts: posts,
+      source: FeedSource.fallback,
+      identity: _identityFor(FeedScope.all, const PostFilters()),
+      // Born expired, like every other placeholder: it was never ranked for
+      // this viewer, so anything that considers refreshing should rebuild.
+      generatedAt: DateTime.now().subtract(FeedSnapshot.ttl),
+      fromCache: true,
+    ));
+    _warmAvatarUrls(posts.map((p) => p.authorAvatar));
+    notifyListeners();
+  }
+
+  /// Rank the tabs nobody is looking at yet.
+  ///
+  /// Requests and Offers are the same corpus the All page just ranked, but the
+  /// server applies the scope as a hard constraint, so a scoped page is not
+  /// something the client can derive — it can only approximate it by filtering
+  /// (which is what [_seedFor] does when this has not landed yet).
+  /// Computing them at launch, while Discover is showing All, is what makes the
+  /// first tap on either tab instant instead of a shimmer.
+  ///
+  /// Silent and best-effort: two requests, no UI, no errors, nothing installed.
+  Future<void> _warmOtherScopes() async {
+    if (!_isDefaultQuery) return;
+    for (final scope in const [FeedScope.requests, FeedScope.offers]) {
+      final identity = _identityFor(scope, const PostFilters());
+      if (_snapshotsByQuery.containsKey(identity.queryKey)) continue;
+      try {
+        final result = await FeedService.fetchFeed(
+          userId: _viewerUserId,
+          latitude: _viewerLatitude,
+          longitude: _viewerLongitude,
+          scope: scope,
+          filters: const PostFilters(),
+        );
+        if (result.items.isEmpty) continue;
+        // Re-checked across the await: the user may have signed in or filtered
+        // while this ran, which would make the page answer nothing.
+        if (!identity.answersSameQuestionAs(_identityFor(scope, const PostFilters()))) {
+          continue;
+        }
+        _remember(FeedSnapshot.fromResult(
+          result,
+          identity: identity,
+          generatedAt: DateTime.now(),
+        ));
+      } catch (e) {
+        debugPrint('[FEED] warm ${scope.wire} skipped ($e)');
+      }
+    }
+  }
+
+  /// The backstop for a launch where the ranking prefetch never ran or failed.
+  void _armViewerGrace() {
+    if (_viewerResolved || _viewerGraceTimer != null) return;
     _viewerGraceTimer = Timer(_viewerGrace, () {
       if (_viewerResolved) return;
       _viewerResolved = true;
       unawaited(loadPosts(reason: FeedInvalidation.explicit));
       unawaited(loadJobs());
     });
-    // Keeps the Discover header's Urgent count live across refresh/reconnect.
-    await loadUrgentPosts();
   }
 
   /// The query every cold start begins on: All tab, no search, no filters.
@@ -541,11 +777,12 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     }
 
     try {
-      // The splash-time prefetch (take-once). It is no longer PAINTED — a
-      // chronological page that is replaced by a ranked one a second later is
-      // the cold-start reshuffle. It is used as the ranked request's fallback
-      // instead, so a warm result still saves a round trip on the one path that
-      // needs it: a backend too cold to rank.
+      // The splash-time chronological read (take-once), used here as the ranked
+      // request's fallback so a warm result still saves a round trip on the one
+      // path that needs it: a backend too cold to rank. Painting it is the
+      // launch path's decision, not this one's, and it is bounded — see
+      // [_paintEarlyPageIfRankingIsSlow], which installs it as a placeholder
+      // only when ranking has already kept the screen on shimmer too long.
       final prefetch = StartupPrefetch.takePosts();
       final usablePrefetch = prefetch != null &&
               !hasActiveFilters &&
@@ -591,7 +828,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // degrades inside FeedService to the exact `created_at DESC` Supabase
       // query the app used before the engine existed, so ranking can never be
       // the reason Discover is empty.
-      final result = await FeedService.fetchFeed(
+      var result = await FeedService.fetchFeed(
         userId: _viewerUserId,
         latitude: _viewerLatitude,
         longitude: _viewerLongitude,
@@ -604,11 +841,34 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // letting a stale page overwrite a fresh one.
       if (seq != _postsRequestSeq) return;
 
+      // LOOK TWICE BEFORE SAYING THE MARKETPLACE IS EMPTY.
+      //
+      // Zero rows is the one result that changes what the app TELLS someone,
+      // and it is reachable without anything being wrong: a warm fallback that
+      // resolved to an empty list is indistinguishable, at this point, from a
+      // query that genuinely matched nothing. FeedService already re-checks an
+      // empty RANKED page against the database; this closes the same hole on
+      // every other path, at the cost of one read on the only path where the
+      // answer is "there is nothing here".
+      if (result.items.isEmpty) {
+        debugPrint('[FEED] empty page for "${identity.queryKey}" — confirming');
+        final confirmation =
+            await PostService.fetchPosts(filters: filters.forScope(scope));
+        if (seq != _postsRequestSeq) return;
+        if (confirmation.isNotEmpty) {
+          result = FeedResult<PostModel>(
+            items: confirmation,
+            source: FeedSource.fallback,
+          );
+        }
+      }
+
       final snapshot = FeedSnapshot.fromResult(
         result,
         identity: identity,
         generatedAt: DateTime.now(),
       );
+      _remember(snapshot);
 
       // The request answered, so whatever failure was on screen is over.
       _errors.clear(AppFeature.discover);
@@ -669,28 +929,65 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// teaches people to ignore it.
   bool _shouldInstall(FeedSnapshot next, FeedInvalidation reason) {
     final current = _installed;
-    if (current == null) return true;
-    // What is on screen is the disk placeholder. It was never a ranking — it is
-    // the last page we happened to have, shown so the screen was not blank while
-    // this request ran. Holding a real snapshot back behind a "New
-    // recommendations" prompt would leave the user reading stale posts and
-    // asking them to approve the actual feed, so a placeholder is always
-    // replaced. Discover crossfades the swap; see feedGeneration.
-    if (current.fromCache) return true;
-    if (reason.replacesVisibleFeed) return true;
-    // Gaining a position where there was none is not a re-ranking. The distance
-    // signal goes from not participating at all to carrying the heaviest weight
-    // in the model, so this is a different feed rather than a rearrangement of
-    // this one — the same category of change as signing in. It happens once,
-    // early, and always because the user granted permission or asked.
-    if (reason == FeedInvalidation.location &&
-        !current.identity.hasCoordinates &&
-        next.identity.hasCoordinates) {
-      return true;
-    }
-    if (!_discoverVisible) return true;
-    return !next.differsVisiblyFrom(current);
+    return FeedArrival.installs(
+      hasVisibleFeed: current != null,
+      visibleIsPlaceholder: current?.fromCache ?? false,
+      readerEngaged: _readerEngaged,
+      discoverVisible: _discoverVisible,
+      reason: reason,
+      gainsCoordinates: current != null &&
+          !current.identity.hasCoordinates &&
+          next.identity.hasCoordinates,
+      differsVisibly: current != null && next.differsVisiblyFrom(current),
+    );
   }
+
+  /// Tell the provider whether the reader has scrolled away from the top of the
+  /// feed. Driven by Discover's scroll controller.
+  ///
+  /// Nothing here re-ranks anything; it decides whether a ranking that has
+  /// ALREADY been computed is allowed to land unannounced. See [_shouldInstall].
+  void setFeedEngaged(bool engaged) {
+    if (_readerEngaged == engaged) return;
+    _readerEngaged = engaged;
+    // Returning to the top is the moment a held-back rebuild becomes free to
+    // show, but it still is not applied automatically — the prompt is already on
+    // screen and it is the reader's to tap.
+  }
+
+  /// Keep [snapshot] for the question it answers, so coming back to that tab is
+  /// instant. Placeholders are never remembered — a page read off the disk or
+  /// filtered out of another tab is not an answer to anything.
+  void _remember(FeedSnapshot snapshot) {
+    if (snapshot.fromCache || snapshot.posts.isEmpty) return;
+    final key = snapshot.identity.queryKey;
+    _snapshotsByQuery.remove(key); // re-insert so iteration order is recency
+    _snapshotsByQuery[key] = snapshot;
+    while (_snapshotsByQuery.length > _rememberedQueries) {
+      _snapshotsByQuery.remove(_snapshotsByQuery.keys.first);
+    }
+  }
+
+  /// The remembered ranking for [identity], if it still answers that question.
+  FeedSnapshot? _rememberedFor(FeedIdentity identity) {
+    final snapshot = _snapshotsByQuery[identity.queryKey];
+    if (snapshot == null) return null;
+    if (!snapshot.identity.answersSameQuestionAs(identity)) {
+      _snapshotsByQuery.remove(identity.queryKey);
+      return null;
+    }
+    return snapshot;
+  }
+
+  /// The visible feed, re-scoped for [scope] — the instant stand-in for a tab
+  /// that has never been fetched. See [FeedSnapshot.rescopedFor].
+  ///
+  /// This is exactly what [filteredPosts] has always rendered on a tab switch;
+  /// the difference is that it now arrives as a SNAPSHOT, so Discover reads it
+  /// as content instead of falling through to skeletons with an empty list.
+  FeedSnapshot? _seedFor(FeedScope scope, FeedIdentity identity) =>
+      (_installed ?? _snapshotsByQuery[_defaultQueryKey])
+          ?.rescopedFor(scope, identity);
 
   /// Make [snapshot] the ranking on screen. The ONLY place `_posts` is
   /// wholesale replaced.
@@ -1420,13 +1717,55 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         Timer(_searchDebounceDelay, () => loadPosts(reason: FeedInvalidation.query));
   }
 
+  /// Switch tabs — and show that tab's posts in the same frame.
+  ///
+  /// WHY THIS IS NOT JUST A RELOAD
+  /// -----------------------------
+  /// Tapping Requests used to mean: change the question, discover that nothing
+  /// on screen answers it, fall through to skeletons, and wait for a round trip.
+  /// The ranking for that tab was usually seconds old and perfectly good — the
+  /// app had simply thrown it away when the user left. Shimmer on a healthy
+  /// connection is a rendering of that decision, not of the network.
+  ///
+  /// Three ways to fill the tab, in order of how good the answer is:
+  ///   1. the ranking we already have for exactly this question — install it,
+  ///      and rebuild in the background only once it is past its TTL;
+  ///   2. the visible page, re-scoped — a placeholder, replaced by the real
+  ///      scoped page the moment it lands;
+  ///   3. nothing to show: skeletons, as before.
   void setSelectedFilter(String filter) {
+    if (_selectedFilter != filter) _dropPendingFeed();
     _selectedFilter = filter;
-    notifyListeners();
     // An explicit reload supersedes a pending debounced one. Switching tabs
     // clears the search box first, so without this the tab's own load would be
     // followed 350 ms later by an identical duplicate.
     _searchDebounce?.cancel();
+
+    final scope = _scopeForFilter;
+    final identity = _identityFor(scope, _currentFilters);
+    final remembered = _rememberedFor(identity);
+    if (remembered != null) {
+      // Nothing is fetched on this path, so the sequence has to be advanced by
+      // hand: a load still in flight for the tab we just left would otherwise
+      // pass its own freshness check and install the PREVIOUS tab's page over
+      // this one.
+      ++_postsRequestSeq;
+      _isLoadingPosts = false;
+      _install(remembered);
+      notifyListeners();
+      // Fresh enough to be the answer, so nothing else is asked for. A page
+      // older than the server's own ranking bucket is rebuilt quietly and
+      // OFFERED — the user asked to see this tab, not to have it re-sorted a
+      // second after it appeared.
+      if (remembered.isExpiredAt(DateTime.now())) {
+        unawaited(loadPosts(reason: FeedInvalidation.expired));
+      }
+      return;
+    }
+
+    final seed = _seedFor(scope, identity);
+    if (seed != null) _install(seed);
+    notifyListeners();
     loadPosts(reason: FeedInvalidation.query);
   }
 
@@ -1529,6 +1868,19 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       _viewerGraceTimer?.cancel();
       _viewerGraceTimer = null;
       notifyListeners();
+      // The launch ranking already went out for exactly this person, from
+      // exactly this position, before the first frame — its answer is on its
+      // way. Asking again would fetch the same page and then install it over
+      // the one that arrives first, which is a reshuffle produced by nothing
+      // but duplicate work.
+      if (StartupPrefetch.answers(
+        userId: nextUserId,
+        latitude: latitude,
+        longitude: longitude,
+      )) {
+        debugPrint('[FEED] viewer resolved — launch ranking already answers it');
+        return;
+      }
       unawaited(loadPosts(reason: FeedInvalidation.explicit));
       unawaited(loadJobs(force: true));
       return;

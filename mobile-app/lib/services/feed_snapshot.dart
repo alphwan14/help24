@@ -171,6 +171,37 @@ class FeedSnapshot {
     return count;
   }
 
+  /// This ranking, narrowed to one tab — the instant stand-in for a scope that
+  /// has never been fetched.
+  ///
+  /// A tab switch is a different QUESTION, so the installed page stops being an
+  /// answer the moment it happens, and Discover used to fall through to
+  /// skeletons with an empty list while a scoped fetch ran. But the posts for
+  /// that tab were right there in the page already on screen, in ranked order —
+  /// the app was showing shimmer over data it was holding.
+  ///
+  /// The result is a PLACEHOLDER on purpose ([fromCache]): it is a filtered view
+  /// of another question's answer, so it renders and is always replaced by the
+  /// real scoped page, and it can never be the evidence behind "No posts found".
+  /// Returns null when nothing in this ranking belongs to [scope], which is the
+  /// one case where skeletons are still the honest thing to show.
+  FeedSnapshot? rescopedFor(FeedScope scope, FeedIdentity identity) {
+    final scoped = [
+      for (final post in posts)
+        if (scope.postTypes.contains(post.type.name)) post,
+    ];
+    if (scoped.isEmpty) return null;
+    return FeedSnapshot(
+      posts: scoped,
+      source: source,
+      identity: identity,
+      generatedAt: generatedAt,
+      rankingEpoch: rankingEpoch,
+      personalised: personalised,
+      fromCache: true,
+    );
+  }
+
   /// Same ranking, different post objects — used when a card's own state
   /// changes (applied, archived, an optimistic insert) and the ORDER must
   /// survive it untouched.
@@ -249,6 +280,61 @@ enum FeedPresentation {
     if (hasAnswerForCurrentQuery && !isLoading) return FeedPresentation.empty;
     if (hasError) return FeedPresentation.failed;
     return FeedPresentation.loading;
+  }
+}
+
+/// Whether a ranking that has finished computing may LAND on the screen, or
+/// must wait to be offered.
+///
+/// THE QUESTION THIS ANSWERS
+/// ------------------------
+/// Ranking off-screen was only half the fix. A snapshot still has to arrive, and
+/// arriving is the moment the cards move. Two paths were allowed to arrive
+/// unannounced — swapping out the on-disk placeholder, and gaining coordinates
+/// for the first time — and both of them land a second or two into a launch,
+/// which is exactly when someone has started to scroll. So the feed still
+/// rearranged itself under a reader, for reasons the reader had no way to
+/// connect to anything they did.
+///
+/// Scrolling is the clearest statement of "I am reading this" the app receives.
+/// Above the first card, everything the app decided on its own becomes an offer.
+abstract final class FeedArrival {
+  /// The decision, as a pure function of the seven facts it turns on.
+  ///
+  /// The order of the checks IS the contract:
+  ///
+  ///   1. nothing on screen — there is nothing to disturb;
+  ///   2. the user asked for this (refresh, tab, filter, sign-in, upgrade) —
+  ///      they are waiting for exactly this result, and Discover returns them
+  ///      to the top when it lands;
+  ///   3. the reader has scrolled — everything below this line is the app
+  ///      deciding on its own, and the app noticing something is never a licence
+  ///      to reorganise someone's screen. Offered instead;
+  ///   4. what is on screen is a placeholder (disk, or another tab re-scoped) —
+  ///      never a ranking, so holding the real one back would leave the reader
+  ///      on stale posts and ask them to approve the actual feed;
+  ///   5. gaining a position where there was none — the distance signal goes
+  ///      from not participating to carrying the heaviest weight, so this is a
+  ///      different feed rather than a rearrangement of this one;
+  ///   6. Discover is not the visible tab — the swap is literally unseeable;
+  ///   7. otherwise: install only if it moves nothing. A prompt that reorders
+  ///      nothing teaches people to ignore the prompt.
+  static bool installs({
+    required bool hasVisibleFeed,
+    required bool visibleIsPlaceholder,
+    required bool readerEngaged,
+    required bool discoverVisible,
+    required FeedInvalidation reason,
+    required bool gainsCoordinates,
+    required bool differsVisibly,
+  }) {
+    if (!hasVisibleFeed) return true;
+    if (reason.replacesVisibleFeed) return true;
+    if (discoverVisible && readerEngaged) return false;
+    if (visibleIsPlaceholder) return true;
+    if (reason == FeedInvalidation.location && gainsCoordinates) return true;
+    if (!discoverVisible) return true;
+    return !differsVisibly;
   }
 }
 

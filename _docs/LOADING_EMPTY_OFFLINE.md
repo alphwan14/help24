@@ -111,6 +111,63 @@ once posts are on screen.
 
 ---
 
+## 4b. Why the sequence survived the state machine — and what finished it
+
+The four states made `empty` unreachable *as a transition* only if the load
+behind it was asking the right question. Two things were still wrong underneath,
+and both produced exactly the reported sequence — **"No posts found", then
+shimmer, then posts** — from code that looked correct at every individual step:
+
+1. **The first ranking ran before the app knew who was looking.** Nothing
+   requested the feed until HomeScreen's post-frame callback had auth *and* the
+   location provider's prefs, so `AppProvider._viewerGrace` gave up after 900 ms
+   and ranked **anonymously**. That pre-identity page was a completed load
+   matching the (anonymous) question — a perfectly good answer by rule 2 — so if
+   it came back thin or empty it could say "No posts found". Then the real
+   identity landed, `answersSameQuestionAs` went false, and Discover fell back to
+   `loading`: shimmer, then the real feed.
+2. **The same sequencing rearranged the feed under a reader.** The real ranking
+   arrived one to three seconds in, as `FeedInvalidation.viewer`, which replaces
+   the visible feed by design — landing precisely when someone had started to
+   scroll.
+
+**The rules that finish it:**
+
+6. **Nothing is an answer until the viewer is resolved.** `_hasAnswerForCurrentQuery`
+   returns false while the identity is unknown, so no pre-identity result can
+   reach `empty` no matter what it contains.
+7. **The ranking is computed during the splash, for the right person.**
+   `StartupPrefetch` resolves the restored uid (Firebase) and the stored
+   coordinates (SharedPreferences) without a widget tree, then issues the ranked
+   request before the first frame. `AppProvider._openWithLaunchRanking` adopts
+   the page **and the identity it was computed under**, which is what makes
+   HomeScreen's later `setViewer` a no-op instead of a second full reload. The
+   900 ms grace survives only as a backstop for when the prefetch cannot run.
+8. **Zero rows is confirmed before it is published.** `FeedService` already
+   re-checked an empty *ranked* page against the database; `loadPosts` now
+   re-checks an empty page from **any** path with one direct read. The specific
+   hole this closes: a warm fallback that resolved to an empty list was
+   indistinguishable from a query that genuinely matched nothing.
+9. **A ranking that has finished computing may only *land* when landing costs the
+   reader nothing.** `FeedArrival.installs` adds the missing fact — is anyone
+   scrolling — and everything the app decided on its own (placeholder swap, first
+   GPS fix, TTL expiry, profile edit) becomes a "New recommendations" offer above
+   the first card. Only what the user asked for still replaces the feed outright.
+10. **A tab switch shows the posts the app is already holding.** Rankings are
+    remembered per question (`_snapshotsByQuery`), Requests and Offers are ranked
+    in the background at launch while Discover shows All, and a tab with neither
+    falls back to `FeedSnapshot.rescopedFor` — the visible page filtered to that
+    scope, as a placeholder. Skeletons on a tab switch now mean "we are holding
+    nothing for this tab", which is the only honest use of them.
+11. **A cold ranking backend costs a beat, not a wait.** If the ranked launch page
+    has not arrived within `_rankingPatience` (1.2 s), the chronological splash
+    read is painted as a placeholder so the screen is never shimmer over a page
+    already in memory. Rule 9 governs its replacement.
+
+Pinned by `test/feed_arrival_test.dart`.
+
+---
+
 ## 5. Further Improvements
 
 - **Retry with backoff** – When a load fails (e.g. network error), show a retry action or auto-retry with exponential backoff instead of only "Refresh".

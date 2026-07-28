@@ -124,6 +124,48 @@ class LocationProvider extends ChangeNotifier {
   /// downgrade — or any code still reading them — keeps working.
   static String _recordKey(String uid) => 'location_record_$uid';
 
+  /// The stored position for [uid], WITHOUT constructing a provider or touching
+  /// the widget tree.
+  ///
+  /// The launch ranking needs coordinates before any screen exists (see
+  /// StartupPrefetch): the whole point of computing the feed during the splash
+  /// is that it is computed for the right person, from the right place, ONCE.
+  /// Reading the same two keys [initializeForUser] reads is what makes the
+  /// prefetch's identity identical to the one HomeScreen hands over a second
+  /// later — and an identical identity is a feed that does not reload.
+  ///
+  /// Never throws: no stored position simply means the ranking runs without a
+  /// distance signal, which is the anonymous case and already supported.
+  static Future<({double? latitude, double? longitude})> lastKnownCoordinates(
+    String uid,
+  ) async {
+    if (uid.isEmpty) return (latitude: null, longitude: null);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final record = _readRecord(prefs, uid);
+      return (
+        latitude: record?.latitude ?? prefs.getDouble(_latKey(uid)),
+        longitude: record?.longitude ?? prefs.getDouble(_lngKey(uid)),
+      );
+    } catch (e) {
+      debugPrint('[LOCATION] stored position unavailable at launch: $e');
+      return (latitude: null, longitude: null);
+    }
+  }
+
+  /// Prefer the full record; fall back to the legacy scalar keys so a user who
+  /// stored a location before the record existed keeps it.
+  static LocationSelection? _readRecord(SharedPreferences prefs, String uid) {
+    final raw = prefs.getString(_recordKey(uid));
+    if (raw == null) return null;
+    try {
+      return LocationSelection.fromJson(jsonDecode(raw));
+    } catch (e) {
+      debugPrint('[LOCATION] stored record unreadable, falling back: $e');
+      return null;
+    }
+  }
+
   Future<void> initializeForUser(String uid) async {
     _status = await LocationService.permissionStatus();
     if (uid.isEmpty) {
@@ -133,17 +175,7 @@ class LocationProvider extends ChangeNotifier {
     }
     final prefs = await SharedPreferences.getInstance();
 
-    // Prefer the full record; fall back to the legacy scalar keys so a user who
-    // stored a location before this existed keeps it.
-    final raw = prefs.getString(_recordKey(uid));
-    if (raw != null) {
-      try {
-        _record = LocationSelection.fromJson(jsonDecode(raw));
-      } catch (e) {
-        debugPrint('[LOCATION] stored record unreadable, falling back: $e');
-        _record = null;
-      }
-    }
+    _record = _readRecord(prefs, uid);
 
     _latitude = _record?.latitude ?? prefs.getDouble(_latKey(uid));
     _longitude = _record?.longitude ?? prefs.getDouble(_lngKey(uid));
