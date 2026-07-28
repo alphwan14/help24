@@ -228,6 +228,16 @@ class _PostScreenState extends State<PostScreen> {
     final provider = context.read<LocationProvider>();
     final registry = LocationRegistry.instance;
 
+    // Best of all: the full record the location capture already resolved —
+    // accuracy-gated fix, geocoder answer cross-checked against the map,
+    // administrative hierarchy intact. Re-deriving a name from bare
+    // coordinates would throw all of that away and re-run the guesswork.
+    final stored = provider.record;
+    if (stored != null && stored.hasCoordinates) {
+      setState(() => _location = stored);
+      return;
+    }
+
     final lat = provider.latitude;
     final lng = provider.longitude;
     if (lat != null && lng != null) {
@@ -2127,6 +2137,18 @@ class _PostScreenState extends State<PostScreen> {
           // Jobs never carry urgency — the start date lives in attributes.
           urgency: kJobUrgency,
           pricingType: _selectedPricingType,
+          // Same coordinate precedence as requests and offers below: the map
+          // pin, else the coordinate of the chosen place.
+          //
+          // Jobs used to be posted with a location LABEL and nothing else, even
+          // though `JobModel` has carried these two columns all along. The Jobs
+          // tab runs through the same ranking engine as Discover, where the
+          // distance signal is the heaviest in the model — so every job in the
+          // country was being scored at "the median distance of everything
+          // else" rather than at its own. A job across the road and a job in
+          // another county ranked identically on proximity.
+          latitude: _pinnedLat ?? _location?.latitude,
+          longitude: _pinnedLng ?? _location?.longitude,
           attributes: attributes,
           attributesSchemaVersion: schemaVersion,
         );
@@ -2147,7 +2169,7 @@ class _PostScreenState extends State<PostScreen> {
         );
 
         if (createdJob == null) {
-          throw Exception(provider.error ?? 'Failed to create job');
+          throw Exception(provider.postingError ?? 'Failed to create job');
         }
       } else {
         final post = PostModel(
@@ -2197,7 +2219,7 @@ class _PostScreenState extends State<PostScreen> {
         );
 
         if (createdPost == null) {
-          throw Exception(provider.error ?? 'Failed to create post');
+          throw Exception(provider.postingError ?? 'Failed to create post');
         }
       }
 

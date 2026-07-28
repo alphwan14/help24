@@ -342,13 +342,18 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
       setState(() => _hasPermission = true);
     }
     setState(() => _acquiring = true);
-    final pos = await LocationService.getCurrentPosition(requestIfNeeded: false);
+    // The accuracy-gated fix, same as "Use current location" in the picker.
+    // This button drops the pin that becomes a post's coordinates, and those
+    // coordinates are what the ranking engine measures every distance from —
+    // so a cached kilometre-wide estimate is not good enough here either.
+    final pos = await LocationService.getPreciseFix(requestIfNeeded: false);
     if (!mounted) return;
     setState(() => _acquiring = false);
     if (pos == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Could not get a GPS fix. Move the map to place the pin.'),
+          content: Text(
+              'Could not get a precise fix. Move the map to place the pin.'),
           behavior: SnackBarBehavior.floating,
         ),
       );

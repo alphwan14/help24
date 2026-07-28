@@ -5,6 +5,7 @@ import { ViewerContextService } from './viewer-context.service';
 import { FeedRepository } from './feed.repository';
 import { scoreCandidates, maxPossibleScore } from './ranking/scorer';
 import { diversify } from './ranking/diversity';
+import { bucketInstant } from './ranking/curves';
 import { FeedConfig, RankingCandidate, ScoredCandidate, ViewerContext } from './ranking/types';
 import { FeedQueryDto, IngestInteractionsDto, SetAvailabilityDto } from './dto/feed.dto';
 
@@ -47,6 +48,15 @@ export interface FeedResponse {
   /** Milliseconds spent in retrieval + scoring + hydration. */
   took_ms: number;
   personalised: boolean;
+  /**
+   * The bucketed instant this ranking was computed against (ISO 8601).
+   *
+   * Two responses carrying the same epoch were scored by the same clock, so any
+   * difference between them is a real change in the corpus or the viewer — not
+   * time passing. The client uses this to decide whether a background rebuild is
+   * worth telling anyone about.
+   */
+  ranking_epoch: string;
 }
 
 @Injectable()
@@ -67,6 +77,12 @@ export class FeedService {
     const config = await this.settings.config();
     const explain = query.explain === '1' || query.explain === 'true';
 
+    // The ranking clock. Everything time-dependent — freshness, urgency decay,
+    // staleness, time-of-day — reads THIS, never `new Date()`, so a feed asked
+    // for twice inside one bucket comes back in exactly the same order. See
+    // bucketInstant() for why a free-running clock is a UX bug, not a detail.
+    const epoch = bucketInstant(new Date(startedAt), config.retrieval.rotationBucketMinutes);
+
     const viewer = await this.viewerContext.build(
       {
         userId: query.user_id,
@@ -75,6 +91,7 @@ export class FeedService {
         timezoneOffsetMinutes: query.tz_offset,
       },
       config,
+      epoch,
     );
 
     const pageSize = Math.min(
@@ -112,6 +129,7 @@ export class FeedService {
         candidate_count: 0,
         took_ms: Date.now() - startedAt,
         personalised: this.isPersonalised(viewer),
+        ranking_epoch: epoch.toISOString(),
       };
     }
 
@@ -145,6 +163,7 @@ export class FeedService {
       candidate_count: scored.length,
       took_ms: Date.now() - startedAt,
       personalised: this.isPersonalised(viewer),
+      ranking_epoch: epoch.toISOString(),
     };
   }
 
@@ -216,8 +235,16 @@ export class FeedService {
         this.logger.warn(`[FEED][INTERACTIONS] insert failed: ${error.message}`);
         return { accepted: 0 };
       }
-      // The next feed request should reflect what the user just did.
-      this.viewerContext.invalidate(userId);
+      // The next feed request should reflect what the user just DID — but
+      // scrolling is not doing. Impressions arrive continuously (a batch every
+      // few seconds while someone reads), each weighs 0.05, and none of them can
+      // move affinity enough to change an ordering. Invalidating on them
+      // defeated the 5-minute viewer cache entirely and made every background
+      // rebuild come back subtly different, which is how a stable feed acquires
+      // a permanent "new recommendations" nag.
+      if (rows.some((r) => r.kind !== 'impression')) {
+        this.viewerContext.invalidate(userId);
+      }
       return { accepted: rows.length };
     } catch (err) {
       this.logger.warn(`[FEED][INTERACTIONS] insert threw: ${this.msg(err)}`);

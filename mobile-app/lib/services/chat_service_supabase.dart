@@ -6,12 +6,49 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/api_config.dart';
 import '../models/post_model.dart';
 import '../utils/time_utils.dart';
+import 'adaptive_poll.dart';
 import 'supabase_auth_bridge.dart';
 
 /// Outcome of a delete-for-everyone attempt. Distinct cases so the UI can show
 /// an accurate message: [windowExpired] is the sender's 15-minute rule;
 /// [failed] is a server/RLS/network failure and must NOT be blamed on the window.
 enum DeleteForEveryoneResult { success, windowExpired, failed }
+
+/// What one tick of the conversation-list stream should publish.
+enum ConversationEmission {
+  /// The server answered — publish the list, whatever its length.
+  list,
+
+  /// The fetch failed and we have never had a list. Publish the error so the
+  /// listener can stop its skeleton and say "couldn't load" honestly.
+  error,
+
+  /// The fetch failed but a good list is already on screen. Publish NOTHING.
+  silence,
+}
+
+/// AN ERROR IS NOT AN EMPTINESS.
+///
+/// The conversation stream used to answer a failed fetch with `add([])` — a
+/// dead network published to every listener as the fact "you have no
+/// conversations". AppProvider believed it, replaced the list, and wrote the
+/// empty list to disk, destroying the cached history. The poll runs every
+/// 15–60s and never pauses offline, so losing signal emptied the Messages tab
+/// and its cache within one tick: months of chats replaced by "No internet
+/// connection", with no way back until a successful fetch.
+///
+/// The rule is stated here, as a pure function, because it is the load-bearing
+/// decision in the app's offline-first messaging promise and deserves to be
+/// checkable without a network.
+ConversationEmission conversationEmissionFor({
+  required bool fetchSucceeded,
+  required bool hasDeliveredList,
+}) {
+  if (fetchSucceeded) return ConversationEmission.list;
+  return hasDeliveredList
+      ? ConversationEmission.silence
+      : ConversationEmission.error;
+}
 
 /// Supabase-only messaging: chats + chat_messages.
 /// Conversation list: polled (Realtime can't filter user1 OR user2).
@@ -188,13 +225,16 @@ class ChatServiceSupabase {
     if (currentUserId.isEmpty) return Stream.value([]);
 
     final controller = StreamController<List<Conversation>>.broadcast();
-    Timer? timer;
     Timer? nudgeDebounce;
     RealtimeChannel? channel;
     var pollInterval = const Duration(seconds: 15);
     var realtimeConfirmed = false;
     var fetching = false;
     var refetchQueued = false;
+
+    /// Whether this stream has ever delivered a real answer — the input to
+    /// [conversationEmissionFor], where the rule and its history are stated.
+    var hasDeliveredList = false;
 
     Future<void> emit() async {
       // Coalesce: a nudge landing mid-fetch queues exactly one follow-up.
@@ -206,10 +246,17 @@ class ChatServiceSupabase {
       try {
         final list = await _fetchConversations(currentUserId);
         if (controller.isClosed) return;
+        hasDeliveredList = true;
         controller.add(list);
       } catch (e) {
         debugPrint('ChatServiceSupabase watchConversations fetch: $e');
-        if (!controller.isClosed) controller.add([]);
+        if (controller.isClosed) return;
+        final decision = conversationEmissionFor(
+          fetchSucceeded: false,
+          hasDeliveredList: hasDeliveredList,
+        );
+        // silence → the last good list stays on screen and on disk.
+        if (decision == ConversationEmission.error) controller.addError(e);
       } finally {
         fetching = false;
         if (refetchQueued && !controller.isClosed) {
@@ -219,24 +266,39 @@ class ChatServiceSupabase {
       }
     }
 
-    void schedulePoll() {
-      timer?.cancel();
-      timer = Timer.periodic(pollInterval, (_) => emit());
-    }
+    // Parks itself while the app is offline and resumes with ONE immediate
+    // refetch on reconnect. This poll used to run through an outage at full
+    // cadence — every 15s, every tick failing — which was both a wasted radio
+    // wake-up on a metered connection and a steady supply of errors for
+    // `conversationEmissionFor` to have to defend against. A tick that cannot
+    // succeed is best not taken.
+    //
+    // `tickOnStart: false` because the explicit `poll.refreshNow()` below is the
+    // first fetch; letting start() also fire would double it.
+    final poll = AdaptivePoll(
+      interval: pollInterval,
+      onTick: emit,
+      debugLabel: 'conversations',
+      tickOnStart: false,
+    );
 
     void nudge() {
       if (!realtimeConfirmed) {
         realtimeConfirmed = true;
+        // Realtime is alive, so the poll is only a safety net now.
         pollInterval = const Duration(seconds: 60);
-        schedulePoll();
+        poll.interval = pollInterval;
       }
       // Debounce bursts (several rows updating at once) into one refetch.
       nudgeDebounce?.cancel();
       nudgeDebounce = Timer(const Duration(milliseconds: 400), emit);
     }
 
-    emit();
-    schedulePoll();
+    poll.start();
+    // The first load is attempted regardless of the poll's schedule, but not
+    // while offline — AppProvider has already hydrated the cached list by then,
+    // and a doomed fetch would only produce an error for it to discard.
+    poll.refreshNow();
 
     PostgresChangeFilter userFilter(String column) => PostgresChangeFilter(
           type: PostgresChangeFilterType.eq,
@@ -258,7 +320,7 @@ class ChatServiceSupabase {
     channel!.subscribe();
 
     controller.onCancel = () {
-      timer?.cancel();
+      poll.dispose();
       nudgeDebounce?.cancel();
       channel?.unsubscribe();
     };

@@ -1,9 +1,10 @@
 import { DEFAULT_FEED_CONFIG } from './defaults';
+import { bucketInstant } from './curves';
 import { scoreCandidates } from './scorer';
 import { distanceSignal } from './signals/distance.signal';
 import { urgencySignal } from './signals/urgency.signal';
 import { stalenessSignal } from './signals/staleness.signal';
-import { makeCandidate, makeViewer, hoursAgo, hoursAhead, MOMBASA } from './test-fixtures';
+import { makeCandidate, makeViewer, hoursAgo, hoursAhead, MOMBASA, NOW } from './test-fixtures';
 
 const CONFIG = DEFAULT_FEED_CONFIG;
 
@@ -202,5 +203,95 @@ describe('regression: the reported feed, end to end', () => {
     expect(staleness).toBeDefined();
     expect(staleness!.points).toBeLessThan(0);
     expect(staleness!.detail).toMatchObject({ ageDays: 150 });
+  });
+});
+
+/**
+ * REGRESSION — "the feed reshuffles while I am reading it".
+ *
+ * Reported from production. Every time-dependent signal (freshness, urgency,
+ * staleness, time-of-day) reads `ctx.now`, and `now` was a free-running wall
+ * clock. Two requests seconds apart therefore scored every candidate slightly
+ * differently, and any pair of posts within that epsilon traded places — so the
+ * reader watched cards swap for no reason they could see.
+ *
+ * `rotationBucketMinutes` was declared in the config, seeded into the database
+ * and documented as the determinism mechanism, but nothing ever read it. It
+ * does now. These tests are what stop it becoming decorative again.
+ */
+describe('regression: ranking must not drift with the wall clock', () => {
+  const viewer = makeViewer({ ...MOMBASA, medianKnownDistanceKm: 12 });
+
+  // Deliberately near-tied: these are the pairs a drifting clock reorders.
+  const corpus = [
+    makeCandidate({ postId: 'a', distanceKm: 5.0, createdAt: hoursAgo(6) }),
+    makeCandidate({ postId: 'b', distanceKm: 5.1, createdAt: hoursAgo(6.02) }),
+    makeCandidate({ postId: 'c', distanceKm: 5.05, createdAt: hoursAgo(5.98) }),
+    makeCandidate({ postId: 'd', distanceKm: 4.9, createdAt: hoursAgo(6.01), isUrgent: true, urgentExpiresAt: hoursAhead(1) }),
+  ];
+
+  const order = (now: Date) =>
+    scoreCandidates(corpus, makeViewer({ ...MOMBASA, medianKnownDistanceKm: 12, now }), CONFIG).map(
+      (r) => r.candidate.postId,
+    );
+
+  const BUCKET_MS = CONFIG.retrieval.rotationBucketMinutes * 60_000;
+
+  it('returns an identical ordering everywhere inside one bucket', () => {
+    const start = bucketInstant(NOW, CONFIG.retrieval.rotationBucketMinutes);
+    const first = order(start);
+    // Every second of the bucket, sampled — the client may re-ask at any of them.
+    for (let offsetMs = 0; offsetMs < BUCKET_MS; offsetMs += 15_000) {
+      const sampled = bucketInstant(
+        new Date(start.getTime() + offsetMs),
+        CONFIG.retrieval.rotationBucketMinutes,
+      );
+      expect(order(sampled)).toEqual(first);
+    }
+  });
+
+  it('produces byte-identical scores, not merely the same order', () => {
+    const start = bucketInstant(NOW, CONFIG.retrieval.rotationBucketMinutes);
+    const later = bucketInstant(
+      new Date(start.getTime() + BUCKET_MS - 1),
+      CONFIG.retrieval.rotationBucketMinutes,
+    );
+    const a = scoreCandidates(corpus, makeViewer({ ...MOMBASA, medianKnownDistanceKm: 12, now: start }), CONFIG);
+    const b = scoreCandidates(corpus, makeViewer({ ...MOMBASA, medianKnownDistanceKm: 12, now: later }), CONFIG);
+    expect(b.map((r) => r.score)).toEqual(a.map((r) => r.score));
+  });
+
+  it('would have drifted without bucketing — the bug is real, not theoretical', () => {
+    // Same corpus, same viewer, raw clock 9 minutes apart: at least one score
+    // moves. This is what the reader was watching.
+    const raw = (ms: number) =>
+      scoreCandidates(
+        corpus,
+        makeViewer({ ...MOMBASA, medianKnownDistanceKm: 12, now: new Date(NOW.getTime() + ms) }),
+        CONFIG,
+      ).map((r) => r.score);
+    expect(raw(9 * 60_000)).not.toEqual(raw(0));
+  });
+
+  it('never places the epoch in the future — a rounded bucket would expire live emergencies early', () => {
+    for (const offsetMs of [0, 1, 60_000, BUCKET_MS - 1]) {
+      const instant = new Date(NOW.getTime() + offsetMs);
+      const bucketed = bucketInstant(instant, CONFIG.retrieval.rotationBucketMinutes);
+      expect(bucketed.getTime()).toBeLessThanOrEqual(instant.getTime());
+      expect(instant.getTime() - bucketed.getTime()).toBeLessThan(BUCKET_MS);
+    }
+  });
+
+  it('lands on the bucket grid regardless of the instant given', () => {
+    for (const offsetMs of [0, 1, 137_000, 599_999, 3_600_001]) {
+      const bucketed = bucketInstant(new Date(NOW.getTime() + offsetMs), 10);
+      expect(bucketed.getTime() % (10 * 60_000)).toBe(0);
+    }
+  });
+
+  it('degrades to a one-minute grid rather than dividing by zero', () => {
+    for (const bad of [0, -5, Number.NaN]) {
+      expect(bucketInstant(NOW, bad).getTime() % 60_000).toBe(0);
+    }
   });
 });

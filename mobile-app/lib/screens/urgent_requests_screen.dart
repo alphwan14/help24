@@ -1,18 +1,48 @@
-import 'dart:math';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:provider/provider.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
-import '../providers/auth_provider.dart';
 import '../providers/location_provider.dart';
-import '../services/post_service.dart';
-import '../theme/app_theme.dart';
-import '../utils/time_utils.dart';
+import '../utils/post_ownership.dart';
+import '../utils/proximity.dart';
+import '../utils/urgent_window.dart';
 import '../widgets/auth_guard.dart';
 import '../widgets/loading_empty_offline.dart';
-import 'messages_screen.dart';
+import '../widgets/post_card.dart';
+import '../widgets/post_flows.dart';
 
+/// Urgent requests — the SAME marketplace as Discover, filtered to emergencies.
+///
+/// WHAT THIS SCREEN USED TO BE
+/// ---------------------------
+/// A second, weaker marketplace. It was the only listing surface never migrated
+/// to the shared modules, and it disagreed with the rest of the app on all
+/// three of them:
+///
+///   * a hand-rolled card showing title, distance and age — no author, no
+///     avatar, no reputation, no price, no photos. You could not see who was
+///     asking for help;
+///   * a bottom sheet that showed LESS than a Discover card does at a glance,
+///     in place of the detail screen;
+///   * "Offer Help Now" opened a private CHAT. Urgent posts are requests, and
+///     everywhere else in Help24 a request is answered with an APPLICATION.
+///
+/// That third divergence was the expensive one. The request lifecycle — select
+/// provider → assign → escrow → complete → review — runs entirely on the
+/// `applications` table, so a chat-only response was a dead end: it never
+/// reached the author's applicants list, never entered payment protection, and
+/// skipped every guard the shared flow performs (ownership, duplicates, closed
+/// listings, and the provider-ready gate that ensures whoever answers can
+/// actually be paid). Urgent is where money moves fastest and trust matters
+/// most — the worst surface on which to bypass escrow.
+///
+/// It now renders [PostCard], opens with [openPostFromFeed] and responds with
+/// [applyToListing] — byte-identical to Discover. What stays urgency-specific is
+/// what genuinely is: distance to the request, and a live countdown on the
+/// window.
 class UrgentRequestsScreen extends StatefulWidget {
   const UrgentRequestsScreen({super.key});
 
@@ -21,13 +51,32 @@ class UrgentRequestsScreen extends StatefulWidget {
 }
 
 class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
+  /// Drives the countdowns and drops posts whose window closes while the screen
+  /// is open. Ten seconds is well inside the resolution of a "N min left" label
+  /// and costs one rebuild of a short list.
+  static const Duration _tick = Duration(seconds: 10);
+  Timer? _ticker;
+
+  /// One clock for the whole frame, so every card on a rebuild counts down from
+  /// the same instant and the expiry filter agrees with the labels it filtered.
+  DateTime _now = DateTime.now();
+
   @override
   void initState() {
     super.initState();
+    _ticker = Timer.periodic(_tick, (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _load();
     });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
   }
 
   /// Single reload path shared by first load, pull-to-refresh, the failure-state
@@ -37,13 +86,11 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
     return context.read<AppProvider>().loadUrgentPosts(
           userLatitude: location.latitude,
           userLongitude: location.longitude,
-          limit: 20,
         );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final location = context.watch<LocationProvider>();
     return Scaffold(
       appBar: AppBar(title: const Text('Urgent Help Needed')),
@@ -51,16 +98,20 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
         onReconnect: _load,
         child: Consumer<AppProvider>(
           builder: (context, provider, _) {
-            final posts = provider.urgentPosts;
+            // Expiry is a property of the post and the clock, not of when the
+            // query last ran: a request whose hour ran out mid-session leaves
+            // the list here rather than sitting on it still labelled URGENT.
+            final posts = openUrgentPosts(provider.urgentPosts, _now);
+
             if (provider.isLoadingUrgentPosts && posts.isEmpty) {
-              return const Center(
-                  child: CircularProgressIndicator(strokeWidth: 2));
+              return const FeedSkeletonList();
             }
+
             if (posts.isEmpty) {
               // Loading finished with nothing to show — distinguish a real
               // failure (offer Retry) from a genuinely empty area (reassure).
-              final Widget state = provider.error != null
-                  ? ErrorRetryView(message: provider.error!, onRetry: _load)
+              final Widget state = provider.urgentError != null
+                  ? ErrorRetryView(message: provider.urgentError!, onRetry: _load)
                   : const EmptyStateView(
                       icon: Iconsax.flash_1,
                       title: 'No urgent requests nearby',
@@ -81,76 +132,36 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
                 ),
               );
             }
+
             return RefreshIndicator(
               onRefresh: _load,
-              child: ListView.separated(
+              child: ListView.builder(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 itemCount: posts.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, index) {
                   final post = posts[index];
-                  final distance = _distanceText(
-                      post, location.latitude, location.longitude);
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () => _showPostQuickView(context, post, distance),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                            color: AppTheme.errorRed.withValues(alpha: 0.45)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: AppTheme.errorRed.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              'URGENT',
-                              style: TextStyle(
-                                color: AppTheme.errorRed,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 10.5,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            post.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              const Icon(Icons.location_on_outlined,
-                                  size: 14, color: AppTheme.primaryAccent),
-                              const SizedBox(width: 4),
-                              Text(distance ?? 'Nearby',
-                                  style: Theme.of(context).textTheme.bodySmall),
-                              const SizedBox(width: 10),
-                              const Icon(Iconsax.clock,
-                                  size: 14, color: AppTheme.primaryAccent),
-                              const SizedBox(width: 4),
-                              Text(formatRelativeTime(post.createdAt),
-                                  style: Theme.of(context).textTheme.bodySmall),
-                            ],
-                          ),
-                        ],
+                  return PostCard(
+                    post: post,
+                    // The two facts that are genuinely urgency-specific. Every
+                    // other thing on this card — author, avatar, reputation,
+                    // price, photos, owner detection, CTA — is the shared card
+                    // doing what it already does on every other surface.
+                    distanceLabel: formatDistanceLabelOrNull(
+                      distanceBetween(
+                        viewerLatitude: location.latitude,
+                        viewerLongitude: location.longitude,
+                        targetLatitude: post.latitude,
+                        targetLongitude: post.longitude,
                       ),
                     ),
+                    urgentCountdown: urgentCountdownFor(post, _now),
+                    // Identical to Discover: a closed listing answers in place
+                    // and keeps your position in the list; the author and the
+                    // selected provider get the full screen, which is where the
+                    // applicants and the lifecycle actions live.
+                    onTap: () => openPostFromFeed(context, post),
+                    onRespond: () => _respond(post),
                   );
                 },
               ),
@@ -161,115 +172,24 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
     );
   }
 
-  void _showPostQuickView(
-      BuildContext context, PostModel post, String? distanceText) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (sheetContext) => Container(
-        constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(sheetContext).size.height * 0.8),
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(post.title, style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              Text(post.description,
-                  style: Theme.of(context).textTheme.bodyMedium),
-              const SizedBox(height: 12),
-              Text(
-                '${distanceText ?? 'Nearby'} • ${formatRelativeTime(post.createdAt)}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    AuthGuard.requireAuth(
-                      context,
-                      action: 'offer help on this urgent request',
-                      onAuthenticated: () => _openPrivateChat(context, post),
-                    );
-                  },
-                  icon: const Text('⚡'),
-                  label: const Text('Offer Help Now'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openPrivateChat(BuildContext context, PostModel post) async {
-    final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
-    if (currentUserId.isEmpty) return;
-    String authorId = post.authorUserId;
-    if (authorId.isEmpty) {
-      try {
-        final freshPost = await PostService.getPostById(post.id);
-        authorId = freshPost?.authorUserId ?? '';
-      } catch (_) {
-        authorId = '';
-      }
+  /// THE one apply path, reached exactly as Discover reaches it.
+  ///
+  /// Urgent posts are requests, so `listingTakesApplications` is true for every
+  /// post on this screen — but the check is written out rather than assumed, so
+  /// this cannot silently become wrong if the urgency query ever widens.
+  void _respond(PostModel post) {
+    if (!listingTakesApplications(post.type)) {
+      AuthGuard.requireAuth(
+        context,
+        action: 'enquire about this service',
+        onAuthenticated: () => openPrivateChat(context, post),
+      );
+      return;
     }
-    if (authorId.isEmpty || authorId == currentUserId) return;
-    // Build a pending Conversation — no DB row until first message is sent.
-    final conv = Conversation(
-      id: '',
-      participantId: authorId,
-      userName: post.authorName,
-      userAvatar: post.authorAvatar,
-      lastMessage: '',
-      lastMessageTime: DateTime.now(),
-      postId: post.id,
-      postTitle: post.title,
-    );
-    if (!context.mounted) return;
-    Navigator.push(
+    AuthGuard.requireAuth(
       context,
-      MaterialPageRoute(
-        builder: (c) =>
-            ChatScreen(conversation: conv, currentUserId: currentUserId),
-      ),
+      action: 'offer help on this urgent request',
+      onAuthenticated: () => applyToListing(context, post),
     );
   }
-
-  String? _distanceText(PostModel post, double? userLat, double? userLng) {
-    if (post.latitude == null ||
-        post.longitude == null ||
-        userLat == null ||
-        userLng == null) {
-      return null;
-    }
-    final km = _distanceKm(userLat, userLng, post.latitude!, post.longitude!);
-    if (km < 1) return '${(km * 1000).round()} m away';
-    return '${km.toStringAsFixed(1)} km away';
-  }
-
-  double _distanceKm(double lat1, double lon1, double lat2, double lon2) {
-    const r = 6371.0;
-    final dLat = _degToRad(lat2 - lat1);
-    final dLon = _degToRad(lon2 - lon1);
-    final a = (sin(dLat / 2) * sin(dLat / 2)) +
-        cos(_degToRad(lat1)) *
-            cos(_degToRad(lat2)) *
-            (sin(dLon / 2) * sin(dLon / 2));
-    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return r * c;
-  }
-
-  double _degToRad(double deg) => deg * (pi / 180.0);
 }

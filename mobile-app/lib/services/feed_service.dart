@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
 import '../models/post_model.dart';
+import '../utils/feed_scope.dart';
 import 'post_service.dart';
 
 /// Where a feed page actually came from. Surfaced so the UI (and QA) can tell
@@ -66,6 +67,14 @@ class FeedResult<T> {
   /// Whether the server personalised this page (profession / behaviour known).
   final bool personalised;
 
+  /// The server's bucketed ranking clock for this page, when it sent one.
+  ///
+  /// Two pages sharing an epoch were scored against the same instant, so any
+  /// difference between them is a real change in the corpus or the viewer
+  /// rather than time passing. Null on the fallback path — a chronological read
+  /// has no ranking epoch to report.
+  final String? rankingEpoch;
+
   const FeedResult({
     required this.items,
     required this.source,
@@ -73,6 +82,7 @@ class FeedResult<T> {
     this.scores = const {},
     this.signals = const {},
     this.personalised = false,
+    this.rankingEpoch,
   });
 
   bool get isRanked => source == FeedSource.ranked;
@@ -99,17 +109,28 @@ class FeedService {
 
   /// One ranked page of requests/offers for Discover.
   ///
-  /// [scope] is `all` | `requests` | `offers`, matching the tab bar.
+  /// [scope] matches the tab bar. It is a [FeedScope], not a string, because it
+  /// drives BOTH the `scope=` parameter the engine reads and the type/status
+  /// filters the fallback query applies — and those two must never disagree
+  /// about what belongs in Discover.
+  ///
   /// [filters] carries the user's EXPLICIT filters, which the server applies as
   /// hard constraints — ranking never overrides what someone asked for.
+  /// [warmFallback] is an already-in-flight chronological read (the splash
+  /// prefetch) offered as the degradation source. It saves a round trip on the
+  /// one path that needs it — a backend too cold to rank — and is ignored
+  /// entirely when ranking succeeds. It is never PAINTED before the ranked
+  /// result: painting a chronological page and replacing it a second later is
+  /// exactly the cold-start reshuffle this engine had to stop doing.
   static Future<FeedResult<PostModel>> fetchFeed({
     String? userId,
     double? latitude,
     double? longitude,
-    String scope = 'all',
+    FeedScope scope = FeedScope.all,
     PostFilters? filters,
     int page = 0,
     int? pageSize,
+    Future<List<PostModel>?>? warmFallback,
   }) {
     return _fetch<PostModel>(
       userId: userId,
@@ -121,9 +142,9 @@ class FeedService {
       pageSize: pageSize,
       parse: PostModel.fromJson,
       idOf: (post) => post.id,
-      fallback: () async => PostService.fetchPosts(
-        filters: _withScopeType(filters, scope),
-      ),
+      fallback: () async =>
+          (warmFallback == null ? null : await warmFallback) ??
+          await PostService.fetchPosts(filters: _forScope(filters, scope)),
     );
   }
 
@@ -147,13 +168,17 @@ class FeedService {
       userId: userId,
       latitude: latitude,
       longitude: longitude,
-      scope: 'jobs',
+      scope: FeedScope.jobs,
       filters: filters,
       page: page,
       pageSize: pageSize,
       parse: JobModel.fromJson,
       idOf: (job) => job.id,
-      fallback: () async => PostService.fetchJobs(filters: filters),
+      // Scoped like Discover's fallback. `fetchJobs` fixes the type itself, but
+      // the browsing STATUS rule has to be passed in or the fallback shows
+      // filled roles the ranked path excludes.
+      fallback: () async =>
+          PostService.fetchJobs(filters: _forScope(filters, FeedScope.jobs)),
     );
   }
 
@@ -163,7 +188,7 @@ class FeedService {
     required String? userId,
     required double? latitude,
     required double? longitude,
-    required String scope,
+    required FeedScope scope,
     required PostFilters? filters,
     required int page,
     required int? pageSize,
@@ -222,7 +247,7 @@ class FeedService {
     required String? userId,
     required double? latitude,
     required double? longitude,
-    required String scope,
+    required FeedScope scope,
     required PostFilters? filters,
     required int page,
     required int? pageSize,
@@ -233,7 +258,7 @@ class FeedService {
     final tzOffset = DateTime.now().timeZoneOffset.inMinutes;
 
     return {
-      'scope': scope,
+      'scope': scope.wire,
       'page': '$page',
       'tz_offset': '$tzOffset',
       if (userId != null && userId.isNotEmpty) 'user_id': userId,
@@ -302,29 +327,17 @@ class FeedService {
       scores: scores,
       signals: signals,
       personalised: body['personalised'] == true,
+      rankingEpoch: body['ranking_epoch']?.toString(),
     );
   }
 
-  /// Map the tab scope onto the `type` column filter the old query expects.
-  static PostFilters _withScopeType(PostFilters? filters, String scope) {
-    final type = switch (scope) {
-      'requests' => 'request',
-      'offers' => 'offer',
-      'jobs' => 'job',
-      _ => null,
-    };
-    return PostFilters(
-      searchQuery: filters?.searchQuery,
-      categories: filters?.categories,
-      city: filters?.city,
-      area: filters?.area,
-      type: type,
-      urgency: filters?.urgency,
-      minPrice: filters?.minPrice,
-      maxPrice: filters?.maxPrice,
-      difficulty: filters?.difficulty,
-      limit: filters?.limit ?? 50,
-      offset: filters?.offset ?? 0,
-    );
-  }
+  /// Restrict [filters] to [scope] for the fallback query.
+  ///
+  /// This method used to translate the scope into a SINGLE `type` string and
+  /// map `all` to null — no type filter and no status filter — which is how the
+  /// fallback path came to show job posts and every non-open listing that the
+  /// ranked path excludes. `PostFilters.forScope` now applies both rules from
+  /// the one definition in utils/feed_scope.dart.
+  static PostFilters _forScope(PostFilters? filters, FeedScope scope) =>
+      (filters ?? const PostFilters()).forScope(scope);
 }

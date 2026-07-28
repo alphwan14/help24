@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
@@ -13,12 +12,15 @@ import '../services/application_service.dart';
 import '../services/auth_service.dart';
 import '../services/cache_service.dart';
 import '../services/feed_service.dart';
+import '../services/feed_snapshot.dart';
 import '../services/interaction_tracker.dart';
 import '../services/jobs_service.dart';
 import '../services/session_scope.dart';
 import '../services/startup_prefetch.dart';
-import '../services/supabase_auth_bridge.dart';
 import '../utils/error_mapper.dart';
+import '../utils/feature_errors.dart';
+import '../utils/feed_scope.dart';
+import '../utils/proximity.dart';
 
 class AppProvider extends ChangeNotifier implements SessionScoped {
   ThemePreference _themePreference = ThemePreference.system;
@@ -34,7 +36,14 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   bool _isLoadingUrgentPosts = false;
   bool _isLoadingConversations = false;
   bool _isPosting = false;
-  String? _error;
+
+  /// One error slot per feature — see utils/feature_errors.dart.
+  ///
+  /// This replaces a single shared `String? _error` that five features wrote and
+  /// four read, which both leaked one feature's failure into another's UI and
+  /// erased failures before they could be shown (loadPosts and loadJobs run
+  /// concurrently and each cleared the slot on entry).
+  final FeatureErrors _errors = FeatureErrors();
   
   // Filter state
   String _searchQuery = '';
@@ -56,12 +65,52 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   double? _viewerLatitude;
   double? _viewerLongitude;
 
-  /// Where the current feed page came from, and why each post is where it is.
-  /// `feedSignals` is a debugging surface — no layout depends on it.
-  FeedSource _feedSource = FeedSource.fallback;
-  Map<String, double> _feedScores = const {};
-  Map<String, List<FeedSignalBreakdown>> _feedSignals = const {};
-  bool _feedPersonalised = false;
+  /// Bumped whenever the signed-in user's profile or profession changes, so a
+  /// ranking computed under the old profile can be recognised as stale without
+  /// this provider having to know what a profession is.
+  int _profileRevision = 0;
+
+  // ── Feed stability ────────────────────────────────────────────────────────
+  //
+  // Discover renders a FROZEN ranking. See services/feed_snapshot.dart for the
+  // full argument; the short version is that ranking used to be something the
+  // feed did while you were reading it, and four independent callers were each
+  // allowed to re-sort the cards under the reader's thumb.
+  //
+  // `_installed` is the ranking on screen. `_pending` is a newer one that has
+  // been computed but NOT shown, because showing it would move things the user
+  // is looking at. `_posts` stays the mutable working list so that local
+  // splices (an optimistic insert, an archive) keep working — they change the
+  // contents, never the order.
+
+  /// The ranking currently on screen. Null until the first one lands.
+  FeedSnapshot? _installed;
+
+  /// A newer ranking, computed and waiting for permission to land.
+  FeedSnapshot? _pending;
+
+  /// Whether Discover is the visible tab. A rebuild that arrives while the user
+  /// is somewhere else can simply be installed — there is nothing on screen to
+  /// disturb, which is the quietest possible way to refresh.
+  bool _discoverVisible = true;
+
+  /// Whether [setViewer] has been heard from yet.
+  ///
+  /// The first ranking waits for it. Without this the cold start ranks
+  /// anonymously, paints, and then re-ranks the instant the restored session
+  /// resolves — a full reorder about a second after Discover appears, every
+  /// single launch.
+  bool _viewerResolved = false;
+  Timer? _viewerGraceTimer;
+
+  /// How long the first ranking waits for an identity before going ahead
+  /// without one. Long enough for a restored Firebase session to resolve, short
+  /// enough that a signed-out browser is not kept waiting.
+  static const Duration _viewerGrace = Duration(milliseconds: 900);
+
+  /// Identity of the last jobs query, so the Jobs tab stops re-fetching (and
+  /// re-ordering) for changes that cannot affect its ranking.
+  FeedIdentity? _jobsIdentity;
 
   /// Monotonic request ids. Typing "electrician" used to fire eleven full feed
   /// queries with nothing sequencing them, so a slow early response could land
@@ -97,7 +146,24 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   bool get isLoadingUrgentPosts => _isLoadingUrgentPosts;
   bool get isLoadingConversations => _isLoadingConversations;
   bool get isPosting => _isPosting;
-  String? get error => _error;
+  /// Why the Discover feed failed to load, or null. Read ONLY by Discover.
+  ///
+  /// The generic `error` getter this replaces was read by Discover, Jobs and
+  /// the posting screen alike, so each of them could render another's failure.
+  String? get discoverError => _errors[AppFeature.discover];
+
+  /// Why the Jobs tab failed to load, or null.
+  String? get jobsError => _errors[AppFeature.jobs];
+
+  /// Why the last create/archive failed, or null.
+  String? get postingError => _errors[AppFeature.posting];
+
+  /// Why urgent requests failed to load, or null.
+  String? get urgentError => _errors[AppFeature.urgent];
+
+  /// Why the conversation list failed to load, or null.
+  String? get messagesError => _errors[AppFeature.messages];
+
   String get searchQuery => _searchQuery;
   String get selectedFilter => _selectedFilter;
   Set<String> get selectedCategories => _selectedCategories;
@@ -107,20 +173,76 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   Difficulty? get selectedDifficulty => _selectedDifficulty;
   Urgency? get selectedUrgency => _selectedUrgency;
 
-  /// True when the last page came from the ranking engine rather than the
-  /// chronological fallback.
-  bool get isFeedRanked => _feedSource == FeedSource.ranked;
+  /// True when the ranking on screen came from the recommendation engine rather
+  /// than the chronological fallback.
+  bool get isFeedRanked => _installed?.isRanked ?? false;
 
   /// True when the server had enough about this viewer to personalise.
-  bool get isFeedPersonalised => _feedPersonalised;
+  bool get isFeedPersonalised => _installed?.personalised ?? false;
 
   /// Final recommendation score for [postId], when the page was ranked.
-  double? feedScoreFor(String postId) => _feedScores[postId];
+  double? feedScoreFor(String postId) => _installed?.scores[postId];
 
   /// Per-signal breakdown for [postId] — "Distance +28.4, Profession +25.0".
   /// Explainability surface for debugging and weight tuning.
   List<FeedSignalBreakdown> feedSignalsFor(String postId) =>
-      _feedSignals[postId] ?? const [];
+      _installed?.signals[postId] ?? const [];
+
+  /// True when a newer ranking has been computed and is waiting to be shown.
+  ///
+  /// Discover renders this as "New recommendations available". It is never
+  /// applied on its own: a feed that reorganises itself while someone reads it
+  /// is the behaviour this whole mechanism exists to prevent.
+  bool get hasPendingFeed => _pending != null;
+
+  /// How many posts in the waiting ranking are ones the reader has not seen, so
+  /// the prompt can say something true rather than something generic.
+  int get pendingFeedNewPostCount {
+    final next = _pending;
+    final current = _installed;
+    if (next == null) return 0;
+    if (current == null) return next.posts.length;
+    return next.newPostCountSince(current);
+  }
+
+  /// Show the waiting ranking. Called by the prompt and by pull-to-refresh —
+  /// i.e. only ever as a direct result of the user asking.
+  void applyPendingFeed() {
+    final next = _pending;
+    if (next == null) return;
+    _pending = null;
+    _install(next);
+    notifyListeners();
+  }
+
+  /// Discard the waiting ranking without showing it. Used when a newer, more
+  /// authoritative load supersedes it.
+  void _dropPendingFeed() => _pending = null;
+
+  /// Tell the provider whether Discover is the tab in front of the user.
+  ///
+  /// A ranking that lands while they are reading Messages can just be installed:
+  /// nothing is on screen to disturb, so the refresh is free and invisible.
+  /// This is most of what "the user should hardly see the rebuild" means in
+  /// practice.
+  void setDiscoverVisible(bool visible) {
+    if (_discoverVisible == visible) return;
+    _discoverVisible = visible;
+    // Leaving Discover is the ideal moment to cash in anything that was waiting.
+    if (!visible && _pending != null) {
+      applyPendingFeed();
+    }
+  }
+
+  /// Record that the signed-in user's profile or profession changed, which is
+  /// one of the things that legitimately changes what should be recommended.
+  ///
+  /// Rebuilds quietly and OFFERS the result — a profile edit is not a request
+  /// to have the feed reorganised underneath the screen you are on.
+  void markProfileChanged() {
+    _profileRevision++;
+    unawaited(maybeRefreshFeed());
+  }
 
   AppProvider({ThemePreference initialTheme = ThemePreference.system})
       : _themePreference = initialTheme {
@@ -140,6 +262,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
     _conversationsUserId = '';
+    _conversationsSubscribedUserId = '';
+    _errors.clear(AppFeature.messages);
     _conversations = [];
     _pagedConversationIds.clear();
     _hasMoreConversations = true;
@@ -148,102 +272,176 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _appliedPostIds = {};
     _activeChatId = null;
     _warmedAvatarUrls.clear();
-    _error = null;
+    _errors.clearAll();
     // Personalisation is per-account: the outgoing user's profession, affinity
     // and queued behavioural events must not follow them out. Posts stay (they
     // are public marketplace data) but the ranking that shaped them does not.
     _viewerUserId = null;
     _viewerLatitude = null;
     _viewerLongitude = null;
-    _feedScores = const {};
-    _feedSignals = const {};
-    _feedPersonalised = false;
+    _profileRevision = 0;
+    // The ranking itself is dropped, not just its metadata: it was computed for
+    // an account that is no longer signed in. `_posts` deliberately survives —
+    // the posts are public marketplace data and blanking Discover on sign-out
+    // buys no privacy — but they are now an unranked list, which is what having
+    // no installed snapshot means.
+    _installed = null;
+    _pending = null;
+    _jobsIdentity = null;
     InteractionTracker.instance.setUser(null);
     notifyListeners();
   }
 
   /// Load initial data from Supabase (conversations loaded when Messages screen opens with user id)
+  ///
+  /// Discover is deliberately NOT loaded here. Its first ranking waits for
+  /// [setViewer] so it can be computed for the right person, from the right
+  /// place, ONCE — see [_viewerGrace]. Loading it now would rank anonymously,
+  /// paint, and then re-rank a second later when the restored session resolves,
+  /// which is the cold-start reshuffle users were reporting.
   Future<void> _loadInitialData() async {
-    await Future.wait([
-      loadPosts(),
-      loadJobs(),
-      // Keeps the Discover header's Urgent count live across refresh/reconnect.
-      loadUrgentPosts(),
-    ]);
+    _viewerGraceTimer?.cancel();
+    _viewerGraceTimer = Timer(_viewerGrace, () {
+      if (_viewerResolved) return;
+      _viewerResolved = true;
+      unawaited(loadPosts(reason: FeedInvalidation.explicit));
+      unawaited(loadJobs());
+    });
+    // Keeps the Discover header's Urgent count live across refresh/reconnect.
+    await loadUrgentPosts();
   }
 
   /// Refresh all data
   Future<void> refreshAll() async {
-    await _loadInitialData();
+    await Future.wait([
+      loadPosts(reason: FeedInvalidation.explicit),
+      loadJobs(force: true),
+      loadUrgentPosts(),
+    ]);
   }
 
-  // ==================== POSTS ====================
+  /// The conditions a feed request would be issued under right now.
+  FeedIdentity _identityFor(FeedScope scope, PostFilters filters) => FeedIdentity.of(
+        userId: _viewerUserId,
+        latitude: _viewerLatitude,
+        longitude: _viewerLongitude,
+        profileRevision: _profileRevision,
+        scope: scope,
+        filters: filters,
+      );
 
-  /// Load posts from Supabase with current filters.
-  /// When offline: keeps cached _posts, does not clear or show endless loading.
-  Future<void> loadPosts() async {
-    final seq = ++_postsRequestSeq;
-    _isLoadingPosts = true;
-    _error = null;
-    notifyListeners();
-
-    try {
-      // Consume the splash-time prefetch (take-once; null after startup).
-      // Only usable while filter state is still at its startup defaults —
-      // the prefetch mirrored exactly that query. On prefetch failure the
-      // future resolves null and the unchanged path below takes over.
-      final prefetch = StartupPrefetch.takePosts();
-      if (prefetch != null &&
-          !hasActiveFilters &&
-          _searchQuery.isEmpty &&
-          _selectedFilter == 'All') {
-        final prefetched = await prefetch;
-        if (prefetched != null) {
-          _posts = prefetched;
-          _feedSource = FeedSource.fallback; // prefetch is chronological
-          if (_posts.isNotEmpty) {
-            await CacheService.savePosts(_posts);
-          }
-          // Paint instantly from the prefetch, then RANK. Without this second
-          // pass a cold start would leave the reader on chronological posts
-          // until they pulled to refresh — and a signed-out browser, whose
-          // setViewer call is a no-op (nothing changed), would never rank at
-          // all. The prefetch is take-once, so this cannot recurse.
-          unawaited(Future.microtask(loadPosts));
-          return;
-        }
-      }
-
-      final results = await Connectivity().checkConnectivity();
-      final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
-      if (offline) {
-        final cached = await CacheService.loadPosts();
-        if (cached.isNotEmpty) {
-          _posts = cached;
-        }
-        _isLoadingPosts = false;
-        notifyListeners();
-        return;
-      }
-
-      String? typeFilter;
-      if (_selectedFilter == 'Requests') {
-        typeFilter = 'request';
-      } else if (_selectedFilter == 'Offers') {
-        typeFilter = 'offer';
-      }
-
-      final filters = PostFilters(
+  /// The explicit filters currently in force. One definition, so the ranked
+  /// request, the fallback query and the snapshot identity cannot disagree
+  /// about what was asked for.
+  PostFilters get _currentFilters => PostFilters(
         searchQuery: _searchQuery.isNotEmpty ? _searchQuery : null,
-        categories: _selectedCategories.isNotEmpty ? _selectedCategories.toList() : null,
+        categories:
+            _selectedCategories.isNotEmpty ? _selectedCategories.toList() : null,
         city: _selectedCity.isNotEmpty ? _selectedCity : null,
         area: _selectedArea.isNotEmpty ? _selectedArea : null,
-        type: typeFilter,
         urgency: _selectedUrgency?.name,
         minPrice: _priceRange.start > 0 ? _priceRange.start : null,
         maxPrice: _priceRange.end < 100000 ? _priceRange.end : null,
         difficulty: _selectedDifficulty?.name,
       );
+
+  /// Rebuild the feed IF something that feeds the ranking actually changed.
+  ///
+  /// This is the automatic path — app resume, a location update, a profile
+  /// edit, the snapshot ageing out. It never disturbs the screen: whatever it
+  /// computes is offered through [hasPendingFeed], not installed.
+  ///
+  /// Cheap to call as often as you like: with nothing changed and a fresh
+  /// snapshot it issues no request at all.
+  Future<void> maybeRefreshFeed() async {
+    final installed = _installed;
+    if (installed == null) {
+      // Nothing on screen yet — this is a first load, not a refresh.
+      if (_viewerResolved) await loadPosts(reason: FeedInvalidation.explicit);
+      return;
+    }
+    final next = _identityFor(_scopeForFilter, _currentFilters);
+    var reason = installed.identity.invalidationFrom(next);
+    if (reason.isNone && installed.isExpiredAt(DateTime.now())) {
+      reason = FeedInvalidation.expired;
+    }
+    if (reason.isNone) return;
+    await loadPosts(reason: reason);
+  }
+
+  // ==================== POSTS ====================
+
+  /// Compute a Discover ranking and decide whether the user gets to see it.
+  ///
+  /// THE ONE RULE
+  /// ------------
+  /// Ranking happens off-screen and finishes before anything is presented.
+  /// Whether the result reaches the screen depends entirely on [reason]:
+  ///
+  ///   * the user did something (refresh, filter, tab, sign-in) → install it,
+  ///     because they are waiting for exactly this;
+  ///   * the app noticed something (moved, profile edited, snapshot aged) →
+  ///     compute it, hold it, and offer it as "New recommendations available".
+  ///
+  /// The second case is the whole point. A better feed is not a licence to
+  /// reorganise a screen someone is reading.
+  ///
+  /// When offline: keeps the installed ranking, does not clear it or spin.
+  Future<void> loadPosts({FeedInvalidation reason = FeedInvalidation.explicit}) async {
+    final seq = ++_postsRequestSeq;
+    final scope = _scopeForFilter;
+    final filters = _currentFilters;
+    final identity = _identityFor(scope, filters);
+
+    // Only show a spinner when there is nothing to look at. A background
+    // rebuild must be completely invisible until it has something to offer.
+    final firstPaint = _installed == null;
+    if (firstPaint) {
+      _isLoadingPosts = true;
+      _errors.clear(AppFeature.discover);
+      notifyListeners();
+    }
+
+    try {
+      // The splash-time prefetch (take-once). It is no longer PAINTED — a
+      // chronological page that is replaced by a ranked one a second later is
+      // the cold-start reshuffle. It is used as the ranked request's fallback
+      // instead, so a warm result still saves a round trip on the one path that
+      // needs it: a backend too cold to rank.
+      final prefetch = StartupPrefetch.takePosts();
+      final usablePrefetch = prefetch != null &&
+              !hasActiveFilters &&
+              _searchQuery.isEmpty &&
+              _selectedFilter == 'All'
+          ? prefetch
+          : null;
+
+      final results = await Connectivity().checkConnectivity();
+      final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
+      if (offline) {
+        // Offline is not a reason to change what is on screen. Only hydrate
+        // from disk when there is nothing there at all.
+        if (firstPaint) {
+          final cached = await CacheService.loadPosts();
+          if (cached.isNotEmpty && seq == _postsRequestSeq) {
+            _install(FeedSnapshot(
+              posts: cached,
+              source: FeedSource.fallback,
+              identity: identity,
+              // Born expired. These posts were never ranked for this viewer —
+              // they are the last thing we happened to have on disk — so the
+              // first thing that wakes the app after connectivity returns
+              // should rebuild rather than wait out a ten-minute TTL.
+              generatedAt: DateTime.now().subtract(FeedSnapshot.ttl),
+            ));
+          }
+        }
+        if (seq == _postsRequestSeq) {
+          _isLoadingPosts = false;
+          notifyListeners();
+        }
+        return;
+      }
 
       // The ranked feed. On any failure — cold backend, timeout, 5xx — this
       // degrades inside FeedService to the exact `created_at DESC` Supabase
@@ -253,34 +451,48 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         userId: _viewerUserId,
         latitude: _viewerLatitude,
         longitude: _viewerLongitude,
-        scope: _scopeForFilter,
+        scope: scope,
         filters: filters,
+        warmFallback: usablePrefetch,
       );
 
       // A newer load started while this one was in flight — drop it rather than
       // letting a stale page overwrite a fresh one.
       if (seq != _postsRequestSeq) return;
 
-      _posts = result.items;
-      _feedSource = result.source;
-      _feedScores = result.scores;
-      _feedSignals = result.signals;
-      _feedPersonalised = result.personalised;
-      // A fresh page is a fresh impression session.
-      InteractionTracker.instance.resetImpressions();
-      if (_posts.isNotEmpty) {
-        await CacheService.savePosts(_posts);
+      final snapshot = FeedSnapshot.fromResult(
+        result,
+        identity: identity,
+        generatedAt: DateTime.now(),
+      );
+
+      if (_shouldInstall(snapshot, reason)) {
+        _dropPendingFeed();
+        _install(snapshot);
+      } else {
+        _pending = snapshot;
+        debugPrint('[FEED] rebuild held (${reason.name}) — offering it instead');
+      }
+
+      if (snapshot.posts.isNotEmpty) {
+        await CacheService.savePosts(snapshot.posts);
       }
     } catch (e) {
       if (seq != _postsRequestSeq) return;
-      _error = ErrorMapper.toMessage(e, context: ErrorContext.loadFeed);
-      debugPrint('[AppProvider] loadPosts failed: $e');
+      // A background rebuild that fails is not the user's problem: they are
+      // reading a perfectly good feed. Only a load with nothing behind it may
+      // report failure.
+      if (firstPaint) {
+        _errors.set(
+            AppFeature.discover, ErrorMapper.toMessage(e, context: ErrorContext.loadFeed));
+      }
+      debugPrint('[AppProvider] loadPosts failed (${reason.name}): $e');
     } finally {
       // Only the newest request owns the loading flag: an outdated response
       // must not clear a spinner that belongs to a load still running.
       if (seq == _postsRequestSeq) {
-        // Runs on every exit path (prefetch, offline cache, network): author
-        // avatars start caching with the feed so cards render them instantly.
+        // Author avatars start caching with the feed so cards render them
+        // instantly.
         _warmAvatarUrls(_posts.map((p) => p.authorAvatar));
         _isLoadingPosts = false;
         notifyListeners();
@@ -288,19 +500,70 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     }
   }
 
-  /// Discover tab → the ranking engine's scope parameter.
-  String get _scopeForFilter => switch (_selectedFilter) {
-        'Requests' => 'requests',
-        'Offers' => 'offers',
-        _ => 'all',
-      };
+  /// Whether [next] may replace what is on screen right now.
+  ///
+  /// Four ways to earn it, in the order they are checked:
+  ///   1. nothing is on screen yet — there is nothing to disturb;
+  ///   2. the user asked (refresh, filter, tab, account change, app upgrade);
+  ///   3. Discover is not the visible tab — the swap is literally unseeable;
+  ///   4. the new ranking does not visibly differ — installing it moves nothing,
+  ///      so holding it back would only produce a prompt that does nothing.
+  ///
+  /// Rule 4 is what keeps the prompt honest. Most background rebuilds return
+  /// the same order (the server's ranking clock is bucketed for exactly this
+  /// reason), and a "New recommendations available" pill that reorders nothing
+  /// teaches people to ignore it.
+  bool _shouldInstall(FeedSnapshot next, FeedInvalidation reason) {
+    final current = _installed;
+    if (current == null) return true;
+    if (reason.replacesVisibleFeed) return true;
+    // Gaining a position where there was none is not a re-ranking. The distance
+    // signal goes from not participating at all to carrying the heaviest weight
+    // in the model, so this is a different feed rather than a rearrangement of
+    // this one — the same category of change as signing in. It happens once,
+    // early, and always because the user granted permission or asked.
+    if (reason == FeedInvalidation.location &&
+        !current.identity.hasCoordinates &&
+        next.identity.hasCoordinates) {
+      return true;
+    }
+    if (!_discoverVisible) return true;
+    return !next.differsVisiblyFrom(current);
+  }
+
+  /// Make [snapshot] the ranking on screen. The ONLY place `_posts` is
+  /// wholesale replaced.
+  void _install(FeedSnapshot snapshot) {
+    _installed = snapshot;
+    _posts = [...snapshot.posts];
+    // A fresh page is a fresh impression session.
+    InteractionTracker.instance.resetImpressions();
+  }
+
+  /// Discover tab → the one scope definition (engine parameter AND fallback
+  /// filters). See utils/feed_scope.dart.
+  FeedScope get _scopeForFilter => FeedScope.fromDiscoverFilter(_selectedFilter);
 
   /// Load jobs from Supabase.
   /// When offline: keeps cached _jobs, does not clear or show endless loading.
-  Future<void> loadJobs() async {
+  ///
+  /// [force] bypasses the identity gate for an explicit refresh. Without the
+  /// gate, Jobs re-fetched and re-ordered for every GPS jitter update that
+  /// reached [setViewer] — the same instability Discover had, on a tab nobody
+  /// thought to look at.
+  Future<void> loadJobs({bool force = false}) async {
+    final identity = _identityFor(FeedScope.jobs, _currentFilters);
+    if (!force &&
+        _jobs.isNotEmpty &&
+        _jobsIdentity != null &&
+        _jobsIdentity!.invalidationFrom(identity).isNone) {
+      return;
+    }
+    _jobsIdentity = identity;
+
     final seq = ++_jobsRequestSeq;
     _isLoadingJobs = true;
-    _error = null;
+    _errors.clear(AppFeature.jobs);
     notifyListeners();
 
     try {
@@ -329,17 +592,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         return;
       }
 
-      final filters = PostFilters(
-        searchQuery: _searchQuery.isNotEmpty ? _searchQuery : null,
-        categories: _selectedCategories.isNotEmpty ? _selectedCategories.toList() : null,
-        city: _selectedCity.isNotEmpty ? _selectedCity : null,
-        area: _selectedArea.isNotEmpty ? _selectedArea : null,
-        type: 'job',
-        urgency: _selectedUrgency?.name,
-        minPrice: _priceRange.start > 0 ? _priceRange.start : null,
-        maxPrice: _priceRange.end < 100000 ? _priceRange.end : null,
-        difficulty: _selectedDifficulty?.name,
-      );
+      final filters = _currentFilters;
       // Jobs run through the SAME engine as Discover (scope=jobs). The tab
       // used to be a second, weaker copy of the feed query — same table,
       // narrower search, no ranking (audit §3.11). An electrician now sees
@@ -358,7 +611,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       }
     } catch (e) {
       if (seq != _jobsRequestSeq) return;
-      _error = ErrorMapper.toMessage(e, context: ErrorContext.loadFeed);
+      _errors.set(AppFeature.jobs, ErrorMapper.toMessage(e, context: ErrorContext.loadFeed));
       debugPrint('[AppProvider] loadJobs failed: $e');
     } finally {
       if (seq == _jobsRequestSeq) {
@@ -369,14 +622,29 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     }
   }
 
+  /// How many urgent requests one load fetches.
+  ///
+  /// ONE size for every caller. The Discover header used the default (5) and
+  /// the Urgent screen asked for 20, and both wrote this same list — so the
+  /// header's badge was showing a PAGE SIZE, not a count. With twelve urgent
+  /// requests nearby it read 5, became 12 the moment you opened the screen, and
+  /// dropped back to 5 on the next refresh. A number that changes because of
+  /// where you navigated is worse than no number.
+  ///
+  /// 20 costs nothing in practice: the urgent window is one hour, so this list
+  /// is almost always a handful of rows.
+  static const int urgentPageSize = 20;
+
+
   /// Load urgent posts for top banner.
   /// Prioritization: urgent -> nearest first -> newest fallback.
   Future<void> loadUrgentPosts({
     double? userLatitude,
     double? userLongitude,
-    int limit = 5,
+    int limit = urgentPageSize,
   }) async {
     _isLoadingUrgentPosts = true;
+    _errors.clear(AppFeature.urgent);
     notifyListeners();
     try {
       // Splash-time prefetch (take-once; no filters apply to urgent posts).
@@ -393,7 +661,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       final results = await Connectivity().checkConnectivity();
       final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
       if (offline) {
-        _urgentPosts = const [];
+        // Offline is not emptiness. This used to assign `const []`, which blanked
+        // the Urgent screen and zeroed the Discover badge the instant signal
+        // dropped — discarding data that was on screen a second earlier. The
+        // last known requests stay; each card's own expiry filter removes any
+        // whose window closes meanwhile, so nothing stale is ever actionable.
         return;
       }
 
@@ -401,7 +673,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       _sortUrgentByProximity(fetched, userLatitude, userLongitude);
       _urgentPosts = fetched;
     } catch (e) {
-      _error = ErrorMapper.toMessage(e, context: ErrorContext.loadFeed);
+      _errors.set(AppFeature.urgent, ErrorMapper.toMessage(e, context: ErrorContext.loadFeed));
       debugPrint('[AppProvider] loadUrgentPosts failed: $e');
     } finally {
       _warmAvatarUrls(_urgentPosts.map((p) => p.authorAvatar));
@@ -422,8 +694,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       final aHasCoords = a.latitude != null && a.longitude != null && userLatitude != null && userLongitude != null;
       final bHasCoords = b.latitude != null && b.longitude != null && userLatitude != null && userLongitude != null;
       if (aHasCoords && bHasCoords) {
-        final ad = _distanceKm(userLatitude!, userLongitude!, a.latitude!, a.longitude!);
-        final bd = _distanceKm(userLatitude!, userLongitude!, b.latitude!, b.longitude!);
+        final ad = distanceKm(userLatitude!, userLongitude!, a.latitude!, a.longitude!);
+        final bd = distanceKm(userLatitude!, userLongitude!, b.latitude!, b.longitude!);
         final byDistance = ad.compareTo(bd);
         if (byDistance != 0) return byDistance;
         return b.createdAt.compareTo(a.createdAt);
@@ -441,7 +713,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     void Function(int completed, int total)? onImageUploadProgress,
   }) async {
     _isPosting = true;
-    _error = null;
+    _errors.clear(AppFeature.posting);
     notifyListeners();
 
     try {
@@ -453,7 +725,20 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         onImageUploadProgress: onImageUploadProgress,
       );
 
-      _posts.insert(0, createdPost);
+      // PostService returns a FEED-SHAPED post (author id, name, avatar,
+      // reputation warmed, server timestamp), so this optimistic insert puts a
+      // complete card at the top of Discover — correct owner badge, correct
+      // CTA, no '?', no placeholder. Nothing further is fetched.
+      //
+      // Replace-if-present rather than blind insert: a concurrent loadPosts can
+      // land the same row first, and two cards for one post is its own bug.
+      final existing = _posts.indexWhere((p) => p.id == createdPost.id);
+      if (existing != -1) {
+        _posts[existing] = createdPost;
+      } else {
+        _posts.insert(0, createdPost);
+      }
+      _warmAvatarUrls([createdPost.authorAvatar]);
       if (_posts.isNotEmpty) {
         CacheService.savePosts(_posts);
       }
@@ -461,10 +746,14 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       if (createdPost.isUrgent || createdPost.urgency == Urgency.urgent) {
         unawaited(loadUrgentPosts());
       }
+      // The corpus changed, so the ranking is due — but quietly. The card above
+      // is where the author expects to find what they just published, and a
+      // rebuild would demote it (own posts score −25). Offered, not applied.
+      unawaited(loadPosts(reason: FeedInvalidation.authored));
       notifyListeners();
       return createdPost;
     } catch (e) {
-      _error = ErrorMapper.toMessage(e, context: ErrorContext.save);
+      _errors.set(AppFeature.posting, ErrorMapper.toMessage(e, context: ErrorContext.save));
       debugPrint('[AppProvider] createPost failed: $e');
       return null;
     } finally {
@@ -481,7 +770,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     void Function(int completed, int total)? onImageUploadProgress,
   }) async {
     _isPosting = true;
-    _error = null;
+    _errors.clear(AppFeature.posting);
     notifyListeners();
 
     try {
@@ -493,14 +782,21 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         onImageUploadProgress: onImageUploadProgress,
       );
 
-      _jobs.insert(0, createdJob);
+      // Same contract as createPost above.
+      final existing = _jobs.indexWhere((j) => j.id == createdJob.id);
+      if (existing != -1) {
+        _jobs[existing] = createdJob;
+      } else {
+        _jobs.insert(0, createdJob);
+      }
+      _warmAvatarUrls([createdJob.authorAvatarUrl]);
       if (_jobs.isNotEmpty) {
         CacheService.saveJobs(_jobs);
       }
       notifyListeners();
       return createdJob;
     } catch (e) {
-      _error = ErrorMapper.toMessage(e, context: ErrorContext.save);
+      _errors.set(AppFeature.posting, ErrorMapper.toMessage(e, context: ErrorContext.save));
       debugPrint('[AppProvider] createJob failed: $e');
       return null;
     } finally {
@@ -543,11 +839,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       return true;
     } on JobsException catch (e) {
       // Policy message (e.g. funds in escrow, active dispute) — surface to the user.
-      _error = e.message;
+      _errors.set(AppFeature.posting, e.message);
       debugPrint('[ARCHIVE] blocked: ${e.message}');
       return false;
     } catch (e) {
-      _error = 'Could not remove this post. Please try again.';
+      _errors.set(AppFeature.posting, 'Could not remove this post. Please try again.');
       debugPrint('[ARCHIVE] error: $e');
       return false;
     }
@@ -633,8 +929,18 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
   // ==================== CONVERSATIONS ====================
 
-  /// User id the active conversation stream belongs to ('' = none).
+  /// Account that OWNS the conversations currently in [_conversations].
+  ///
+  /// Only ever changes when the signed-in account changes. It used to double as
+  /// "is the stream running", and the offline path reset it to '' so a retry
+  /// could get through — which meant the next call read "different account",
+  /// wiped the list it had just hydrated from disk, and re-read it across an
+  /// await. Any unrelated notifyListeners() landing in that window painted an
+  /// empty Messages tab. The two questions are now two fields.
   String _conversationsUserId = '';
+
+  /// Account the LIVE STREAM is subscribed for ('' = not subscribed).
+  String _conversationsSubscribedUserId = '';
 
   /// Ids appended by [loadMoreConversations] — i.e. conversations that exist
   /// beyond the realtime stream's first page.
@@ -664,7 +970,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       resetForSignOut();
       return;
     }
-    if (_conversationsUserId == currentUserId &&
+    if (_conversationsSubscribedUserId == currentUserId &&
         _conversationStreamSubscription != null) {
       return; // Already syncing for this user — nothing to do.
     }
@@ -676,7 +982,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       _pagedConversationIds.clear();
     }
     _conversationsUserId = currentUserId;
-    _error = null;
+    _errors.clear(AppFeature.messages);
     _hasMoreConversations = true;
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
@@ -701,12 +1007,15 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
     if (offline) {
       _isLoadingConversations = false;
-      // Allow a later call (tab tap / reconnect) to retry the subscription.
-      _conversationsUserId = '';
+      // Not subscribed — a later call (tab tap, reconnect) retries. The OWNER
+      // id stays put: the cached conversations hydrated above belong to this
+      // account and must survive, which is the whole point of hydrating them.
+      _conversationsSubscribedUserId = '';
       notifyListeners();
       return;
     }
 
+    _conversationsSubscribedUserId = currentUserId;
     _conversationStreamSubscription = ChatServiceSupabase.watchConversations(currentUserId).listen(
       (list) {
         // A stream started for a previous user can still deliver after the
@@ -725,17 +1034,27 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         _conversations = [...list, ...pagedTail];
 
         _isLoadingConversations = false;
+        _errors.clear(AppFeature.messages);
         // Written unconditionally, including an empty list: "this account has
         // no conversations" is a fact worth persisting. Skipping the write for
         // empty results is what let one account's cached list outlive it and
         // surface under the next.
+        //
+        // This is only safe because the stream no longer publishes a failed
+        // fetch as an empty list (see watchConversations): every `list` that
+        // reaches here is an answer from the server, so persisting an empty one
+        // records a fact rather than overwriting history with an outage.
         CacheService.saveConversations(currentUserId, list);
         if (list.isNotEmpty) _warmAvatarCache(list);
         notifyListeners();
       },
       onError: (e) {
         if (_conversationsUserId != currentUserId) return;
-        _error = ErrorMapper.toMessage(e, context: ErrorContext.loadContent);
+        // Reached only before the first successful load — the stream withholds
+        // later failures rather than emitting them, so a blip can never clear
+        // conversations that are already on screen.
+        _errors.set(AppFeature.messages,
+            ErrorMapper.toMessage(e, context: ErrorContext.loadContent));
         _isLoadingConversations = false;
         notifyListeners();
       },
@@ -745,7 +1064,9 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   void stopListeningToConversations() {
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
-    _conversationsUserId = '';
+    // Stops the SYNC, not the ownership: the list stays readable and stays
+    // attributed to the account it belongs to.
+    _conversationsSubscribedUserId = '';
   }
 
   @override
@@ -753,6 +1074,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     SessionScope.instance.unregister(this);
     _conversationStreamSubscription?.cancel();
     _searchDebounce?.cancel();
+    _viewerGraceTimer?.cancel();
     super.dispose();
   }
 
@@ -850,34 +1172,12 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     }
   }
 
-  /// Create or get chat when user contacts provider (Firestore only). Chat appears in Messages tab.
-  /// Pass [postId] from Discover or [jobId] from Jobs so each post/job has its own chat (no reused chats).
-  Future<Conversation?> ensureConversationOnApply({
-    required String applicantId,
-    required String authorId,
-    String initialMessage = '',
-    String? postId,
-    String? jobId,
-  }) async {
-    if (applicantId.isEmpty || authorId.isEmpty) return null;
-    try {
-      await SupabaseAuthBridge.ensureSessionForWriteAsync();
-      final conv = await ChatServiceSupabase.createChat(
-        user1Id: applicantId,
-        user2Id: authorId,
-        currentUserId: applicantId,
-        initialMessage: initialMessage,
-        postId: postId,
-        jobId: jobId,
-      );
-      updateConversation(conv);
-      return conv;
-    } catch (e) {
-      _error = ErrorMapper.toMessage(e, context: ErrorContext.loadContent);
-      debugPrint('[AppProvider] createConversation failed: $e');
-      return null;
-    }
-  }
+  // ensureConversationOnApply removed. It had NO callers — chats are created on
+  // first send, by ChatScreen, through ChatServiceSupabase.createChat (see the
+  // pending-Conversation pattern in post_flows). Its only live effect was to
+  // write the shared error slot from a Messages-shaped failure, which the
+  // Discover feed could then render as its own. Dead code that could only cause
+  // contamination.
 
   /// Update a conversation in the local list
   void updateConversation(Conversation conversation) {
@@ -951,10 +1251,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _searchDebounce?.cancel();
     if (submitted) {
       InteractionTracker.instance.trackSearch(query);
-      loadPosts();
+      loadPosts(reason: FeedInvalidation.query);
       return;
     }
-    _searchDebounce = Timer(_searchDebounceDelay, loadPosts);
+    _searchDebounce =
+        Timer(_searchDebounceDelay, () => loadPosts(reason: FeedInvalidation.query));
   }
 
   void setSelectedFilter(String filter) {
@@ -964,7 +1265,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     // clears the search box first, so without this the tab's own load would be
     // followed 350 ms later by an identical duplicate.
     _searchDebounce?.cancel();
-    loadPosts();
+    loadPosts(reason: FeedInvalidation.query);
   }
 
   void toggleCategory(String category) {
@@ -1014,7 +1315,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _selectedUrgency = null;
     notifyListeners();
     _searchDebounce?.cancel();
-    loadPosts();
+    loadPosts(reason: FeedInvalidation.query);
   }
 
   /// Tell the recommendation engine who is looking and from where.
@@ -1023,29 +1324,66 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// nothing ever read. Ranking uses real coordinates: distance is measured,
   /// not inferred from whether two location strings happen to share a word.
   ///
-  /// Reloads the feed only when something material actually changed, so the
-  /// presence heartbeat and lifecycle callbacks that call this on every resume
-  /// do not each cost a feed query.
+  /// Reloads the feed only when something material actually changed.
+  ///
+  /// "Material" used to mean `latitude != _viewerLatitude` — a raw double
+  /// comparison, on a value the GPS revises by a few metres every time anything
+  /// asks for it. Every one of those revisions cost a full Discover reload AND
+  /// a full Jobs reload, and each reload re-sorted the cards on screen. Standing
+  /// still was enough to make the feed churn.
+  ///
+  /// Significance is now a real distance ([FeedIdentity.significantMoveKm]), and
+  /// an account change is handled differently from a move: signing in replaces
+  /// the feed (it belongs to someone else now), while walking a kilometre offers
+  /// a rebuild rather than performing one.
   void setViewer({String? userId, double? latitude, double? longitude}) {
     final nextUserId = (userId?.trim().isEmpty ?? true) ? null : userId!.trim();
-    final changed = nextUserId != _viewerUserId ||
-        latitude != _viewerLatitude ||
-        longitude != _viewerLongitude;
-    if (!changed) return;
+    final firstResolution = !_viewerResolved;
+
+    final before = FeedIdentity(
+      userId: _viewerUserId,
+      latitude: _viewerLatitude,
+      longitude: _viewerLongitude,
+      profileRevision: _profileRevision,
+    );
+    final after = FeedIdentity(
+      userId: nextUserId,
+      latitude: latitude,
+      longitude: longitude,
+      profileRevision: _profileRevision,
+    );
+    final reason = before.invalidationFrom(after);
 
     _viewerUserId = nextUserId;
     _viewerLatitude = latitude;
     _viewerLongitude = longitude;
     InteractionTracker.instance.setUser(nextUserId);
+
+    // The identity has now been heard from, whoever it turned out to be. This
+    // releases the first ranking, which deliberately waited so it could be
+    // computed for the right person the first time.
+    if (firstResolution) {
+      _viewerResolved = true;
+      _viewerGraceTimer?.cancel();
+      _viewerGraceTimer = null;
+      notifyListeners();
+      unawaited(loadPosts(reason: FeedInvalidation.explicit));
+      unawaited(loadJobs(force: true));
+      return;
+    }
+
+    if (reason.isNone) return;
     notifyListeners();
-    loadPosts();
-    loadJobs();
+    // A sign-in/sign-out replaces the feed; a move offers one. loadPosts reads
+    // the reason and decides — see _shouldInstall.
+    unawaited(loadPosts(reason: reason));
+    unawaited(loadJobs());
   }
 
   /// Apply current filters and reload posts
   Future<void> applyFilters() async {
     _searchDebounce?.cancel();
-    await loadPosts();
+    await loadPosts(reason: FeedInvalidation.query);
   }
 
   bool get hasActiveFilters {
@@ -1072,13 +1410,18 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         }
       }
 
-      // Type filter
-      if (_selectedFilter == 'Requests' && post.type != PostType.request) {
-        return false;
-      }
-      if (_selectedFilter == 'Offers' && post.type != PostType.offer) {
-        return false;
-      }
+      // Type filter — the SAME scope the server query used, so the instant
+      // client-side filter can never disagree with the page it is filtering.
+      // This was a hand-written pair of tab comparisons that (like the old
+      // fallback query) let job posts through on the "All" tab.
+      if (!_scopeForFilter.postTypes.contains(post.type.name)) return false;
+
+      // Status is deliberately NOT filtered here, though the QUERY filters it.
+      // The query decides what enters the feed; this decides what stays visible
+      // while the user looks at it. A listing that gets assigned mid-scroll must
+      // render its "In Progress" badge — vanishing under the reader's thumb is
+      // the worse behaviour, and openPostFromFeed already answers a closed
+      // listing in place.
 
       // Category filter
       if (_selectedCategories.isNotEmpty &&
@@ -1125,22 +1468,18 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     return filtered;
   }
 
-  /// Clear error message
-  void clearError() {
-    _error = null;
-    notifyListeners();
+  /// Dismiss [feature]'s error.
+  ///
+  /// Replaces a no-argument `clearError()` that wiped the one shared slot —
+  /// which had no callers, and could not have had a correct one: "clear the
+  /// error" is unanswerable when five features share the field. Clearing is now
+  /// something a feature does to its own state.
+  void clearError(AppFeature feature) {
+    if (_errors.clear(feature)) notifyListeners();
   }
 
-  static double _distanceKm(double lat1, double lon1, double lat2, double lon2) {
-    const earthRadiusKm = 6371.0;
-    final dLat = _degToRad(lat2 - lat1);
-    final dLon = _degToRad(lon2 - lon1);
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_degToRad(lat1)) * math.cos(_degToRad(lat2)) *
-            math.sin(dLon / 2) * math.sin(dLon / 2);
-    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-    return earthRadiusKm * c;
-  }
-
-  static double _degToRad(double deg) => deg * (math.pi / 180.0);
+  // _distanceKm / _degToRad removed: the same haversine was written twice by
+  // hand — here, to sort urgent posts, and again in UrgentRequestsScreen to
+  // label them. It now lives once in utils/proximity.dart, where it is also
+  // unit-testable.
 }

@@ -37,6 +37,12 @@ dependencies:
   http: ^1.2.0
   local_auth: ^2.3.0
   flutter_local_notifications: ^17.2.4
+  # Pinned to 9.x deliberately. 10.1.0+ requires win32 ^6, while file_picker 8
+  # caps it at ^5 — and no STABLE file_picker allows win32 6 yet (first is
+  # 12.0.0-beta.1). win32 only affects the Windows desktop target, which this
+  # app does not ship, so the conflict is real to the resolver and irrelevant to
+  # the product. The only call site is PackageInfo.fromPlatform() for the
+  # version label, whose API is identical in both majors.
   package_info_plus: ^9.0.1
   flutter_svg: ^2.3.0
 

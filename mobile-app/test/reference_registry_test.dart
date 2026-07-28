@@ -141,15 +141,40 @@ void main() {
       expect(registry.nearest(-10.0, 55.0), isNull);
     });
 
-    test('a selection always carries a coordinate when its city has one', () {
-      // Kileleshwa ships with no coordinate of its own; it must still inherit
-      // Nairobi's rather than posting with a null position.
+    test('a neighbourhood posts with ITS OWN coordinate, not its city centre', () {
+      // Kileleshwa used to ship without a coordinate and inherit Nairobi's
+      // centre — a silent 3 km lie on every post placed there, and the same
+      // class of defect that made a Kisauni fix resolve to Nyali. Every
+      // neighbourhood now carries its own position; see
+      // test/location_accuracy_test.dart for the coverage guarantee.
       final kileleshwa = registry.byId('nairobi-kileleshwa')!;
-      expect(kileleshwa.hasCoordinates, isFalse);
+      expect(kileleshwa.hasCoordinates, isTrue);
+
       final selection = registry.selectionFor(kileleshwa);
       expect(selection.label, 'Kileleshwa, Nairobi');
       expect(selection.cityName, 'Nairobi');
+      expect(selection.latitude, kileleshwa.latitude);
+      expect(selection.longitude, kileleshwa.longitude);
+
+      final nairobi = registry.byId('nairobi')!;
+      expect(selection.latitude, isNot(nairobi.latitude));
+    });
+
+    test('a coordinate-less place still inherits its city rather than posting null', () {
+      // The fallback is still load-bearing: the dataset can gain a
+      // neighbourhood before it gains that neighbourhood's position, and a post
+      // with no coordinate at all is invisible to proximity ranking.
+      const orphan = Place(
+        id: 'nairobi-brand-new-estate',
+        name: 'Brand New Estate',
+        kind: PlaceKind.area,
+        parentId: 'nairobi',
+        parentName: 'Nairobi',
+        county: 'Nairobi',
+      );
+      final selection = registry.selectionFor(orphan);
       expect(selection.hasCoordinates, isTrue);
+      expect(selection.latitude, registry.byId('nairobi')!.latitude);
     });
 
     test('areasOf answers for cities and is honestly empty for towns', () {

@@ -253,6 +253,37 @@ class LocationSelection {
 
   final LocationSource source;
 
+  // ── Administrative context ────────────────────────────────────────────────
+  //
+  // Kept ALONGSIDE the coordinates, never instead of them. Distance is always
+  // computed from latitude/longitude (see utils/proximity.dart and the ranking
+  // engine's `distance` signal); these fields exist so a location can be
+  // displayed, filtered and audited at the level people actually name — and so
+  // that "which neighbourhood did we think this was?" is answerable after the
+  // fact instead of being guessed at from a single label string.
+
+  /// County — Kenya's first-level division ("Mombasa").
+  final String? county;
+
+  /// Sub-county / constituency ("Kisauni"). The most reliably specific
+  /// administrative name available in Kenya.
+  final String? subCounty;
+
+  /// Ward, where one could be determined. Frequently null.
+  final String? ward;
+
+  /// The platform's own locality string, unreconciled. Kept for diagnostics:
+  /// when a GPS location looks wrong, this is what the device actually said.
+  final String? locality;
+
+  /// The full human-readable address, when a geocoder produced one.
+  final String? formattedAddress;
+
+  /// The radius, in metres, the fix that produced this was accurate to. Null
+  /// for a manually picked place — a chosen town has no error bar, it has a
+  /// definition.
+  final double? accuracyMeters;
+
   const LocationSelection({
     required this.label,
     required this.cityName,
@@ -261,6 +292,12 @@ class LocationSelection {
     this.latitude,
     this.longitude,
     this.source = LocationSource.manual,
+    this.county,
+    this.subCounty,
+    this.ward,
+    this.locality,
+    this.formattedAddress,
+    this.accuracyMeters,
   });
 
   bool get hasCoordinates => latitude != null && longitude != null;
@@ -275,9 +312,20 @@ class LocationSelection {
         placeId: place.id,
         latitude: place.latitude,
         longitude: place.longitude,
+        county: place.county.isEmpty ? null : place.county,
       );
 
-  LocationSelection copyWith({double? latitude, double? longitude}) =>
+  LocationSelection copyWith({
+    double? latitude,
+    double? longitude,
+    LocationSource? source,
+    String? county,
+    String? subCounty,
+    String? ward,
+    String? locality,
+    String? formattedAddress,
+    double? accuracyMeters,
+  }) =>
       LocationSelection(
         label: label,
         cityName: cityName,
@@ -285,7 +333,13 @@ class LocationSelection {
         placeId: placeId,
         latitude: latitude ?? this.latitude,
         longitude: longitude ?? this.longitude,
-        source: source,
+        source: source ?? this.source,
+        county: county ?? this.county,
+        subCounty: subCounty ?? this.subCounty,
+        ward: ward ?? this.ward,
+        locality: locality ?? this.locality,
+        formattedAddress: formattedAddress ?? this.formattedAddress,
+        accuracyMeters: accuracyMeters ?? this.accuracyMeters,
       );
 
   Map<String, dynamic> toJson() => {
@@ -296,6 +350,12 @@ class LocationSelection {
         if (latitude != null) 'lat': latitude,
         if (longitude != null) 'lng': longitude,
         'source': source.name,
+        if (county != null) 'county': county,
+        if (subCounty != null) 'subCounty': subCounty,
+        if (ward != null) 'ward': ward,
+        if (locality != null) 'locality': locality,
+        if (formattedAddress != null) 'address': formattedAddress,
+        if (accuracyMeters != null) 'accuracyM': accuracyMeters,
       };
 
   static LocationSelection? fromJson(dynamic json) {
@@ -315,6 +375,12 @@ class LocationSelection {
         (s) => s.name == json['source'],
         orElse: () => LocationSource.manual,
       ),
+      county: (json['county'] as String?)?.trim(),
+      subCounty: (json['subCounty'] as String?)?.trim(),
+      ward: (json['ward'] as String?)?.trim(),
+      locality: (json['locality'] as String?)?.trim(),
+      formattedAddress: (json['address'] as String?)?.trim(),
+      accuracyMeters: _toDouble(json['accuracyM']),
     );
   }
 

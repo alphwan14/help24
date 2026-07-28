@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
 import '../models/profession.dart';
 import '../models/profile_completion.dart';
+import '../providers/app_provider.dart';
 import '../services/profession_registry.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
@@ -250,7 +252,14 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
         uid: widget.uid,
         professionId: profession.id,
       );
-      if (mounted) Navigator.pop(context, true);
+      if (!mounted) return;
+      // Profession is the second-heaviest ranking signal (25 points), so the
+      // recommendations computed under the old one are now answering the wrong
+      // question. Rebuild — quietly: the user is editing their profile, not
+      // asking for the feed behind them to be rearranged. The result is offered
+      // as "New recommendations" when they next look at Discover.
+      context.read<AppProvider>().markProfileChanged();
+      Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
         setState(() {

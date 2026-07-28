@@ -152,6 +152,18 @@ class _PaymentScreenState extends State<PaymentScreen>
 
   // ─── Polling ───────────────────────────────────────────────────────────────
 
+  /// DELIBERATELY a plain Timer, not an [AdaptivePoll].
+  ///
+  /// Every other repeating fetch in the app parks while offline (see
+  /// services/adaptive_poll.dart). This one must not: `_pollCount` is a proxy
+  /// for WALL-CLOCK TIME — it drives the AWAITING_PIN → PROCESSING transition
+  /// and the hard `_maxPolls` timeout — and the M-Pesa STK prompt on the user's
+  /// handset expires on Safaricom's clock, not on ours. Pausing the ticks would
+  /// stop our count while the real prompt kept expiring, so the screen would sit
+  /// waiting on a deadline that had already passed and then report a state that
+  /// never existed. A poll whose ticks measure elapsed time is a timer, not a
+  /// refresh. The same reasoning applies to the campaign payment poll in
+  /// promote_listing_flow_screen.dart.
   void _startPolling() {
     _pollCount = 0;
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {

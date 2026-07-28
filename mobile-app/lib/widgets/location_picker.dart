@@ -495,8 +495,13 @@ class _CurrentLocationTile extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
+                          // Honest about the wait. The fix is now held until it
+                          // is precise enough to tell one neighbourhood from
+                          // the one next door, rather than returning whatever
+                          // the phone had cached — so a few seconds here is the
+                          // feature, not lag.
                           busy
-                              ? 'This takes a moment outdoors'
+                              ? 'Waiting for a precise fix…'
                               : 'We\'ll name the spot you\'re standing in',
                           style: TextStyle(
                             fontSize: 12.5,

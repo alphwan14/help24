@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../models/post_model.dart';
+import '../providers/app_provider.dart';
+import '../utils/feed_scope.dart';
 import 'post_service.dart';
 
 /// Splash-time data prefetch.
@@ -26,9 +28,23 @@ class StartupPrefetch {
   /// Start the first-screen fetches (fire-and-forget). Mirrors the exact
   /// queries AppProvider issues at startup with default filter state.
   static void begin() {
-    _posts = _guard('posts', () => PostService.fetchPosts(filters: const PostFilters()));
-    _jobs = _guard('jobs', () => PostService.fetchJobs(filters: const PostFilters(type: 'job')));
-    _urgent = _guard('urgent', () => PostService.fetchUrgentPosts());
+    // Scoped exactly as AppProvider's fallback scopes them. An unscoped prefetch
+    // would hand the feed job posts and non-open listings that the very next
+    // load removes — the splash would paint one Discover and the first refresh
+    // would paint a different one.
+    _posts = _guard(
+        'posts',
+        () => PostService.fetchPosts(
+            filters: const PostFilters().forScope(FeedScope.all)));
+    _jobs = _guard(
+        'jobs',
+        () => PostService.fetchJobs(
+            filters: const PostFilters().forScope(FeedScope.jobs)));
+    // Same page size AppProvider uses, so consuming the prefetch cannot produce
+    // a shorter urgent list — and therefore a different badge count — than a
+    // live load of the same data.
+    _urgent = _guard('urgent',
+        () => PostService.fetchUrgentPosts(limit: AppProvider.urgentPageSize));
   }
 
   /// Take-once accessors: return the in-flight future and clear the slot so a

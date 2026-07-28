@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../services/adaptive_poll.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../services/user_profile_service.dart';
 import '../widgets/custom_bottom_nav.dart';
@@ -37,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// presence reflect observed liveness. Readers treat presence as valid only
   /// while this beat is fresh (see _presenceStaleAfter in ChatScreen).
   static const Duration _presenceHeartbeat = Duration(seconds: 60);
-  Timer? _presenceTimer;
+  AdaptivePoll? _presencePoll;
 
   Future<void> _beatPresence() async {
     final uid = context.read<AuthProvider>().currentUserId;
@@ -52,11 +53,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _startPresence() {
-    _presenceTimer?.cancel();
-    _beatPresence();
-    _presenceTimer = Timer.periodic(_presenceHeartbeat, (_) {
-      if (mounted) _beatPresence();
-    });
+    _presencePoll?.dispose();
+    // Parks while offline and beats once immediately on reconnect — which is
+    // exactly right for presence: a heartbeat sent with no network is a write
+    // that cannot land, and the FIRST thing anyone wants after reconnecting is
+    // to stop looking offline to the person they are chatting with.
+    _presencePoll = AdaptivePoll(
+      interval: _presenceHeartbeat,
+      onTick: () {
+        if (mounted) _beatPresence();
+      },
+      debugLabel: 'presence',
+    )..start();
+  }
+
+  void _stopPresence() {
+    _presencePoll?.dispose();
+    _presencePoll = null;
   }
 
   @override
@@ -78,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _presenceTimer?.cancel();
+    _stopPresence();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -94,13 +107,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // Re-check location permission in case user granted it in Settings
         // while the app was in the background.
         context.read<LocationProvider>().refreshPermissionStatus();
+        // Refresh the position only if the stored one has gone stale, and only
+        // then re-arm the ranking engine. This is the "app starts (if stale)"
+        // rule: no GPS on every resume, no feed query on every resume.
+        unawaited(_refreshLocationIfStale(uid));
+        // Rebuild the ranking if — and only if — something that feeds it moved
+        // on. Nothing on screen changes; a better feed is OFFERED.
+        unawaited(context.read<AppProvider>().maybeRefreshFeed());
         break;
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
-        _presenceTimer?.cancel();
-        _presenceTimer = null;
+        _stopPresence();
         UserProfileService.setOnline(uid, false);
         break;
     }
@@ -140,6 +159,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _showPostScreen = false;
       });
     }
+    _syncDiscoverVisibility();
+  }
+
+  /// Tell AppProvider whether Discover is the tab in front of the user.
+  ///
+  /// A ranking that lands while they are reading Messages can just be installed
+  /// — there is nothing on screen to disturb. This is most of what "the user
+  /// should hardly see the rebuild" means in practice: the swap happens in the
+  /// gap between glances, and Discover is simply correct when they return.
+  void _syncDiscoverVisibility() {
+    if (!mounted) return;
+    context
+        .read<AppProvider>()
+        .setDiscoverVisible(!_showPostScreen && _currentIndex == 0);
+  }
+
+  /// Refresh the stored position only when it has actually gone stale.
+  ///
+  /// Deliberately NOT a GPS read on every resume: a fix costs battery, and a
+  /// location that was accurate four minutes ago is still accurate. See
+  /// LocationProvider.refreshIfStale for the threshold and the accuracy gate.
+  Future<void> _refreshLocationIfStale(String uid) async {
+    final location = context.read<LocationProvider>();
+    final moved = await location.refreshIfStale(uid);
+    if (!mounted || !moved) return;
+    // The position genuinely changed. Re-arm the engine — which, for a move,
+    // rebuilds quietly and offers the result rather than reordering the screen.
+    context.read<AppProvider>().setViewer(
+          userId: uid,
+          latitude: location.latitude,
+          longitude: location.longitude,
+        );
   }
 
   @override
@@ -154,8 +205,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // so initState ran while uid was still empty). This is the first point
         // where a presence write can pass RLS.
         if (uid.isEmpty) {
-          _presenceTimer?.cancel();
-          _presenceTimer = null;
+          _stopPresence();
         } else {
           _startPresence();
         }
@@ -180,6 +230,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onPopInvokedWithResult: (didPop, _) {
         if (didPop || _showPostScreen) return;
         setState(() => _currentIndex = 0);
+        _syncDiscoverVisibility();
       },
       child: Scaffold(
       body: SafeArea(
@@ -200,6 +251,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           _showPostScreen = false;
                           _currentIndex = 0;
                         });
+                        _syncDiscoverVisibility();
                       }
                     },
                     child: PostScreen(
@@ -208,6 +260,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           _showPostScreen = false;
                           _currentIndex = 0;
                         });
+                        _syncDiscoverVisibility();
                       },
                     ),
                   )
