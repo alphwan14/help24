@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/adaptive_poll.dart';
+import '../services/launch_sequence.dart';
+import '../services/notification_store.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../services/user_profile_service.dart';
 import '../widgets/custom_bottom_nav.dart';
@@ -218,6 +220,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         context.read<AppProvider>().loadConversations(uid);
         // Server-derived "Applied / Offer sent" state for feed cards.
         context.read<AppProvider>().loadMyApplications(uid);
+        // Same contract for the notification register: bound the moment auth
+        // resolves, so the bell's unread count is already correct the first time
+        // it is rendered instead of appearing a beat later. Idempotent, and an
+        // empty uid resets it on sign-out.
+        unawaited(NotificationStore.instance.bind(uid));
       });
     }
 
@@ -315,6 +322,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     final shouldShow = await location.shouldShowExplainer(uid);
     if (!mounted || !shouldShow || _locationPromptInFlight) return;
+
+    // The shell is now built BEHIND the launch splash so its first-frame work
+    // lands before anyone sees the feed. A modal is the one thing that must not
+    // take that window: it is pushed as a route, which sits ABOVE the splash in
+    // the navigator, so asking for a permission here would put a sheet on a
+    // screen the user is still watching the logo on.
+    await LaunchSequence.ready;
+    if (!mounted || _locationPromptInFlight) return;
 
     // This runs because the uid just changed — which, on a fresh sign-in, is
     // the same instant the auth screen is dismissing itself. Opening a second

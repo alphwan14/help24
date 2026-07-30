@@ -15,6 +15,7 @@ import '../services/feed_service.dart';
 import '../services/feed_snapshot.dart';
 import '../services/interaction_tracker.dart';
 import '../services/jobs_service.dart';
+import '../services/launch_sequence.dart';
 import '../services/session_scope.dart';
 import '../services/startup_prefetch.dart';
 import '../utils/error_mapper.dart';
@@ -288,14 +289,61 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// is the behaviour this whole mechanism exists to prevent.
   bool get hasPendingFeed => _pending != null;
 
-  /// How many posts in the waiting ranking are ones the reader has not seen, so
-  /// the prompt can say something true rather than something generic.
+  /// How many listings in the waiting ranking are ones the reader has not seen
+  /// and did not write. Diagnostic and telemetry only — the prompt says
+  /// "New recommendations available" whatever this is (see [_worthOffering]).
   int get pendingFeedNewPostCount {
     final next = _pending;
     final current = _installed;
     if (next == null) return 0;
     if (current == null) return next.posts.length;
-    return next.newPostCountSince(current);
+    return next.newPostCountSince(current, excludingAuthor: _viewerUserId);
+  }
+
+  /// Whether a rebuild that may not be installed is worth interrupting the
+  /// reader for at all.
+  ///
+  /// THREE THINGS A BANNER MUST EARN
+  /// ------------------------------
+  /// 1. **It must come from the engine.** Help24 does not show every post, it
+  ///    recommends — so only the recommendation engine may claim to have
+  ///    recommendations. A chronological fallback page has no such claim to
+  ///    make, and during a ranking outage the calm feed is the right feed.
+  /// 2. **The listings must be new.** A pure re-ranking of posts the reader has
+  ///    already scrolled past is not news; offering it produces a prompt that
+  ///    rearranges familiar cards, which is precisely what teaches people to
+  ///    ignore prompts.
+  /// 3. **They must not be the reader's own.** The author watched the post being
+  ///    written and it was spliced to the top of their feed as they saved it.
+  ///    Announcing it back to them is the app reporting their own action to them
+  ///    as an event — the single most-reported instance of Help24 feeling
+  ///    unaware of what its user just did.
+  ///
+  /// Everything that fails these is still COMPUTED, still remembered for the
+  /// query it answers, and still installed the moment installing is free (a tab
+  /// switch away, a pull to refresh). It simply never interrupts.
+  bool _worthOffering(FeedSnapshot next) {
+    final current = _installed;
+    if (current == null) return false;
+    if (!next.isRanked) return false;
+
+    final fromOthers =
+        next.newPostCountSince(current, excludingAuthor: _viewerUserId);
+    if (fromOthers > 0) return true;
+
+    // Nothing new from anyone else. If the only arrival is the reader's own
+    // listing, that is the end of it — checked BEFORE the placeholder rule
+    // below, so publishing a post can never become the reason a banner appears,
+    // whatever happens to be on screen at the time.
+    if (next.newPostCountSince(current) > 0) return false;
+
+    // A pure re-ranking. Worth offering only when what is on screen is not a
+    // ranking at all — a page read off the disk, or another tab's re-scoped.
+    // Replacing one of those is an upgrade rather than a rearrangement, and
+    // without this the launch ranking that overran the splash deadline would be
+    // computed, held, found to contain nothing new, and silently discarded —
+    // leaving the reader on the chronological stand-in indefinitely.
+    return current.fromCache;
   }
 
   /// Show the waiting ranking. Called by the prompt and by pull-to-refresh —
@@ -341,6 +389,9 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
   AppProvider({ThemePreference initialTheme = ThemePreference.system})
       : _themePreference = initialTheme {
+    // A second one of these in a launch trace means the provider tree was
+    // rebuilt, which throws away the launch feed and starts it again.
+    debugPrint('[LAUNCH] +${LaunchSequence.sinceStart}ms AppProvider created');
     SessionScope.instance.register(this);
     _loadInitialData();
   }
@@ -483,7 +534,17 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       generatedAt: DateTime.now(),
     );
     if (_isDefaultQuery) {
-      _install(snapshot);
+      // Normally this installs unconditionally, because the splash is still up
+      // and rule 2 of [FeedArrival] makes the install unseeable. It goes through
+      // the arrival check anyway for the one launch that overruns the deadline:
+      // a ranker cold enough to answer after Discover is already on screen must
+      // not be allowed to rearrange a feed somebody has started reading just
+      // because it happens to be the launch request.
+      if (_shouldInstall(snapshot, FeedInvalidation.expired)) {
+        _install(snapshot);
+      } else if (_worthOffering(snapshot)) {
+        _pending = snapshot;
+      }
       _remember(snapshot);
       unawaited(CacheService.savePosts(snapshot.posts));
     } else {
@@ -492,30 +553,40 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       _remember(snapshot);
     }
     _warmAvatarUrls(snapshot.posts.map((p) => p.authorAvatar));
+    // The launch feed is what it is going to be. Hand over.
+    LaunchSequence.markFeedFinal();
     notifyListeners();
     unawaited(loadJobs(force: true));
     unawaited(_warmOtherScopes());
   }
 
-  /// How long Discover waits for a RANKED launch page before putting the
-  /// chronological one on screen instead.
+  /// How long the launch waits for a RANKED page before falling back to the
+  /// chronological one it already has in hand.
   ///
   /// The ranking backend sleeps when idle, and the client's own timeout is eight
-  /// seconds — so the first launch of the day could mean eight seconds of
-  /// shimmer over a page the app had already fetched and was holding in memory.
-  /// Long enough that a healthy backend always wins the race (a warm ranked
-  /// response lands in a few hundred milliseconds, and nothing is painted
-  /// twice); short enough that a cold one costs a beat, not a wait.
-  static const Duration _rankingPatience = Duration(milliseconds: 1200);
+  /// seconds — so the first launch of the day could mean the splash sitting on
+  /// its full deadline over a page the app had already fetched and was holding
+  /// in memory. Whatever this installs lands BEHIND the splash and becomes what
+  /// the deadline hands over, so the fallback is a page the user opens on rather
+  /// than a page that appears in front of them.
+  ///
+  /// Set just SHORT of [LaunchSequence.deadline] rather than well short of it.
+  /// At 1200ms it gave up far too early: a ranking that was going to arrive at
+  /// 1.5s had its result pre-empted by a chronological page at 1.2s, for no gain
+  /// whatsoever — the splash was going to keep holding either way, so nobody was
+  /// waiting on the stand-in. The only moment this page is worth painting is
+  /// when the launch is genuinely about to stop waiting.
+  static const Duration _rankingPatience = Duration(milliseconds: 2600);
 
-  /// Put the chronological splash page on screen if ranking is taking too long.
+  /// Put the chronological launch page on screen if ranking is taking too long.
   ///
   /// Installed as a PLACEHOLDER, which is the whole reason this is safe: it can
   /// never be the evidence behind "No posts found", and the ranked page replaces
-  /// it outright the moment it lands — unless the reader has started scrolling,
-  /// in which case [FeedArrival] holds it back and offers it. Nothing is painted
-  /// at all when the disk cache already filled the screen, when the user has
-  /// changed the question, or when ranking simply arrives first.
+  /// it outright the moment it lands — while the splash is up that replacement
+  /// is unseeable, and after it [FeedArrival] decides like it would for any
+  /// other arrival. Nothing is painted at all when the disk cache already filled
+  /// the screen, when the user has changed the question, or when ranking simply
+  /// arrives first.
   Future<void> _paintEarlyPageIfRankingIsSlow(Future<StartupFeed?> ranking) async {
     final early = StartupPrefetch.earlyPosts;
     if (early == null) return;
@@ -679,12 +750,20 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     }
   }
 
-  /// Refresh all data
-  Future<void> refreshAll() async {
+  /// Refresh all data.
+  ///
+  /// [reason] is what Discover is told about the feed half of it, and it
+  /// matters: the caller knows whether a person asked for this. The reconnect
+  /// handler passes [FeedInvalidation.reconnected] so a connection coming back
+  /// rebuilds quietly and offers, rather than replacing a feed somebody is
+  /// reading because the radio changed state.
+  Future<void> refreshAll({
+    FeedInvalidation reason = FeedInvalidation.explicit,
+  }) async {
     await Future.wait([
-      loadPosts(reason: FeedInvalidation.explicit),
+      loadPosts(reason: reason),
       loadJobs(force: true),
-      loadUrgentPosts(),
+      loadUrgentPosts(force: true),
     ]);
   }
 
@@ -876,9 +955,17 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       if (_shouldInstall(snapshot, reason)) {
         _dropPendingFeed();
         _install(snapshot);
-      } else {
+      } else if (_worthOffering(snapshot)) {
         _pending = snapshot;
         debugPrint('[FEED] rebuild held (${reason.name}) — offering it instead');
+      } else {
+        // Computed, remembered, and deliberately silent: it is a re-ranking of
+        // posts already on screen, or the only thing new in it is the reader's
+        // own listing. Either way there is nothing to tell them. It stays in
+        // `_snapshotsByQuery` and lands free the next time installing costs
+        // nothing.
+        _dropPendingFeed();
+        debugPrint('[FEED] rebuild held (${reason.name}) — nothing to announce');
       }
 
       // Written from the SNAPSHOT, not from `_posts` — this page may have been
@@ -909,6 +996,12 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         // instantly.
         _warmAvatarUrls(_posts.map((p) => p.authorAvatar));
         _isLoadingPosts = false;
+        // Whatever this load decided — a page, an offline cache read, a failure
+        // — the launch now knows what it is going to show. Idempotent, so the
+        // launch that got here through a degradation path hands over as quickly
+        // as the one that got here through the ranked path, instead of waiting
+        // out the deadline on top of whatever already went wrong.
+        LaunchSequence.markFeedFinal();
         notifyListeners();
       }
     }
@@ -916,14 +1009,17 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
   /// Whether [next] may replace what is on screen right now.
   ///
-  /// Four ways to earn it, in the order they are checked:
+  /// Five ways to earn it, in the order they are checked:
   ///   1. nothing is on screen yet — there is nothing to disturb;
-  ///   2. the user asked (refresh, filter, tab, account change, app upgrade);
-  ///   3. Discover is not the visible tab — the swap is literally unseeable;
-  ///   4. the new ranking does not visibly differ — installing it moves nothing,
+  ///   2. the splash is still up — Discover has not been shown to anyone, so
+  ///      the launch may settle through as many installs as it needs and the
+  ///      user meets only the last of them;
+  ///   3. the user asked (refresh, filter, tab, account change, app upgrade);
+  ///   4. Discover is not the visible tab — the swap is literally unseeable;
+  ///   5. the new ranking does not visibly differ — installing it moves nothing,
   ///      so holding it back would only produce a prompt that does nothing.
   ///
-  /// Rule 4 is what keeps the prompt honest. Most background rebuilds return
+  /// Rule 5 is what keeps the prompt honest. Most background rebuilds return
   /// the same order (the server's ranking clock is bucketed for exactly this
   /// reason), and a "New recommendations available" pill that reorders nothing
   /// teaches people to ignore it.
@@ -931,6 +1027,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     final current = _installed;
     return FeedArrival.installs(
       hasVisibleFeed: current != null,
+      launchInProgress: LaunchSequence.isHoldingSplash,
       visibleIsPlaceholder: current?.fromCache ?? false,
       readerEngaged: _readerEngaged,
       discoverVisible: _discoverVisible,
@@ -989,17 +1086,78 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       (_installed ?? _snapshotsByQuery[_defaultQueryKey])
           ?.rescopedFor(scope, identity);
 
-  /// Make [snapshot] the ranking on screen. The ONLY place `_posts` is
-  /// wholesale replaced.
+  /// Make [snapshot] the ranking on screen. The ONLY place a ranking is
+  /// REPLACED.
+  ///
+  /// Bumps [_feedGeneration], which Discover keys its list on — so this is
+  /// also the only thing that crossfades the feed and returns the reader to the
+  /// top. Editing the posts inside a ranking is [_splice], which does neither.
   void _install(FeedSnapshot snapshot) {
+    final previous = _installed;
     _installed = snapshot;
     _posts = [...snapshot.posts];
-    // A replacement, not an edit — Discover crossfades on this changing. Local
-    // splices into `_posts` deliberately leave it alone so an optimistic insert
-    // does not restart the list (and lose the reader's scroll position).
-    _feedGeneration++;
-    // A fresh page is a fresh impression session.
-    InteractionTracker.instance.resetImpressions();
+
+    // THE GENERATION MEANS "WHAT THE READER IS LOOKING AT CHANGED" — NOTHING
+    // ELSE.
+    //
+    // Discover keys its list on this, so bumping it tears the list down, builds
+    // a new one and crossfades between them. That is right when the ranking
+    // genuinely changed and wrong every other time, and it was being bumped
+    // unconditionally.
+    //
+    // Which produced the launch blink, on a device trace that named it exactly:
+    // the splash handed over on the disk cache at 3.0s, the ranked page arrived
+    // at 5.6s holding THE SAME NINETEEN POSTS IN THE SAME ORDER — because the
+    // disk cache is written from the previous session's ranked page — and
+    // FeedArrival correctly let it install, precisely because it moved nothing.
+    // Then this bumped the generation anyway and the entire feed crossfaded.
+    // A blink with no information in it whatsoever.
+    //
+    // The predicate is deliberately the SAME one FeedArrival uses to decide
+    // whether an arrival is free. That is the invariant that was missing: a
+    // rebuild allowed in *because it moves nothing* must not then move
+    // anything. When the two disagreed, the disagreement was visible.
+    if (previous == null || snapshot.differsVisiblyFrom(previous)) {
+      _feedGeneration++;
+      // A genuinely fresh page is a fresh impression session. Re-arming it for
+      // a page identical to the one already on screen would re-send every
+      // impression the engine has already been told about.
+      InteractionTracker.instance.resetImpressions();
+    }
+
+    debugPrint('[FEED_INSTALL] +${LaunchSequence.sinceStart}ms '
+        'gen=$_feedGeneration source=${snapshot.source.name} '
+        'placeholder=${snapshot.fromCache} posts=${snapshot.posts.length} '
+        'splashUp=${LaunchSequence.isHoldingSplash}');
+  }
+
+  /// Edit the posts INSIDE the installed ranking, leaving the ranking itself
+  /// alone.
+  ///
+  /// WHY THIS EXISTS AS A SEPARATE OPERATION
+  /// --------------------------------------
+  /// `_install` and "one card changed" are different events that were sharing
+  /// one mechanism, badly. Local edits — an optimistic insert, an archive, an
+  /// "Applied" badge — used to splice `_posts` directly and deliberately skip
+  /// the generation bump, which was right: bumping it would crossfade the entire
+  /// feed and lose the reader's scroll position because one card appeared.
+  ///
+  /// But they left `_installed` — the ranking OF RECORD — describing a feed that
+  /// was no longer on screen. Every comparison downstream then reasoned about
+  /// the wrong list, and the most visible consequence was the one users
+  /// reported: publish a listing, and because `_installed` did not contain it,
+  /// the next rebuild counted the author's own post as somebody else's new post
+  /// and offered it back to them as "1 new post".
+  ///
+  /// So: both lists, always, through here. `_posts` stays the rendered list and
+  /// `_installed` stays true, and the generation is deliberately untouched —
+  /// nothing moved, so nothing should animate.
+  void _splice(void Function(List<PostModel> posts) edit) {
+    final next = [..._posts];
+    edit(next);
+    _posts = next;
+    final installed = _installed;
+    if (installed != null) _installed = installed.withPosts(next);
   }
 
   /// Discover tab → the one scope definition (engine parameter AND fallback
@@ -1099,24 +1257,69 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   static const int urgentPageSize = 20;
 
 
+  /// Monotonic request id, so a slow urgent read cannot overwrite a fast later
+  /// one — the same sequencing every other load here has.
+  int _urgentRequestSeq = 0;
+
+  /// When the urgent list last came back from the server.
+  DateTime? _urgentLoadedAt;
+
+  /// How recently an urgent load has to have completed for another one to be
+  /// redundant.
+  ///
+  /// Two callers ask for this list during a single launch — the provider's own
+  /// `_loadInitialData`, and Discover's post-frame callback, which adds the
+  /// viewer's coordinates for proximity sorting. Both are legitimate; running
+  /// both as full fetches is not. Inside this window the second caller re-sorts
+  /// what the first one already fetched, which is all it actually wanted.
+  static const Duration _urgentFreshness = Duration(seconds: 20);
+
   /// Load urgent posts for top banner.
   /// Prioritization: urgent -> nearest first -> newest fallback.
+  ///
+  /// [force] bypasses the freshness gate for a request the user actually made —
+  /// pull-to-refresh, Retry, reconnect. Without it an explicit refresh inside
+  /// the window would silently do nothing, which is the worse failure: the user
+  /// asked, and the app pretended.
   Future<void> loadUrgentPosts({
     double? userLatitude,
     double? userLongitude,
     int limit = urgentPageSize,
+    bool force = false,
   }) async {
-    _isLoadingUrgentPosts = true;
+    final loadedAt = _urgentLoadedAt;
+    if (!force &&
+        loadedAt != null &&
+        _urgentPosts.isNotEmpty &&
+        DateTime.now().difference(loadedAt) < _urgentFreshness) {
+      // Fresh enough. Apply the caller's coordinates to the list we have and
+      // stop — this path is what turns Discover's launch call from a second
+      // round trip into a re-sort.
+      final resorted = [..._urgentPosts];
+      _sortUrgentByProximity(resorted, userLatitude, userLongitude);
+      _urgentPosts = resorted;
+      notifyListeners();
+      return;
+    }
+
+    final seq = ++_urgentRequestSeq;
+    // Only spin when there is nothing to look at. A refresh underneath a list
+    // that is already on screen must not blank the header's count.
+    if (_urgentPosts.isEmpty) {
+      _isLoadingUrgentPosts = true;
+      notifyListeners();
+    }
     _errors.clear(AppFeature.urgent);
-    notifyListeners();
     try {
       // Splash-time prefetch (take-once; no filters apply to urgent posts).
       final prefetch = StartupPrefetch.takeUrgentPosts();
       if (prefetch != null) {
         final prefetched = await prefetch;
+        if (seq != _urgentRequestSeq) return;
         if (prefetched != null) {
           _sortUrgentByProximity(prefetched, userLatitude, userLongitude);
           _urgentPosts = prefetched;
+          _urgentLoadedAt = DateTime.now();
           return;
         }
       }
@@ -1133,15 +1336,20 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       }
 
       final fetched = await PostService.fetchUrgentPosts(limit: limit);
+      if (seq != _urgentRequestSeq) return;
       _sortUrgentByProximity(fetched, userLatitude, userLongitude);
       _urgentPosts = fetched;
+      _urgentLoadedAt = DateTime.now();
     } catch (e) {
+      if (seq != _urgentRequestSeq) return;
       _errors.set(AppFeature.urgent, ErrorMapper.toMessage(e, context: ErrorContext.loadFeed));
       debugPrint('[AppProvider] loadUrgentPosts failed: $e');
     } finally {
-      _warmAvatarUrls(_urgentPosts.map((p) => p.authorAvatar));
-      _isLoadingUrgentPosts = false;
-      notifyListeners();
+      if (seq == _urgentRequestSeq) {
+        _warmAvatarUrls(_urgentPosts.map((p) => p.authorAvatar));
+        _isLoadingUrgentPosts = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -1195,17 +1403,26 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       //
       // Replace-if-present rather than blind insert: a concurrent loadPosts can
       // land the same row first, and two cards for one post is its own bug.
-      final existing = _posts.indexWhere((p) => p.id == createdPost.id);
-      if (existing != -1) {
-        _posts[existing] = createdPost;
-      } else {
-        _posts.insert(0, createdPost);
-      }
+      //
+      // Spliced, not installed: the card appears at the top of the feed the
+      // author is looking at, in place, with no crossfade and no scroll reset —
+      // and `_installed` learns about it too, so the rebuild that follows knows
+      // this post is theirs and already accounted for.
+      _splice((posts) {
+        final existing = posts.indexWhere((p) => p.id == createdPost.id);
+        if (existing != -1) {
+          posts[existing] = createdPost;
+        } else {
+          posts.insert(0, createdPost);
+        }
+      });
       _warmAvatarUrls([createdPost.authorAvatar]);
       _cachePostsIfDefault();
-      // Emergency posts must surface in the Urgent section immediately.
+      // Emergency posts must surface in the Urgent section immediately —
+      // forced, because the whole point is that the thing that just happened
+      // is now in the list.
       if (createdPost.isUrgent || createdPost.urgency == Urgency.urgent) {
-        unawaited(loadUrgentPosts());
+        unawaited(loadUrgentPosts(force: true));
       }
       // The corpus changed, so the ranking is due — but quietly. The card above
       // is where the author expects to find what they just published, and a
@@ -1266,7 +1483,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
   /// Add post to local list (for optimistic updates)
   void addPost(PostModel post) {
-    _posts.insert(0, post);
+    _splice((posts) => posts.insert(0, post));
     notifyListeners();
   }
 
@@ -1290,7 +1507,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // Soft delete / archive via the backend (policy-enforced; never hard-deletes,
       // so reviews, reputation, escrow, disputes and chat history are preserved).
       await JobsService.archivePost(postId: postId, userId: currentUserId);
-      _posts.removeWhere((p) => p.id == postId);
+      _splice((posts) => posts.removeWhere((p) => p.id == postId));
       _jobs.removeWhere((j) => j.id == postId);
       _cachePostsIfDefault();
       _cacheJobsIfDefault();
@@ -1363,13 +1580,14 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
   /// Legacy method for backward compatibility
   void addApplicationToPost(String postId, Application application) {
-    final index = _posts.indexWhere((p) => p.id == postId);
-    if (index != -1) {
-      final post = _posts[index];
-      final updatedApplications = [...post.applications, application];
-      _posts[index] = post.copyWith(applications: updatedApplications);
-      notifyListeners();
-    }
+    if (!_posts.any((p) => p.id == postId)) return;
+    _splice((posts) {
+      final index = posts.indexWhere((p) => p.id == postId);
+      final post = posts[index];
+      posts[index] =
+          post.copyWith(applications: [...post.applications, application]);
+    });
+    notifyListeners();
   }
 
   /// Legacy method for backward compatibility
@@ -1528,8 +1746,27 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _conversationsSubscribedUserId = '';
   }
 
+  /// Whether this provider has been torn down.
+  ///
+  /// Nearly every load here is fire-and-forget and finishes in a `finally` that
+  /// notifies — so a teardown that lands mid-flight (a hot restart, a widget
+  /// test, a sign-out racing the launch loads) leaves a request that will call
+  /// `notifyListeners()` on a disposed object and throw. The work itself is
+  /// already harmless by then; only the notification is illegal.
+  bool _disposed = false;
+
+  /// Silent after disposal instead of fatal. Overridden rather than guarded at
+  /// the ~30 call sites, because a rule that has to be remembered thirty times
+  /// is a rule that will be forgotten once.
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     SessionScope.instance.unregister(this);
     _conversationStreamSubscription?.cancel();
     _searchDebounce?.cancel();
@@ -1996,4 +2233,43 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   // hand — here, to sort urgent posts, and again in UrgentRequestsScreen to
   // label them. It now lives once in utils/proximity.dart, where it is also
   // unit-testable.
+
+  // ── Test seams ────────────────────────────────────────────────────────────
+  //
+  // The install/splice contract is the thing that broke, and it is a property
+  // of THIS object rather than of any pure function it calls — so it has to be
+  // assertable without a network, a database or a widget tree.
+
+  @visibleForTesting
+  void debugInstall(FeedSnapshot snapshot) {
+    _install(snapshot);
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  FeedSnapshot? get debugInstalled => _installed;
+
+  @visibleForTesting
+  FeedSnapshot? get debugPending => _pending;
+
+  @visibleForTesting
+  void debugSetViewerId(String? userId) => _viewerUserId = userId;
+
+  /// The offer decision, in isolation from the load that produced the snapshot.
+  @visibleForTesting
+  bool debugWorthOffering(FeedSnapshot next) => _worthOffering(next);
+
+  /// Whichever branch [loadPosts] would take for [next], without the request.
+  @visibleForTesting
+  void debugArrive(FeedSnapshot next, FeedInvalidation reason) {
+    if (_shouldInstall(next, reason)) {
+      _dropPendingFeed();
+      _install(next);
+    } else if (_worthOffering(next)) {
+      _pending = next;
+    } else {
+      _dropPendingFeed();
+    }
+    notifyListeners();
+  }
 }

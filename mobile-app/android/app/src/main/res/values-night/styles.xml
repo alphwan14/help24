@@ -6,7 +6,14 @@
         <item name="android:navigationBarColor">@color/splash_background</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+    <!-- Kept in step with values/styles.xml — see the note there. The window
+         behind Flutter carries the badge in both modes, so the handoff from the
+         launch drawable to the first Flutter frame has nothing visible in
+         between: the logo never leaves the screen. -->
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:statusBarColor">@color/splash_background</item>
+        <item name="android:navigationBarColor">@color/splash_background</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

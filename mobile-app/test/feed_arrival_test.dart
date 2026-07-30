@@ -92,8 +92,53 @@ void main() {
       );
     });
 
-    test('...but lands immediately while they are still at the top', () {
-      expect(_installs(visibleIsPlaceholder: true), isTrue);
+    test('...and is not swapped out at the top of the feed either', () {
+      // THE LAUNCH BLINK, PINNED.
+      //
+      // This asserted the opposite until the placeholder rule was removed, on
+      // the argument that leaving a reader on stale posts was worse than moving
+      // them. It is worse — while nobody is looking. The moment somebody is, it
+      // is the single most visible thing the feed does.
+      //
+      // The cost was concrete: when the feed request outran the launch deadline
+      // (a cold ranking backend, slow mobile data — the ordinary case, not the
+      // rare one) the splash handed over on the chronological stand-in, because
+      // that is what a stand-in is for. The ranked page then arrived a second
+      // later, landed unannounced, bumped the feed generation, and crossfaded
+      // the entire list in front of somebody who had just started reading it.
+      //
+      // The placeholder cases that must still land are covered by rules that
+      // already existed and are asserted below: during the launch there is
+      // nothing on screen, a tab switch and a pull-to-refresh are the user
+      // asking, and a swap on a hidden tab is unseeable.
+      expect(_installs(visibleIsPlaceholder: true), isFalse);
+    });
+
+    test('a placeholder still lands when there is nothing to disturb', () {
+      // Rule 1 and rule 4. This is why removing the placeholder rule does not
+      // strand anyone: the disk page still fills an empty screen, and the real
+      // ranking still replaces it silently on a tab nobody is looking at.
+      expect(
+        _installs(visibleIsPlaceholder: true, hasVisibleFeed: false),
+        isTrue,
+      );
+      expect(
+        _installs(visibleIsPlaceholder: true, discoverVisible: false),
+        isTrue,
+      );
+    });
+
+    test('...and when the user asked for it', () {
+      // A tab switch installs its re-scoped seed and then the real scoped page;
+      // a pull-to-refresh replaces the disk page it was reading. Both are the
+      // user waiting for exactly this result.
+      for (final reason in [FeedInvalidation.query, FeedInvalidation.explicit]) {
+        expect(
+          _installs(visibleIsPlaceholder: true, reason: reason),
+          isTrue,
+          reason: '$reason is the user asking',
+        );
+      }
     });
 
     test('a first GPS fix does not reorder a feed being read', () {

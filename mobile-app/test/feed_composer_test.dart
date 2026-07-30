@@ -26,6 +26,47 @@ List<PostModel> organic(int n) => List.generate(n, (i) => post('org-$i'));
 void main() {
   const config = ServingConfig(discoverFirstAfter: 7, discoverGap: 8);
 
+  group('slots are rows IN the feed, not a layer over it', () {
+    // This group exists to justify a rule in DiscoverScreen, so it belongs
+    // beside the composition it describes.
+    //
+    // Sponsored cards are INSERTED between organic ones. That means applying a
+    // slot response to a list already on screen pushes every card below the
+    // first slot down — indistinguishable, to the reader, from the feed
+    // re-ranking itself. And the launch slot fetch used to be fired from
+    // Discover's post-frame callback, so it landed a beat after the feed
+    // appeared: the second feed installation, hiding in plain sight.
+    //
+    // Discover now composes slots only when doing so moves nothing (behind the
+    // splash, or with the reader back at the top). If composition ever became
+    // position-preserving these assertions would fail, and that rule could go.
+
+    test('composing a slot lengthens the list', () {
+      final bare = FeedComposer.compose(
+          organic: organic(20), slots: const [], config: config);
+      final served = FeedComposer.compose(
+          organic: organic(20), slots: [slot('c1', 's1')], config: config);
+      expect(served.length, bare.length + 1);
+    });
+
+    test('every organic card below the slot moves down one place', () {
+      final bare = FeedComposer.compose(
+          organic: organic(20), slots: const [], config: config);
+      final served = FeedComposer.compose(
+          organic: organic(20), slots: [slot('c1', 's1')], config: config);
+
+      // Above the insertion point nothing moves...
+      for (var i = 0; i < 7; i++) {
+        expect(served[i].post.id, bare[i].post.id);
+      }
+      // ...and below it, everything does.
+      for (var i = 7; i < bare.length; i++) {
+        expect(served[i + 1].post.id, bare[i].post.id,
+            reason: 'organic card $i shifted by the inserted slot');
+      }
+    });
+  });
+
   group('FeedComposer — cadence', () {
     test('first sponsored card appears after firstAfter organic cards', () {
       final entries = FeedComposer.compose(

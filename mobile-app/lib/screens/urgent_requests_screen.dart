@@ -83,9 +83,14 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
   /// Retry button, and automatic recovery on reconnect.
   Future<void> _load() {
     final location = context.read<LocationProvider>();
+    // Always a real fetch: every caller of this is the user asking (first open,
+    // pull-to-refresh, Retry, reconnect), and this screen IS the urgent list —
+    // serving it a cached one because Discover happened to load recently is how
+    // an emergency board comes to be quietly out of date.
     return context.read<AppProvider>().loadUrgentPosts(
           userLatitude: location.latitude,
           userLongitude: location.longitude,
+          force: true,
         );
   }
 

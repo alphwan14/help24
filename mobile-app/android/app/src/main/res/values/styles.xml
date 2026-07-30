@@ -7,7 +7,28 @@
         <item name="android:navigationBarColor">@color/splash_background</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+    <!-- THE SAME DRAWABLE AS LaunchTheme, AND THAT IS THE WHOLE POINT.
+
+         The Flutter embedding swaps the activity to this theme BEFORE the first
+         frame, so this is what fills the window during the gap between the
+         launch drawable and Flutter painting — a gap measured at roughly a
+         second on a mid-range device.
+
+         It was `?android:colorBackground`, which on a Light parent is WHITE: a
+         white flash mid-launch. Setting it to the flat brand colour removed the
+         flash but not the defect, because the BADGE still vanished for that
+         second and came back when Flutter painted its own. Captured frame by
+         frame on device: logo, no logo, logo. That is what "the splash loads
+         twice" was.
+
+         Pointing it at the launch drawable keeps the badge painted continuously
+         across the handoff. Nothing is drawn twice at runtime — the window
+         background is behind an opaque Flutter surface and stops being composited
+         once Flutter paints. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:statusBarColor">@color/splash_background</item>
+        <item name="android:navigationBarColor">@color/splash_background</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

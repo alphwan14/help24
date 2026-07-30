@@ -19,6 +19,7 @@ import 'notifications_screen.dart';
 import '../models/promotion_models.dart';
 import '../services/feed_snapshot.dart';
 import '../services/interaction_tracker.dart';
+import '../services/launch_sequence.dart';
 import '../services/promotion_service.dart';
 import '../utils/feed_composer.dart';
 import '../utils/post_ownership.dart';
@@ -48,6 +49,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   SlotsResult _slots = SlotsResult.empty;
   int _slotsRequestSeq = 0;
   Timer? _slotsDebounce;
+
+  /// Slots that arrived while the reader was mid-scroll, waiting for a moment
+  /// when applying them costs nothing. See [_applySlots].
+  SlotsResult? _heldSlots;
+
+  /// Mirrors what was last reported to the provider, so scroll notifications
+  /// that change nothing do no work at all.
+  bool _engaged = false;
 
   /// Owned here so applying a waiting ranking can also return the reader to the
   /// top — installing a new order while someone is 30 cards down would leave
@@ -85,13 +94,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   /// Tell the provider whether someone is reading, so a rebuild that finishes
-  /// mid-scroll is OFFERED rather than applied. Cheap enough to run on every
-  /// scroll notification: the provider ignores anything that is not a change.
+  /// mid-scroll is OFFERED rather than applied.
+  ///
+  /// Returning to the top is also the moment any sponsored slots that arrived
+  /// mid-scroll become free to compose.
   void _reportEngagement() {
     if (!mounted || !_feedScroll.hasClients) return;
-    context
-        .read<AppProvider>()
-        .setFeedEngaged(_feedScroll.offset > _engagedOffset);
+    final engaged = _feedScroll.offset > _engagedOffset;
+    if (engaged == _engaged) return;
+    _engaged = engaged;
+    context.read<AppProvider>().setFeedEngaged(engaged);
+    final held = _heldSlots;
+    if (!engaged && held != null) _applySlots(held);
   }
 
   @override
@@ -133,6 +147,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
     // Sponsored subjects are offer posts — the Requests tab shows none.
     if (_tabIndex == 1) {
+      _heldSlots = null;
       if (mounted && _slots.items.isNotEmpty) {
         setState(() => _slots = SlotsResult.empty);
       }
@@ -161,6 +176,32 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       lng: location.longitude,
     );
     if (!mounted || seq != _slotsRequestSeq) return;
+    _applySlots(result);
+  }
+
+  /// Compose [result] into the feed — but only when doing so moves nothing the
+  /// reader is looking at.
+  ///
+  /// WHY THIS IS GATED AT ALL
+  /// ------------------------
+  /// Sponsored slots are not an overlay on the feed, they are rows IN it
+  /// ([FeedComposer] inserts them between organic cards). So applying them to a
+  /// list already on screen pushes every card below the first slot down — the
+  /// same disturbance a re-ranking causes, from a source the reader has even
+  /// less ability to connect to anything they did. It was the second feed
+  /// installation hiding in plain sight: the launch fetch was fired from
+  /// Discover's post-frame callback and landed a beat after the feed appeared.
+  ///
+  /// The launch case is now free — the shell is built behind the splash, so
+  /// this resolves before anyone sees the list. This gate covers the rest: a
+  /// slot response that arrives while somebody is reading waits until they come
+  /// back to the top, which [_reportEngagement] notices.
+  void _applySlots(SlotsResult result) {
+    if (_engaged && !LaunchSequence.isHoldingSplash) {
+      _heldSlots = result;
+      return;
+    }
+    _heldSlots = null;
     PromotionTracker.instance.reset(); // new feed session → fresh impressions
     setState(() => _slots = result);
   }
@@ -273,16 +314,21 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     ),
                     // Emergency entry — red ⚡ pill with a live count of active
                     // urgent requests ("Right now" posts within their window).
-                    Consumer<AppProvider>(
-                      builder: (_, provider, __) {
-                        // Counts only requests whose window is still open. The
-                        // list is loaded once and held, so without this the
-                        // badge kept counting emergencies that had already
-                        // expired — and every caller now loads the same page
-                        // size, so this is a count rather than a page length.
-                        final urgentCount =
-                            openUrgentPosts(provider.urgentPosts, DateTime.now())
-                                .length;
+                    //
+                    // Selected rather than Consumed: AppProvider notifies on
+                    // every keystroke in the search box, every filter change and
+                    // every load transition, and this pill cares about exactly
+                    // one number. A plain Consumer rebuilt it for all of them.
+                    Selector<AppProvider, int>(
+                      // Counts only requests whose window is still open. The
+                      // list is loaded once and held, so without this the badge
+                      // kept counting emergencies that had already expired —
+                      // and every caller now loads the same page size, so this
+                      // is a count rather than a page length.
+                      selector: (_, provider) =>
+                          openUrgentPosts(provider.urgentPosts, DateTime.now())
+                              .length,
+                      builder: (_, urgentCount, __) {
                         return GestureDetector(
                           onTap: () => Navigator.push(
                             context,
@@ -538,18 +584,29 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   /// applied: the reader decides when the feed rearranges. This is the standard
   /// production behaviour for a live-ranked feed, and the reason Discover can be
   /// both fresh and calm at the same time.
+  ///
+  /// The copy is fixed, and that is a product decision rather than a
+  /// simplification. "3 new posts" describes a timeline — everything that was
+  /// published, in the order it happened — and Help24 is not one. The engine
+  /// selects; most of what gets posted never enters this feed at all. Counting
+  /// would promise an enumeration the app does not perform, and would make the
+  /// prompt read as a notification about the marketplace rather than what it is:
+  /// an offer to re-rank. What has been earned by the time this appears is
+  /// stated in AppProvider._worthOffering.
   Widget _buildNewRecommendationsPill() {
-    return Consumer<AppProvider>(
-      builder: (context, provider, _) {
+    // One boolean, so the pill does not rebuild for search keystrokes, filter
+    // changes or load transitions — none of which can make it appear or go away.
+    return Selector<AppProvider, bool>(
+      selector: (_, provider) => provider.hasPendingFeed,
+      builder: (context, hasPending, _) {
         final isDark = Theme.of(context).brightness == Brightness.dark;
-        final newPosts = provider.pendingFeedNewPostCount;
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 220),
           transitionBuilder: (child, animation) => FadeTransition(
             opacity: animation,
             child: SizeTransition(sizeFactor: animation, child: child),
           ),
-          child: !provider.hasPendingFeed
+          child: !hasPending
               ? const SizedBox.shrink()
               : Semantics(
                   button: true,
@@ -571,15 +628,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             const Icon(Icons.arrow_upward_rounded,
                                 size: 16, color: Colors.white),
                             const SizedBox(width: 7),
-                            Text(
-                              // Says something true, or says nothing specific.
-                              // "3 new posts" when three arrived; the generic
-                              // line when the change is a re-ranking rather
-                              // than new listings.
-                              newPosts > 0
-                                  ? '$newPosts new ${newPosts == 1 ? 'post' : 'posts'}'
-                                  : 'New recommendations',
-                              style: const TextStyle(
+                            const Text(
+                              'New recommendations available',
+                              style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w700,
@@ -689,9 +740,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   /// transition would make the swap itself the thing the user notices, which is
   /// the opposite of the point. The stack layout keeps both children at full
   /// size for the duration, so nothing collapses, expands or reflows.
+  ///
+  /// Instantaneous while the launch splash is up. Behind an opaque screen there
+  /// is nothing to smooth, and a transition still running when the splash
+  /// starts to fade would be uncovered halfway through — the feed would appear
+  /// to fade in on top of itself, which is a blink wearing the splash's name.
+  /// Zero duration means the last state change before the handover is fully
+  /// painted in the frame the reveal waits for.
   Widget _crossfade(Widget child) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 240),
+      duration: LaunchSequence.isHoldingSplash
+          ? Duration.zero
+          : const Duration(milliseconds: 240),
       switchInCurve: Curves.easeOut,
       switchOutCurve: Curves.easeIn,
       transitionBuilder: (child, animation) =>

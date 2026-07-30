@@ -160,13 +160,23 @@ class FeedSnapshot {
     return false;
   }
 
-  /// Ids present in [this] that were not in [previous] — "how many new posts
-  /// are waiting", for the prompt's copy.
-  int newPostCountSince(FeedSnapshot previous) {
+  /// Posts present in [this] that were not in [previous] — "how much of this
+  /// rebuild is genuinely new", which is what decides whether it is worth
+  /// interrupting a reader for at all.
+  ///
+  /// [excludingAuthor] leaves out listings the reader wrote themselves. This is
+  /// not a nicety: the author already watched the post being created, it was
+  /// spliced into the top of their feed the moment it saved, and telling them
+  /// about it afterwards is the app reporting the user's own action back to
+  /// them as news. Own work is therefore never new.
+  int newPostCountSince(FeedSnapshot previous, {String? excludingAuthor}) {
     final seen = previous.orderedPostIds.toSet();
+    final mine = (excludingAuthor?.isEmpty ?? true) ? null : excludingAuthor;
     var count = 0;
-    for (final id in orderedPostIds) {
-      if (!seen.contains(id)) count++;
+    for (final post in posts) {
+      if (seen.contains(post.id)) continue;
+      if (mine != null && post.authorUserId == mine) continue;
+      count++;
     }
     return count;
   }
@@ -299,26 +309,56 @@ enum FeedPresentation {
 /// Scrolling is the clearest statement of "I am reading this" the app receives.
 /// Above the first card, everything the app decided on its own becomes an offer.
 abstract final class FeedArrival {
-  /// The decision, as a pure function of the seven facts it turns on.
+  /// The decision, as a pure function of the eight facts it turns on.
   ///
   /// The order of the checks IS the contract:
   ///
   ///   1. nothing on screen — there is nothing to disturb;
-  ///   2. the user asked for this (refresh, tab, filter, sign-in, upgrade) —
+  ///   2. the launch is still behind the splash — Discover has not been shown
+  ///      to anyone yet, so an install is unseeable BY CONSTRUCTION rather than
+  ///      by luck. This is what lets the launch settle in one atomic step: the
+  ///      disk page, the chronological page and the ranked page may each land
+  ///      while the splash holds, and the user meets only the last of them;
+  ///   3. the user asked for this (refresh, tab, filter, sign-in, upgrade) —
   ///      they are waiting for exactly this result, and Discover returns them
   ///      to the top when it lands;
-  ///   3. the reader has scrolled — everything below this line is the app
+  ///   4. the reader has scrolled — everything below this line is the app
   ///      deciding on its own, and the app noticing something is never a licence
   ///      to reorganise someone's screen. Offered instead;
-  ///   4. what is on screen is a placeholder (disk, or another tab re-scoped) —
-  ///      never a ranking, so holding the real one back would leave the reader
-  ///      on stale posts and ask them to approve the actual feed;
   ///   5. gaining a position where there was none — the distance signal goes
   ///      from not participating to carrying the heaviest weight, so this is a
-  ///      different feed rather than a rearrangement of this one;
+  ///      different feed rather than a rearrangement of this one (and it only
+  ///      ever happens because the reader granted the permission);
   ///   6. Discover is not the visible tab — the swap is literally unseeable;
   ///   7. otherwise: install only if it moves nothing. A prompt that reorders
   ///      nothing teaches people to ignore the prompt.
+  ///
+  /// WHY "IT IS ONLY A PLACEHOLDER" IS NO LONGER A REASON
+  /// ----------------------------------------------------
+  /// This used to have a sixth rule: a page read off the disk, or another tab's
+  /// re-scoped, could always be replaced outright, on the argument that holding
+  /// the real ranking back would leave the reader on stale posts. That argument
+  /// is sound while nobody is looking, and wrong the moment somebody is.
+  ///
+  /// It produced the launch blink users kept reporting after the splash was
+  /// fixed. When the feed request outruns [LaunchSequence.deadline] — a cold
+  /// ranking backend, slow mobile data, which on this app is the ordinary case
+  /// rather than the rare one — the splash hands over on the placeholder,
+  /// because that is the whole point of having one. The ranked page then lands
+  /// a second later, this rule installed it unconditionally, the generation
+  /// bumped, Discover re-keyed its list, and the entire feed crossfaded in front
+  /// of somebody who had just started reading it.
+  ///
+  /// The placeholder cases that genuinely need to land still do, through rules
+  /// that already existed: during the launch nothing is on screen (rule 2), a
+  /// tab switch and a pull-to-refresh are the user asking (rule 3), and a swap
+  /// on a tab nobody is looking at is unseeable (rule 4). What is left — a
+  /// better page arriving on its own, at a screen someone is reading — is
+  /// offered, which is what every other automatic rebuild in this app does.
+  ///
+  /// [visibleIsPlaceholder] is still TAKEN and deliberately no longer DECIDES
+  /// anything: the call site keeps stating the fact it knows, and this rule
+  /// stays the only place that says what that fact is worth.
   static bool installs({
     required bool hasVisibleFeed,
     required bool visibleIsPlaceholder,
@@ -327,11 +367,12 @@ abstract final class FeedArrival {
     required FeedInvalidation reason,
     required bool gainsCoordinates,
     required bool differsVisibly,
+    bool launchInProgress = false,
   }) {
     if (!hasVisibleFeed) return true;
+    if (launchInProgress) return true;
     if (reason.replacesVisibleFeed) return true;
     if (discoverVisible && readerEngaged) return false;
-    if (visibleIsPlaceholder) return true;
     if (reason == FeedInvalidation.location && gainsCoordinates) return true;
     if (!discoverVisible) return true;
     return !differsVisibly;
@@ -372,6 +413,15 @@ enum FeedInvalidation {
 
   /// The snapshot aged past its TTL. Rebuild quietly and offer.
   expired,
+
+  /// The connection came back. Rebuild quietly and OFFER.
+  ///
+  /// This used to be reported as [explicit], because the reconnect handler
+  /// calls `refreshAll`. But a reconnect is the app noticing something, not the
+  /// user asking for it — and connectivity flapping during a launch was
+  /// therefore able to replace the feed outright, twice, for reasons the reader
+  /// could not connect to anything they had done.
+  reconnected,
 
   /// A new release changed what ranking means. Replace immediately — reusing a
   /// snapshot computed by different rules would be a lie.

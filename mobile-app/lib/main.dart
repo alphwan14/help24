@@ -25,16 +25,20 @@ import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'services/auth_service.dart';
 import 'services/category_schema_service.dart';
+import 'services/feed_snapshot.dart';
 import 'services/location_registry.dart';
 import 'services/profession_registry.dart';
 import 'services/chat_local_prefs.dart';
 import 'services/diagnostic_service.dart';
 import 'services/journey_engine.dart';
+import 'services/launch_sequence.dart';
 import 'services/notification_service.dart';
+import 'services/notification_store.dart';
 import 'services/session_scope.dart';
 import 'services/startup_prefetch.dart';
 import 'services/supabase_auth_bridge.dart';
 import 'theme/app_theme.dart';
+import 'widgets/launch_splash.dart';
 import 'widgets/notification_banner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -66,6 +70,11 @@ void main() async {
   // and on failure the app falls back to its existing load paths.
   unawaited(AppFirebase.initialize());
   StartupPrefetch.begin();
+  // Arm the launch deadline from the same instant the prefetch starts, so the
+  // clock covers the whole launch — Firebase's session restore included — and
+  // not just the part after a widget tree exists. StartupGate holds the splash
+  // until this says the feed is final, or until the deadline expires.
+  LaunchSequence.begin();
   // Warm the muted-chats set for synchronous reads in list tiles and menus.
   unawaited(ChatLocalPrefs.ensureLoaded());
 
@@ -87,14 +96,30 @@ void main() async {
     WidgetsBinding.instance.platformDispatcher.platformBrightness,
   );
 
+  // Decode the splash badge before the first frame. See LaunchSplash.warm.
+  await LaunchSplash.warm();
+
+  _applySystemOverlay(isDark);
+
+  runApp(Help24App(initialTheme: themePreference));
+}
+
+/// The app's system-bar style, in one place.
+///
+/// Called from three points that must agree: `main()` before the first frame,
+/// the theme builder when the user's choice changes, and [StartupGate] the
+/// moment the splash hands over — because while the splash is up it declares
+/// the bars itself (an [AnnotatedRegion] holding the brand field's light
+/// icons), and this must not be issued underneath it.
+void _applySystemOverlay(bool isDark) {
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-    systemNavigationBarColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-    systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+    systemNavigationBarColor:
+        isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+    systemNavigationBarIconBrightness:
+        isDark ? Brightness.light : Brightness.dark,
   ));
-
-  runApp(Help24App(initialTheme: themePreference));
 }
 
 class Help24App extends StatefulWidget {
@@ -206,6 +231,14 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
     final chatId = (data['chatId'] ?? data['chat_id']) as String?;
     final type = (data['type'] as String?) ?? '';
     final postId = (data['post_id'] ?? data['postId']) as String?;
+
+    // A push proves a row was written. Realtime normally delivers it too and the
+    // store de-duplicates by id, so this costs nothing when both arrive — but a
+    // dropped websocket would otherwise leave the badge stale until the next
+    // resume, on exactly the notification the user was pushed about.
+    if (type != 'chat_message') {
+      unawaited(NotificationStore.instance.refresh());
+    }
 
     // Suppress if the user is actively viewing this chat.
     final ctx = _navigatorKey.currentContext;
@@ -547,29 +580,41 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AppProvider(initialTheme: widget.initialTheme)),
+        // Eager: the launch feed is loaded from this constructor, and holding
+        // the splash for a provider that has not been built yet would mean
+        // waiting out the whole deadline on every launch.
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (_) => AppProvider(initialTheme: widget.initialTheme),
+        ),
         ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
         ChangeNotifierProvider(create: (_) => LocationProvider()),
       ],
       child: _SyncOnReconnect(
-        child: Consumer2<AppProvider, LocaleProvider>(
-          builder: (context, appProvider, localeProvider, _) {
+        // Selector, not Consumer2. This builder owns the ENTIRE MaterialApp, and
+        // AppProvider notifies on every search keystroke, every filter change,
+        // every load transition and every feed install — so a Consumer rebuilt
+        // the whole app tree dozens of times during a single launch, and
+        // re-issued the system-overlay platform call each time. The bars
+        // visibly fought the splash's own declaration as a result. Only the
+        // theme choice can change anything here.
+        //
+        // LocaleProvider is deliberately not watched: AppLocalizationsLoader
+        // watches it itself, which is the only place the language is read.
+        child: Selector<AppProvider, ThemePreference>(
+          selector: (_, appProvider) => appProvider.themePreference,
+          builder: (context, themePreference, _) {
             // Resolved here rather than read from a boolean: under Device
             // Default the effective brightness comes from the platform, and
             // didChangePlatformBrightness above rebuilds this when it flips.
-            final isDark = appProvider.themePreference.isDark(
+            final isDark = themePreference.isDark(
               WidgetsBinding.instance.platformDispatcher.platformBrightness,
             );
-            SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-              statusBarColor: Colors.transparent,
-              statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-              systemNavigationBarColor:
-                  isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-              systemNavigationBarIconBrightness:
-                  isDark ? Brightness.light : Brightness.dark,
-            ));
+            // Not while the splash owns the bars — StartupGate re-applies this
+            // the moment it hands over.
+            if (!LaunchSequence.isHoldingSplash) _applySystemOverlay(isDark);
 
             return AppLocalizationsLoader(
               child: MaterialApp(
@@ -579,7 +624,7 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
                 debugShowCheckedModeBanner: false,
                 theme: AppTheme.lightTheme,
                 darkTheme: AppTheme.darkTheme,
-                themeMode: appProvider.themeMode,
+                themeMode: themePreference.themeMode,
                 locale: const Locale('en'),
                 localizationsDelegates: const [appLocalizationsDelegate],
                 supportedLocales: const [
@@ -611,20 +656,145 @@ class StartupGate extends StatefulWidget {
   State<StartupGate> createState() => _StartupGateState();
 }
 
+/// Holds the branded splash over a LIVE app until the launch has settled.
+///
+/// WHY THE APP IS BUILT UNDERNEATH RATHER THAN AFTER
+/// -------------------------------------------------
+/// The obvious shape — render the splash, then swap in HomeScreen — is wrong in
+/// a way that reintroduces the exact bug the splash exists to fix. HomeScreen
+/// and Discover do real work in `initState` and their first post-frame
+/// callback: the viewer identity is handed to the ranking engine, the urgent
+/// list is loaded, and the sponsored slots are fetched. Deferring all of that
+/// until after the swap means it lands ON a visible feed — and sponsored slots
+/// in particular are INSERTED into the list ([FeedComposer]), so every card
+/// below the first one shifts down a second after Discover appears. That is a
+/// feed blink with a different cause and identical symptoms.
+///
+/// Building the app first and covering it with an opaque splash gives that work
+/// the same free window every other launch path gets. What is revealed is
+/// finished: ranked, composed, and not about to move.
+///
+/// The splash also FADES OUT over the app rather than the app fading in over
+/// the splash. A crossfade blends two half-transparent layers, which on a light
+/// theme washes the brand field through white and reads as a flash; fading one
+/// opaque layer away just reveals what is behind it.
 class _StartupGateState extends State<StartupGate> {
+  /// Whether the launch has finished. Drives the splash's fade-out.
+  ///
+  /// Set exactly once. There is no path back: a launch happens per process, and
+  /// re-entering it would mean putting the splash over a running app.
+  bool _open = false;
+
+  /// Whether the fade has finished and the splash can leave the tree entirely.
+  bool _splashRetired = false;
+
+  static const Duration _fade = Duration(milliseconds: 240);
+
   @override
   void initState() {
     super.initState();
+    // If this appears twice in one launch trace, the splash is not "showing
+    // twice" — the gate is being REBUILT FROM SCRATCH, which resets `_open`.
+    debugPrint('[LAUNCH] +${LaunchSequence.sinceStart}ms StartupGate created');
     unawaited(
       (widget.bootstrapFuture ?? Future<void>.value()).then((_) async {
         if (!mounted) return;
         await context.read<AuthProvider>().initialize();
       }),
     );
+
+    // THE LAUNCH CAN FINISH BEFORE THIS WIDGET EXISTS.
+    //
+    // The deadline is armed in main(), but nothing can be painted until Flutter
+    // has built a tree — and on a slow device that is seconds, not frames. On a
+    // Galaxy A21s the launch handed over at +3518ms and this widget was not
+    // created until +4280ms. Painting a splash here would put a fresh brand
+    // screen in front of somebody three quarters of a second AFTER the app was
+    // ready, then fade it out again: literally a second splash.
+    //
+    // The Android window background has been showing the badge continuously the
+    // whole time, so handing straight to the app is the seamless move — the
+    // logo never leaves the screen, and the app simply appears under it.
+    if (LaunchSequence.handedOver) {
+      debugPrint('[LAUNCH] +${LaunchSequence.sinceStart}ms launch already over '
+          '— handing straight to the app, no Flutter splash');
+      _open = true;
+      _splashRetired = true;
+      LaunchSequence.lift();
+      _applyThemedOverlay();
+      return;
+    }
+
+    // Hold the splash until the feed is final, or the deadline expires —
+    // whichever comes first. `ready` never completes with an error and is
+    // always completed by the deadline, so this cannot strand the app.
+    unawaited(LaunchSequence.ready.then((_) {
+      if (!mounted) return;
+      // ONE FRAME BETWEEN "THE FEED IS FINAL" AND "SHOW IT".
+      //
+      // The provider marks the launch final and then notifies, so the shell
+      // rebuilds in the very next frame. Starting the fade in that same frame
+      // would uncover a Discover in the middle of its own state transition —
+      // the feed fading in over itself, which looks exactly like the blink this
+      // whole mechanism exists to remove. Waiting for the frame to be painted
+      // costs ~16ms and guarantees what is revealed is settled. (While the
+      // launch is still marked as holding, that transition is instantaneous —
+      // see DiscoverScreen._crossfade — so one frame really is enough.)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        // Announce the handover BEFORE the rebuild: a snapshot landing in the
+        // same microtask must already be answering to FeedArrival rather than
+        // to the "nothing is on screen" launch rule.
+        LaunchSequence.lift();
+        // The splash's AnnotatedRegion is about to go; the app's own bar style
+        // has to replace it, or the bars keep the brand field's light icons
+        // over a light-theme app.
+        _applyThemedOverlay();
+        setState(() => _open = true);
+      });
+    }));
+  }
+
+  /// Hand the system bars back to the app's own theme.
+  void _applyThemedOverlay() {
+    _applySystemOverlay(
+      context.read<AppProvider>().themePreference.isDark(
+            WidgetsBinding.instance.platformDispatcher.platformBrightness,
+          ),
+    );
   }
 
   @override
-  Widget build(BuildContext context) => const HomeScreen();
+  void dispose() {
+    debugPrint('[LAUNCH] +${LaunchSequence.sinceStart}ms StartupGate DISPOSED '
+        '(open=$_open) — anything after this is a second launch screen');
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const HomeScreen(),
+        if (!_splashRetired)
+          // Absorbs taps for as long as it is opaque, so nothing can be
+          // triggered through a screen the user cannot see.
+          AbsorbPointer(
+            absorbing: !_open,
+            child: AnimatedOpacity(
+              opacity: _open ? 0 : 1,
+              duration: _fade,
+              curve: Curves.easeOut,
+              onEnd: () {
+                if (_open && mounted) setState(() => _splashRetired = true);
+              },
+              child: const LaunchSplash(),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _SyncOnReconnect extends StatefulWidget {
@@ -648,11 +818,18 @@ class _SyncOnReconnectState extends State<_SyncOnReconnect> {
     // there is exactly one definition of "reconnected" in the app.
     _sub = context.read<ConnectivityProvider>().onReconnect.listen((_) {
       if (!mounted) return;
-      context.read<AppProvider>().refreshAll();
+      context
+          .read<AppProvider>()
+          .refreshAll(reason: FeedInvalidation.reconnected);
       final uid = context.read<AuthProvider>().currentUserId;
       if (uid != null && uid.isNotEmpty) {
         context.read<AppProvider>().loadConversations(uid);
         context.read<AppProvider>().loadMyApplications(uid);
+        // The register re-syncs app-wide, not just when its screen is open —
+        // the bell is visible on Discover, so an unread count that only caught
+        // up after a visit to Notifications would be wrong everywhere else.
+        // A refresh can only replace rows with newer ones; it never clears.
+        unawaited(NotificationStore.instance.refresh());
       }
     });
   }

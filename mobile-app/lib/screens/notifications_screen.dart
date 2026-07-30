@@ -1,99 +1,41 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/app_notification.dart';
 import '../models/post_model.dart';
+import '../providers/connectivity_provider.dart';
+import '../services/notification_store.dart';
 import '../theme/app_theme.dart';
+import '../utils/notification_sections.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
 import 'applications_screen.dart';
 import 'approve_or_dispute_screen.dart';
 import 'dispute_thread_screen.dart';
 import 'job_lifecycle_screen.dart';
+import 'promotion/campaign_detail_screen.dart';
+import 'provider_profile_screen.dart';
 import 'review_submission_screen.dart';
 import 'messages_screen.dart';
 
-// ─── Model ────────────────────────────────────────────────────────────────────
-
-class AppNotification {
-  final String id;
-  final String type;
-  final String title;
-  final String body;
-  final Map<String, dynamic> data;
-  final bool read;
-  final DateTime createdAt;
-
-  const AppNotification({
-    required this.id,
-    required this.type,
-    required this.title,
-    required this.body,
-    required this.data,
-    required this.read,
-    required this.createdAt,
-  });
-
-  factory AppNotification.fromJson(Map<String, dynamic> json) {
-    return AppNotification(
-      id: json['id'] as String,
-      type: json['type'] as String? ?? '',
-      title: json['title'] as String? ?? '',
-      body: json['body'] as String? ?? '',
-      data: (json['data'] as Map<String, dynamic>?) ?? {},
-      read: json['read'] as bool? ?? false,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
-          DateTime.now(),
-    );
-  }
-}
-
-// ─── Service ──────────────────────────────────────────────────────────────────
-
-class NotificationsDb {
-  static SupabaseClient get _db => Supabase.instance.client;
-
-  static Future<List<AppNotification>> fetchForUser(String userId,
-      {int limit = 50}) async {
-    final res = await _db
-        .from('notifications')
-        .select()
-        .eq('user_id', userId)
-        .neq('type', 'chat_message')   // chat messages belong in the Messages tab, not the bell
-        .order('created_at', ascending: false)
-        .limit(limit);
-    return (res as List<dynamic>)
-        .map((e) => AppNotification.fromJson(e as Map<String, dynamic>))
-        .toList();
-  }
-
-  static Future<int> unreadCount(String userId) async {
-    final res = await _db
-        .from('notifications')
-        .select('id')
-        .eq('user_id', userId)
-        .neq('type', 'chat_message')   // exclude chat_message from bell badge
-        .eq('read', false);
-    return (res as List<dynamic>).length;
-  }
-
-  static Future<void> markAllRead(String userId) async {
-    await _db
-        .from('notifications')
-        .update({'read': true})
-        .eq('user_id', userId)
-        .eq('read', false);
-  }
-
-  static Future<void> markRead(String notificationId) async {
-    await _db
-        .from('notifications')
-        .update({'read': true})
-        .eq('id', notificationId);
-  }
-}
-
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
+/// The notification centre.
+///
+/// A REGISTER, NOT A FEED
+/// ----------------------
+/// This screen manages the record of real work, real money and real disputes, so
+/// it is built like a statement rather than a timeline: sectioned, prioritised,
+/// grouped, and calm. Every row answers five questions — what happened, who did
+/// it, which job it concerns, when, and what to do next — and rows that have no
+/// next step deliberately show no button, because an app whose buttons are
+/// sometimes decoration teaches people not to trust its buttons.
+///
+/// It owns NO state. The list, the unread count, the cache, the realtime
+/// subscription and the offline behaviour all live in [NotificationStore], which
+/// is what makes the bell badge and this screen incapable of disagreeing. See
+/// that class for the contracts; this file is presentation.
 class NotificationsScreen extends StatefulWidget {
   final String userId;
 
@@ -104,233 +46,389 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  List<AppNotification> _notifications = [];
-  bool _loading = true;
-  String? _error;
-  RealtimeChannel? _subscription;
+  final NotificationStore _store = NotificationStore.instance;
+  final ScrollController _scroll = ScrollController();
+  NotificationCategory? _filter;
+
+  /// How close to the bottom counts as "asking for more history".
+  static const double _paginateWithin = 400;
 
   @override
   void initState() {
     super.initState();
-    _load();
-    _subscribeRealtime();
+    _store.addListener(_onStoreChanged);
+    _scroll.addListener(_maybePaginate);
+    // Idempotent: the store is very likely already bound and warm, in which case
+    // this is a silent refresh under content that is already on screen.
+    unawaited(_store.bind(widget.userId));
   }
 
   @override
   void dispose() {
-    _subscription?.unsubscribe();
+    _store.removeListener(_onStoreChanged);
+    _scroll.removeListener(_maybePaginate);
+    _scroll.dispose();
     super.dispose();
   }
 
-  void _subscribeRealtime() {
-    debugPrint('[NOTIFICATIONS][REALTIME] Subscribing for userId=${widget.userId}');
-    _subscription = Supabase.instance.client
-        .channel('notifications:${widget.userId}')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'notifications',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'user_id',
-            value: widget.userId,
+  void _onStoreChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _maybePaginate() {
+    if (!_scroll.hasClients) return;
+    final remaining = _scroll.position.maxScrollExtent - _scroll.position.pixels;
+    if (remaining < _paginateWithin) unawaited(_store.loadMore());
+  }
+
+  Future<void> _tap(AppNotification n) async {
+    // Read immediately and locally — the user has plainly seen it, and waiting
+    // for a round trip to reflect that is how a register comes to feel laggy.
+    unawaited(_store.markRead(n.id));
+    if (mounted) await _navigate(n);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? AppTheme.darkBackground : AppTheme.lightBackground;
+    final textPrimary =
+        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final unread = _store.unreadCount;
+
+    return Scaffold(
+      backgroundColor: bg,
+      appBar: AppBar(
+        backgroundColor: bg,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              color: textPrimary, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          'Notifications',
+          style: TextStyle(
+              color: textPrimary, fontWeight: FontWeight.w700, fontSize: 18),
+        ),
+        actions: [
+          if (unread > 0)
+            TextButton(
+              onPressed: () => unawaited(_store.markAllRead()),
+              child: const Text('Mark all read',
+                  style: TextStyle(
+                      color: AppTheme.primaryAccent,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13)),
+            ),
+        ],
+      ),
+      body: ReconnectListener(
+        onReconnect: () => unawaited(_store.refresh()),
+        child: Column(
+          children: [
+            // Offline is a background state, not a takeover: the strip explains
+            // why nothing new is arriving while the cached register below stays
+            // completely readable.
+            Consumer<ConnectivityProvider>(
+              builder: (_, connectivity, __) => connectivity.isOffline
+                  ? const OfflineBanner()
+                  : const SizedBox.shrink(),
+            ),
+            _buildFilterBar(isDark),
+            Expanded(child: _buildBody(isDark)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Category chips, offered only when there is something to filter.
+  ///
+  /// Built from what the user actually HAS, never from the full taxonomy — a
+  /// chip for a category with nothing behind it is an invitation to an empty
+  /// screen.
+  Widget _buildFilterBar(bool isDark) {
+    final categories = categoriesPresent(_store.all);
+    if (categories.length < 2) return const SizedBox.shrink();
+
+    return SizedBox(
+      height: 46,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        children: [
+          _chip('All', _filter == null, () => setState(() => _filter = null), isDark),
+          for (final category in categories) ...[
+            const SizedBox(width: 8),
+            _chip(
+              category.label,
+              _filter == category,
+              () => setState(
+                  () => _filter = _filter == category ? null : category),
+              isDark,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, bool active, VoidCallback onTap, bool isDark) {
+    final border = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final idle = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    return Material(
+      color: active
+          ? AppTheme.primaryAccent.withValues(alpha: 0.12)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+                color: active ? AppTheme.primaryAccent : border),
           ),
-          callback: (payload) {
-            debugPrint(
-              '[NOTIFICATIONS][REALTIME] INSERT received — '
-              'table=${payload.table} schema=${payload.schema}',
-            );
-            try {
-              final newNotification =
-                  AppNotification.fromJson(payload.newRecord);
-              debugPrint(
-                '[NOTIFICATIONS][REALTIME] parsed type=${newNotification.type} '
-                'title="${newNotification.title}"',
-              );
-              // Chat messages are surfaced in the Messages tab, not the bell.
-              if (newNotification.type == 'chat_message') return;
-              if (mounted) {
-                setState(() {
-                  _notifications = [newNotification, ..._notifications];
-                });
-              }
-            } catch (e) {
-              debugPrint('[NOTIFICATIONS][ERROR] realtime parse error: $e');
-            }
-          },
-        )
-        .subscribe((status, [error]) {
-          debugPrint('[NOTIFICATIONS][REALTIME] status=$status error=$error');
-        });
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              color: active ? AppTheme.primaryAccent : idle,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
-  Future<void> _load() async {
-    debugPrint('[NOTIFICATIONS][AUTH] userId=${widget.userId}');
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      debugPrint('[NOTIFICATIONS][QUERY] fetching notifications for userId=${widget.userId}');
-      final data = await NotificationsDb.fetchForUser(widget.userId);
-      debugPrint('[NOTIFICATIONS][RESULT] loaded ${data.length} notifications');
-      for (final n in data) {
-        debugPrint(
-          '[NOTIFICATIONS][ITEM] id=${n.id} type=${n.type} read=${n.read} '
-          'title="${n.title}"',
+  Widget _buildBody(bool isDark) {
+    switch (_store.presentation) {
+      case NotificationPresentation.loading:
+        return const ConversationSkeletonList(itemCount: 5);
+
+      case NotificationPresentation.failed:
+        return ErrorRetryView(
+          message: _store.error ?? 'Something went wrong.',
+          onRetry: () => unawaited(_store.refresh()),
         );
-      }
-      if (mounted) setState(() => _notifications = data);
-    } catch (e) {
-      debugPrint('[NOTIFICATIONS][ERROR] load failed: $e');
-      if (mounted) setState(() => _error = 'Failed to load notifications.');
-    } finally {
-      if (mounted) setState(() => _loading = false);
+
+      case NotificationPresentation.empty:
+        return const EmptyStateView(
+          icon: Icons.notifications_none_rounded,
+          title: 'Nothing to report',
+          subtitle:
+              "Applications, payments, job updates and disputes will appear here.",
+        );
+
+      case NotificationPresentation.content:
+        return _buildRegister(isDark);
     }
   }
 
-  Future<void> _markAllRead() async {
-    await NotificationsDb.markAllRead(widget.userId);
-    if (mounted) {
-      setState(() {
-        _notifications = _notifications
-            .map((n) => AppNotification(
-                  id: n.id,
-                  type: n.type,
-                  title: n.title,
-                  body: n.body,
-                  data: n.data,
-                  read: true,
-                  createdAt: n.createdAt,
-                ))
-            .toList();
-      });
+  Widget _buildRegister(bool isDark) {
+    final sections = buildSections(
+      attention: _store.needsAttention,
+      timeline: _store.timeline,
+      now: DateTime.now(),
+      categoryFilter: _filter,
+    );
+
+    if (sections.isEmpty) {
+      // A filter with nothing behind it. Says exactly that, rather than
+      // implying the whole register is empty.
+      return EmptyStateView(
+        icon: Icons.filter_alt_off_rounded,
+        title: 'Nothing in ${_filter?.label ?? 'this category'}',
+        subtitle: 'Choose another category to see the rest.',
+        actions: [
+          TextButton(
+            onPressed: () => setState(() => _filter = null),
+            child: const Text('Show all'),
+          ),
+        ],
+      );
     }
+
+    return RefreshIndicator(
+      color: AppTheme.primaryAccent,
+      onRefresh: _store.refresh,
+      child: CustomScrollView(
+        controller: _scroll,
+        slivers: [
+          for (final section in sections) ...[
+            SliverToBoxAdapter(
+              child: _SectionHeader(title: section.title, pinned: section.pinned),
+            ),
+            SliverList.builder(
+              itemCount: section.groups.length,
+              itemBuilder: (_, i) => _NotificationRow(
+                key: ValueKey(section.groups[i].key),
+                group: section.groups[i],
+                onTap: _tap,
+              ),
+            ),
+          ],
+          if (_store.isLoadingMore)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+            ),
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+        ],
+      ),
+    );
   }
 
-  Future<void> _tapNotification(AppNotification n) async {
-    // Mark read immediately (optimistic — don't wait for DB).
-    if (!n.read) {
-      unawaited(NotificationsDb.markRead(n.id));
-      if (mounted) {
-        setState(() {
-          _notifications = _notifications
-              .map((x) => x.id == n.id
-                  ? AppNotification(
-                      id: x.id, type: x.type, title: x.title, body: x.body,
-                      data: x.data, read: true, createdAt: x.createdAt)
-                  : x)
-              .toList();
-        });
-      }
-    }
-    if (mounted) await _navigateFromNotification(n);
-  }
+  // ── Routing ───────────────────────────────────────────────────────────────
 
-  // ── Centralised notification router ─────────────────────────────────────────
-
-  Future<void> _navigateFromNotification(AppNotification n) async {
+  /// Where a notification goes when tapped.
+  ///
+  /// Driven by the payload rather than by a `switch` over types, which is what
+  /// makes it TOTAL: the previous router listed sixteen of the backend's
+  /// twenty-two types and silently did nothing for the rest, so a rejected
+  /// promotion or a received review was a row you could tap forever. Every
+  /// notification now lands somewhere it can be acted on, and a type this build
+  /// has never seen still routes on whatever context its data names.
+  Future<void> _navigate(AppNotification n) async {
     final data = n.data;
-    debugPrint('[NOTIFICATIONS][NAV] type=${n.type} data=$data');
+
+    // Disputes are the most specific destination, and the thread is where the
+    // conversation actually is.
+    final disputeId = n.disputeId;
+    if (disputeId != null && n.kind.category == NotificationCategory.disputes) {
+      final threadTypes = {
+        'dispute_message',
+        'dispute_evidence_requested',
+        'dispute_evidence_uploaded',
+      };
+      if (threadTypes.contains(n.type)) {
+        await _push(DisputeThreadScreen(disputeId: disputeId));
+        return;
+      }
+    }
 
     switch (n.type) {
-      // ── Chat message → open the exact conversation ─────────────────────────
       case 'chat_message':
-        final chatId = data['chat_id'] as String?;
-        if (chatId != null && chatId.isNotEmpty) {
-          debugPrint('[NAV][OPEN_CHAT] chat_message chatId=$chatId');
+        final chatId = n.chatId;
+        if (chatId != null) {
           await _openChatById(chatId: chatId, userName: n.title);
+        } else {
+          _openMessages();
         }
-        break;
+        return;
 
-      // ── Provider applied → open the applications list for the post ─────────
       case 'provider_applied':
-        final postId = data['post_id'] as String?;
-        if (postId != null && postId.isNotEmpty) {
-          debugPrint('[NAV][OPEN_APPLICATIONS] provider_applied postId=$postId');
-          await _openApplicationsFromBell(postId: postId);
-        }
-        break;
+      case 'application_withdrawn':
+        final postId = n.postId;
+        if (postId != null) await _openApplications(postId: postId);
+        return;
 
-      // ── Dispute communication → open the dispute conversation thread ───────
-      case 'dispute_message':
-      case 'dispute_evidence_requested':
-      case 'dispute_evidence_uploaded':
-        final disputeId = data['dispute_id'] as String?;
-        if (disputeId != null && disputeId.isNotEmpty) {
-          debugPrint('[NAV][OPEN_DISPUTE_THREAD] ${n.type} disputeId=$disputeId');
-          await Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => DisputeThreadScreen(disputeId: disputeId),
-          ));
-        }
-        break;
-
-      // ── Completion requested → open approve/dispute screen ─────────────────
       case 'completion_requested':
-        final postId = data['post_id'] as String?;
-        if (postId != null && postId.isNotEmpty) {
-          debugPrint('[NAV][OPEN_APPROVAL] completion_requested postId=$postId');
-          await _openApprovalFromBell(postId: postId);
+        final postId = n.postId;
+        if (postId != null) {
+          await _push(ApproveOrDisputeScreen(
+            postId: postId,
+            clientUserId: widget.userId,
+          ));
         }
-        break;
+        return;
 
-      // ── Review requested → open review submission (entry point 3) ──────────
       case 'review_requested':
-        final rvPostId = data['post_id'] as String?;
-        if (rvPostId != null && rvPostId.isNotEmpty && mounted) {
-          debugPrint('[NAV][OPEN_REVIEW] review_requested postId=$rvPostId');
-          await Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => ReviewSubmissionScreen(postId: rvPostId, clientUserId: widget.userId),
+        final postId = n.postId;
+        if (postId != null) {
+          await _push(ReviewSubmissionScreen(
+            postId: postId,
+            clientUserId: widget.userId,
           ));
         }
-        break;
+        return;
 
-      // ── Provider selected → open the job chat (next step: secure payment) ──
+      case 'review_received':
+        // The review lives on the recipient's own public profile — which is
+        // both where it is displayed and where its effect on reputation is.
+        await _push(ProviderProfileScreen(providerId: widget.userId));
+        return;
+
       case 'provider_selected':
-        final psChatId = data['chat_id'] as String?;
-        final psPostId = data['post_id'] as String?;
-        if (psChatId != null && psChatId.isNotEmpty) {
-          await _openChatById(chatId: psChatId, userName: 'Job Chat');
-        } else if (psPostId != null && psPostId.isNotEmpty) {
-          final foundId = await _findChatByPost(postId: psPostId);
-          if (foundId != null && mounted) {
-            await _openChatById(chatId: foundId, userName: 'Job Chat');
-          } else if (mounted) {
-            _openMessages();
-          }
+        final chatId = n.chatId ??
+            (n.postId == null ? null : await _findChatByPost(postId: n.postId!));
+        if (chatId != null) {
+          await _openChatById(chatId: chatId, userName: 'Job chat');
+        } else if (n.postId != null) {
+          await _push(JobLifecycleScreen(postId: n.postId!));
+        } else {
+          _openMessages();
         }
-        break;
+        return;
 
-      // ── Money + dispute lifecycle → unified Job Lifecycle Detail ───────────
-      case 'payment_secured':
-      case 'job_approved':
-      case 'payout_released':
-      case 'escrow_released':
-      case 'dispute_opened':
-      case 'dispute_resolved_release':
-      case 'dispute_resolved_refund':
-      case 'dispute_resolved_partial':
-        final lcPostId = data['post_id'] as String?;
-        if (lcPostId != null && lcPostId.isNotEmpty && mounted) {
-          debugPrint('[NAV][OPEN_LIFECYCLE] ${n.type} postId=$lcPostId');
-          await Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => JobLifecycleScreen(postId: lcPostId),
+      case 'promotion_payment_received':
+      case 'promotion_live':
+      case 'promotion_rejected':
+      case 'promotion_completed':
+        final campaignId = data['campaign_id']?.toString();
+        if (campaignId != null && campaignId.isNotEmpty) {
+          await _push(CampaignDetailScreen(
+            campaignId: campaignId,
+            uid: widget.userId,
           ));
         }
-        break;
+        return;
 
-      default:
-        debugPrint('[NOTIFICATIONS][NAV] unknown type=${n.type} — no navigation');
-        break;
+      case 'verification_approved':
+      case 'badge_earned':
+      case 'profile_updated':
+        await _push(ProviderProfileScreen(providerId: widget.userId));
+        return;
     }
+
+    // Everything money- and job-shaped — and every type this build has never
+    // heard of that still names a listing — resolves to the one screen that can
+    // explain the whole state of that job.
+    final postId = n.postId;
+    if (postId != null) {
+      await _push(JobLifecycleScreen(postId: postId));
+      return;
+    }
+    final chatId = n.chatId;
+    if (chatId != null) {
+      await _openChatById(chatId: chatId, userName: n.title);
+      return;
+    }
+    final fallbackDispute = n.disputeId;
+    if (fallbackDispute != null) {
+      await _push(DisputeThreadScreen(disputeId: fallbackDispute));
+    }
+    // No context at all: an announcement. The row itself was the message, and
+    // navigating somewhere arbitrary would be worse than staying put.
   }
 
-  /// Open ChatScreen for a given chatId. Loads the partner's name/avatar so the
-  /// chat header always shows the real user's name rather than a generic placeholder.
-  Future<void> _openChatById({required String chatId, String userName = 'Chat'}) async {
+  Future<void> _push(Widget screen) async {
     if (!mounted) return;
-    debugPrint('[NOTIFICATIONS][NAV] opening ChatScreen chatId=$chatId');
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
 
+  /// Open a chat, resolving the partner so the header shows a real person.
+  ///
+  /// The avatar columns are `avatar_url` with a `profile_image` fallback — the
+  /// same pair every other author read in the app uses. This used to ask for
+  /// `profile_picture_url`, which does not exist on `users`: the query threw,
+  /// the failure was swallowed, and every chat opened from the bell showed a
+  /// generic name and no picture.
+  Future<void> _openChatById(
+      {required String chatId, String userName = 'Chat'}) async {
+    if (!mounted) return;
     String resolvedName = userName;
     String resolvedAvatar = '';
     String participantId = '';
@@ -347,84 +445,61 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         if (participantId.isNotEmpty) {
           final userRow = await Supabase.instance.client
               .from('users')
-              .select('name, profile_picture_url')
+              .select('name, avatar_url, profile_image')
               .eq('id', participantId)
               .maybeSingle();
           resolvedName = (userRow?['name'] as String?) ?? userName;
-          resolvedAvatar = (userRow?['profile_picture_url'] as String?) ?? '';
+          final avatar = (userRow?['avatar_url'] as String?)?.trim() ?? '';
+          final profileImage =
+              (userRow?['profile_image'] as String?)?.trim() ?? '';
+          resolvedAvatar = avatar.isNotEmpty ? avatar : profileImage;
         }
       }
     } catch (e) {
-      debugPrint('[NOTIFICATIONS][NAV] partner name load failed: $e');
+      debugPrint('[NOTIFICATIONS][NAV] partner load failed: $e');
     }
 
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ChatScreen(
-          conversation: Conversation(
-            id: chatId,
-            participantId: participantId,
-            userName: resolvedName,
-            userAvatar: resolvedAvatar,
-            lastMessage: '',
-            lastMessageTime: DateTime.now(),
-          ),
-          currentUserId: widget.userId,
-        ),
+    await _push(ChatScreen(
+      conversation: Conversation(
+        id: chatId,
+        participantId: participantId,
+        userName: resolvedName,
+        userAvatar: resolvedAvatar,
+        lastMessage: '',
+        lastMessageTime: DateTime.now(),
       ),
-    );
-  }
-
-  /// Navigate to Messages tab (fall-back when no specific chat is found).
-  void _openMessages() {
-    debugPrint('[NOTIFICATIONS][NAV] falling back to MessagesScreen');
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const MessagesScreen()),
-    );
-  }
-
-  /// Open the self-loading ApproveOrDisputeScreen. Requires only post_id + the
-  /// current user; the screen loads its own data from the backend. No Supabase
-  /// reads, no RLS dependency, and no Messages fallback.
-  Future<void> _openApprovalFromBell({required String postId}) async {
-    debugPrint('[NAV][OPEN_APPROVAL] postId=$postId');
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ApproveOrDisputeScreen(
-        postId: postId,
-        clientUserId: widget.userId,
-      ),
+      currentUserId: widget.userId,
     ));
   }
 
-  /// Navigate to ApplicationsScreen, fetching post data first.
-  Future<void> _openApplicationsFromBell({required String postId}) async {
+  void _openMessages() {
+    if (!mounted) return;
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const MessagesScreen()));
+  }
+
+  Future<void> _openApplications({required String postId}) async {
     try {
       final post = await Supabase.instance.client
           .from('posts')
           .select('id, title, author_user_id')
           .eq('id', postId)
           .maybeSingle();
-
-      if (!mounted || post == null) {
-        if (mounted) _openMessages();
+      if (!mounted) return;
+      if (post == null) {
+        _openMessages();
         return;
       }
-
-      debugPrint('[NAV][OPEN_APPLICATIONS] postId=$postId');
-      await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ApplicationsScreen(
-          postId: postId,
-          postTitle: post['title'] as String? ?? 'Job',
-          authorUserId: post['author_user_id'] as String? ?? widget.userId,
-        ),
+      await _push(ApplicationsScreen(
+        postId: postId,
+        postTitle: post['title'] as String? ?? 'Job',
+        authorUserId: post['author_user_id'] as String? ?? widget.userId,
       ));
     } catch (e) {
-      debugPrint('[NAV][OPEN_APPLICATIONS][ERROR] _openApplicationsFromBell: $e');
+      debugPrint('[NOTIFICATIONS][NAV] applications load failed: $e');
     }
   }
 
-  /// Find the chat for a given post_id where the current user is a participant.
   Future<String?> _findChatByPost({required String postId}) async {
     try {
       final res = await Supabase.instance.client
@@ -435,285 +510,299 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           .maybeSingle();
       return res?['id'] as String?;
     } catch (e) {
-      debugPrint('[NOTIFICATIONS][NAV][ERROR] _findChatByPost: $e');
+      debugPrint('[NOTIFICATIONS][NAV] chat lookup failed: $e');
       return null;
     }
   }
+}
 
-  /// Find the chat for a post_id where otherUserId is a participant.
-  Future<String?> _findChatByParticipant({
-    required String postId,
-    required String otherUserId,
-  }) async {
-    try {
-      final res = await Supabase.instance.client
-          .from('chats')
-          .select('id')
-          .eq('post_id', postId)
-          .or('user1.eq.$otherUserId,user2.eq.$otherUserId')
-          .maybeSingle();
-      return res?['id'] as String?;
-    } catch (e) {
-      debugPrint('[NOTIFICATIONS][NAV][ERROR] _findChatByParticipant: $e');
-      return null;
-    }
-  }
+// ─── Section header ───────────────────────────────────────────────────────────
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final bool pinned;
+
+  const _SectionHeader({required this.title, required this.pinned});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? AppTheme.darkBackground : AppTheme.lightBackground;
-    final card = isDark ? AppTheme.darkCard : Colors.white;
-    final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
-    final textSecondary = isDark ? Colors.white54 : Colors.black54;
+    final color = pinned
+        ? AppTheme.primaryAccent
+        : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary);
 
-    final unread = _notifications.where((n) => !n.read).length;
-
-    return Scaffold(
-      backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: bg,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded, color: textPrimary, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Notifications${unread > 0 ? ' ($unread)' : ''}',
-          style: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w700, fontSize: 18),
-        ),
-        actions: [
-          if (unread > 0)
-            TextButton(
-              onPressed: _markAllRead,
-              child: Text('Mark all read',
-                  style: TextStyle(
-                      color: AppTheme.primaryAccent,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13)),
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, pinned ? 14 : 22, 20, 8),
+      child: Row(
+        children: [
+          Text(
+            title.toUpperCase(),
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.7,
             ),
+          ),
         ],
-      ),
-      body: ReconnectListener(
-        onReconnect: _load,
-        child: _buildBody(
-          isDark: isDark,
-          card: card,
-          textPrimary: textPrimary,
-          textSecondary: textSecondary,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBody({
-    required bool isDark,
-    required Color card,
-    required Color textPrimary,
-    required Color textSecondary,
-  }) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline_rounded, color: textSecondary, size: 40),
-            const SizedBox(height: 12),
-            Text(_error!,
-                style: TextStyle(color: textSecondary, fontSize: 14)),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: _load,
-              child: Text('Retry',
-                  style: TextStyle(color: AppTheme.primaryAccent)),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_notifications.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.notifications_none_rounded,
-                color: textSecondary, size: 48),
-            const SizedBox(height: 12),
-            Text('No notifications yet',
-                style: TextStyle(
-                    color: textSecondary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 6),
-            Text("You'll be notified about payments, job updates, and disputes.",
-                textAlign: TextAlign.center,
-                style:
-                    TextStyle(color: textSecondary.withOpacity(0.7), fontSize: 13)),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _load,
-      color: AppTheme.primaryAccent,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: _notifications.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 1),
-        itemBuilder: (context, i) {
-          final n = _notifications[i];
-          return _NotificationTile(
-            notification: n,
-            card: card,
-            textPrimary: textPrimary,
-            textSecondary: textSecondary,
-            onTap: () => _tapNotification(n),
-          );
-        },
       ),
     );
   }
 }
 
-// ─── Tile ─────────────────────────────────────────────────────────────────────
+// ─── Row ──────────────────────────────────────────────────────────────────────
 
-class _NotificationTile extends StatelessWidget {
-  final AppNotification notification;
-  final Color card;
-  final Color textPrimary;
-  final Color textSecondary;
-  final VoidCallback onTap;
+/// One row: a notification, or a collapsed group of them.
+///
+/// Restrained on purpose. Marketplaces that manage other people's money read as
+/// registers — Stripe, Airbnb, Uber — and the register's job is to be scanned in
+/// two seconds and trusted completely. So: one accent per tone, no gradients, no
+/// motion beyond the expand, and no decoration that is not carrying information.
+class _NotificationRow extends StatefulWidget {
+  final NotificationGroup group;
+  final Future<void> Function(AppNotification) onTap;
 
-  const _NotificationTile({
-    required this.notification,
-    required this.card,
-    required this.textPrimary,
-    required this.textSecondary,
-    required this.onTap,
-  });
+  const _NotificationRow({super.key, required this.group, required this.onTap});
 
-  IconData get _icon {
-    switch (notification.type) {
-      case 'chat_message': return Icons.chat_bubble_rounded;
-      case 'provider_applied': return Icons.person_add_rounded;
-      case 'payment_secured': return Icons.lock_rounded;
-      case 'provider_selected': return Icons.how_to_reg_rounded;
-      case 'completion_requested': return Icons.check_circle_outline_rounded;
-      case 'job_approved': return Icons.thumb_up_rounded;
-      case 'payout_released': return Icons.payments_rounded;
-      case 'dispute_opened':
-      case 'dispute_opened_confirm': return Icons.flag_rounded;
-      case 'dispute_resolved_release':
-      case 'dispute_resolved_refund':
-      case 'dispute_resolved_partial': return Icons.gavel_rounded;
-      case 'dispute_message': return Icons.forum_rounded;
-      case 'dispute_evidence_requested': return Icons.upload_file_rounded;
-      case 'dispute_evidence_uploaded': return Icons.attach_file_rounded;
-      case 'escrow_released': return Icons.account_balance_wallet_rounded;
-      default: return Icons.notifications_rounded;
-    }
-  }
+  @override
+  State<_NotificationRow> createState() => _NotificationRowState();
+}
 
-  Color get _iconColor {
-    switch (notification.type) {
-      case 'chat_message': return AppTheme.primaryAccent;
-      case 'provider_applied': return AppTheme.primaryAccent;
-      case 'payment_secured':
-      case 'payout_released':
-      case 'escrow_released': return AppTheme.successGreen;
-      case 'dispute_opened':
-      case 'dispute_opened_confirm': return Colors.red;
-      case 'dispute_resolved_release':
-      case 'dispute_resolved_refund':
-      case 'dispute_resolved_partial': return AppTheme.warningOrange;
-      case 'dispute_message':
-      case 'dispute_evidence_requested':
-      case 'dispute_evidence_uploaded': return AppTheme.primaryAccent;
-      default: return AppTheme.primaryAccent;
-    }
-  }
+class _NotificationRowState extends State<_NotificationRow> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
-    final unread = !notification.read;
+    final group = widget.group;
+    if (!group.isGroup) {
+      return _NotificationTile(
+        notification: group.lead,
+        onTap: () => widget.onTap(group.lead),
+      );
+    }
 
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        color: unread ? _iconColor.withOpacity(0.05) : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _NotificationTile(
+          notification: group.lead,
+          groupCount: group.length,
+          groupUnread: group.unreadCount,
+          expanded: _expanded,
+          onTap: () => setState(() => _expanded = !_expanded),
+        ),
+        if (_expanded)
+          Padding(
+            padding: const EdgeInsets.only(left: 26),
+            child: DecoratedBox(
               decoration: BoxDecoration(
-                color: _iconColor.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(12),
+                border: Border(
+                  left: BorderSide(
+                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                  ),
+                ),
               ),
-              child: Icon(_icon, color: _iconColor, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          notification.title,
-                          style: TextStyle(
-                            color: textPrimary,
-                            fontWeight: unread
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                      if (unread)
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                              color: _iconColor, shape: BoxShape.circle),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    notification.body,
-                    style: TextStyle(
-                        color: textSecondary, fontSize: 13, height: 1.4),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    formatRelativeTime(notification.createdAt),
-                    style: TextStyle(
-                        color: textSecondary.withOpacity(0.7), fontSize: 11),
-                  ),
+                  for (final n in group.items.skip(1))
+                    _NotificationTile(
+                      notification: n,
+                      dense: true,
+                      onTap: () => widget.onTap(n),
+                    ),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }
 
-// ─── Badge widget (reusable in nav bar or profile) ───────────────────────────
+class _NotificationTile extends StatelessWidget {
+  final AppNotification notification;
+  final VoidCallback onTap;
 
+  /// Set when this tile is the lead of a collapsed group.
+  final int? groupCount;
+  final int groupUnread;
+  final bool expanded;
+
+  /// Members of an expanded group render smaller, so the group still reads as
+  /// one item rather than as several that happen to be indented.
+  final bool dense;
+
+  const _NotificationTile({
+    required this.notification,
+    required this.onTap,
+    this.groupCount,
+    this.groupUnread = 0,
+    this.expanded = false,
+    this.dense = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary =
+        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary =
+        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textTertiary =
+        isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+
+    final kind = notification.kind;
+    final tone = kind.tone.color(isDark);
+    final unread = groupCount != null ? groupUnread > 0 : !notification.read;
+    final isGroup = groupCount != null && groupCount! > 1;
+
+    return Semantics(
+      button: true,
+      selected: unread,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          // The unread wash is the only background the register uses. It marks
+          // the rows that still need something without turning the list into a
+          // colour chart.
+          color: unread ? tone.withValues(alpha: 0.055) : Colors.transparent,
+          padding: EdgeInsets.fromLTRB(20, dense ? 11 : 15, 16, dense ? 11 : 15),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: EdgeInsets.all(dense ? 7 : 9),
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(kind.icon, color: tone, size: dense ? 16 : 19),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            isGroup
+                                ? '$groupCount ${_pluralise(kind, groupCount!)}'
+                                : notification.title,
+                            style: TextStyle(
+                              color: textPrimary,
+                              fontWeight:
+                                  unread ? FontWeight.w700 : FontWeight.w600,
+                              fontSize: dense ? 13 : 14.5,
+                              height: 1.25,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          formatRelativeTime(notification.createdAt),
+                          style: TextStyle(color: textTertiary, fontSize: 11),
+                        ),
+                        if (unread) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 7,
+                            height: 7,
+                            margin: const EdgeInsets.only(top: 4),
+                            decoration:
+                                BoxDecoration(color: tone, shape: BoxShape.circle),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      notification.body,
+                      style: TextStyle(
+                          color: textSecondary,
+                          fontSize: dense ? 12.5 : 13,
+                          height: 1.4),
+                      maxLines: dense ? 1 : 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    // A group's lead offers expansion; a single row offers the
+                    // action its kind defines. Nothing offers both, and a kind
+                    // with no next step offers neither.
+                    if (isGroup) ...[
+                      const SizedBox(height: 7),
+                      Row(
+                        children: [
+                          Text(
+                            expanded ? 'Hide' : 'Show all',
+                            style: TextStyle(
+                              color: AppTheme.primaryAccent,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Icon(
+                            expanded
+                                ? Icons.keyboard_arrow_up_rounded
+                                : Icons.keyboard_arrow_down_rounded,
+                            size: 17,
+                            color: AppTheme.primaryAccent,
+                          ),
+                        ],
+                      ),
+                    ] else if (kind.action != null && !dense) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        kind.action!,
+                        style: const TextStyle(
+                          color: AppTheme.primaryAccent,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// "3 new applications", "2 payment updates" — the group's headline, phrased
+  /// from the category so it reads as English rather than as a type name.
+  static String _pluralise(NotificationKind kind, int count) =>
+      switch (kind.category) {
+        NotificationCategory.applications => 'new applications',
+        NotificationCategory.jobs => 'job updates',
+        NotificationCategory.payments => 'payment updates',
+        NotificationCategory.disputes => 'dispute updates',
+        NotificationCategory.reviews => 'new reviews',
+        NotificationCategory.messages => 'new messages',
+        NotificationCategory.promotions => 'campaign updates',
+        NotificationCategory.provider => 'profile updates',
+        NotificationCategory.system => 'system notices',
+        NotificationCategory.support => 'support updates',
+      };
+}
+
+// ─── Badge ────────────────────────────────────────────────────────────────────
+
+/// The bell's unread badge.
+///
+/// A thin view onto [NotificationStore] and nothing more. It used to own a
+/// count, a realtime subscription and a fetch of its own, all of which
+/// disagreed with the screen's — and because it re-queried the whole count for
+/// every realtime event with no sequencing, "mark all read" made it step
+/// through arbitrary values before settling. It cannot now: there is one number
+/// in the app, it changes on four events, and this widget only renders it.
+///
+/// The public API ([userId] + [child]) is unchanged, so the call site did not
+/// have to move.
 class NotificationBadge extends StatefulWidget {
   final String userId;
   final Widget child;
@@ -730,70 +819,50 @@ class NotificationBadge extends StatefulWidget {
 
 class _NotificationBadgeState extends State<NotificationBadge>
     with WidgetsBindingObserver {
-  int _unread = 0;
-  RealtimeChannel? _subscription;
+  final NotificationStore _store = NotificationStore.instance;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _refresh();
-    _subscribeRealtime();
+    _store.addListener(_onStoreChanged);
+    unawaited(_store.bind(widget.userId));
+  }
+
+  @override
+  void didUpdateWidget(covariant NotificationBadge oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) {
+      unawaited(_store.bind(widget.userId));
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _subscription?.unsubscribe();
+    _store.removeListener(_onStoreChanged);
     super.dispose();
+  }
+
+  void _onStoreChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _refresh();
-    }
-  }
-
-  void _subscribeRealtime() {
-    debugPrint('[NOTIFICATIONS][BADGE] Subscribing realtime for userId=${widget.userId}');
-    _subscription = Supabase.instance.client
-        .channel('notification_badge:${widget.userId}')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'notifications',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'user_id',
-            value: widget.userId,
-          ),
-          callback: (_) {
-            debugPrint('[NOTIFICATIONS][BADGE] Realtime event → refreshing count');
-            _refresh();
-          },
-        )
-        .subscribe((status, [error]) {
-          debugPrint('[NOTIFICATIONS][BADGE] subscription status=$status error=$error');
-        });
-  }
-
-  Future<void> _refresh() async {
-    try {
-      final count = await NotificationsDb.unreadCount(widget.userId);
-      debugPrint('[NOTIFICATIONS][BADGE] unread=$count for userId=${widget.userId}');
-      if (mounted) setState(() => _unread = count);
-    } catch (e) {
-      debugPrint('[NOTIFICATIONS][BADGE][ERROR] $e');
-    }
+    // Coming back to the app is a good moment to re-sync — but it is a REFRESH,
+    // which cannot clear the badge or blank the list. The count only moves if
+    // the server reports a different one.
+    if (state == AppLifecycleState.resumed) unawaited(_store.refresh());
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_unread == 0) return widget.child;
+    final unread = _store.unreadCount;
+    if (unread == 0) return widget.child;
     return Badge(
-      label: Text(_unread > 99 ? '99+' : '$_unread'),
-      backgroundColor: Colors.red,
+      label: Text(unread > 99 ? '99+' : '$unread'),
+      backgroundColor: AppTheme.errorRed,
       child: widget.child,
     );
   }

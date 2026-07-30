@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/app_notification.dart';
 import '../models/post_model.dart';
 import 'session_scope.dart';
 
@@ -125,6 +126,69 @@ class CacheService {
       return [];
     }
   }
+
+  // ---------- Notifications (offline notification centre) ----------
+
+  /// The notification register, with its unread count.
+  ///
+  /// The count is stored ALONGSIDE the rows rather than derived from them, and
+  /// that is the point: the register is paginated, so counting the rows on disk
+  /// would under-report every user with more unread notifications than one page
+  /// — and a badge that reads (7) online and (3) offline is worse than no badge.
+  /// The stored figure is the last authoritative answer the server gave, which
+  /// is exactly what a cold start should render on its first frame instead of
+  /// the zero it used to show while a query was in flight.
+  static Future<void> saveNotifications(
+    String userId,
+    List<AppNotification> list, {
+    required int unread,
+  }) async {
+    if (userId.isEmpty) return;
+    try {
+      final prefs = await _instance;
+      await prefs.setString(
+        SessionScope.scopedKey(SessionKeys.notifications, userId),
+        jsonEncode({
+          'unread': unread,
+          // Bounded: the register is history, and history is read from the
+          // server. This is the window somebody can scroll offline, not an
+          // archive.
+          'rows': list.take(_maxCachedNotifications).map((n) => n.toCacheMap()).toList(),
+        }),
+      );
+    } catch (e) {
+      // Non-critical
+    }
+  }
+
+  static Future<({List<AppNotification> rows, int unread})> loadNotifications(
+    String userId,
+  ) async {
+    if (userId.isEmpty) return (rows: const <AppNotification>[], unread: 0);
+    try {
+      final prefs = await _instance;
+      final json =
+          prefs.getString(SessionScope.scopedKey(SessionKeys.notifications, userId));
+      if (json == null || json.isEmpty) {
+        return (rows: const <AppNotification>[], unread: 0);
+      }
+      final decoded = jsonDecode(json);
+      if (decoded is! Map) return (rows: const <AppNotification>[], unread: 0);
+      final rawRows = decoded['rows'];
+      final rows = <AppNotification>[
+        if (rawRows is List)
+          for (final row in rawRows)
+            if (row is Map)
+              AppNotification.fromJson(Map<String, dynamic>.from(row)),
+      ];
+      final unread = decoded['unread'];
+      return (rows: rows, unread: unread is int ? unread : 0);
+    } catch (e) {
+      return (rows: const <AppNotification>[], unread: 0);
+    }
+  }
+
+  static const int _maxCachedNotifications = 60;
 
   // ---------- Messages per chat (offline chat view) ----------
 

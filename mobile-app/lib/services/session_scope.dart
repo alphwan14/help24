@@ -52,6 +52,10 @@ class SessionScope {
     'help24_cache_conversations_',
     'help24_cache_messages_',
     'help24_outbox_',
+    // The notification register. Titles and bodies name jobs, payment amounts,
+    // disputes and the people involved — user-owned by any reading, and
+    // therefore scoped and purged like the conversation list it sits beside.
+    'help24_cache_notifications_',
   ];
 
   /// Keys that belong to the signed-in user but carry NO uid — device-local
@@ -262,4 +266,5 @@ class SessionKeys {
   static const String conversations = 'help24_cache_conversations_';
   static const String messages = 'help24_cache_messages_';
   static const String outbox = 'help24_outbox_';
+  static const String notifications = 'help24_cache_notifications_';
 }
