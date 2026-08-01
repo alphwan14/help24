@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ReputationService } from './reputation.service';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * Public, read-only reputation surface. Backend-mediated so the mobile app never
@@ -13,12 +14,14 @@ export class ReputationController {
   constructor(private readonly reputation: ReputationService) {}
 
   /** Reputation summary for a provider profile. */
+  @RateLimit('general:read')
   @Get('reputation/:providerId')
   getReputation(@Param('providerId') providerId: string) {
     return this.reputation.getReputation(providerId);
   }
 
   /** Visible reviews for a provider (paginated, newest first). */
+  @RateLimit('general:read')
   @Get('reviews/provider/:providerId')
   listProviderReviews(
     @Param('providerId') providerId: string,

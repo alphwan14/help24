@@ -1,16 +1,30 @@
 import { NestExpressApplication } from '@nestjs/platform-express';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { StructuredLogger } from './common/logging/structured-logger.service';
+import { RedisService } from './redis/redis.service';
 import { EventProcessorService } from './events/event-processor.service';
 import { JobsService } from './jobs/jobs.service';
 import { DevService } from './dev/dev.service';
 import { CampaignsService } from './promotions/campaigns.service';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // `bufferLogs` holds everything Nest emits while the container is being
+  // built, so it can be replayed through StructuredLogger the moment that
+  // provider is resolvable. Without it the first seconds of every boot — DI
+  // errors and module-init failures among them — would use Nest's default
+  // format and be missing from a structured log pipeline entirely.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
+
+  // One writer for the whole process: Nest's own output, every existing
+  // `new Logger(X)` call site across the thirty-odd services, and the access
+  // log all pass through this instance. See structured-logger.service.ts.
+  app.useLogger(app.get(StructuredLogger));
 
   // Render terminates TLS at an edge proxy, so without this every request
   // reports the proxy's address as its client IP. Anything that reasons about
@@ -73,9 +87,9 @@ async function bootstrap(): Promise<void> {
   // re-raise finds nothing and terminates cleanly.
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.once(signal, () => {
-      console.log(
-        `[Help24][SHUTDOWN] ${signal} received — draining HTTP and background ` +
-          `sweeps (uptime=${Math.round(process.uptime())}s)`,
+      new Logger('Shutdown').log(
+        `[Help24][SHUTDOWN] ${signal} received — draining HTTP, background ` +
+          `sweeps and the Redis connection (uptime=${Math.round(process.uptime())}s)`,
       );
     });
   }
@@ -85,7 +99,12 @@ async function bootstrap(): Promise<void> {
   // Bind 0.0.0.0 so the container/host (Render) can route external traffic.
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
-  console.log(`[Help24] Backend running on 0.0.0.0:${port}`);
+
+  // Boot output goes through the structured logger like everything else, so a
+  // log pipeline sees one format from the first line. `console.log` here would
+  // emit an unparseable record in the middle of a JSON stream.
+  const logger = new Logger('Bootstrap');
+  logger.log(`[Help24] Backend running on 0.0.0.0:${port}`);
 
   // ── Startup route verification ─────────────────────────────────────────────
   // Resolving each service proves the module loaded and its controller routes
@@ -118,17 +137,65 @@ async function bootstrap(): Promise<void> {
   for (const { label, routes, token } of checks) {
     try {
       app.get(token as Parameters<typeof app.get>[0]);
-      console.log(`[Help24][ROUTES] ✓ ${label} loaded — ${routes}`);
+      logger.log(`[Help24][ROUTES] ✓ ${label} loaded — ${routes}`);
     } catch {
-      console.error(`[Help24][ROUTES] ✗ ${label} FAILED TO LOAD — ${routes} will 404`);
+      logger.error(`[Help24][ROUTES] ✗ ${label} FAILED TO LOAD — ${routes} will 404`);
       allOk = false;
     }
   }
 
   if (allOk) {
-    console.log('[Help24][ROUTES] All observability + dev modules confirmed active.');
+    logger.log('[Help24][ROUTES] All observability + dev modules confirmed active.');
   } else {
-    console.error('[Help24][ROUTES] One or more modules failed — check NestJS DI logs above.');
+    logger.error('[Help24][ROUTES] One or more modules failed — check NestJS DI logs above.');
+  }
+
+  reportInfrastructure(app.get(RedisService), logger);
+}
+
+/**
+ * State-of-the-infrastructure banner, printed once per boot.
+ *
+ * This exists because the most dangerous configuration mistake this phase can
+ * produce is SILENT: a deployment with no REDIS_URL works perfectly, serves
+ * every request, and enforces rate limits that quietly do not hold across
+ * replicas. Nothing fails, no endpoint errors, and the gap is invisible until
+ * someone scales to two instances and wonders why limits stopped working.
+ *
+ * A boot log is where an operator looks first, so the degraded case is stated
+ * there in the plainest terms available, alongside the exact variable to set.
+ */
+function reportInfrastructure(redis: RedisService, logger: Logger): void {
+  const format = process.env.LOG_FORMAT ?? (process.env.NODE_ENV === 'production' ? 'json' : 'pretty');
+  logger.log(
+    `[Help24][INFRA] logging=${format} level=${process.env.LOG_LEVEL ?? 'log'} ` +
+      `piiMasking=${process.env.LOG_MASK_PII !== 'false'} requestIds=on`,
+  );
+
+  if (!redis.isConfigured) {
+    logger.warn(
+      '[Help24][INFRA] ══════════════════════════════════════════════════════════\n' +
+        '  RATE LIMITING IS DEGRADED — REDIS_URL is not set.\n' +
+        '  Limits are enforced PER INSTANCE and do NOT hold across replicas.\n' +
+        '  This is safe for local development and NOT safe for production.\n' +
+        '  Fix: set REDIS_URL, then set REDIS_REQUIRED=true so a future\n' +
+        '  misconfiguration fails the deploy instead of degrading silently.\n' +
+        '  ══════════════════════════════════════════════════════════════════',
+    );
+    return;
+  }
+
+  logger.log(
+    `[Help24][INFRA] Redis ${redis.status} — ${redis.safeUrl} ` +
+      `keyPrefix="${redis.keyPrefix}" commandTimeout=${redis.commandTimeoutMs}ms ` +
+      `required=${process.env.REDIS_REQUIRED === 'true'}`,
+  );
+
+  if (!redis.isAvailable) {
+    logger.warn(
+      '[Help24][INFRA] Redis is configured but NOT connected — rate limits are ' +
+        'running on the per-instance fallback until it recovers. Check /health/redis.',
+    );
   }
 }
 

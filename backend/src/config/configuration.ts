@@ -1,5 +1,22 @@
 // All required env variables are validated here at startup.
 // A missing variable throws immediately — the server will not start.
+//
+// WHERE THE INFRASTRUCTURE SETTINGS LIVE
+// --------------------------------------
+// Redis, logging and rate limiting are NOT read here, and that is deliberate.
+// Each owns a module that parses AND VALIDATES its own settings next to the
+// code that depends on them:
+//
+//   REDIS_*        src/redis/redis.config.ts        (loadRedisConfig)
+//   LOG_*          src/common/logging/structured-logger.service.ts
+//   rate limits    src/common/rate-limit/rate-limit.policies.ts
+//
+// The fail-fast property this file provides is preserved: every one of those
+// parsers runs during dependency injection at boot, so a malformed REDIS_URL
+// or an invalid limit aborts startup here just as a missing SUPABASE_URL does.
+// Splitting by concern rather than by mechanism keeps each value's validation,
+// its default, and the reasoning behind it in one place — see the comments in
+// those files. `backend/.env.example` documents the full set.
 export const configuration = (): Record<string, unknown> => {
   function required(key: string): string {
     const value = process.env[key];

@@ -21,6 +21,7 @@ import { DecisionDto } from './dto/decision.dto';
 import { AddEvidenceDto } from './dto/evidence.dto';
 import { PostMessageDto } from './dto/message.dto';
 import { RequestEvidenceDto } from './dto/participant.dto';
+import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
 
 /**
  * Admin Disputes Centre. Every route requires a valid admin bearer token
@@ -31,6 +32,7 @@ import { RequestEvidenceDto } from './dto/participant.dto';
  */
 @Controller('disputes')
 @UseGuards(AdminAuthGuard)
+@RateLimit('admin:api')
 export class DisputesController {
   constructor(
     private readonly disputes: DisputesService,

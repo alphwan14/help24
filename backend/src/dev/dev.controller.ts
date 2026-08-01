@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, HttpCode, HttpStatus, Logger, Post } from '@nestjs/common';
 import { DevService } from './dev.service';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * DEV / sandbox endpoints — all guarded inside DevService by MPESA_ENV check.
@@ -10,6 +11,7 @@ import { DevService } from './dev.service';
  * POST /mpesa/dev/reset-payment-lock  → handled in MpesaController
  */
 @Controller('dev')
+@RateLimit('dev:harness')
 export class DevController {
   private readonly logger = new Logger(DevController.name);
 

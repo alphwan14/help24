@@ -16,6 +16,7 @@ import { MpesaService } from '../mpesa/mpesa.service';
 import { AdminAuthGuard } from './auth/admin-auth.guard';
 import { Roles, CurrentAdmin } from './auth/roles.decorator';
 import { AdminContext } from './auth/admin-role';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * LEGACY admin surface — retained read-only and now behind the RBAC guard.
@@ -27,6 +28,7 @@ import { AdminContext } from './auth/admin-role';
  */
 @Controller('admin')
 @UseGuards(AdminAuthGuard)
+@RateLimit('admin:api')
 export class AdminController {
   constructor(
     private readonly admin: AdminService,

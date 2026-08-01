@@ -22,6 +22,7 @@ import {
   PayCampaignDto,
   SlotsQueryDto,
 } from './dto/promotions.dto';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * "Promote Business" — user-facing routes.
@@ -49,6 +50,7 @@ export class PromotionsController {
   // ── Public: pricing + serving ───────────────────────────────────────────────
 
   /** The package picker — pricing lives in the DB, never in the app. */
+  @RateLimit('feed:read')
   @Get('packages')
   listPackages() {
     return this.packages.listActive();
@@ -58,12 +60,14 @@ export class PromotionsController {
    * Placement engine. Called by the app in PARALLEL with its organic feed
    * read; on any internal failure it returns empty items, never an error.
    */
+  @RateLimit('feed:read')
   @Get('slots')
   getSlots(@Query() query: SlotsQueryDto) {
     return this.serving.getSlots(query);
   }
 
   /** Batched impression/click/tap ingest (fire-and-forget on the client). */
+  @RateLimit('telemetry:ingest')
   @Post('events')
   @HttpCode(HttpStatus.ACCEPTED)
   ingestEvents(@Body() dto: IngestEventsDto) {
@@ -73,6 +77,7 @@ export class PromotionsController {
   // ── Campaigns ───────────────────────────────────────────────────────────────
 
   /** Promote Business step 1: campaign for an owned, open offer post. */
+  @RateLimit('promotions:manage')
   @Post('campaigns')
   createCampaign(@Body() dto: CreateCampaignDto) {
     return this.campaigns.create({
@@ -82,17 +87,20 @@ export class PromotionsController {
     });
   }
 
+  @RateLimit('general:read')
   @Get('campaigns')
   listCampaigns(@Query('user_id') userId?: string) {
     return this.campaigns.listByOwner(this.requireUserId(userId));
   }
 
   /** Payment history for Profile → Promote Business → Payments. */
+  @RateLimit('general:read')
   @Get('payments')
   listPayments(@Query('user_id') userId?: string) {
     return this.payments.listByPayer(this.requireUserId(userId));
   }
 
+  @RateLimit('general:read')
   @Get('campaigns/:id')
   getCampaign(@Param('id', ParseUUIDPipe) id: string, @Query('user_id') userId?: string) {
     return this.campaigns.getOwned(id, this.requireUserId(userId));
@@ -101,12 +109,14 @@ export class PromotionsController {
   // ── Payment ─────────────────────────────────────────────────────────────────
 
   /** Promote Business step 2: M-Pesa STK push for the campaign's package price. */
+  @RateLimit('payments:initiate')
   @Post('campaigns/:id/pay')
   pay(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PayCampaignDto) {
     return this.payments.initiate(id, dto.user_id, dto.phone);
   }
 
   /** Poll target while the STK prompt is on the payer's phone. */
+  @RateLimit('payments:read')
   @Get('campaigns/:id/payment-status')
   paymentStatus(@Param('id', ParseUUIDPipe) id: string, @Query('user_id') userId?: string) {
     return this.payments.statusForCampaign(id, this.requireUserId(userId));
@@ -114,16 +124,19 @@ export class PromotionsController {
 
   // ── Owner lifecycle ─────────────────────────────────────────────────────────
 
+  @RateLimit('promotions:manage')
   @Post('campaigns/:id/pause')
   pause(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OwnerActionDto) {
     return this.campaigns.pause(id, dto.user_id);
   }
 
+  @RateLimit('promotions:manage')
   @Post('campaigns/:id/resume')
   resume(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OwnerActionDto) {
     return this.campaigns.resume(id, dto.user_id);
   }
 
+  @RateLimit('promotions:manage')
   @Post('campaigns/:id/cancel')
   cancel(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OwnerActionDto) {
     return this.campaigns.cancel(id, dto.user_id, dto.reason);
@@ -132,6 +145,7 @@ export class PromotionsController {
   // ── Analytics ───────────────────────────────────────────────────────────────
 
   /** "Is promoting my business working?" — the owner dashboard. */
+  @RateLimit('general:read')
   @Get('campaigns/:id/analytics')
   campaignAnalytics(@Param('id', ParseUUIDPipe) id: string, @Query('user_id') userId?: string) {
     return this.analytics.dashboard(id, this.requireUserId(userId));

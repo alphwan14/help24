@@ -45,6 +45,19 @@ export class FirebaseAdminService implements OnModuleInit {
     return this._app !== null;
   }
 
+  /**
+   * The initialized Admin app, or null when Firebase is unconfigured.
+   *
+   * Exposed for the two callers that need the App itself rather than a
+   * messaging handle: IdentityMiddleware (`getAuth(app).verifyIdToken`) and
+   * the /health/firebase probe (which asks the credential for an access token
+   * to prove the service account actually works, rather than merely that an
+   * object was constructed).
+   */
+  get app(): App | null {
+    return this._app;
+  }
+
   /** Returns the Messaging instance or null if Admin is not initialized. */
   getMessaging(): Messaging | null {
     if (!this._app) return null;

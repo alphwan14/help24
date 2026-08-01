@@ -28,6 +28,17 @@ class ComputeRouteDto {
  * Always answers 200. An unavailable route is `{ available: false }`, not an
  * error status: the client treats it as "no ETA yet" and keeps rendering the
  * Phase 2 straight-line experience.
+ *
+ * NO @RateLimit DECORATOR HERE — AND THAT IS DELIBERATE.
+ * This is the one endpoint whose limit is applied inside the SERVICE rather
+ * than by the global guard. Only a cache MISS reaches Google and costs money,
+ * so only a cache miss should consume budget — and the guard runs before the
+ * handler can consult its cache, which would make every cached answer count
+ * against the caller. RoutesService calls the limiter itself with the
+ * `routes:compute` policy, immediately after the cache lookup.
+ *
+ * The route is still covered by the guard's `default` policy as an outer
+ * backstop, so it is not unprotected: it has two limits, not none.
  */
 @Controller('routes')
 export class RoutesController {

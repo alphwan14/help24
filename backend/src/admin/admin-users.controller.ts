@@ -21,6 +21,7 @@ import {
   CreateInviteDto,
   UpdateAdminRoleDto,
 } from './disputes/dto/admin-invite.dto';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * Admin identity & invite management. All routes require a valid admin token;
@@ -30,6 +31,7 @@ import {
  */
 @Controller('admin')
 @UseGuards(AdminAuthGuard)
+@RateLimit('admin:api')
 export class AdminUsersController {
   constructor(
     private readonly auth: AdminAuthService,

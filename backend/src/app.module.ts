@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { configuration } from './config/configuration';
 import { SupabaseModule } from './supabase/supabase.module';
@@ -15,8 +15,16 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { PromotionsModule } from './promotions/promotions.module';
 import { RoutesModule } from './routes/routes.module';
 import { FeedModule } from './feed/feed.module';
-import { HealthController, RootController } from './health.controller';
 import { DevModule } from './dev/dev.module';
+
+// ── Production infrastructure (Phase 1) ──────────────────────────────────────
+import { LoggingModule } from './common/logging/logging.module';
+import { AccessLogMiddleware } from './common/logging/access-log.middleware';
+import { RequestContextMiddleware } from './common/request-context/request-context.middleware';
+import { IdentityModule } from './common/identity/identity.module';
+import { IdentityMiddleware } from './common/identity/identity.middleware';
+import { RateLimitModule } from './common/rate-limit/rate-limit.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -24,6 +32,20 @@ import { DevModule } from './dev/dev.module';
       isGlobal: true,
       load: [configuration],
     }),
+
+    // ── Infrastructure first ───────────────────────────────────────────────
+    // Ordered ahead of the feature modules so that anything they log during
+    // construction is already going through the structured writer.
+    //
+    // LoggingModule   the single StructuredLogger instance (global).
+    // IdentityModule  optional, non-enforcing Firebase token resolution.
+    // RateLimitModule registers the global APP_GUARD; imports RedisModule.
+    // HealthModule    /health + the three dependency probes; imports RedisModule.
+    LoggingModule,
+    IdentityModule,
+    RateLimitModule,
+    HealthModule,
+
     SupabaseModule,
     TransactionsModule,
     ProvidersModule,
@@ -54,6 +76,40 @@ import { DevModule } from './dev/dev.module';
     // DevModule is a test harness leaf — all routes return 403 in production.
     DevModule,
   ],
-  controllers: [RootController, HealthController],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /**
+   * The middleware chain, in the order it runs.
+   *
+   * ORDER IS LOAD-BEARING — each entry depends on the one before it:
+   *
+   *   1. RequestContextMiddleware
+   *      Opens the AsyncLocalStorage scope and sets X-Request-Id. Must be
+   *      first: nothing downstream can annotate or read a context that does
+   *      not exist yet, and an error thrown before this point would produce a
+   *      response with no correlation ID at all.
+   *
+   *   2. AccessLogMiddleware
+   *      Registers the `finish`/`close` listener that emits the access log.
+   *      Must come after (1) so the line carries a request ID, and BEFORE (3)
+   *      so its listener is attached even if identity resolution throws — a
+   *      request must never escape the log.
+   *
+   *   3. IdentityMiddleware
+   *      Verifies a Firebase token if one is present and annotates the
+   *      context. Runs last because it is the only one that can be slow (a
+   *      token verification), and because everything before it must work
+   *      whether or not it succeeds.
+   *
+   * Rate limiting is NOT here: it is a guard, because only a guard runs after
+   * routing and can therefore read the `@RateLimit` decorator on the handler
+   * it protects. See rate-limit.guard.ts.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(RequestContextMiddleware, AccessLogMiddleware, IdentityMiddleware)
+      // Every route, including ones that will 404 — those are exactly the
+      // requests worth logging when a client is calling the wrong path.
+      .forRoutes('*');
+  }
+}

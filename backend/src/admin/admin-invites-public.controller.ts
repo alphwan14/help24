@@ -15,6 +15,7 @@ import {
   AcceptInviteDto,
   RestoreSessionDto,
 } from './disputes/dto/admin-invite.dto';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * PUBLIC invite endpoints — intentionally NOT guarded by AdminAuthGuard.
@@ -22,6 +23,9 @@ import {
  * (same /admin prefix) so the guarded AdminUsersController stays fully locked.
  */
 @Controller('admin')
+// Class-level: every route here is unauthenticated admin surface, and
+// GET /admin/invite/:token is a validity oracle that must not be enumerable.
+@RateLimit('admin:auth')
 export class AdminInvitesPublicController {
   constructor(
     private readonly invites: AdminInvitesService,

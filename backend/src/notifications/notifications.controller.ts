@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, HttpCode, HttpStatus, Logger, Post } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * HTTP surface for push/bell notification operations.
@@ -27,6 +28,7 @@ export class NotificationsController {
    */
   @Post('chat-message')
   @HttpCode(HttpStatus.OK)
+  @RateLimit('messaging:notify')
   async chatMessage(
     @Body()
     body: {

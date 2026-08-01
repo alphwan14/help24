@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { EventProcessorService } from './event-processor.service';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * GET /health/events
@@ -21,6 +22,7 @@ import { EventProcessorService } from './event-processor.service';
  * Use deadLetterCount>0 as the "events need manual replay" signal.
  */
 @Controller('health/events')
+@RateLimit('health:deep')
 export class EventsHealthController {
   constructor(private readonly processor: EventProcessorService) {}
 

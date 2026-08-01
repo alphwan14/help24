@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { FeedService, FeedResponse } from './feed.service';
 import { FeedQueryDto, IngestInteractionsDto, SetAvailabilityDto } from './dto/feed.dto';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * Discover recommendation engine — public routes.
@@ -42,6 +43,7 @@ export class FeedController {
    * urgency, freshness, trust and engagement.
    */
   @Get()
+  @RateLimit('feed:read')
   async getFeed(@Query() query: FeedQueryDto): Promise<FeedResponse> {
     try {
       return await this.feed.getFeed(query);
@@ -61,6 +63,7 @@ export class FeedController {
    */
   @Post('interactions')
   @HttpCode(HttpStatus.ACCEPTED)
+  @RateLimit('telemetry:ingest')
   async ingest(@Body() dto: IngestInteractionsDto): Promise<{ accepted: number }> {
     return this.feed.ingestInteractions(dto);
   }
@@ -72,6 +75,7 @@ export class FeedController {
    * pressed a toggle and is entitled to know it did not take.
    */
   @Post('availability')
+  @RateLimit('availability:toggle')
   async setAvailability(@Body() dto: SetAvailabilityDto): Promise<{ available_until: string | null }> {
     return this.feed.setAvailability(dto);
   }

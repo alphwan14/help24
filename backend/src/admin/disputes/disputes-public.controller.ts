@@ -16,6 +16,7 @@ import {
   RequestUploadUrlsDto,
   SubmitEvidenceDto,
 } from './dto/participant.dto';
+import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
 
 /**
  * User-facing dispute API. Deliberately NOT behind the admin guard — the actor
@@ -34,6 +35,7 @@ export class DisputesPublicController {
 
   // ── Create (client or provider raises a dispute) ────────────────────────────
 
+  @RateLimit('disputes:create')
   @Post('create')
   @HttpCode(HttpStatus.CREATED)
   create(@Body() dto: CreateDisputeDto) {
@@ -43,6 +45,7 @@ export class DisputesPublicController {
   // ── Participant case view + thread ──────────────────────────────────────────
 
   /** Participant case view: metadata, status, public thread, signed evidence. */
+  @RateLimit('disputes:participate')
   @Get(':id/thread')
   thread(
     @Param('id', ParseUUIDPipe) id: string,
@@ -52,6 +55,7 @@ export class DisputesPublicController {
   }
 
   /** Participant posts a text message to the dispute thread. */
+  @RateLimit('disputes:participate')
   @Post(':id/reply')
   @HttpCode(HttpStatus.CREATED)
   reply(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ParticipantReplyDto) {
@@ -61,6 +65,7 @@ export class DisputesPublicController {
   // ── Evidence (private bucket, signed URLs only) ─────────────────────────────
 
   /** Request signed upload URLs for evidence files. */
+  @RateLimit('uploads:sign')
   @Post(':id/evidence/upload-url')
   @HttpCode(HttpStatus.OK)
   uploadUrl(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RequestUploadUrlsDto) {
@@ -68,6 +73,7 @@ export class DisputesPublicController {
   }
 
   /** Register uploaded objects as evidence on the case. */
+  @RateLimit('disputes:participate')
   @Post(':id/evidence/submit')
   @HttpCode(HttpStatus.CREATED)
   submitEvidence(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SubmitEvidenceDto) {

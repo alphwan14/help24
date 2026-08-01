@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { EventProcessorService } from './event-processor.service';
 import { EventsService } from './events.service';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * Admin endpoints for event observability and debugging.
@@ -13,6 +14,7 @@ import { EventsService } from './events.service';
  * GET  /admin/events/dead-letter — all permanently-failed events
  */
 @Controller('admin/events')
+@RateLimit('admin:api')
 export class EventsAdminController {
   constructor(
     private readonly processor: EventProcessorService,

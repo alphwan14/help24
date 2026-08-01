@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { MpesaService } from './mpesa.service';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { ReleasePayoutDto } from './dto/release-payout.dto';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 @Controller('mpesa')
 export class MpesaController {
@@ -25,14 +26,24 @@ export class MpesaController {
 
   @Post('initiate')
   @HttpCode(HttpStatus.CREATED)
+  @RateLimit('payments:initiate')
   initiatePayment(@Body() dto: InitiatePaymentDto) {
     this.logger.log(`[STK] initiate — post=${dto.post_id} buyer=${dto.buyer_user_id}`);
     return this.mpesa.initiatePayment(dto);
   }
 
-  /** Smoke-test — caller supplies phone and optional amount (defaults to 1). */
+  /**
+   * Smoke-test — caller supplies phone and optional amount (defaults to 1).
+   *
+   * ⚠️ SECURITY: this is an UNAUTHENTICATED endpoint that pushes an M-Pesa PIN
+   * prompt to any phone number in the request body, and it is reachable in
+   * production. The rate limit below contains it (3/hour per IP); it does not
+   * make it safe. See the Phase 1 security report — the recommendation is to
+   * gate it behind the same production check as the /mpesa/dev/* routes.
+   */
   @Post('test-stk')
   @HttpCode(HttpStatus.OK)
+  @RateLimit('payments:smoke')
   testStk(@Body() body: { phone?: string; amount?: number }) {
     const phone = body?.phone?.trim() ?? '';
     if (!phone) throw new BadRequestException('phone is required in request body');
@@ -44,6 +55,7 @@ export class MpesaController {
   // Daraja sends raw JSON — skip DTO validation, accept as-is.
   @Post('stk-callback')
   @HttpCode(HttpStatus.OK)
+  @RateLimit('payments:callback')
   stkCallback(@Body() body: Record<string, unknown>) {
     this.logger.log(`[STK] callback received: ${JSON.stringify(body)}`);
     return this.mpesa.handleStkCallback(body);
@@ -51,6 +63,7 @@ export class MpesaController {
 
   @Post('release-payout')
   @HttpCode(HttpStatus.OK)
+  @RateLimit('payments:release')
   releasePayout(@Body() dto: ReleasePayoutDto) {
     return this.mpesa.releasePayout(dto);
   }
@@ -58,6 +71,7 @@ export class MpesaController {
   // Daraja sends raw JSON — skip DTO validation, accept as-is.
   @Post('b2c-callback')
   @HttpCode(HttpStatus.OK)
+  @RateLimit('payments:callback')
   b2cCallback(@Body() body: Record<string, unknown>) {
     this.logger.log(`[B2C] callback received: ${JSON.stringify(body)}`);
     return this.mpesa.handleB2cCallback(body);
@@ -68,12 +82,14 @@ export class MpesaController {
   // guarded inside the service (settles only on a confirmed terminal status).
   @Post('b2c-status-result')
   @HttpCode(HttpStatus.OK)
+  @RateLimit('payments:callback')
   b2cStatusResult(@Body() body: Record<string, unknown>) {
     this.logger.log(`[B2C] status-result received: ${JSON.stringify(body)}`);
     return this.mpesa.handleB2cStatusResult(body);
   }
 
   @Get('status/:postId')
+  @RateLimit('payments:read')
   getStatus(@Param('postId') postId: string) {
     return this.mpesa.getStatus(postId);
   }
@@ -85,6 +101,7 @@ export class MpesaController {
    */
   @Post('dev/force-success')
   @HttpCode(HttpStatus.OK)
+  @RateLimit('dev:harness')
   forceSuccess(@Body() body: { post_id?: string }) {
     if (!body?.post_id) throw new BadRequestException('post_id is required');
     this.logger.warn(`[DEV] force-success endpoint called — post=${body.post_id}`);
@@ -99,6 +116,7 @@ export class MpesaController {
    */
   @Post('dev/reset-payment-lock')
   @HttpCode(HttpStatus.OK)
+  @RateLimit('dev:harness')
   resetPaymentLock(@Body() body: { post_id?: string }) {
     if (!body?.post_id) throw new BadRequestException('post_id is required');
     this.logger.warn(`[DEV] reset-payment-lock endpoint called — post=${body.post_id}`);
@@ -112,6 +130,7 @@ export class MpesaController {
    */
   @Get('health')
   @HttpCode(HttpStatus.OK)
+  @RateLimit('health:deep')
   health() {
     const env         = this.config.get<string>('MPESA_ENV', 'MISSING');
     const shortcode   = this.config.get<string>('MPESA_SHORTCODE', 'MISSING');

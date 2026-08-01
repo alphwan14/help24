@@ -5,11 +5,14 @@
 # http://localhost:3000 (emulator: http://10.0.2.2:3000) exactly as it does now.
 # This file owns everything BEHIND that URL.
 #
-#   docker compose up -d --build          API only (against cloud Supabase)
+#   docker compose up -d --build          API + Redis (against cloud Supabase)
 #   docker compose --profile db up -d     + PostgreSQL
-#   docker compose --profile cache up -d  + Redis
 #   docker compose --profile tools up -d  + pgAdmin
 #   docker compose --profile full up -d   everything
+#
+# Redis is no longer optional: the backend's distributed rate limiter keeps its
+# state there, so it starts by default. The `cache` profile is retired — see
+# the redis service below.
 #
 # Every value below has an inline default, so the commands above work with no
 # setup beyond `backend/.env`. To override, edit docker.env and add
@@ -71,11 +74,28 @@ services:
       # changing which port you dial never means rebuilding the image.
       PORT: 3000
 
-      # ── Forward-declared. The backend does not read these yet. ─────────────
-      # They resolve to real, reachable services the moment the db/cache
-      # profiles are up, so adopting Redis or a direct pg driver later is a
-      # code change with zero infrastructure change.
+      # ── Redis: READ by the backend as of the infrastructure phase ──────────
+      # Set here rather than in backend/.env so the container always resolves
+      # the in-network service name, whatever a developer has configured for
+      # running natively on the host. `environment` wins over `env_file`, which
+      # is what makes that override reliable.
       REDIS_URL: redis://:${REDIS_PASSWORD:-help24_local_redis}@redis:6379
+      # Fail the container's startup if Redis cannot be reached, rather than
+      # serving traffic with per-instance limits. Correct HERE because compose
+      # brings Redis up as a healthy dependency first — so a failure genuinely
+      # means something is wrong, not merely unprovisioned. On Render this
+      # should only be set once a Redis instance exists.
+      REDIS_REQUIRED: ${REDIS_REQUIRED:-true}
+      # Namespaces every limiter key. Distinct per environment so a load test
+      # against staging can never consume production budget.
+      REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-help24:docker}
+
+      # ── Structured logging ────────────────────────────────────────────────
+      # json for a log collector; set LOG_FORMAT=pretty when tailing by eye.
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-log}
+
+      # ── Forward-declared. The backend does not read this yet. ──────────────
       DATABASE_URL: postgresql://${POSTGRES_USER:-help24}:${POSTGRES_PASSWORD:-help24_local_dev}@postgres:5432/${POSTGRES_DB:-help24}
 
     ports:
@@ -88,7 +108,7 @@ services:
     networks:
       - edge   # published to the host + outbound to Supabase / Daraja / FCM
       - data   # reaches postgres (unused today, wired for workers)
-      - cache  # reaches redis    (unused today, wired for queues/caching)
+      - cache  # reaches redis    (rate limiter state)
 
     depends_on:
       # `required: false` is the key to keeping profiles modular: wait for these
@@ -207,15 +227,26 @@ services:
     logging: *logging
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # redis — prepared, NOT yet used   [profile: cache]
+  # redis — LOAD-BEARING as of the production infrastructure phase
   # ═══════════════════════════════════════════════════════════════════════════
-  # No application code reads REDIS_URL today. This service exists so that
-  # caching, rate limiting, queues, sessions and the recommendation cache are a
-  # dependency install away rather than an infrastructure project.
+  # This service used to sit behind `profiles: [cache, full]` and carried a
+  # comment saying no application code read REDIS_URL. Both are now obsolete:
+  # the backend's distributed rate limiter keeps its state here, and that is
+  # what makes a limit hold across replicas rather than per process.
+  #
+  # THE PROFILE IS GONE ON PURPOSE. A service with no `profiles` key starts on
+  # a plain `docker compose up`, so the default local stack now matches how
+  # production is meant to run. Leaving Redis opt-in would mean the everyday
+  # development experience silently exercised the DEGRADED path — per-instance
+  # limits — and nobody would notice until a limit failed to hold in
+  # production. `--profile cache` still works; it is simply no longer required.
+  #
+  # The api service keeps `required: false` on this dependency, so the stack
+  # still comes up if Redis is deliberately removed. That is the fail-open
+  # design working as intended, not an oversight.
   redis:
     image: redis:${REDIS_VERSION:-7-alpine}
     container_name: help24-redis
-    profiles: [cache, full]
     <<: *hardening
     restart: unless-stopped
 
@@ -236,6 +267,14 @@ services:
       # under memory pressure; BullMQ and every other Redis queue require
       # noeviction. When Redis is used purely as a cache later, a SEPARATE
       # instance (or db index) should carry the lru policy — do not relax this one.
+      #
+      # It is also the right policy for the rate limiter, for a reason worth
+      # stating: under LRU, Redis would silently evict a limiter key that was
+      # still inside its window, and the next request from that caller would
+      # find no state and start from a full budget — an eviction-triggered
+      # bypass of every limit, appearing only under memory pressure. Every key
+      # the limiter writes carries a TTL, so active expiry keeps memory bounded
+      # without eviction ever being needed.
       - --maxmemory-policy
       - noeviction
 

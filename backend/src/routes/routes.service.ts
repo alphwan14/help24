@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { RateLimitService } from '../common/rate-limit/rate-limit.service';
 
 /**
  * Google Routes API (v2 computeRoutes) proxy.
@@ -56,7 +57,10 @@ export class RoutesService {
   private static readonly CACHE_TTL_MS = 60_000;
   private static readonly MAX_CACHE_ENTRIES = 500;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly rateLimit: RateLimitService,
+  ) {}
 
   private get apiKey(): string | undefined {
     return this.config.get<string>('google.routesApiKey');
@@ -116,27 +120,21 @@ export class RoutesService {
   /// policy), so 40/10 min is generous for legitimate use — several concurrent
   /// journeys behind one NAT — while capping a single abusive source. Cache
   /// hits are NOT counted; only calls that would reach Google.
-  private static readonly RATE_LIMIT_MAX = 40;
-  private static readonly RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
-  private readonly callers = new Map<string, number[]>();
-
-  private overBudget(caller: string): boolean {
-    const now = Date.now();
-    const cutoff = now - RoutesService.RATE_LIMIT_WINDOW_MS;
-    const hits = (this.callers.get(caller) ?? []).filter((t) => t > cutoff);
-    if (hits.length >= RoutesService.RATE_LIMIT_MAX) {
-      this.callers.set(caller, hits);
-      return true;
-    }
-    hits.push(now);
-    this.callers.set(caller, hits);
-    // Opportunistic sweep so the map cannot grow without bound.
-    if (this.callers.size > 5000) {
-      for (const [k, v] of this.callers) {
-        if (!v.some((t) => t > cutoff)) this.callers.delete(k);
-      }
-    }
-    return false;
+  ///
+  /// PHASE 1 (production infrastructure): the window and its ceiling are
+  /// unchanged, but the STATE moved from a Map on this instance into Redis.
+  /// The old version was correct for exactly one process — with two replicas
+  /// the real ceiling was 80 per 10 minutes, with five it was 200, and nothing
+  /// anywhere said so. It is now one budget for the whole deployment.
+  ///
+  /// The check stays HERE rather than moving to the global guard for the
+  /// reason the original comment gives: only calls that would reach Google
+  /// should count, and a guard runs before the cache lookup. See the
+  /// routes:compute entry in rate-limit.policies.ts.
+  private async overBudget(caller: string): Promise<boolean> {
+    const policy = this.rateLimit.resolvePolicy('routes:compute');
+    const decision = await this.rateLimit.check(policy, { ip: caller });
+    return !decision.allowed;
   }
 
   async computeRoute(
@@ -157,7 +155,7 @@ export class RoutesService {
 
     // Checked only on a cache miss — a cached answer costs nothing, so
     // serving it can never be abuse.
-    if (this.overBudget(caller)) {
+    if (await this.overBudget(caller)) {
       this.logger.warn(`Routes rate limit hit for ${caller}`);
       return { available: false, reason: 'rate_limited' };
     }

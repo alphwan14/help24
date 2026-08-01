@@ -22,6 +22,7 @@ import { PromotionAnalyticsService } from './analytics.service';
 import { PromotionSettingsService } from './settings.service';
 import { isCampaignStatus } from './campaign-state';
 import { AdminCancelDto, RejectCampaignDto, UpdatePackageDto } from './dto/promotions.dto';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 /**
  * Admin surface for Business Promotion: moderation queue (approve/reject),
@@ -31,6 +32,7 @@ import { AdminCancelDto, RejectCampaignDto, UpdatePackageDto } from './dto/promo
  */
 @Controller('admin/promotions')
 @UseGuards(AdminAuthGuard)
+@RateLimit('admin:api')
 export class PromotionsAdminController {
   constructor(
     private readonly campaigns: CampaignsService,

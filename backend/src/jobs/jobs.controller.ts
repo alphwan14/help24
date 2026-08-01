@@ -4,6 +4,7 @@ import { JobsService } from './jobs.service';
 import { MarkCompleteDto } from './dto/mark-complete.dto';
 import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 class NotifyApplicationDto {
   @IsUUID()
@@ -20,24 +21,28 @@ export class JobsController {
   /** Called by mobile app after a provider submits an application — notifies the post author. */
   @Post('notify-application')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RateLimit('jobs:action')
   notifyApplication(@Body() dto: NotifyApplicationDto) {
     return this.jobs.notifyApplication(dto);
   }
 
   /** Client selects a provider — assigns them to the post, emits event, notifies provider. */
   @Post('select-provider')
+  @RateLimit('jobs:action')
   selectProvider(@Body() dto: SelectProviderDto) {
     return this.jobs.selectProvider(dto);
   }
 
   /** Provider marks the job as done — creates a completion request. */
   @Post('mark-complete')
+  @RateLimit('jobs:action')
   markComplete(@Body() dto: MarkCompleteDto) {
     return this.jobs.markComplete(dto);
   }
 
   /** Client approves the completion → triggers payout. */
   @Post('approve')
+  @RateLimit('jobs:action')
   approve(@Body() dto: ApproveDto) {
     return this.jobs.approve(dto);
   }
@@ -48,6 +53,7 @@ export class JobsController {
    * are now raised through the arbitration centre: POST /disputes/create.
    */
   @Post('dispute')
+  @RateLimit('jobs:action')
   dispute(): never {
     throw new GoneException(
       'POST /jobs/dispute is removed. Update the app — disputes are now raised via POST /disputes/create.',
@@ -56,6 +62,7 @@ export class JobsController {
 
   /** Get the latest job completion status for a post. */
   @Get(':postId/status')
+  @RateLimit('jobs:read')
   getStatus(@Param('postId') postId: string) {
     return this.jobs.getJobStatus(postId);
   }
@@ -66,6 +73,7 @@ export class JobsController {
    * Firebase UID is passed as ?user_id= and must be the client or selected provider.
    */
   @Get(':postId/lifecycle')
+  @RateLimit('jobs:read')
   getLifecycle(@Param('postId') postId: string, @Query('user_id') userId: string) {
     return this.jobs.getLifecycle(postId, userId);
   }
@@ -76,6 +84,7 @@ export class JobsController {
    * (reviews, reputation, escrow, disputes, chats) is preserved.
    */
   @Post(':postId/archive')
+  @RateLimit('jobs:action')
   archive(@Param('postId') postId: string, @Body('user_id') userId: string) {
     return this.jobs.archivePost(postId, userId);
   }
