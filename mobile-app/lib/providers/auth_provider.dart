@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../config/app_firebase.dart';
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import '../services/session_scope.dart';
@@ -107,6 +108,12 @@ class AuthProvider extends ChangeNotifier {
       _resendToken = null;
       _pendingPhoneNumber = null;
       SupabaseAuthBridge.clearSupabaseSession();
+      // Both credentials are dropped together. The Supabase JWT and the cached
+      // Firebase ID token are different tokens for different servers (see
+      // api_client.dart), so clearing one and not the other would leave the
+      // backend still receiving the previous user's proof of identity —
+      // precisely the confusion this migration exists to remove.
+      api.clearSession();
       // The session can also end without anyone pressing "Sign out" — a
       // revoked token, a deleted account, a sign-out on another device. Those
       // paths must tear down exactly as much state as the button does, so the

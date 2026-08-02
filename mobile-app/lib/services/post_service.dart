@@ -108,34 +108,18 @@ class PostService {
       'post_images(image_url), '
       'applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))';
 
-  /// Batch-warm the reputation cache for every distinct author in [authorIds]
-  /// with ONE read of the public_provider_reputation view (migration 079, same
-  /// shape as GET /reputation/:id), so cards paint their trust line together
-  /// with the rest of the card instead of popping it in after a per-provider
-  /// backend round-trip. Best-effort and bounded: on any error or timeout the
-  /// feed renders exactly as before and ReputationCompact falls back to its
-  /// existing per-provider backend fetch.
-  static Future<void> _warmReputations(Iterable<String> authorIds) async {
-    final ids = authorIds
-        .where((id) => id.isNotEmpty && ReputationService.getCachedSync(id) == null)
-        .toSet()
-        .toList();
-    if (ids.isEmpty) return;
-    try {
-      final rows = await _client
-          .from('public_provider_reputation')
-          .select()
-          .inFilter('provider_id', ids)
-          .timeout(const Duration(seconds: 2));
-      ReputationService.seedAll([
-        for (final row in rows as List)
-          if (row is Map) Map<String, dynamic>.from(row),
-      ]);
-    } catch (e) {
-      // View not applied / slow network — cards use the per-card fallback.
-      debugPrint('[REPUTATION] feed warm-up skipped: $e');
-    }
-  }
+  /// Batch-warm the reputation cache for every distinct author in [authorIds],
+  /// so cards paint their trust line together with the rest of the card instead
+  /// of popping it in after a per-provider round-trip.
+  ///
+  /// Delegates to [ReputationService.warmAll] — ONE batching implementation for
+  /// the feed and for the applicant lists. This used to be its own direct read
+  /// of the public_provider_reputation view, which meant the feed had a batch
+  /// path and every other list surface did not; the surfaces that most needed
+  /// batching (an applicant list is N strangers being compared at once) were
+  /// exactly the ones without it.
+  static Future<void> _warmReputations(Iterable<String> authorIds) =>
+      ReputationService.warmAll(authorIds);
 
   /// Check if error is a network error
   static bool _isNetworkError(dynamic error) {

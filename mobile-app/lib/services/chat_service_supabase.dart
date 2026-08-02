@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+
+// Backend calls go through the authenticated client: it attaches the Firebase
+// ID token the server binds identity from, so the ownership checks in each
+// backend service actually mean something. See api_client.dart.
+import 'api_client.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/api_config.dart';
 import '../models/post_model.dart';
@@ -1193,7 +1197,7 @@ class ChatServiceSupabase {
   }) async {
     try {
       debugPrint('[CHAT_NOTIFY][GROUPED] posting to backend chatId=$chatId');
-      final response = await http.post(
+      final response = await api.post(
         Uri.parse(ApiConfig.chatNotify),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({

@@ -475,6 +475,19 @@ class PostCard extends StatelessWidget {
     ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.02, end: 0);
   }
 
+  /// The card's cover photo.
+  ///
+  /// ZERO fade and NO spinner, deliberately — the same contract MarketplaceAvatar
+  /// already keeps. AppProvider warms every visible post's cover image from the
+  /// same data that produced the card, so by the time this builds the bytes are
+  /// usually decoded and a fade would be a transition over nothing: the card and
+  /// its photo appear in one frame.
+  ///
+  /// A genuinely cold image sits on a flat tone rather than a spinner. A spinner
+  /// says "this card is still loading" about a card that is finished, which is
+  /// exactly the piecemeal impression the warming exists to remove — and it
+  /// animates, which draws the eye to the one part of the screen that has
+  /// nothing to show yet.
   Widget _buildImage(String url) {
     if (url.isEmpty) {
       return Container(
@@ -485,10 +498,10 @@ class PostCard extends StatelessWidget {
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
-      placeholder: (context, url) => Container(
-        color: AppTheme.darkCard,
-        child: const Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
-      ),
+      fadeInDuration: Duration.zero,
+      fadeOutDuration: Duration.zero,
+      placeholderFadeInDuration: Duration.zero,
+      placeholder: (context, url) => Container(color: AppTheme.darkCard),
       errorWidget: (context, url, error) => Container(
         color: AppTheme.darkCard,
         child: const Icon(Icons.broken_image_outlined, color: AppTheme.darkTextTertiary, size: 28),

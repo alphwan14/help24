@@ -77,6 +77,14 @@ export class AccessLogMiddleware implements NestMiddleware {
       // rather than a join across two log streams.
       rateLimitPolicy: context?.rateLimitPolicy,
       rateLimited: context?.rateLimited || undefined,
+      // The auth migration's dashboard, in three fields. `authScheme` is what
+      // the route requires, `userIdSource` above is what the caller supplied,
+      // and `authWouldDeny` marks the requests that enforcement will reject.
+      // Counting the last one by route is the readiness check for flipping
+      // AUTH_ENFORCEMENT — it has to reach zero before the switch is safe.
+      authScheme: context?.authScheme,
+      authEnforced: context?.authEnforced || undefined,
+      authWouldDeny: context?.authWouldDeny,
       // A trace that began on the device keeps its ID; flagging it prevents an
       // operator from mistaking a client-chosen ID for a server-generated one.
       requestIdInherited: context?.inherited || undefined,

@@ -1,5 +1,5 @@
 class ApiConfig {
-  static const String baseUrl = 'https://help24-backend.onrender.com';
+  static const String baseUrl = 'http://192.168.1.171:3000';
 
   static const String initiatePayment  = '$baseUrl/mpesa/initiate';
   static const String paymentStatus    = '$baseUrl/mpesa/status';

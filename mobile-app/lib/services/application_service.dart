@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+
+// Backend calls go through the authenticated client: it attaches the Firebase
+// ID token the server binds identity from, so the ownership checks in each
+// backend service actually mean something. See api_client.dart.
+import 'api_client.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/api_config.dart';
 import '../models/post_model.dart';
@@ -114,7 +118,7 @@ class ApplicationService {
     required String postId,
     required String applicantUserId,
   }) {
-    http
+    api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/jobs/notify-application'),
           headers: {'Content-Type': 'application/json'},

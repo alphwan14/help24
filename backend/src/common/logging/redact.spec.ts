@@ -111,4 +111,46 @@ describe('redactObject', () => {
     expect(out.message).toBe('boom');
     expect(typeof out.stack).toBe('string');
   });
+
+  describe('the auth-migration access-log fields', () => {
+    // These three were silently written as [REDACTED] when the auth migration
+    // added them, because `auth` is a sensitive fragment and matching is by
+    // substring. The failure was invisible: nothing errored, the readiness
+    // dashboard was simply blank. Caught by a live smoke test, pinned here.
+    it('logs the auth posture fields in the clear', () => {
+      const out = redactObject({
+        authScheme: 'firebase',
+        authEnforced: true,
+        authWouldDeny: 'absent',
+      }) as Record<string, unknown>;
+
+      expect(out).toEqual({
+        authScheme: 'firebase',
+        authEnforced: true,
+        authWouldDeny: 'absent',
+      });
+    });
+
+    it('still redacts every credential-bearing key that contains "auth"', () => {
+      // The allowlist is EXACT-match, so it must not have widened the rule.
+      const out = redactObject({
+        authorization: 'Bearer abc.def.ghi',
+        auth: 'something',
+        authToken: 'abc',
+        auth_token: 'abc',
+        authSchemeToken: 'abc',
+        userAuthSecret: 'abc',
+      }) as Record<string, unknown>;
+
+      for (const value of Object.values(out)) expect(value).toBe('[REDACTED]');
+    });
+
+    it('matches allowlisted names irrespective of casing and separators', () => {
+      const out = redactObject({ AUTH_SCHEME: 'public', 'auth-enforced': false }) as Record<
+        string,
+        unknown
+      >;
+      expect(out).toEqual({ AUTH_SCHEME: 'public', 'auth-enforced': false });
+    });
+  });
 });

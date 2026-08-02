@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+
+// Backend calls go through the authenticated client: it attaches the Firebase
+// ID token the server binds identity from, so the ownership checks in each
+// backend service actually mean something. See api_client.dart.
+import 'api_client.dart';
 import '../config/api_config.dart';
 import '../models/job_lifecycle.dart';
 
@@ -57,7 +61,7 @@ class JobsService {
         'provider_note': providerNote,
     };
 
-    final response = await http
+    final response = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/jobs/mark-complete'),
           headers: {'Content-Type': 'application/json'},
@@ -78,7 +82,7 @@ class JobsService {
     required String postId,
     required String clientUserId,
   }) async {
-    final response = await http
+    final response = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/jobs/approve'),
           headers: {'Content-Type': 'application/json'},
@@ -107,7 +111,7 @@ class JobsService {
     required String reason,
     String raisedByRole = 'client',
   }) async {
-    final response = await http
+    final response = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/disputes/create'),
           headers: {'Content-Type': 'application/json'},
@@ -136,7 +140,7 @@ class JobsService {
   }) async {
     debugPrint('[JOBS][SELECT_PROVIDER][REQUEST] postId=$postId providerId=$providerId');
 
-    final response = await http
+    final response = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/jobs/select-provider'),
           headers: {'Content-Type': 'application/json'},
@@ -162,7 +166,7 @@ class JobsService {
   /// Poll the latest job completion status for a post.
   static Future<JobCompletionStatus?> getJobStatus(String postId) async {
     try {
-      final response = await http
+      final response = await api
           .get(Uri.parse('${ApiConfig.baseUrl}/jobs/$postId/status'))
           .timeout(_timeout);
 
@@ -187,7 +191,7 @@ class JobsService {
     required String postId,
     required String userId,
   }) async {
-    final response = await http
+    final response = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/jobs/$postId/archive'),
           headers: {'Content-Type': 'application/json'},
@@ -209,7 +213,7 @@ class JobsService {
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/jobs/$postId/lifecycle?user_id=${Uri.encodeComponent(userId)}',
     );
-    final response = await http.get(uri).timeout(_timeout);
+    final response = await api.get(uri).timeout(_timeout);
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode == 200) {

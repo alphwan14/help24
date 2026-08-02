@@ -34,6 +34,7 @@ import 'services/journey_engine.dart';
 import 'services/launch_sequence.dart';
 import 'services/notification_service.dart';
 import 'services/notification_store.dart';
+import 'services/reputation_service.dart';
 import 'services/session_scope.dart';
 import 'services/startup_prefetch.dart';
 import 'services/supabase_auth_bridge.dart';
@@ -77,6 +78,10 @@ void main() async {
   LaunchSequence.begin();
   // Warm the muted-chats set for synchronous reads in list tiles and menus.
   unawaited(ChatLocalPrefs.ensureLoaded());
+  // Pull the persisted reputation cache into memory now, so the first feed
+  // cards and the first applicant list paint their trust signals from disk
+  // instead of re-earning them over the network on every cold start.
+  unawaited(ReputationService.restore());
 
   // Journey recovery: if the process died mid-journey, silently re-own it so
   // the traveller never has to notice. Short delay lets Firebase restore the

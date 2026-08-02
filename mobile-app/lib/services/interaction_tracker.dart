@@ -2,7 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+
+// Backend calls go through the authenticated client: it attaches the Firebase
+// ID token the server binds identity from, so the ownership checks in each
+// backend service actually mean something. See api_client.dart.
+import 'api_client.dart';
 
 import '../config/api_config.dart';
 import '../models/post_model.dart';
@@ -188,7 +192,7 @@ class InteractionTracker {
     _queue.clear();
 
     try {
-      await http
+      await api
           .post(
             Uri.parse('${ApiConfig.baseUrl}/feed/interactions'),
             headers: const {'Content-Type': 'application/json'},

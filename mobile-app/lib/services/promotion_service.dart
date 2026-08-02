@@ -1,6 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
+// Backend calls go through the authenticated client: it attaches the Firebase
+// ID token the server binds identity from. The http alias is still imported
+// for its response types. See api_client.dart.
+import 'api_client.dart';
 import '../config/api_config.dart';
 import '../models/promotion_models.dart';
 
@@ -48,7 +53,7 @@ class PromotionService {
       };
       final uri = Uri.parse('${ApiConfig.baseUrl}/promotions/slots')
           .replace(queryParameters: params);
-      final response = await http.get(uri).timeout(_servingTimeout);
+      final response = await api.get(uri).timeout(_servingTimeout);
       if (response.statusCode != 200) return SlotsResult.empty;
       return SlotsResult.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
     } catch (e) {
@@ -62,7 +67,7 @@ class PromotionService {
   static Future<void> trackEvents(List<Map<String, dynamic>> events) async {
     if (events.isEmpty) return;
     try {
-      await http
+      await api
           .post(
             Uri.parse('${ApiConfig.baseUrl}/promotions/events'),
             headers: _jsonHeaders,
@@ -77,7 +82,7 @@ class PromotionService {
   // ── Packages ────────────────────────────────────────────────────────────────
 
   static Future<List<PromotionPackage>> fetchPackages() async {
-    final response = await http
+    final response = await api
         .get(Uri.parse('${ApiConfig.baseUrl}/promotions/packages'))
         .timeout(_timeout);
     if (response.statusCode == 200) {
@@ -97,7 +102,7 @@ class PromotionService {
     required String postId,
     required String packageId,
   }) async {
-    final response = await http
+    final response = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/promotions/campaigns'),
           headers: _jsonHeaders,
@@ -113,7 +118,7 @@ class PromotionService {
   static Future<List<PromotionCampaign>> fetchCampaigns(String userId) async {
     final uri = Uri.parse('${ApiConfig.baseUrl}/promotions/campaigns')
         .replace(queryParameters: {'user_id': userId});
-    final response = await http.get(uri).timeout(_timeout);
+    final response = await api.get(uri).timeout(_timeout);
     if (response.statusCode == 200) {
       final list = jsonDecode(response.body) as List;
       return list
@@ -129,7 +134,7 @@ class PromotionService {
     String action,
     String userId,
   ) async {
-    final response = await http
+    final response = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/promotions/campaigns/$campaignId/$action'),
           headers: _jsonHeaders,
@@ -160,7 +165,7 @@ class PromotionService {
     required String userId,
     String? phone,
   }) async {
-    final response = await http
+    final response = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/promotions/campaigns/$campaignId/pay'),
           headers: _jsonHeaders,
@@ -186,7 +191,7 @@ class PromotionService {
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/promotions/campaigns/$campaignId/payment-status',
     ).replace(queryParameters: {'user_id': userId});
-    final response = await http.get(uri).timeout(_timeout);
+    final response = await api.get(uri).timeout(_timeout);
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -202,7 +207,7 @@ class PromotionService {
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/promotions/campaigns/$campaignId/analytics',
     ).replace(queryParameters: {'user_id': userId});
-    final response = await http.get(uri).timeout(_timeout);
+    final response = await api.get(uri).timeout(_timeout);
     if (response.statusCode == 200) {
       return CampaignAnalytics.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
     }
@@ -212,7 +217,7 @@ class PromotionService {
   static Future<List<PromotionPaymentRecord>> fetchPayments(String userId) async {
     final uri = Uri.parse('${ApiConfig.baseUrl}/promotions/payments')
         .replace(queryParameters: {'user_id': userId});
-    final response = await http.get(uri).timeout(_timeout);
+    final response = await api.get(uri).timeout(_timeout);
     if (response.statusCode == 200) {
       final list = jsonDecode(response.body) as List;
       return list

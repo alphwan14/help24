@@ -24,6 +24,7 @@ import { RequestContextMiddleware } from './common/request-context/request-conte
 import { IdentityModule } from './common/identity/identity.module';
 import { IdentityMiddleware } from './common/identity/identity.middleware';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
+import { AuthModule } from './common/auth/auth.module';
 import { HealthModule } from './health/health.module';
 
 @Module({
@@ -38,12 +39,27 @@ import { HealthModule } from './health/health.module';
     // construction is already going through the structured writer.
     //
     // LoggingModule   the single StructuredLogger instance (global).
-    // IdentityModule  optional, non-enforcing Firebase token resolution.
-    // RateLimitModule registers the global APP_GUARD; imports RedisModule.
-    // HealthModule    /health + the three dependency probes; imports RedisModule.
+    // RateLimitModule registers a global APP_GUARD; imports RedisModule.
+    // AuthModule      registers a global APP_GUARD + the token verifier (global).
+    // IdentityModule  the middleware that resolves identity; needs AuthModule.
+    // HealthModule    /health + the dependency probes; imports RedisModule.
+    //
+    // ⚠️ TWO ORDERING CONSTRAINTS, BOTH LOAD-BEARING:
+    //
+    //   RateLimitModule BEFORE AuthModule. Multiple APP_GUARD providers run in
+    //   registration order, and rate limiting must come first — a flood of
+    //   unauthenticated requests should be absorbed by the cheap counter check,
+    //   not by identity handling. It is the same reasoning that already puts
+    //   the rate-limit guard ahead of AdminAuthGuard.
+    //
+    //   AuthModule BEFORE IdentityModule. IdentityMiddleware injects
+    //   TokenVerifierService, and middleware resolves its dependencies from
+    //   AppModule's injector — so the provider has to exist by the time this
+    //   list reaches IdentityModule.
     LoggingModule,
-    IdentityModule,
     RateLimitModule,
+    AuthModule,
+    IdentityModule,
     HealthModule,
 
     SupabaseModule,

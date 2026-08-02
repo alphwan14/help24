@@ -49,6 +49,21 @@ export class ReputationService {
       .eq('id', providerId)
       .maybeSingle();
 
+    return this.toSummary(providerId, rep, (user?.created_at as string | null) ?? null);
+  }
+
+  /**
+   * The wire shape of a reputation summary — ONE definition, used by both the
+   * single-provider route and the batch route. They previously would have been
+   * two copies of the same object literal, and a client that mixes them (warm a
+   * list in batch, open one profile singly) must not be able to observe a
+   * difference between the two.
+   */
+  private toSummary(
+    providerId: string,
+    rep: Record<string, unknown> | null,
+    memberSince: string | null,
+  ) {
     return {
       provider_id: providerId,
       average_rating: round1(rep?.avg_rating ?? 0),
@@ -61,9 +76,50 @@ export class ReputationService {
       dispute_rate: rep?.dispute_rate ?? 0, // 0..1
       repeat_clients: rep?.repeat_clients ?? 0,
       tier: (rep?.tier as string) ?? 'new_provider',
-      member_since: (user?.created_at as string | null) ?? null,
+      member_since: memberSince,
       last_active_at: (rep?.last_active_at as string | null) ?? null,
       recomputed_at: (rep?.recomputed_at as string | null) ?? null,
+    };
+  }
+
+  /**
+   * Reputation summaries for MANY providers in one round trip.
+   *
+   * Exists because an applicant list is N strangers being compared at once, and
+   * N single-provider requests is what made that list arrive in N pieces at N
+   * different times — some of them not at all. Two queries total, regardless of
+   * N: one over provider_reputation, one over users for member_since.
+   *
+   * Deliberately does NOT lazy-backfill missing rows: a batch of 40 unknown
+   * providers would fire 40 recomputes on a read path. A provider with no row is
+   * a provider with no provider activity, and the zero-filled summary says
+   * exactly that — byte-identical to what the single-provider route returns when
+   * a recompute produces nothing. Their first profile open still backfills them.
+   */
+  async getReputationMany(providerIds: string[]) {
+    const ids = [...new Set(providerIds.filter((id) => !!id))];
+    if (ids.length === 0) return { reputations: [] };
+
+    const [repRes, userRes] = await Promise.all([
+      this.supabase.client.from('provider_reputation').select('*').in('provider_id', ids),
+      this.supabase.client.from('users').select('id, created_at').in('id', ids),
+    ]);
+
+    if (repRes.error) {
+      this.logger.error(`[REPUTATION] batch read failed: ${repRes.error.message}`);
+    }
+
+    const rows = new Map<string, Record<string, unknown>>();
+    for (const row of repRes.data ?? []) {
+      rows.set(row.provider_id as string, row as Record<string, unknown>);
+    }
+    const memberSince = new Map<string, string | null>();
+    for (const user of userRes.data ?? []) {
+      memberSince.set(user.id as string, (user.created_at as string | null) ?? null);
+    }
+
+    return {
+      reputations: ids.map((id) => this.toSummary(id, rows.get(id) ?? null, memberSince.get(id) ?? null)),
     };
   }
 

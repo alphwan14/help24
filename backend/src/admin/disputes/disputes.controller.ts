@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
+import { AdminAuth } from '../../common/auth/auth.decorator';
 import { CurrentAdmin, Roles } from '../auth/roles.decorator';
 import { AdminContext } from '../auth/admin-role';
 import { DisputesService } from './disputes.service';
@@ -33,6 +34,7 @@ import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
 @Controller('disputes')
 @UseGuards(AdminAuthGuard)
 @RateLimit('admin:api')
+@AdminAuth()
 export class DisputesController {
   constructor(
     private readonly disputes: DisputesService,

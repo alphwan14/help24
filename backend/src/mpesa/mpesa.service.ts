@@ -273,7 +273,25 @@ export class MpesaService {
 
   // ── Sandbox smoke-test ─────────────────────────────────────────────────────
 
+  /**
+   * Push an STK prompt to an arbitrary number, for wiring checks.
+   *
+   * BLOCKED IN PRODUCTION, matching `forceSuccessForDev` and
+   * `resetPaymentLockForDev` above. This endpoint takes the destination phone
+   * from the request body, so in production it is an arbitrary-number PIN-prompt
+   * generator: a way to harass any Safaricom subscriber and to burn Daraja quota
+   * at the same time. The Phase 1 audit flagged it and recommended exactly this
+   * gate; the controller additionally now requires an authenticated caller, but
+   * authentication alone would only have narrowed the attacker set to "anyone
+   * with an account", which for a free consumer app is not a meaningful bound.
+   */
   async testStk(phone: string, amount = 1): Promise<Record<string, unknown>> {
+    const env = process.env.MPESA_ENV ?? 'sandbox';
+    if (env === 'production') {
+      this.logger.error('[TEST-STK] called in production — BLOCKED');
+      throw new BadRequestException('The STK smoke test is not available in production.');
+    }
+
     const normalized = normalizePhone(phone);
     this.logger.log(`[TEST-STK] phone raw="${phone}" normalized="${normalized ?? 'invalid'}" amount=${amount}`);
     if (!normalized) {

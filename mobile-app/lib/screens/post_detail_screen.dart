@@ -13,6 +13,7 @@ import '../services/application_service.dart';
 import '../services/category_schema_service.dart';
 import '../services/jobs_service.dart';
 import '../services/mpesa_service.dart';
+import '../services/reputation_service.dart';
 import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
@@ -25,6 +26,7 @@ import '../utils/post_ownership.dart';
 import '../utils/time_utils.dart';
 import '../widgets/applicant_card.dart';
 import '../widgets/auth_guard.dart';
+import '../widgets/loading_empty_offline.dart' show SkeletonPulse;
 import '../widgets/post_flows.dart';
 import '../widgets/reputation_widgets.dart';
 import 'applications_screen.dart';
@@ -1513,6 +1515,43 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
   String? _selecting;
   bool _chatLoading = false;
 
+  /// Trust data for the WHOLE list in one request, resolved before any card
+  /// paints. Same contract as ApplicationsScreen: the list is one comparison
+  /// between N people, so it arrives as one thing rather than as N reveals at N
+  /// different times.
+  ///
+  /// Only the FIRST warm gates the list. A later one (a realtime application
+  /// arriving) runs behind the cards already on screen — re-gating would blank
+  /// a list the owner is reading in order to reload data they already have.
+  bool _warmSettled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _warm(gate: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ApplicantsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.post.applications.length != widget.post.applications.length) {
+      _warm(gate: false);
+    }
+  }
+
+  Future<void> _warm({required bool gate}) async {
+    final ids = widget.post.applications.map((a) => a.applicantUserId).toList();
+    if (ids.isEmpty) {
+      if (mounted && !_warmSettled) setState(() => _warmSettled = true);
+      return;
+    }
+    await ReputationService.warmAll(ids);
+    if (!mounted || (_warmSettled && gate)) return;
+    // Repaint either way: the gate lifts on the first pass, and on later passes
+    // the strips re-read a cache that now has the new applicant in it.
+    setState(() => _warmSettled = true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
@@ -1585,6 +1624,13 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
               'No offers yet. Check back later.',
               style: TextStyle(color: textSecondary, fontSize: 13),
             ),
+          )
+        else if (!_warmSettled)
+          // Held for exactly as long as the one trust request takes. The cards
+          // that follow are complete when they appear.
+          ...List.generate(
+            widget.post.applications.length.clamp(1, 3),
+            (_) => _ApplicantCardSkeleton(isDark: isDark),
           )
         else
           // The SAME card the Applications screen renders. These two lists are
@@ -1735,6 +1781,66 @@ class _JobStatusCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The shape of an ApplicantCard while the list's single trust request is out.
+///
+/// Deliberately a whole-card placeholder rather than a name-now / trust-later
+/// card: the point of the wait is that nothing on this list appears in pieces.
+class _ApplicantCardSkeleton extends StatelessWidget {
+  final bool isDark;
+
+  const _ApplicantCardSkeleton({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final base = (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary)
+        .withValues(alpha: 0.12);
+    Widget bar(double w, double h) => Container(
+          width: w,
+          height: h,
+          decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(20)),
+        );
+
+    return SkeletonPulse(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(color: base, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    bar(120, 13),
+                    const SizedBox(height: 7),
+                    bar(84, 11),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Wrap(spacing: 8, children: [bar(92, 20), bar(76, 20), bar(84, 20)]),
+            const SizedBox(height: 16),
+            bar(double.infinity, 32),
+          ],
+        ),
       ),
     );
   }

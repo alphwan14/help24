@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, HttpCode, HttpStatus, Logger, Post } from '@nestjs/common';
 import { DevService } from './dev.service';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { Auth } from '../common/auth/auth.decorator';
 
 /**
  * DEV / sandbox endpoints — all guarded inside DevService by MPESA_ENV check.
@@ -10,8 +11,13 @@ import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
  * POST /dev/trigger-event         — inject + immediately process any event type
  * POST /mpesa/dev/reset-payment-lock  → handled in MpesaController
  */
+// Requires a signed-in caller as depth behind the production check inside
+// DevService, not instead of it. These routes wipe transactions and inject
+// arbitrary events, so if that check is ever weakened by an edit, the fallback
+// should be "an account is needed" rather than "the internet can call this".
 @Controller('dev')
 @RateLimit('dev:harness')
+@Auth()
 export class DevController {
   private readonly logger = new Logger(DevController.name);
 

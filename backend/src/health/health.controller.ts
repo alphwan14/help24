@@ -1,6 +1,7 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { RateLimit, SkipRateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { Public } from '../common/auth/auth.decorator';
 import { RequestContextStore } from '../common/request-context/request-context';
 import { HealthService } from './health.service';
 import { DependencyHealth, DependencyStatus } from './health.types';
@@ -38,7 +39,14 @@ import { DependencyHealth, DependencyStatus } from './health.types';
  * consumers — the Docker HEALTHCHECK and the app's ConnectivityProvider, which
  * only checks for HTTP 200 — are unaffected.
  */
+// A health check that requires credentials is not a health check. These are
+// polled by Docker's HEALTHCHECK, by Render, by uptime monitors and — for the
+// liveness route — by every device in the field as its connectivity probe, none
+// of which hold a Firebase token. Requiring one would make the orchestrator
+// unable to tell a healthy process from an unhealthy one, which is a far larger
+// operational risk than the (masked, dependency-status-only) information here.
 @Controller('health')
+@Public('Liveness and dependency probes for orchestrators, monitors and the app connectivity check.')
 export class HealthController {
   constructor(private readonly health: HealthService) {}
 
@@ -111,6 +119,7 @@ export class HealthController {
  * dependency information, so it cannot become slow.
  */
 @Controller()
+@Public("Render's default health check and assorted uptime monitors point at the root.")
 export class RootController {
   @Get()
   @SkipRateLimit()

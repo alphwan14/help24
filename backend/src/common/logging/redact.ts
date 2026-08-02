@@ -62,6 +62,34 @@ const SENSITIVE_KEY_FRAGMENTS = [
   'signature',
 ];
 
+/**
+ * Keys that LOOK sensitive to the substring rule but provably are not.
+ *
+ * WHY THIS EXISTS — A REAL BUG, CAUGHT IN A LIVE SMOKE TEST
+ * --------------------------------------------------------
+ * `auth` is a fragment above, so `authScheme`, `authEnforced` and
+ * `authWouldDeny` — the three access-log fields the authentication migration
+ * is measured by — were being written as `[REDACTED]`. The over-matching that
+ * is correct for credentials had silently blanked the readiness signal used to
+ * decide when it is safe to start rejecting requests. Nothing failed; the
+ * dashboard was simply empty, which is the worst way for an instrument to break.
+ *
+ * WHY AN ALLOWLIST IS SAFE HERE
+ * -----------------------------
+ * Matching is EXACT, never substring: an entry admits one key name and nothing
+ * that merely contains it, so `auth` on this list could never un-redact
+ * `authToken`. Every entry's value is drawn from a closed enumeration decided by
+ * the server — a scheme name, a boolean, a failure reason — and can never carry
+ * a caller-supplied string, let alone a credential. Adding to this list is a
+ * deliberate act with a test attached (see redact.spec.ts); it is not a general
+ * escape hatch.
+ */
+const SAFE_KEY_NAMES = new Set([
+  'authscheme',    // 'firebase' | 'admin' | 'public'
+  'authenforced',  // boolean
+  'authwoulddeny', // AuthFailureReason | 'identity_conflict'
+]);
+
 const MASK = '[REDACTED]';
 
 /** Depth ceiling — a cyclic or pathologically deep object must not hang a log call. */
@@ -71,6 +99,10 @@ const MAX_ARRAY_ITEMS = 50;
 
 function isSensitiveKey(key: string): boolean {
   const normalized = key.toLowerCase().replace(/[-_\s]/g, '');
+  // Exact-match allowlist first. Deliberately checked before the fragment scan
+  // rather than folded into it, so the bypass is a whole key name and can never
+  // widen the fragment rule.
+  if (SAFE_KEY_NAMES.has(normalized)) return false;
   return SENSITIVE_KEY_FRAGMENTS.some((fragment) =>
     normalized.includes(fragment.replace(/[-_]/g, '')),
   );

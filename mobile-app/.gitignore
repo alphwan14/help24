@@ -81,3 +81,7 @@ linux/flutter/generated_plugins.cmake
 # OS
 .DS_Store
 Thumbs.db
+
+# Kotlin compiler session artifacts (Android build)
+.kotlin/
+**/.kotlin/

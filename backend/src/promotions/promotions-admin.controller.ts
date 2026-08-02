@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AdminAuthGuard } from '../admin/auth/admin-auth.guard';
+import { AdminAuth } from '../common/auth/auth.decorator';
 import { CurrentAdmin, Roles } from '../admin/auth/roles.decorator';
 import { AdminContext } from '../admin/auth/admin-role';
 import { CampaignsService } from './campaigns.service';
@@ -33,6 +34,7 @@ import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 @Controller('admin/promotions')
 @UseGuards(AdminAuthGuard)
 @RateLimit('admin:api')
+@AdminAuth()
 export class PromotionsAdminController {
   constructor(
     private readonly campaigns: CampaignsService,

@@ -8,12 +8,15 @@ import {
   Logger,
   Param,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MpesaService } from './mpesa.service';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { ReleasePayoutDto } from './dto/release-payout.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { AdminAuth, Auth, Public } from '../common/auth/auth.decorator';
+import { AdminAuthGuard } from '../admin/auth/admin-auth.guard';
 
 @Controller('mpesa')
 export class MpesaController {
@@ -27,6 +30,9 @@ export class MpesaController {
   @Post('initiate')
   @HttpCode(HttpStatus.CREATED)
   @RateLimit('payments:initiate')
+  // Every call pushes a PIN prompt to the phone on file for `buyer_user_id`.
+  // Unbound, that is a way to make someone else's phone ask them to pay.
+  @Auth('body.buyer_user_id')
   initiatePayment(@Body() dto: InitiatePaymentDto) {
     this.logger.log(`[STK] initiate — post=${dto.post_id} buyer=${dto.buyer_user_id}`);
     return this.mpesa.initiatePayment(dto);
@@ -35,15 +41,22 @@ export class MpesaController {
   /**
    * Smoke-test — caller supplies phone and optional amount (defaults to 1).
    *
-   * ⚠️ SECURITY: this is an UNAUTHENTICATED endpoint that pushes an M-Pesa PIN
-   * prompt to any phone number in the request body, and it is reachable in
-   * production. The rate limit below contains it (3/hour per IP); it does not
-   * make it safe. See the Phase 1 security report — the recommendation is to
-   * gate it behind the same production check as the /mpesa/dev/* routes.
+   * WAS the most abusable endpoint on this API: unauthenticated, reachable in
+   * production, and it pushes an M-Pesa PIN prompt to ANY phone number in the
+   * request body — a harassment tool and a Daraja quota burner. The Phase 1
+   * rate limit (3/hour per IP) contained it without fixing it, and the security
+   * report's recommendation was to gate it out of production entirely.
+   *
+   * Now closed on both axes it was open on: it requires an authenticated caller,
+   * and `MpesaService.testStk` refuses outright when MPESA_ENV=production — the
+   * same check the /mpesa/dev/* routes already use. Authentication alone would
+   * not have been enough; any signed-up account could still have used it to
+   * prompt arbitrary numbers.
    */
   @Post('test-stk')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payments:smoke')
+  @Auth()
   testStk(@Body() body: { phone?: string; amount?: number }) {
     const phone = body?.phone?.trim() ?? '';
     if (!phone) throw new BadRequestException('phone is required in request body');
@@ -56,14 +69,33 @@ export class MpesaController {
   @Post('stk-callback')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payments:callback')
+  // Safaricom posts here from its own infrastructure with no credential we can
+  // check. Requiring one would mean dropping genuine callbacks — a payment
+  // taken from a user with no job funded, resolvable only by hand. The
+  // authenticity control is inside the service (a callback must match a pending
+  // transaction by CheckoutRequestID), not at the door.
+  @Public('Daraja posts payment results here unauthenticated. Rejecting a genuine callback loses money.')
   stkCallback(@Body() body: Record<string, unknown>) {
     this.logger.log(`[STK] callback received: ${JSON.stringify(body)}`);
     return this.mpesa.handleStkCallback(body);
   }
 
+  /**
+   * Manual escrow release.
+   *
+   * ADMIN-ONLY, and it was not before. The body carries only `post_id`, so
+   * there is no caller to bind — anyone who knew a post id could ask for its
+   * escrow to be paid out. Nothing legitimate is lost by closing it: the normal
+   * payout path is the `payment.payout_requested` event, which calls
+   * `MpesaService.releasePayout` in-process and never touches this route, and
+   * the mobile app declares a constant for it that no code path uses. What
+   * remains is manual operator intervention, which is what the admin token is for.
+   */
   @Post('release-payout')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payments:release')
+  @UseGuards(AdminAuthGuard)
+  @AdminAuth()
   releasePayout(@Body() dto: ReleasePayoutDto) {
     return this.mpesa.releasePayout(dto);
   }
@@ -72,6 +104,7 @@ export class MpesaController {
   @Post('b2c-callback')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payments:callback')
+  @Public('Daraja posts payout results here unauthenticated. Same reasoning as stk-callback.')
   b2cCallback(@Body() body: Record<string, unknown>) {
     this.logger.log(`[B2C] callback received: ${JSON.stringify(body)}`);
     return this.mpesa.handleB2cCallback(body);
@@ -83,6 +116,7 @@ export class MpesaController {
   @Post('b2c-status-result')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payments:callback')
+  @Public('Daraja posts transaction-status results here unauthenticated.')
   b2cStatusResult(@Body() body: Record<string, unknown>) {
     this.logger.log(`[B2C] status-result received: ${JSON.stringify(body)}`);
     return this.mpesa.handleB2cStatusResult(body);
@@ -90,6 +124,10 @@ export class MpesaController {
 
   @Get('status/:postId')
   @RateLimit('payments:read')
+  // Payment state for one job. No identity field to bind (the post id is the
+  // only argument), but it is not public information — a signed-in caller is
+  // required. Participant-scoping needs a service change; see the security review.
+  @Auth()
   getStatus(@Param('postId') postId: string) {
     return this.mpesa.getStatus(postId);
   }
@@ -102,6 +140,7 @@ export class MpesaController {
   @Post('dev/force-success')
   @HttpCode(HttpStatus.OK)
   @RateLimit('dev:harness')
+  @Auth()
   forceSuccess(@Body() body: { post_id?: string }) {
     if (!body?.post_id) throw new BadRequestException('post_id is required');
     this.logger.warn(`[DEV] force-success endpoint called — post=${body.post_id}`);
@@ -117,6 +156,7 @@ export class MpesaController {
   @Post('dev/reset-payment-lock')
   @HttpCode(HttpStatus.OK)
   @RateLimit('dev:harness')
+  @Auth()
   resetPaymentLock(@Body() body: { post_id?: string }) {
     if (!body?.post_id) throw new BadRequestException('post_id is required');
     this.logger.warn(`[DEV] reset-payment-lock endpoint called — post=${body.post_id}`);
@@ -131,6 +171,10 @@ export class MpesaController {
   @Get('health')
   @HttpCode(HttpStatus.OK)
   @RateLimit('health:deep')
+  // Configuration echo with every secret masked. Its audience is an operator
+  // diagnosing a misrouted Daraja callback, often before any account exists on
+  // the instance being checked.
+  @Public('Deployment configuration check. All secrets are masked in the response.')
   health() {
     const env         = this.config.get<string>('MPESA_ENV', 'MISSING');
     const shortcode   = this.config.get<string>('MPESA_SHORTCODE', 'MISSING');

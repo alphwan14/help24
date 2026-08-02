@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../services/application_service.dart';
 import '../services/jobs_service.dart';
 import '../services/post_service.dart';
+import '../services/reputation_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 import '../widgets/applicant_card.dart';
@@ -34,6 +35,15 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
   List<Application> _applications = [];
   bool _loading = true;
   String? _error;
+
+  /// The load itself failed because the device is offline (as opposed to the
+  /// server failing) — changes the icon and the wording, not the layout.
+  bool _errorIsOffline = false;
+
+  /// Applications loaded, but their trust data could not be reached. The list
+  /// is still useful (names, messages, prices) so it is still shown — with one
+  /// honest banner above it rather than a repeated apology on every card.
+  bool _reputationOffline = false;
   // Tracks which provider is currently being accepted (shows spinner on that card only).
   String? _accepting;
   // Once a provider is accepted we lock the entire list.
@@ -101,6 +111,18 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
         post = await PostService.getPostById(widget.postId);
         serverSelected = post?.selectedProviderUserId;
       }
+
+      // ── The applicant list is ONE thing, so it loads as one thing ──────────
+      // Every card's trust line comes from this single request, resolved BEFORE
+      // the list is put on screen. Previously each card fetched its own, which
+      // is why a list of eight arrived as eight separate reveals and why a
+      // strained connection produced a handful of "Reputation unavailable"
+      // cards next to loaded ones — the same screen telling the user two
+      // different stories about the same network.
+      final warmth = await ReputationService.warmAll(
+        apps.map((a) => a.applicantUserId),
+      );
+
       if (!mounted) return;
       setState(() {
         _applications = apps;
@@ -111,14 +133,19 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
           _acceptedProviderId = serverSelected;
         }
         _loading = false;
+        _reputationOffline = warmth == ReputationOutcome.offline;
         if (!silent) _error = null;
       });
       if (silent) debugPrint('[APPLICATIONS][REFRESH] Reloaded ${apps.length} applications');
     } catch (e) {
       if (!mounted) return;
       if (!silent) {
+        // One mapped message rather than one guess: an unreachable server and a
+        // phone with no signal are different problems and read differently.
+        final failure = ErrorMapper.toFailure(e, context: ErrorContext.loadContent);
         setState(() {
-          _error = 'Failed to load applications. Pull down to retry.';
+          _error = failure.message;
+          _errorIsOffline = failure.isOffline;
           _loading = false;
         });
       }
@@ -274,9 +301,19 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Column(
                 children: [
-                  Icon(Icons.cloud_off_rounded, size: 48, color: AppTheme.errorRed.withValues(alpha: 0.7)),
+                  Icon(
+                    _errorIsOffline ? Icons.wifi_off_rounded : Icons.cloud_off_rounded,
+                    size: 48,
+                    color: AppTheme.errorRed.withValues(alpha: 0.7),
+                  ),
                   const SizedBox(height: 16),
                   Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: textSecondary)),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Try again'),
+                  ),
                 ],
               ),
             ),
@@ -316,8 +353,13 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
 
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      itemCount: _applications.length,
+      // One extra row for the trust-data banner, when there is one to show.
+      itemCount: _applications.length + (_reputationOffline ? 1 : 0),
       itemBuilder: (context, index) {
+        if (_reputationOffline) {
+          if (index == 0) return _ReputationOfflineBanner(isDark: isDark);
+          index -= 1;
+        }
         final app = _applications[index];
         return ApplicantCard(
           application: app,
@@ -331,6 +373,44 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
           onMessage: () => _openChatWith(app),
         );
       },
+    );
+  }
+}
+
+/// Said ONCE, above the list, instead of on every card.
+///
+/// The applications themselves came from cache or from the server and are real;
+/// only the trust signals are missing. Repeating that on each card made a
+/// connectivity problem look like eight separate problems with eight separate
+/// people.
+class _ReputationOfflineBanner extends StatelessWidget {
+  final bool isDark;
+
+  const _ReputationOfflineBanner({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.warningOrange.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.warningOrange.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off_rounded, size: 18, color: AppTheme.warningOrange),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "You're offline. Ratings and job history will fill in once you reconnect.",
+              style: TextStyle(color: muted, fontSize: 12.5, height: 1.35),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

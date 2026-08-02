@@ -59,6 +59,24 @@ export interface RequestContext {
   rateLimitPolicy?: string;
   /** True when this request was rejected by the rate limiter. */
   rateLimited?: boolean;
+
+  /**
+   * The authentication scheme the ROUTE declared — `firebase`, `admin` or
+   * `public`; undefined when the route declared none. Recorded separately from
+   * `userIdSource`, which describes what the CALLER actually presented. The two
+   * together are what makes the migration measurable: "firebase-scheme routes
+   * where userIdSource is not verified" is precisely the set of requests that
+   * enforcement will start rejecting.
+   */
+  authScheme?: 'firebase' | 'admin' | 'public';
+  /** Whether enforcement was active for this route on this request. */
+  authEnforced?: boolean;
+  /**
+   * Set when enforcement WOULD have rejected this request but the mode allowed
+   * it through. Counting these by route is the readiness signal for flipping
+   * AUTH_ENFORCEMENT to `enforce`; it must reach zero first.
+   */
+  authWouldDeny?: string;
 }
 
 /**
@@ -112,7 +130,8 @@ export class RequestContextStore {
    * fields declared mutable on RequestContext can be set.
    */
   static annotate(patch: Partial<Pick<RequestContext,
-    'userId' | 'userIdSource' | 'actor' | 'rateLimitPolicy' | 'rateLimited'>>): void {
+    'userId' | 'userIdSource' | 'actor' | 'rateLimitPolicy' | 'rateLimited'
+    | 'authScheme' | 'authEnforced' | 'authWouldDeny'>>): void {
     const context = RequestContextStore.storage.getStore();
     if (!context) return;
     Object.assign(context, patch);

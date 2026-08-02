@@ -6,6 +6,8 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { StructuredLogger } from './common/logging/structured-logger.service';
 import { RedisService } from './redis/redis.service';
+import { AUTH_CONFIG } from './common/auth/auth.tokens';
+import { AuthConfig } from './common/auth/auth.config';
 import { EventProcessorService } from './events/event-processor.service';
 import { JobsService } from './jobs/jobs.service';
 import { DevService } from './dev/dev.service';
@@ -151,6 +153,68 @@ async function bootstrap(): Promise<void> {
   }
 
   reportInfrastructure(app.get(RedisService), logger);
+  reportAuthPosture(app.get(AUTH_CONFIG), logger);
+}
+
+/**
+ * State-of-authentication banner, printed once per boot.
+ *
+ * The same reasoning as the Redis banner below: the dangerous configuration
+ * here is SILENT. A deployment running `monitor` serves every request, rejects
+ * nothing, and looks in every respect like a system with authentication —
+ * because it HAS authentication, it just isn't enforcing it yet. Nobody
+ * discovers that by using the API. They discover it from a log line, or not at
+ * all.
+ *
+ * So the degraded case states, in the plainest terms available, exactly what is
+ * and is not being enforced, and exactly which variable changes it.
+ */
+function reportAuthPosture(config: AuthConfig, logger: Logger): void {
+  const firebaseConfigured = Boolean(
+    process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY,
+  );
+
+  logger.log(
+    `[Help24][AUTH] enforcement=${config.mode} firebase=${firebaseConfigured ? 'configured' : 'MISSING'} ` +
+      `tokenCache=${config.cacheEnabled ? `on(max=${config.cacheMaxEntries}, ttl=${config.cacheMaxTtlMs}ms)` : 'off'}` +
+      `${config.enforceOnly.length > 0 ? ` enforceOnly=[${config.enforceOnly.join(', ')}]` : ''}`,
+  );
+
+  if (config.mode === 'enforce' && !firebaseConfigured) {
+    // Every protected route would answer 503 (AUTH_UNAVAILABLE) — correctly, but
+    // universally. Worth an error line at boot rather than a support ticket.
+    logger.error(
+      '[Help24][AUTH] AUTH_ENFORCEMENT=enforce but Firebase Admin is NOT configured. ' +
+        'No token can be verified, so every protected route will answer 503. ' +
+        'Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY.',
+    );
+    return;
+  }
+
+  if (config.mode === 'enforce' && config.enforceOnly.length === 0) {
+    logger.log('[Help24][AUTH] Authentication is fully enforced on every protected route.');
+    return;
+  }
+
+  logger.warn(
+    '[Help24][AUTH] ═══════════════════════════════════════════════════════════\n' +
+      `  AUTHENTICATION IS NOT FULLY ENFORCED — AUTH_ENFORCEMENT=${config.mode}.\n` +
+      (config.mode === 'off'
+        ? '  Requests with no token are accepted AND their asserted identity is\n' +
+          '  trusted. This is the pre-migration behaviour. Nothing is measured.\n'
+        : '  Requests with no token are accepted and proceed on the identity they\n' +
+          '  assert, exactly as before. A caller that DOES present a valid token\n' +
+          '  cannot act as anyone else — conflicts are corrected, not just logged.\n') +
+      (config.enforceOnly.length > 0
+        ? `  Enforcement is narrowed to: ${config.enforceOnly.join(', ')}\n`
+        : '') +
+      '  This is correct DURING the client migration and NOT safe as a\n' +
+      '  final state.\n' +
+      '  Readiness: count access-log entries with authWouldDeny set. When that\n' +
+      '  reaches ~0, set AUTH_ENFORCEMENT=enforce and restart. Rollback is the\n' +
+      '  same change in reverse — no redeploy required.\n' +
+      '  ══════════════════════════════════════════════════════════════════',
+  );
 }
 
 /**

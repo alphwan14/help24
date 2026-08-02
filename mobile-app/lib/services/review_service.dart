@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+
+// Backend calls go through the authenticated client: it attaches the Firebase
+// ID token the server binds identity from, so the ownership checks in each
+// backend service actually mean something. See api_client.dart.
+import 'api_client.dart';
 import '../config/api_config.dart';
 import 'reputation_service.dart';
 
@@ -59,7 +63,7 @@ class ReviewService {
       final uri = Uri.parse(
         '${ApiConfig.baseUrl}/reviews/eligibility/$postId?user_id=${Uri.encodeComponent(userId)}',
       );
-      final res = await http.get(uri).timeout(_timeout);
+      final res = await api.get(uri).timeout(_timeout);
       if (res.statusCode == 200) {
         return ReviewEligibility.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
       }
@@ -78,7 +82,7 @@ class ReviewService {
     required int rating,
     String? comment,
   }) async {
-    final res = await http
+    final res = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/reviews'),
           headers: {'Content-Type': 'application/json'},

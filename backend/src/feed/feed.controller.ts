@@ -12,6 +12,7 @@ import {
 import { FeedService, FeedResponse } from './feed.service';
 import { FeedQueryDto, IngestInteractionsDto, SetAvailabilityDto } from './dto/feed.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { Auth, Public } from '../common/auth/auth.decorator';
 
 /**
  * Discover recommendation engine — public routes.
@@ -44,6 +45,16 @@ export class FeedController {
    */
   @Get()
   @RateLimit('feed:read')
+  // Anonymous browsing is the product's front door and must keep working
+  // exactly as it does today — a cold-start request with no user, no
+  // coordinates and no filters returns a ranked feed.
+  //
+  // The binding covers the signed-in case: `user_id` selects whose behaviour
+  // profile, skills and applied-posts shape the ranking, so accepting it
+  // unproven lets anyone request another person's personalised feed by naming
+  // them — a read of what someone has been searching for and applying to.
+  // Bound, the query personalises for the caller or for nobody.
+  @Public('Discover is browsable without an account.', { bind: 'query.user_id' })
   async getFeed(@Query() query: FeedQueryDto): Promise<FeedResponse> {
     try {
       return await this.feed.getFeed(query);
@@ -64,6 +75,12 @@ export class FeedController {
   @Post('interactions')
   @HttpCode(HttpStatus.ACCEPTED)
   @RateLimit('telemetry:ingest')
+  // `user_id` is REQUIRED by the DTO, so this route is never called by an
+  // anonymous browser — the client only reaches it once someone is signed in.
+  // Binding it matters more than the telemetry framing suggests: these events
+  // are the behavioural signal the recommendation engine ranks on, so an
+  // unbound user_id is a write into another person's ranking profile.
+  @Auth('body.user_id')
   async ingest(@Body() dto: IngestInteractionsDto): Promise<{ accepted: number }> {
     return this.feed.ingestInteractions(dto);
   }
@@ -76,6 +93,8 @@ export class FeedController {
    */
   @Post('availability')
   @RateLimit('availability:toggle')
+  // Writes a ranking signal onto the caller's own provider profile.
+  @Auth('body.user_id')
   async setAvailability(@Body() dto: SetAvailabilityDto): Promise<{ available_until: string | null }> {
     return this.feed.setAvailability(dto);
   }

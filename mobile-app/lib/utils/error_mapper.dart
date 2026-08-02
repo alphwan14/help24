@@ -286,7 +286,26 @@ class ErrorMapper {
   }
 
   static AppFailure? _forStatus(int status, ErrorContext context) {
-    if (status == 401 || status == 403) {
+    // 401 and 403 are DIFFERENT problems and were previously answered with the
+    // same sentence. Since the backend began enforcing authentication, 401 is
+    // reachable in normal use — a session that ended while the app was
+    // backgrounded, an account signed out on another device — and telling
+    // someone they "don't have permission" when the real answer is "sign in
+    // again" sends them looking for a permissions problem that does not exist.
+    //
+    // The client already retries once on TOKEN_EXPIRED (see api_client.dart),
+    // so a 401 that reaches here has survived a token refresh and genuinely
+    // means the session is over.
+    if (status == 401) {
+      return const AppFailure(
+        title: 'Sign in again',
+        message: 'Your session has ended. Please sign in to continue.',
+      );
+    }
+    // 403 is the real authorization answer: the caller is known and still not
+    // allowed — including the identity-conflict case, where the request named
+    // someone other than the signed-in user.
+    if (status == 403) {
       return const AppFailure(
         title: 'Not allowed',
         message: "You don't have permission to do that.",

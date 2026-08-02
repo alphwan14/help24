@@ -7,6 +7,7 @@ import '../models/post_model.dart' show Conversation;
 import '../models/provider_reputation.dart';
 import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
+import '../providers/connectivity_provider.dart' show NetworkHealth;
 import '../services/reputation_service.dart';
 import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
@@ -60,6 +61,10 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   bool _loadingMoreReviews = false;
   String? _error;
 
+  /// The failure was the connection, not the profile. Changes what the error
+  /// state says and which icon it shows.
+  bool _offline = false;
+
   @override
   void initState() {
     super.initState();
@@ -70,6 +75,12 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
     }
   }
 
+  /// Everything this page shows, resolved together.
+  ///
+  /// The three reads are awaited as ONE unit on purpose: identity, trust record
+  /// and reviews are the same answer to the same question ("who is this
+  /// person?"), and a page that reveals them in three instalments reads as
+  /// three separate loads. Whatever is here when the spinner ends is the page.
   Future<void> _load() async {
     if (mounted) setState(() => _error = null);
     try {
@@ -88,13 +99,20 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
         _loading = false;
         // Only a missing profile is a hard failure. Reputation and reviews
         // degrade to their own honest empty states.
-        if (_profile == null) _error = "We couldn't load this profile.";
+        if (_profile == null) {
+          _offline = NetworkHealth.isOffline;
+          _error = _offline
+              ? "You're offline. Connect to see this provider's profile."
+              : "We couldn't load this profile.";
+        }
       });
     } catch (e) {
       if (!mounted) return;
+      final failure = ErrorMapper.toFailure(e, context: ErrorContext.loadContent);
       setState(() {
         _loading = false;
-        _error = "We couldn't load this profile.";
+        _offline = failure.isOffline;
+        _error = failure.message;
       });
     }
   }
@@ -200,7 +218,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? _ErrorState(message: _error!, onRetry: _load)
+              ? _ErrorState(message: _error!, offline: _offline, onRetry: _load)
               : RefreshIndicator(
                   onRefresh: _load,
                   color: AppTheme.primaryAccent,
@@ -218,7 +236,14 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
 
                       // Trust record — the same server-derived section used on
                       // the account tab, so the numbers can never disagree.
-                      ReputationProfileSection(providerId: widget.providerId),
+                      // Seeded with what _load already resolved: the section
+                      // used to re-fetch it and spin on its own after the page
+                      // was already up, which is why the profile appeared to
+                      // load in two stages.
+                      ReputationProfileSection(
+                        providerId: widget.providerId,
+                        seed: _reputation,
+                      ),
 
                       if ((_profile?.bio ?? '').trim().isNotEmpty) ...[
                         const SizedBox(height: 20),
@@ -499,9 +524,14 @@ class _ReviewTile extends StatelessWidget {
 
 class _ErrorState extends StatelessWidget {
   final String message;
+  final bool offline;
   final VoidCallback onRetry;
 
-  const _ErrorState({required this.message, required this.onRetry});
+  const _ErrorState({
+    required this.message,
+    required this.onRetry,
+    this.offline = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -511,7 +541,7 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off_rounded,
+            Icon(offline ? Icons.wifi_off_rounded : Icons.cloud_off_rounded,
                 size: 44, color: AppTheme.errorRed.withValues(alpha: 0.7)),
             const SizedBox(height: 16),
             Text(message, textAlign: TextAlign.center),

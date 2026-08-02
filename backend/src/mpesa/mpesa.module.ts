@@ -5,9 +5,13 @@ import { DarajaService } from './daraja.service';
 import { TransactionsModule } from '../transactions/transactions.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { EventsModule } from '../events/events.module';
+// AdminAuthModule, NOT AdminModule: `POST /mpesa/release-payout` is guarded by
+// AdminAuthGuard, and AdminModule imports THIS module — importing it back would
+// close a cycle. See admin-auth.module.ts.
+import { AdminAuthModule } from '../admin/auth/admin-auth.module';
 
 @Module({
-  imports: [TransactionsModule, NotificationsModule, EventsModule],
+  imports: [TransactionsModule, NotificationsModule, EventsModule, AdminAuthModule],
   controllers: [MpesaController],
   providers: [MpesaService, DarajaService],
   // DarajaService is exported for PromotionsModule: promotion purchases reuse

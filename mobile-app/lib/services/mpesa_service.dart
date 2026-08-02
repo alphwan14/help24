@@ -1,6 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
+// Backend calls go through the authenticated client: it attaches the Firebase
+// ID token the server binds identity from. The http alias is still imported
+// for its response types. See api_client.dart.
+import 'api_client.dart';
 import '../config/api_config.dart';
 import '../utils/phone_utils.dart';
 
@@ -100,7 +105,7 @@ class MpesaService {
 
     final http.Response response;
     try {
-      response = await http
+      response = await api
           .post(
             Uri.parse(ApiConfig.initiatePayment),
             headers: {'Content-Type': 'application/json'},
@@ -169,7 +174,7 @@ class MpesaService {
     const url = '${ApiConfig.baseUrl}/mpesa/test-stk';
     debugPrint('[MpesaService] POST $url phone=$phone amount=$amount');
     try {
-      final response = await http
+      final response = await api
           .post(
             Uri.parse(url),
             headers: {'Content-Type': 'application/json'},
@@ -189,7 +194,7 @@ class MpesaService {
     const url = '${ApiConfig.baseUrl}/mpesa/dev/force-success';
     debugPrint('[MpesaService][DEV] POST $url postId=$postId');
     try {
-      final response = await http
+      final response = await api
           .post(
             Uri.parse(url),
             headers: {'Content-Type': 'application/json'},
@@ -210,7 +215,7 @@ class MpesaService {
 
     final http.Response response;
     try {
-      response = await http.get(Uri.parse(url)).timeout(_timeout);
+      response = await api.get(Uri.parse(url)).timeout(_timeout);
     } catch (e) {
       debugPrint('[MpesaService] poll network error: $e');
       throw MpesaException('Network error — check your connection');

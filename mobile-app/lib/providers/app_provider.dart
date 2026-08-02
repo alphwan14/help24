@@ -552,7 +552,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // for when they come back to it; do not put it on screen.
       _remember(snapshot);
     }
-    _warmAvatarUrls(snapshot.posts.map((p) => p.authorAvatar));
+    _warmPostMedia(snapshot.posts);
+    // Spend what is left of the splash's own deadline decoding the photos of
+    // the cards the user is about to open onto, so Discover arrives whole
+    // rather than arriving and then filling in.
+    if (_isDefaultQuery) await _precacheFirstScreen(snapshot.posts);
     // The launch feed is what it is going to be. Hand over.
     LaunchSequence.markFeedFinal();
     notifyListeners();
@@ -618,7 +622,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       generatedAt: DateTime.now().subtract(FeedSnapshot.ttl),
       fromCache: true,
     ));
-    _warmAvatarUrls(posts.map((p) => p.authorAvatar));
+    _warmPostMedia(posts);
     notifyListeners();
   }
 
@@ -736,6 +740,14 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       generatedAt: DateTime.now().subtract(FeedSnapshot.ttl),
       fromCache: true,
     ));
+    // These posts came off disk, so their photos are almost certainly on disk
+    // too — this is the read that turns "cards now, photos a moment later" into
+    // one arrival on a reopened app. The first screenful is AWAITED (briefly,
+    // and only against the splash's own remaining budget) so the cards and
+    // their photos reach the screen in the same notify; the rest is warmed
+    // behind them.
+    _warmPostMedia(cached);
+    await _precacheFirstScreen(cached);
     notifyListeners();
 
     // Same contract for Jobs — the tab opens on content instead of skeletons.
@@ -992,9 +1004,9 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // Only the newest request owns the loading flag: an outdated response
       // must not clear a spinner that belongs to a load still running.
       if (seq == _postsRequestSeq) {
-        // Author avatars start caching with the feed so cards render them
-        // instantly.
-        _warmAvatarUrls(_posts.map((p) => p.authorAvatar));
+        // Author avatars AND cover photos start caching with the feed, so a
+        // card renders complete rather than rendering and then filling in.
+        _warmPostMedia(_posts);
         _isLoadingPosts = false;
         // Whatever this load decided — a page, an offline cache read, a failure
         // — the launch now knows what it is going to show. Idempotent, so the
@@ -1346,7 +1358,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       debugPrint('[AppProvider] loadUrgentPosts failed: $e');
     } finally {
       if (seq == _urgentRequestSeq) {
-        _warmAvatarUrls(_urgentPosts.map((p) => p.authorAvatar));
+        _warmPostMedia(_urgentPosts);
         _isLoadingUrgentPosts = false;
         notifyListeners();
       }
@@ -1416,7 +1428,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
           posts.insert(0, createdPost);
         }
       });
-      _warmAvatarUrls([createdPost.authorAvatar]);
+      _warmPostMedia([createdPost]);
       _cachePostsIfDefault();
       // Emergency posts must surface in the Urgent section immediately —
       // forced, because the whole point is that the thing that just happened
@@ -1777,11 +1789,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// URLs already fed to the image cache this session (avoid re-resolving).
   final Set<String> _warmedAvatarUrls = {};
 
-  /// Kick off avatar downloads into cached_network_image's cache the moment
-  /// data mentioning them lands (feed, jobs, conversations) — avatars are
-  /// then already decoded when their card/tile builds, so they are never
-  /// seen loading. Fire-and-forget; errors are swallowed by the pipeline.
-  void _warmAvatarUrls(Iterable<String> urls, {int cap = 40}) {
+  /// Kick off image downloads into cached_network_image's cache the moment
+  /// data mentioning them lands (feed, jobs, conversations) — the image is
+  /// then already decoded when its card/tile builds, so it is never seen
+  /// loading. Fire-and-forget; errors are swallowed by the pipeline.
+  void _warmImageUrls(Iterable<String> urls, {int cap = 40}) {
     var started = 0;
     for (final url in urls) {
       if (started >= cap) break;
@@ -1793,6 +1805,92 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         // Never let a bad URL disturb the provider.
       }
     }
+  }
+
+  void _warmAvatarUrls(Iterable<String> urls, {int cap = 40}) =>
+      _warmImageUrls(urls, cap: cap);
+
+  /// Warm the AVATAR and the COVER IMAGE of each post together.
+  ///
+  /// Only avatars were warmed before, which is precisely why Discover came up
+  /// in two waves — text and faces first, then the photos a moment later. A
+  /// post card's photo is the largest thing on it and the last thing to arrive;
+  /// warming it from the same data that produced the card is what lets the two
+  /// land in the same frame.
+  ///
+  /// Only the FIRST image of each post: it is the only one a card shows, and
+  /// pulling the whole gallery down would spend a launch's bandwidth on photos
+  /// nobody has asked to see.
+  void _warmPostMedia(Iterable<PostModel> posts, {int cap = 30}) {
+    final list = posts.take(cap).toList();
+    _warmImageUrls(list.map((p) => p.authorAvatar), cap: cap);
+    _warmImageUrls(
+      list.where((p) => p.images.isNotEmpty).map((p) => p.images.first),
+      cap: cap,
+    );
+  }
+
+  /// The cover images of the first [count] posts, in order — the screenful the
+  /// user actually opens onto. Used by [_precacheFirstScreen].
+  static List<String> _coverUrls(Iterable<PostModel> posts, int count) => posts
+      .take(count)
+      .map((p) => p.images.isEmpty ? '' : p.images.first)
+      .where((u) => u.isNotEmpty)
+      .toList();
+
+  /// Hold the LAUNCH until the first screenful's photos are decoded — but only
+  /// for whatever is left of the splash's own deadline, and never a millisecond
+  /// past it.
+  ///
+  /// The splash is already being held for the ranking; these downloads run in
+  /// that same window rather than after it. What this removes is the very
+  /// specific thing reported: Discover appearing complete and its photos
+  /// filling in a second later. It cannot make the launch slower than it
+  /// already was — when the budget is gone, this returns immediately and the
+  /// images finish behind a screen that is already up, exactly as before.
+  Future<void> _precacheFirstScreen(List<PostModel> posts) async {
+    // ONLY while the splash is actually covering the screen. Once it has handed
+    // over — or in a test, where no launch is running at all — there is nothing
+    // hiding the wait, and holding a paint behind image downloads would be the
+    // opposite of the fix: a delay the user can see, to avoid one they can't.
+    if (!LaunchSequence.isHoldingSplash) return;
+
+    final urls = _coverUrls(posts, 4);
+    if (urls.isEmpty) return;
+
+    // Leave the last slice of the deadline to the handover itself.
+    final elapsed = LaunchSequence.sinceStart;
+    if (elapsed < 0) return;
+    final budget = LaunchSequence.deadline - Duration(milliseconds: elapsed + 250);
+    if (budget <= Duration.zero) return;
+
+    final started = DateTime.now();
+    await Future.wait(
+      urls.map((url) => _decoded(url)),
+    ).timeout(budget, onTimeout: () => const []);
+    debugPrint('[LAUNCH] first-screen images settled in '
+        '${DateTime.now().difference(started).inMilliseconds}ms '
+        '(budget ${budget.inMilliseconds}ms, ${urls.length} images)');
+  }
+
+  /// Completes when [url] is decoded and in the image cache — or immediately on
+  /// any failure, because a broken photo must never hold a launch.
+  static Future<void> _decoded(String url) {
+    final completer = Completer<void>();
+    late final ImageStreamListener listener;
+    final stream = CachedNetworkImageProvider(url).resolve(ImageConfiguration.empty);
+    void finish() {
+      if (completer.isCompleted) return;
+      completer.complete();
+      stream.removeListener(listener);
+    }
+
+    listener = ImageStreamListener(
+      (_, __) => finish(),
+      onError: (_, __) => finish(),
+    );
+    stream.addListener(listener);
+    return completer.future;
   }
 
   void _warmAvatarCache(List<Conversation> list) =>

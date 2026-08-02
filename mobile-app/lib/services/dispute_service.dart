@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+
+// Backend calls go through the authenticated client: it attaches the Firebase
+// ID token the server binds identity from, so the ownership checks in each
+// backend service actually mean something. See api_client.dart.
+import 'api_client.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/api_config.dart';
 import '../models/dispute_thread.dart';
@@ -48,7 +52,7 @@ class DisputeService {
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/disputes/$disputeId/thread?user_id=${Uri.encodeComponent(userId)}',
     );
-    final res = await http.get(uri).timeout(_timeout);
+    final res = await api.get(uri).timeout(_timeout);
     final json = jsonDecode(res.body) as Map<String, dynamic>;
     if (res.statusCode == 200) return DisputeThread.fromJson(json);
     throw DisputeException(_msg(json), statusCode: res.statusCode);
@@ -60,7 +64,7 @@ class DisputeService {
     required String userId,
     required String message,
   }) async {
-    final res = await http
+    final res = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/disputes/$disputeId/reply'),
           headers: {'Content-Type': 'application/json'},
@@ -92,7 +96,7 @@ class DisputeService {
     }
 
     // 1. Ask the backend for signed upload URLs.
-    final urlRes = await http
+    final urlRes = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/disputes/$disputeId/evidence/upload-url'),
           headers: {'Content-Type': 'application/json'},
@@ -138,7 +142,7 @@ class DisputeService {
     }
 
     // 3. Register the uploaded objects as evidence on the case.
-    final submitRes = await http
+    final submitRes = await api
         .post(
           Uri.parse('${ApiConfig.baseUrl}/disputes/$disputeId/evidence/submit'),
           headers: {'Content-Type': 'application/json'},

@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { EventProcessorService } from './event-processor.service';
 import { EventsService } from './events.service';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { AdminAuth } from '../common/auth/auth.decorator';
+import { AdminAuthGuard } from '../admin/auth/admin-auth.guard';
 
 /**
  * Admin endpoints for event observability and debugging.
@@ -12,9 +14,30 @@ import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
  * GET  /admin/events/:id        — single event detail
  * POST /admin/events/replay     — manually re-run an event handler
  * GET  /admin/events/dead-letter — all permanently-failed events
+ *
+ * ⚠️ THIS CONTROLLER SHIPPED WITHOUT A GUARD.
+ * ------------------------------------------
+ * It carried `@RateLimit('admin:api')` and nothing else, so every route below
+ * was reachable by anyone who knew the path — despite the `/admin` prefix, and
+ * despite every other admin controller in the codebase being guarded. The
+ * consequences were not limited to disclosure:
+ *
+ *   GET  /admin/events        — the full event log, payloads included: user
+ *                               ids, post ids, payment amounts, phone numbers.
+ *   POST /admin/events/replay — re-runs ANY event's handler by id, including
+ *                               `payment.payout_requested`, which initiates an
+ *                               M-Pesa B2C transfer.
+ *
+ * The missing line was one `@UseGuards` in a file that otherwise read exactly
+ * like its neighbours, which is why review did not catch it and why nothing
+ * failed at runtime. `RouteAuditService` now cross-checks `@AdminAuth()`
+ * against the guards actually applied, on every boot, and refuses to start
+ * under AUTH_ENFORCEMENT=enforce when they disagree.
  */
 @Controller('admin/events')
 @RateLimit('admin:api')
+@UseGuards(AdminAuthGuard)
+@AdminAuth()
 export class EventsAdminController {
   constructor(
     private readonly processor: EventProcessorService,

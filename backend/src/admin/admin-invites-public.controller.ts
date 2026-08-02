@@ -16,6 +16,7 @@ import {
   RestoreSessionDto,
 } from './disputes/dto/admin-invite.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { Public } from '../common/auth/auth.decorator';
 
 /**
  * PUBLIC invite endpoints — intentionally NOT guarded by AdminAuthGuard.
@@ -26,6 +27,14 @@ import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 // Class-level: every route here is unauthenticated admin surface, and
 // GET /admin/invite/:token is a validity oracle that must not be enumerable.
 @RateLimit('admin:auth')
+// The bootstrap paradox, declared rather than implied: these are the routes by
+// which an administrator OBTAINS a token, so none of them can require one. The
+// authorization is the single-use invite token itself, or (for session/restore)
+// a Supabase access token the service verifies independently. The route audit
+// prints this reason on every boot alongside the rest of the public surface,
+// which is the only way an `@Public` under /admin stays a decision rather than
+// becoming an oversight.
+@Public('Bootstrap: these are how an admin obtains a token, so none can require one. Authorization is the invite token or a verified Supabase session.')
 export class AdminInvitesPublicController {
   constructor(
     private readonly invites: AdminInvitesService,

@@ -7,6 +7,9 @@ import { SupabaseModule } from '../supabase/supabase.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { MpesaModule } from '../mpesa/mpesa.module';
 import { ReputationModule } from '../reputation/reputation.module';
+// Supplies AdminAuthGuard for EventsAdminController, which until now had no
+// guard at all — see the comment at the top of events-admin.controller.ts.
+import { AdminAuthModule } from '../admin/auth/admin-auth.module';
 
 /**
  * Standalone module for event processing + observability.
@@ -21,7 +24,14 @@ import { ReputationModule } from '../reputation/reputation.module';
  *   POST /admin/events/replay — manual event replay
  */
 @Module({
-  imports: [EventsModule, SupabaseModule, NotificationsModule, MpesaModule, ReputationModule],
+  imports: [
+    EventsModule,
+    SupabaseModule,
+    NotificationsModule,
+    MpesaModule,
+    ReputationModule,
+    AdminAuthModule,
+  ],
   providers: [EventProcessorService],
   controllers: [EventsAdminController, EventsHealthController],
   exports: [EventProcessorService],

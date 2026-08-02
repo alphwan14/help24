@@ -80,8 +80,8 @@ class _ReputationCompactState extends State<ReputationCompact> {
   // an empty placeholder for a frame each time — visible as rating flicker.
   // The sync cache read additionally covers the one-frame gap on rebuilds
   // where the service cache is already warm.
-  late Future<ProviderReputation?> _future;
-  ProviderReputation? _cached;
+  late Future<ReputationResult> _future;
+  ReputationResult _seed = const ReputationResult(null, ReputationOutcome.ok);
 
   @override
   void initState() {
@@ -96,8 +96,10 @@ class _ReputationCompactState extends State<ReputationCompact> {
   }
 
   void _load() {
-    _cached = ReputationService.getCachedSync(widget.providerId);
-    _future = ReputationService.getReputation(widget.providerId);
+    // Stale-but-real beats a gap: a feed card reopened from disk cache shows
+    // the tier it showed yesterday, and the refresh corrects it behind the user.
+    _seed = ReputationService.peek(widget.providerId);
+    _future = ReputationService.getResult(widget.providerId);
   }
 
   @override
@@ -105,13 +107,15 @@ class _ReputationCompactState extends State<ReputationCompact> {
     final muted = widget.textColor ?? (Theme.of(context).brightness == Brightness.dark
         ? AppTheme.darkTextSecondary
         : AppTheme.lightTextSecondary);
-    return FutureBuilder<ProviderReputation?>(
+    return FutureBuilder<ReputationResult>(
       future: _future,
-      initialData: _cached,
+      initialData: _seed.hasValue ? _seed : null,
       builder: (context, snap) {
-        final rep = snap.data;
+        final rep = snap.data?.rep;
         if (rep == null) {
-          // Still loading → hold layout space; error → hide, never fake.
+          // Still loading → hold layout space; error → hide, never fake. A feed
+          // card is not the place to explain the network; the surfaces where
+          // the signal is the POINT (applicant list, profile) say it instead.
           return snap.connectionState == ConnectionState.waiting
               ? const SizedBox(width: 56, height: 14)
               : const SizedBox.shrink();
@@ -158,8 +162,8 @@ class ReputationTrustBlock extends StatefulWidget {
 class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
   // Same anti-flicker pattern as ReputationCompact: future held in State,
   // sync cache covers the waiting frame on rebuilds.
-  late Future<ProviderReputation?> _future;
-  ProviderReputation? _cached;
+  late Future<ReputationResult> _future;
+  ReputationResult _seed = const ReputationResult(null, ReputationOutcome.ok);
 
   @override
   void initState() {
@@ -174,25 +178,30 @@ class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
   }
 
   void _load() {
-    _cached = ReputationService.getCachedSync(widget.providerId);
-    _future = ReputationService.getReputation(widget.providerId);
+    _seed = ReputationService.peek(widget.providerId);
+    _future = ReputationService.getResult(widget.providerId);
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-    return FutureBuilder<ProviderReputation?>(
+    return FutureBuilder<ReputationResult>(
       future: _future,
-      initialData: _cached,
+      initialData: _seed.hasValue ? _seed : null,
       builder: (context, snap) {
-        if (snap.data == null && snap.connectionState == ConnectionState.waiting) {
-          return _loadingBars(muted);
-        }
-        final rep = snap.data;
+        final rep = snap.data?.rep;
         if (rep == null) {
-          return Text('Reputation unavailable',
-              style: TextStyle(color: muted, fontSize: 12));
+          if (snap.connectionState == ConnectionState.waiting) {
+            return _loadingBars(muted);
+          }
+          final offline = snap.data?.outcome == ReputationOutcome.offline;
+          return Text(
+            offline
+                ? "You're offline — ratings will appear when you reconnect"
+                : "Couldn't load ratings — pull down to retry",
+            style: TextStyle(color: muted, fontSize: 12),
+          );
         }
         return Wrap(
           spacing: 8,
@@ -274,7 +283,21 @@ class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
 /// Full reputation section for the provider profile.
 class ReputationProfileSection extends StatefulWidget {
   final String providerId;
-  const ReputationProfileSection({super.key, required this.providerId});
+
+  /// The value the HOST screen already resolved, when it resolved one.
+  ///
+  /// The provider profile awaits reputation as part of its own load and then
+  /// rendered this widget, which went and fetched the very same thing again on
+  /// its own schedule — so the page opened complete except for one panel that
+  /// spun by itself for a moment afterwards. Passing the value down means the
+  /// screen paints in one piece: when the page appears, this is already on it.
+  final ProviderReputation? seed;
+
+  const ReputationProfileSection({
+    super.key,
+    required this.providerId,
+    this.seed,
+  });
 
   @override
   State<ReputationProfileSection> createState() => _ReputationProfileSectionState();
@@ -286,25 +309,38 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
   // future created inline in build() would re-fetch and flash the loading
   // spinner on every rebuild. Caching keeps the stats stable; we only re-fetch
   // when the providerId actually changes.
-  late Future<ProviderReputation?> _future;
+  late Future<ReputationResult> _future;
+  ReputationResult? _seed;
   StreamSubscription<void>? _reconnectSub;
 
   @override
   void initState() {
     super.initState();
-    _future = ReputationService.getReputation(widget.providerId);
+    _load();
     // A fetch that failed while offline is NOT cached (only successes are), so
-    // when the connection returns we re-fetch and the "Reputation unavailable"
-    // state fills in on its own — no need to reopen the tab.
+    // when the connection returns we re-fetch and the unavailable state fills
+    // in on its own — no need to reopen the tab.
     _reconnectSub =
         context.read<ConnectivityProvider>().onReconnect.listen((_) => _onReconnect());
+  }
+
+  void _load() {
+    final seeded = widget.seed;
+    _seed = seeded != null
+        ? ReputationResult(seeded, ReputationOutcome.ok)
+        : ReputationService.peek(widget.providerId);
+    _future = ReputationService.getResult(widget.providerId);
   }
 
   @override
   void didUpdateWidget(covariant ReputationProfileSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.providerId != widget.providerId) {
-      _future = ReputationService.getReputation(widget.providerId);
+      _load();
+    } else if (oldWidget.seed == null && widget.seed != null) {
+      // The host resolved it after this mounted — take the value rather than
+      // keep spinning over a fetch for something already in hand.
+      _seed = ReputationResult(widget.seed, ReputationOutcome.ok);
     }
   }
 
@@ -315,7 +351,7 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
     // without flashing a spinner over reputation that already loaded.
     if (ReputationService.getCachedSync(widget.providerId) == null) {
       setState(() {
-        _future = ReputationService.getReputation(widget.providerId);
+        _future = ReputationService.getResult(widget.providerId);
       });
     }
   }
@@ -343,20 +379,32 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: border),
       ),
-      child: FutureBuilder<ProviderReputation?>(
+      child: FutureBuilder<ReputationResult>(
         future: _future,
+        // With a seed there is no waiting state at all — the panel is on the
+        // page the moment the page is.
+        initialData: _seed != null && _seed!.hasValue ? _seed : null,
         builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const SizedBox(
-                height: 80, child: Center(child: CircularProgressIndicator()));
-          }
-          final rep = snap.data;
+          final rep = snap.data?.rep;
           if (rep == null) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const SizedBox(
+                  height: 80, child: Center(child: CircularProgressIndicator()));
+            }
+            final offline = snap.data?.outcome == ReputationOutcome.offline;
             return Row(
               children: [
-                Icon(Icons.cloud_off_rounded, size: 18, color: muted),
+                Icon(offline ? Icons.wifi_off_rounded : Icons.cloud_off_rounded,
+                    size: 18, color: muted),
                 const SizedBox(width: 8),
-                Text('Reputation unavailable', style: TextStyle(color: muted)),
+                Expanded(
+                  child: Text(
+                    offline
+                        ? "You're offline — this provider's record will load when you reconnect."
+                        : "Couldn't load this provider's record. Pull down to retry.",
+                    style: TextStyle(color: muted),
+                  ),
+                ),
               ],
             );
           }

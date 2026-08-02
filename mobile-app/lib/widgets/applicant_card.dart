@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/post_model.dart';
-import '../models/provider_reputation.dart';
+import '../providers/connectivity_provider.dart' show NetworkHealth;
 import '../screens/provider_profile_screen.dart';
 import '../services/reputation_service.dart';
 import '../theme/app_theme.dart';
@@ -277,10 +279,17 @@ class ApplicantCard extends StatelessWidget {
 /// completion rate, member since — exactly the signals a client needs to
 /// compare two strangers.
 ///
-/// Loads once per providerId and holds the future in State (list cards rebuild
-/// constantly; a future created in build() re-resolves every frame and flickers).
+/// Paints from the cache the LIST already warmed.
+///
+/// The list surface calls [ReputationService.warmAll] before it renders, so by
+/// the time this builds the value is in memory and paints in the same frame as
+/// the name above it — the whole card arrives as one thing. The per-provider
+/// fetch below is a fallback for the cards that warm-up missed (a realtime
+/// insert, a provider the batch did not return), not the normal path.
+///
 /// A value that does not exist is OMITTED — a provider with no completed jobs
-/// shows "New on Help24", never "0% completion".
+/// shows "New on Help24", never "0% completion". A value we could not REACH
+/// says why, in words, and retries itself when the connection comes back.
 class ApplicantTrustStrip extends StatefulWidget {
   final String providerId;
 
@@ -291,13 +300,18 @@ class ApplicantTrustStrip extends StatefulWidget {
 }
 
 class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
-  late Future<ProviderReputation?> _future;
-  ProviderReputation? _cached;
+  late Future<ReputationResult> _future;
+  ReputationResult _seed = const ReputationResult(null, ReputationOutcome.ok);
+  StreamSubscription<void>? _reconnectSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // A failure while offline is not cached, so the moment the connection is
+    // back this fills itself in — the user never has to leave and re-enter the
+    // screen to see who they are about to hire.
+    _reconnectSub = NetworkHealth.onReconnect.listen((_) => _onReconnect());
   }
 
   @override
@@ -306,9 +320,21 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
     if (oldWidget.providerId != widget.providerId) _load();
   }
 
+  @override
+  void dispose() {
+    _reconnectSub?.cancel();
+    super.dispose();
+  }
+
   void _load() {
-    _cached = ReputationService.getCachedSync(widget.providerId);
-    _future = ReputationService.getReputation(widget.providerId);
+    _seed = ReputationService.peek(widget.providerId);
+    _future = ReputationService.getResult(widget.providerId);
+  }
+
+  void _onReconnect() {
+    if (!mounted) return;
+    if (ReputationService.getCachedSync(widget.providerId) != null) return;
+    setState(_load);
   }
 
   @override
@@ -316,11 +342,15 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
-    return FutureBuilder<ProviderReputation?>(
+    return FutureBuilder<ReputationResult>(
       future: _future,
-      initialData: _cached,
+      // Only a real VALUE seeds the first frame. A remembered failure does not:
+      // this build is accompanied by a live retry, and showing "couldn't load"
+      // for the moment before that retry answers would be reporting a failure
+      // that has not happened yet.
+      initialData: _seed.hasValue ? _seed : null,
       builder: (context, snap) {
-        final rep = snap.data;
+        final rep = snap.data?.rep;
         if (rep == null) {
           if (snap.connectionState == ConnectionState.waiting) {
             return Wrap(
@@ -328,9 +358,8 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
               children: [_skeleton(muted, 92), _skeleton(muted, 76), _skeleton(muted, 84)],
             );
           }
-          // Never fabricate. Say the truth and move on.
-          return Text('Reputation unavailable',
-              style: TextStyle(color: muted, fontSize: 11.5));
+          // Never fabricate, and never blame the provider for the network.
+          return _unavailable(snap.data?.outcome ?? ReputationOutcome.unavailable, muted);
         }
 
         final hasActivity = rep.completedJobs > 0 || rep.hasReviews;
@@ -387,6 +416,35 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
           ],
         );
       },
+    );
+  }
+
+  /// What to say when there is no value. "Reputation unavailable" was the
+  /// answer to both questions the user could be asking, and it answered
+  /// neither: it reads as a statement about the PROVIDER when it is usually a
+  /// statement about the phone's connection.
+  Widget _unavailable(ReputationOutcome outcome, Color muted) {
+    final (icon, text) = switch (outcome) {
+      ReputationOutcome.offline => (
+          Icons.wifi_off_rounded,
+          "You're offline — ratings will appear when you reconnect",
+        ),
+      _ => (
+          Icons.cloud_off_rounded,
+          "Couldn't load ratings — pull down to retry",
+        ),
+    };
+    return Row(
+      children: [
+        Icon(icon, size: 13, color: muted),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: muted, fontSize: 11.5)),
+        ),
+      ],
     );
   }
 

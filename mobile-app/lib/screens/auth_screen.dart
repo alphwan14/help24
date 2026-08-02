@@ -401,16 +401,16 @@ class _WelcomeStepState extends State<_WelcomeStep> {
           // One verb — "Continue" — on every route in. The user is not asked
           // to declare whether they are new here; that is the app's job.
           _AuthButton(
-            label: 'Continue with phone',
-            icon: Iconsax.call,
-            onPressed: widget.onPhone,
+            label: 'Continue with email',
+            icon: Iconsax.sms,
+            onPressed: widget.onEmail,
             primary: true,
           ),
           const SizedBox(height: 12),
           _AuthButton(
-            label: 'Continue with email',
-            icon: Iconsax.sms,
-            onPressed: widget.onEmail,
+            label: 'Continue with phone',
+            icon: Iconsax.call,
+            onPressed: widget.onPhone,
             primary: false,
           ),
           const SizedBox(height: 20),

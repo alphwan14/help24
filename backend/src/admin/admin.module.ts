@@ -7,6 +7,7 @@ import { MpesaModule } from '../mpesa/mpesa.module';
 import { EventsModule } from '../events/events.module';
 
 // ── Arbitration (Disputes Centre) ──────────────────────────────────────────────
+import { AdminAuthModule } from './auth/admin-auth.module';
 import { AdminAuthService } from './auth/admin-auth.service';
 import { AdminAuthGuard } from './auth/admin-auth.guard';
 import { AdminInvitesService } from './auth/admin-invites.service';
@@ -21,7 +22,7 @@ import { DisputesController } from './disputes/disputes.controller';
 import { DisputesPublicController } from './disputes/disputes-public.controller';
 
 @Module({
-  imports: [SupabaseModule, NotificationsModule, MpesaModule, EventsModule],
+  imports: [SupabaseModule, NotificationsModule, MpesaModule, EventsModule, AdminAuthModule],
   controllers: [
     AdminController, // legacy dispute resolver (kept for compatibility)
     AdminUsersController,
@@ -31,9 +32,7 @@ import { DisputesPublicController } from './disputes/disputes-public.controller'
   ],
   providers: [
     AdminService,
-    // RBAC
-    AdminAuthService,
-    AdminAuthGuard,
+    // RBAC — AdminAuthService/AdminAuthGuard come from AdminAuthModule.
     AdminInvitesService,
     // Arbitration
     DisputesService,
@@ -42,8 +41,11 @@ import { DisputesPublicController } from './disputes/disputes-public.controller'
     DisputeSlaService,
     DisputeStorageService,
   ],
-  // Exported so feature modules (e.g. PromotionsModule) can guard their own
-  // admin controllers with the same RBAC instead of duplicating it.
-  exports: [AdminAuthService, AdminAuthGuard],
+  // Re-exported so feature modules (e.g. PromotionsModule) can guard their own
+  // admin controllers with the same RBAC instead of duplicating it. Importers
+  // that already asked AdminModule for AdminAuthGuard keep working; new ones
+  // should import AdminAuthModule directly, which carries none of the
+  // arbitration graph.
+  exports: [AdminAuthModule],
 })
 export class AdminModule {}

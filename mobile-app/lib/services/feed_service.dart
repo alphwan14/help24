@@ -2,7 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+
+// Backend calls go through the authenticated client: it attaches the Firebase
+// ID token the server binds identity from, so the ownership checks in each
+// backend service actually mean something. See api_client.dart.
+import 'api_client.dart';
 
 import '../config/api_config.dart';
 import '../models/post_model.dart';
@@ -209,7 +213,7 @@ class FeedService {
         ),
       );
 
-      final response = await http.get(uri).timeout(_timeout);
+      final response = await api.get(uri).timeout(_timeout);
       if (response.statusCode != 200) {
         debugPrint('[FEED] ranked feed ${response.statusCode} — falling back');
         return _degrade(fallback);

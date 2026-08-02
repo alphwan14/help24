@@ -14,6 +14,7 @@ import {
 import { AdminService } from './admin.service';
 import { MpesaService } from '../mpesa/mpesa.service';
 import { AdminAuthGuard } from './auth/admin-auth.guard';
+import { AdminAuth } from '../common/auth/auth.decorator';
 import { Roles, CurrentAdmin } from './auth/roles.decorator';
 import { AdminContext } from './auth/admin-role';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
@@ -29,6 +30,7 @@ import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 @Controller('admin')
 @UseGuards(AdminAuthGuard)
 @RateLimit('admin:api')
+@AdminAuth()
 export class AdminController {
   constructor(
     private readonly admin: AdminService,

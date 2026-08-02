@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Ip, Post } from '@nestjs/common';
 import { IsLatitude, IsLongitude, IsNumber } from 'class-validator';
 import { RoutesService, RouteResult } from './routes.service';
+import { Auth } from '../common/auth/auth.decorator';
 
 class ComputeRouteDto {
   @IsNumber()
@@ -50,14 +51,23 @@ export class RoutesController {
   // 201 as a failure and silently dropped every successful route.)
   @Post('compute')
   @HttpCode(HttpStatus.OK)
+  // The one endpoint that spends real money per call. A journey only exists
+  // once a job has been funded and a provider selected, so every legitimate
+  // caller is signed in — there was never a reason for this to be reachable
+  // anonymously beyond the fact that nothing could check.
+  //
+  // The IP-keyed spend budget inside RoutesService is unchanged and still the
+  // control that bounds Google spend; authentication adds attribution, so an
+  // unusual bill can be traced to an account rather than to a carrier NAT
+  // shared by half of Nairobi.
+  @Auth()
   async compute(
     @Body() dto: ComputeRouteDto,
     @Ip() ip: string,
   ): Promise<RouteResult> {
-    // The caller IP is the only identity available here — the endpoint is
-    // unauthenticated by necessity — and it is what the per-caller spend
-    // budget is keyed on. Render sits behind a proxy, so trust proxy must be
-    // enabled for this to be the real client address rather than the edge's.
+    // The caller IP is what the per-caller spend budget is keyed on. Render
+    // sits behind a proxy, so trust proxy must be enabled for this to be the
+    // real client address rather than the edge's.
     return this.routes.computeRoute(
       dto.originLat,
       dto.originLng,

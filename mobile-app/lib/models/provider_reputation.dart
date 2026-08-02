@@ -81,6 +81,25 @@ class ProviderReputation {
         memberSince: j['member_since'] as String?,
         lastActiveAt: j['last_active_at'] as String?,
       );
+
+  /// The wire shape again, for the on-disk cache. Keys are deliberately the
+  /// SERVER's keys, not Dart field names, so a persisted row is indistinguishable
+  /// from a freshly fetched one and [fromJson] is the only parser that ever runs.
+  Map<String, dynamic> toCacheMap() => {
+        'provider_id': providerId,
+        'average_rating': averageRating,
+        'bayesian_rating': bayesianRating,
+        'total_reviews': totalReviews,
+        'completed_jobs': completedJobs,
+        'disputed_jobs': disputedJobs,
+        'open_disputes': openDisputes,
+        'completion_rate': completionRate,
+        'dispute_rate': disputeRate,
+        'repeat_clients': repeatClients,
+        'tier': tier,
+        'member_since': memberSince,
+        'last_active_at': lastActiveAt,
+      };
 }
 
 /// One review row from GET /reviews/provider/:providerId.
