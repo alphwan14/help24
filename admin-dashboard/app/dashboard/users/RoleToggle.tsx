@@ -33,7 +33,7 @@ export function RoleToggle({ userId, userEmail, initialRole, currentUserEmail }:
     setLoading(true);
 
     const newRole = isAdmin ? "user" : "admin";
-    const result = await updateUserRole(userId, userEmail, newRole);
+    const result = await updateUserRole(userId, newRole);
 
     if (result.ok) {
       setRole(newRole);

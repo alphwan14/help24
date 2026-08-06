@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMiddlewareClient } from "@/lib/supabase-middleware";
+import { resolveAdminIdentity } from "@/lib/admin-identity";
 
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next({ request });
@@ -17,9 +18,12 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/login") {
     // Redirect already-logged-in admins straight to dashboard
     if (user) {
-      const role = await fetchRoleFromDB(supabase, user.email);
-      console.log(`[Admin Check] email=${user.email} role_from_db=${role} (pre-auth redirect)`);
-      if (role === "admin") {
+      const identity = await resolveAdminIdentity(user.id);
+      console.log(
+        `[Admin Check] subject=${user.id} help24=${identity?.help24UserId ?? "unlinked"} ` +
+          `role=${identity?.role ?? "none"} (pre-auth redirect)`
+      );
+      if (identity?.role === "admin") {
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
     }
@@ -32,49 +36,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  const role = await fetchRoleFromDB(supabase, user.email);
+  // Resolved from the session's auth.users id via user_auth_identities, NOT from
+  // the session's email. The email path made one user-writable string decide who
+  // is an admin; see lib/admin-identity.ts for the full reasoning.
+  const identity = await resolveAdminIdentity(user.id);
 
-  console.log(`[Admin Check] email=${user.email} role_from_db=${role}`);
+  console.log(
+    `[Admin Check] subject=${user.id} help24=${identity?.help24UserId ?? "unlinked"} ` +
+      `role=${identity?.role ?? "none"}`
+  );
 
-  if (role !== "admin") {
-    console.log(`[Admin Check] Access DENIED for ${user.email} (role=${role})`);
+  if (identity?.role !== "admin") {
+    console.log(`[Admin Check] Access DENIED for subject ${user.id}`);
     return NextResponse.redirect(new URL("/login?error=unauthorized", request.url));
   }
 
-  console.log(`[Admin Check] Access GRANTED for ${user.email}`);
+  console.log(`[Admin Check] Access GRANTED for ${identity.help24UserId}`);
   return response;
-}
-
-/**
- * Fetch role exclusively from public.users (email lookup).
- * Never trusts JWT metadata — DB is the single source of truth.
- */
-async function fetchRoleFromDB(
-  supabase: ReturnType<typeof createMiddlewareClient>,
-  email: string | undefined
-): Promise<string> {
-  if (!email) {
-    console.log("[Admin Check] No email on auth user — denying");
-    return "user";
-  }
-
-  const { data, error } = await supabase
-    .from("users")
-    .select("role")
-    .eq("email", email)
-    .maybeSingle();
-
-  if (error) {
-    console.error(`[Admin Check] DB role lookup failed for ${email}:`, error.message);
-    return "user";
-  }
-
-  if (!data) {
-    console.log(`[Admin Check] No users row found for ${email} — role=user`);
-    return "user";
-  }
-
-  return (data.role as string) ?? "user";
 }
 
 export const config = {
