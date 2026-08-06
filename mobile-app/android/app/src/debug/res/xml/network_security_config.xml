@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG BUILDS ONLY. Gradle resource merging makes this file replace
+  src/main/res/xml/network_security_config.xml for the debug variant. Release
+  builds are untouched and keep cleartext blocked everywhere.
+
+  Why this exists: the main config sets cleartextTrafficPermitted="false" for
+  every domain, which is correct for release but also blocks local development
+  against a backend running on the developer's machine. ApiConfig documents
+  --dart-define=HELP24_API_BASE_URL=http://10.0.2.2:3000 as the dev workflow,
+  and without this file the platform refuses that request before it leaves the
+  device.
+
+  Note on scope: <domain> matches hostnames, not CIDR ranges — there is no way
+  to express "any RFC1918 address" here. So the base config permits cleartext in
+  debug, and the domains that must always be TLS are pinned strict above it.
+-->
+<network-security-config>
+    <!-- The real services stay strict even in debug, so a debug build still
+         exercises genuine TLS against everything it will use in release. Only
+         the developer's own backend can be plaintext. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">supabase.co</domain>
+        <domain includeSubdomains="true">onrender.com</domain>
+        <domain includeSubdomains="true">googleapis.com</domain>
+        <domain includeSubdomains="true">firebaseio.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+
+    <!-- Debug only: permits http:// to a local backend at any address, whether
+         that is 10.0.2.2 from the emulator or a LAN IP from a physical device. -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
