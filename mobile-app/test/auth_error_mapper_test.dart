@@ -160,10 +160,51 @@ void main() {
       expect(f.actionLabel, 'Sign in instead');
     });
 
-    test('bad credentials offer a password reset', () {
+    // CHANGED, deliberately — this test used to assert `resetPassword`, and
+    // that assertion is the incident. With enumeration protection on, the
+    // provider collapses "wrong password", "no such user" AND "this account
+    // has no password at all" into `invalid-credential`. The third case is a
+    // Google account, where a password reset cannot succeed: the email arrives
+    // and answers a question the user was not asking, and the flow dead-ends.
+    //
+    // "Forgot password?" is a permanent affordance on the password step, so the
+    // recovery button carries the door the user cannot otherwise reach.
+    test('rejected credentials offer the other sign-in door', () {
+      for (final code in ['invalid-credential', 'wrong-password', 'invalid-login-credentials']) {
+        final f = AuthErrorMapper.toFailure(FirebaseAuthException(code: code));
+        expect(f.recovery, AuthRecovery.useGoogle, reason: code);
+        expect(f.actionLabel, 'Continue with Google', reason: code);
+      }
+    });
+
+    test('a rejected sign-in never asserts the password was simply wrong', () {
       final f = AuthErrorMapper.toFailure(
           FirebaseAuthException(code: 'invalid-credential'));
-      expect(f.recovery, AuthRecovery.resetPassword);
+      // It may not claim to know which of the three causes applied.
+      expect(f.message.toLowerCase(), contains('google'));
+    });
+
+    test('linking failures never tell a signed-in user to sign in', () {
+      for (final code in [
+        'provider-already-linked',
+        'credential-already-in-use',
+        'email-already-in-use',
+      ]) {
+        final f = AuthErrorMapper.toFailure(
+          FirebaseAuthException(code: code),
+          flow: AuthFlow.linkMethod,
+        );
+        expect(f.recovery, AuthRecovery.none, reason: code);
+        expect(f.message.toLowerCase(), isNot(contains('sign in to')), reason: code);
+      }
+    });
+
+    test('email-already-in-use still routes to sign-in OUTSIDE the link flow', () {
+      final f = AuthErrorMapper.toFailure(
+        FirebaseAuthException(code: 'email-already-in-use'),
+        flow: AuthFlow.signUp,
+      );
+      expect(f.recovery, AuthRecovery.signIn);
     });
 
     test('expired code offers a fresh one', () {

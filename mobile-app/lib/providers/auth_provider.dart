@@ -358,29 +358,38 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// Run the Google account chooser and return a Firebase credential.
+  ///
+  /// Null means the user dismissed the chooser — a cancellation, not a failure,
+  /// and it must never produce an error banner. Shared by [signInWithGoogle]
+  /// and [linkGoogle] so the two can never drift on which account the chooser
+  /// offers or how a dismissal is read.
+  Future<AuthCredential?> _pickGoogleCredential() async {
+    final gsi = GoogleSignIn();
+    // Always show the account chooser — the user may have several Google accounts
+    // and must pick explicitly (never silent auto-login). signOut() clears only the
+    // LOCAL cached selection so the picker re-appears; it's a fast local op.
+    await gsi.signOut();
+    final googleUser = await gsi.signIn();
+    if (googleUser == null) return null;
+    final googleAuth = await googleUser.authentication;
+    return GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+  }
+
   Future<bool> signInWithGoogle() async {
     _isLoading = true;
     _failure = null;
     notifyListeners();
     try {
-      final gsi = GoogleSignIn();
-      // Always show the account chooser — the user may have several Google accounts
-      // and must pick explicitly (never silent auto-login). signOut() clears only the
-      // LOCAL cached selection so the picker re-appears; it's a fast local op.
-      await gsi.signOut();
-      final googleUser = await gsi.signIn();
-      if (googleUser == null) {
-        // User dismissed the chooser. A cancellation is not a failure and must
-        // never produce an error banner.
+      final credential = await _pickGoogleCredential();
+      if (credential == null) {
         _isLoading = false;
         notifyListeners();
         return false;
       }
-      final googleAuth = await googleUser.authentication;
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
       // Fail fast instead of hanging if the network call stalls.
       final userCredential = await FirebaseAuth.instance
           .signInWithCredential(credential)
@@ -396,6 +405,124 @@ class AuthProvider extends ChangeNotifier {
       // Mapped, never echoed: the platform's own text here is full of OAuth
       // and browser-handoff vocabulary the user cannot act on.
       _failure = AuthErrorMapper.toFailure(e, flow: AuthFlow.signIn);
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // ─── Linking a second sign-in method to THIS account ────────────────────
+  //
+  // Every method below attaches a credential to the uid already signed in. None
+  // of them can create an account: `linkWithCredential` is defined on the
+  // current user, so there is no argument that could name a different one. That
+  // is what makes "one human, one uid" a property of the code rather than a
+  // hope about how people will use it.
+
+  /// The credentials on this account (`google.com`, `password`, `phone`).
+  List<String> get signInMethods => AuthService.signInMethods;
+  bool get hasPassword => AuthService.hasPassword;
+  bool get hasGoogle => AuthService.hasGoogle;
+  bool get hasPhone => AuthService.hasPhone;
+
+  /// Add a password to the account the user is already signed in to.
+  Future<bool> linkEmailPassword({
+    required String email,
+    required String password,
+  }) async {
+    _isLoading = true;
+    _failure = null;
+    notifyListeners();
+    try {
+      final result =
+          await AuthService.linkEmailPassword(email: email, password: password);
+      if (result.success) {
+        if (result.user != null) _currentUser = result.user;
+        _failure = null;
+        return true;
+      }
+      _failure = result.failure;
+      return false;
+    } catch (e) {
+      _failure = AuthErrorMapper.toFailure(e, flow: AuthFlow.linkMethod);
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Add Google to the account the user is already signed in to.
+  ///
+  /// Returns false with no failure set when the chooser was dismissed.
+  Future<bool> linkGoogle() async {
+    final user = AuthService.currentFirebaseUser;
+    if (user == null) {
+      _failure = const AuthFailure(
+        title: 'Sign in to continue',
+        message: 'Sign in first, then you can add another way in.',
+      );
+      notifyListeners();
+      return false;
+    }
+    _isLoading = true;
+    _failure = null;
+    notifyListeners();
+    try {
+      final credential = await _pickGoogleCredential();
+      if (credential == null) return false;
+      final result =
+          await user.linkWithCredential(credential).timeout(const Duration(seconds: 30));
+      final linked = result.user ?? user;
+      await linked.reload();
+      debugPrint('[AUTH][LINK] google attached to ${linked.uid}');
+      _currentUser = AuthService.appUserFromFirebase(
+        AuthService.currentFirebaseUser ?? linked,
+      );
+      _failure = null;
+      return true;
+    } catch (e) {
+      _failure = AuthErrorMapper.toFailure(e, flow: AuthFlow.linkMethod);
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Add a verified phone number to the account already signed in.
+  ///
+  /// Consumes the same OTP state [sendOtp] populates, so the phone step needs
+  /// no second implementation — the only difference from [verifyOtp] is that
+  /// the credential is linked rather than signed in with.
+  Future<bool> linkPhone(String code) async {
+    final vid = _verificationId;
+    if (vid == null || vid.isEmpty) {
+      _failure = const AuthFailure(
+        title: 'Let’s start over',
+        message: 'This verification is no longer valid. Enter your number again.',
+        recovery: AuthRecovery.restartPhone,
+      );
+      notifyListeners();
+      return false;
+    }
+    _isLoading = true;
+    _failure = null;
+    notifyListeners();
+    try {
+      final result =
+          await AuthService.linkPhone(verificationId: vid, smsCode: code);
+      if (result.success) {
+        if (result.user != null) _currentUser = result.user;
+        clearPhoneState();
+        _failure = null;
+        return true;
+      }
+      _failure = result.failure;
+      return false;
+    } catch (e) {
+      _failure = AuthErrorMapper.toFailure(e, flow: AuthFlow.linkMethod);
       return false;
     } finally {
       _isLoading = false;

@@ -33,6 +33,17 @@ import '../widgets/google_logo.dart';
 /// So Help24 no longer asks. The user types their email ONCE, and the app
 /// works out which door they are standing at — the pattern Google, Stripe,
 /// Slack and Notion all converged on. The toggle is gone entirely.
+///
+/// WHY `addPassword` EXISTS — THE GOOGLE → EMAIL DEAD END
+/// -----------------------------------------------------
+/// A credential is not an account. An account created with Google has no
+/// password and never will until one is explicitly linked, so a user who came
+/// back through "Continue with Email" was asked for a password that did not
+/// exist and could not be created: sign-in said "wrong password", create-account
+/// said "you already have an account", and the two answers pointed at each
+/// other. Firebase's own resolution for this is `linkWithCredential` — attach
+/// the second credential to the SAME uid — and it requires the user to be
+/// signed in first. So this step comes after the Google door, not instead of it.
 enum _AuthStep {
   welcome,
   phoneInput,
@@ -40,6 +51,7 @@ enum _AuthStep {
   emailIdentify,
   emailPassword,
   emailCreate,
+  addPassword,
   profileSetup,
 }
 
@@ -67,6 +79,12 @@ class _AuthScreenState extends State<AuthScreen> {
   /// "create account" NEVER makes the user retype it. This single field is
   /// most of what stops the flow dead-ending.
   String _email = '';
+
+  /// The password the user typed on the password step before we discovered
+  /// their account has no password. Held only for the length of this flow, so
+  /// that once Google has proved who they are we can offer to make that
+  /// password real instead of asking them to invent a second one.
+  String _pendingPassword = '';
 
   /// Ensures the auth route/modal is dismissed EXACTLY once. authStateChanges
   /// can fire several times around a successful login (credential + token
@@ -111,6 +129,11 @@ class _AuthScreenState extends State<AuthScreen> {
       case _AuthStep.emailPassword:
       case _AuthStep.emailCreate:
         return _AuthStep.emailIdentify;
+      case _AuthStep.addPassword:
+        // The user is already signed in by the time this shows. Going back
+        // would suggest the sign-in can be undone, which it cannot — "Not now"
+        // is the way out, and it goes forward into the app.
+        return null;
       case _AuthStep.profileSetup:
         // Deliberately no way back: the account already exists at this point,
         // and reversing would strand a nameless account.
@@ -253,6 +276,14 @@ class _AuthScreenState extends State<AuthScreen> {
           onSuccess: _afterCredential,
           onCreateAccount: () => _goTo(_AuthStep.emailCreate),
           onChangeEmail: () => _goTo(_AuthStep.emailIdentify),
+          onGoogleSuccess: _afterGoogleFromEmailStep,
+        );
+
+      case _AuthStep.addPassword:
+        return _AddPasswordStep(
+          email: _email,
+          password: _pendingPassword,
+          onDone: _afterCredential,
         );
 
       case _AuthStep.emailCreate:
@@ -268,12 +299,51 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  /// Google succeeded from inside the EMAIL flow — the user came looking for a
+  /// password door and we sent them through the one their account actually has.
+  ///
+  /// They are now signed in, on the correct uid, and nothing further is
+  /// required. The offer to attach the password they already typed is made only
+  /// when all three of these hold:
+  ///
+  ///   * the account has no password yet — otherwise there is nothing to add;
+  ///   * the typed password is one we would have accepted at sign-up — a
+  ///     half-typed guess must never become someone's real credential;
+  ///   * the signed-in account's address MATCHES the address they typed. This
+  ///     is the one that matters. The Google chooser lets a user pick any of
+  ///     their accounts, and if they picked a different one, attaching a
+  ///     password for the email they typed would be writing one account's
+  ///     credential onto another. Firebase would refuse it — but the app must
+  ///     not ask.
+  Future<void> _afterGoogleFromEmailStep(String typedPassword) async {
+    if (!mounted) return;
+    _pendingPassword = typedPassword;
+    final auth = context.read<AuthProvider>();
+    final signedInEmail = (auth.currentUserEmail ?? '').trim().toLowerCase();
+    final typedEmail = _email.trim().toLowerCase();
+
+    final canOfferPassword = !auth.hasPassword &&
+        AuthService.validatePassword(_pendingPassword) == null &&
+        signedInEmail.isNotEmpty &&
+        signedInEmail == typedEmail;
+
+    if (canOfferPassword) {
+      _goTo(_AuthStep.addPassword);
+      return;
+    }
+    _pendingPassword = '';
+    await _afterCredential();
+  }
+
   /// Single landing point after ANY successful credential (phone, email,
   /// Google): decide whether the account still needs a name before letting it
   /// loose in the marketplace, where the name is attached to every job and
   /// review.
   Future<void> _afterCredential() async {
     if (!mounted) return;
+    // Whatever route got us here, the password is spent. It is held only for
+    // the length of the linking offer and never beyond it.
+    _pendingPassword = '';
     final auth = context.read<AuthProvider>();
     if (!auth.needsProfileSetup) {
       _onSuccess();
@@ -836,11 +906,16 @@ class _EmailPasswordStep extends StatefulWidget {
   final VoidCallback onCreateAccount;
   final VoidCallback onChangeEmail;
 
+  /// Google signed the user in from THIS step. The parent decides what happens
+  /// next — including whether to offer to keep the password they just typed.
+  final void Function(String typedPassword) onGoogleSuccess;
+
   const _EmailPasswordStep({
     required this.email,
     required this.onSuccess,
     required this.onCreateAccount,
     required this.onChangeEmail,
+    required this.onGoogleSuccess,
   });
 
   @override
@@ -850,6 +925,7 @@ class _EmailPasswordStep extends StatefulWidget {
 class _EmailPasswordStepState extends State<_EmailPasswordStep> {
   final _password = TextEditingController();
   bool _obscure = true;
+  bool _googleLoading = false;
 
   @override
   void dispose() {
@@ -871,6 +947,18 @@ class _EmailPasswordStepState extends State<_EmailPasswordStep> {
     if (ok && mounted) widget.onSuccess();
   }
 
+  /// The other door. Offered because an account created with Google genuinely
+  /// has no password — so "reset your password" is advice that cannot succeed,
+  /// and this is the only route that actually opens the account.
+  Future<void> _useGoogle() async {
+    FocusScope.of(context).unfocus();
+    setState(() => _googleLoading = true);
+    final ok = await context.read<AuthProvider>().signInWithGoogle();
+    if (!mounted) return;
+    setState(() => _googleLoading = false);
+    if (ok) widget.onGoogleSuccess(_password.text);
+  }
+
   void _showForgotPassword() {
     showModalBottomSheet(
       context: context,
@@ -889,8 +977,9 @@ class _EmailPasswordStepState extends State<_EmailPasswordStep> {
     final auth = context.watch<AuthProvider>();
     final failure = auth.failure;
 
-    // The two ways a sign-in attempt can tell us we guessed the wrong door.
+    // The ways a sign-in attempt can tell us we guessed the wrong door.
     final offerCreate = failure?.recovery == AuthRecovery.createAccount;
+    final offerGoogle = failure?.recovery == AuthRecovery.useGoogle;
 
     return Padding(
       padding: const EdgeInsets.only(top: 8),
@@ -911,9 +1000,11 @@ class _EmailPasswordStepState extends State<_EmailPasswordStep> {
               onDismiss: auth.clearError,
               onAction: offerCreate
                   ? widget.onCreateAccount
-                  : failure.recovery == AuthRecovery.resetPassword
-                      ? _showForgotPassword
-                      : null,
+                  : offerGoogle
+                      ? _useGoogle
+                      : failure.recovery == AuthRecovery.resetPassword
+                          ? _showForgotPassword
+                          : null,
             ),
             const SizedBox(height: 16),
           ],
@@ -942,8 +1033,17 @@ class _EmailPasswordStepState extends State<_EmailPasswordStep> {
           const SizedBox(height: 8),
           _PrimaryButton(
             label: 'Sign in',
-            loading: auth.isLoading,
+            loading: auth.isLoading && !_googleLoading,
             onPressed: _signIn,
+          ),
+          const SizedBox(height: 16),
+          // Always present, not only after a failure — the same rule the
+          // "create a new one" switch below follows. A user who remembers they
+          // joined with Google should not have to fail a password prompt first
+          // to be shown the door that actually opens their account.
+          _GoogleSignInButton(
+            loading: _googleLoading,
+            onPressed: _useGoogle,
           ),
           const SizedBox(height: 20),
           // Always present, not only after a failure: a user who knows they
@@ -958,6 +1058,98 @@ class _EmailPasswordStepState extends State<_EmailPasswordStep> {
         ],
       ),
     );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Email — step 2c: add a password to the account Google just opened
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// The step that ends the dead end.
+///
+/// The user is ALREADY SIGNED IN by the time this appears — Google proved who
+/// they are, on the uid that owns their jobs, chats, reviews and payout
+/// history. Nothing here is required, and "Not now" is a complete answer that
+/// goes straight into the app.
+///
+/// What it offers is the thing that was missing: attaching the password they
+/// already typed to the account they already have, via `linkWithCredential`.
+/// Because linking is defined onto the CURRENT user, this cannot mint a second
+/// account — the uid before and after is the same uid. That is the whole
+/// invariant, enforced by the shape of the call rather than by a check.
+class _AddPasswordStep extends StatefulWidget {
+  final String email;
+  final String password;
+  final VoidCallback onDone;
+
+  const _AddPasswordStep({
+    required this.email,
+    required this.password,
+    required this.onDone,
+  });
+
+  @override
+  State<_AddPasswordStep> createState() => _AddPasswordStepState();
+}
+
+class _AddPasswordStepState extends State<_AddPasswordStep> {
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final auth = context.watch<AuthProvider>();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _StepHeading(
+            title: "You're in",
+            subtitle:
+                'You joined with Google, so there was no password to check. '
+                'Want to use the one you just typed next time as well?',
+            isDark: isDark,
+          ),
+          const SizedBox(height: 16),
+          _EmailChip(email: widget.email, onChange: null),
+          const SizedBox(height: 20),
+          if (auth.failure != null) ...[
+            _FailureCard(failure: auth.failure!, onDismiss: auth.clearError),
+            const SizedBox(height: 16),
+          ],
+          _PrimaryButton(
+            label: 'Add this password',
+            loading: auth.isLoading,
+            onPressed: _addPassword,
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: auth.isLoading ? null : _skip,
+            child: const Text('Not now'),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addPassword() async {
+    final auth = context.read<AuthProvider>();
+    final ok = await auth.linkEmailPassword(
+      email: widget.email,
+      password: widget.password,
+    );
+    if (!mounted) return;
+    // Either way the user is signed in and their session is untouched, so a
+    // failure here must never trap them on this screen — the card above says
+    // what happened, and "Not now" is still a way forward. Only a success
+    // advances automatically.
+    if (ok) widget.onDone();
+  }
+
+  void _skip() {
+    context.read<AuthProvider>().clearError();
+    widget.onDone();
   }
 }
 
@@ -985,13 +1177,16 @@ class _EmailCreateStep extends StatefulWidget {
 class _EmailCreateStepState extends State<_EmailCreateStep> {
   final _name = TextEditingController();
   final _password = TextEditingController();
+  final _confirm = TextEditingController();
   bool _obscure = true;
+  bool _obscureConfirm = true;
   String _passwordValue = '';
 
   @override
   void dispose() {
     _name.dispose();
     _password.dispose();
+    _confirm.dispose();
     super.dispose();
   }
 
@@ -1016,6 +1211,17 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
       auth.setFailure(AuthFailure(
         title: 'Choose a stronger password',
         message: passwordError,
+      ));
+      return;
+    }
+
+    // Checked here, before the account is created, because a typo in a password
+    // nobody can see becomes an account the owner cannot sign back into — and
+    // the only remedy left is a reset email. Confirming costs one field.
+    if (_confirm.text != _password.text) {
+      auth.setFailure(const AuthFailure(
+        title: "Those passwords don't match",
+        message: 'Re-enter the same password in both fields.',
       ));
       return;
     }
@@ -1075,10 +1281,9 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
             hint: 'Create a password',
             icon: Iconsax.lock,
             obscure: _obscure,
-            action: TextInputAction.done,
+            action: TextInputAction.next,
             autofillHints: const [AutofillHints.newPassword],
             onChanged: (v) => setState(() => _passwordValue = v),
-            onSubmitted: (_) => _create(),
             suffixIcon: _ObscureToggle(
               obscured: _obscure,
               isDark: isDark,
@@ -1087,6 +1292,21 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
           ),
           const SizedBox(height: 10),
           _PasswordStrengthBar(password: _passwordValue, isDark: isDark),
+          const SizedBox(height: 10),
+          _AuthField(
+            controller: _confirm,
+            hint: 'Confirm password',
+            icon: Iconsax.lock,
+            obscure: _obscureConfirm,
+            action: TextInputAction.done,
+            autofillHints: const [AutofillHints.newPassword],
+            onSubmitted: (_) => _create(),
+            suffixIcon: _ObscureToggle(
+              obscured: _obscureConfirm,
+              isDark: isDark,
+              onTap: () => setState(() => _obscureConfirm = !_obscureConfirm),
+            ),
+          ),
           const SizedBox(height: 20),
           _PrimaryButton(
             label: 'Create account',
@@ -1545,7 +1765,11 @@ class _StepHeading extends StatelessWidget {
 /// tap. Without this, a typo in step 1 means backing out of the whole flow.
 class _EmailChip extends StatelessWidget {
   final String email;
-  final VoidCallback onChange;
+
+  /// Null once the address is settled — on the add-password step the user is
+  /// already signed in with it, so offering "Change" would imply the session
+  /// could be pointed at a different account, which it cannot.
+  final VoidCallback? onChange;
 
   const _EmailChip({required this.email, required this.onChange});
 
@@ -1583,15 +1807,16 @@ class _EmailChip extends StatelessWidget {
               ),
             ),
           ),
-          TextButton(
-            onPressed: onChange,
-            style: TextButton.styleFrom(
-              minimumSize: Size.zero,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          if (onChange != null)
+            TextButton(
+              onPressed: onChange,
+              style: TextButton.styleFrom(
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('Change', style: TextStyle(fontSize: 13)),
             ),
-            child: const Text('Change', style: TextStyle(fontSize: 13)),
-          ),
         ],
       ),
     );

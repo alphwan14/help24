@@ -6,6 +6,8 @@ import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart'
     show AuthException, PostgrestException, StorageException;
 
+import '../services/auth_service.dart' show ProfileUnavailableException;
+
 /// A human-first description of a failure, following the product rule that a
 /// user should always understand: what happened ([title]), and what to do next
 /// ([message]). Never contains exception class names, backend URLs, HTTP status
@@ -93,6 +95,19 @@ class ErrorMapper {
       return const AppFailure(
         title: 'Please sign in again',
         message: 'Your session expired. Please sign in again to continue.',
+      );
+    }
+
+    // 2b) The account has no Help24 profile row, so an owned write cannot go
+    //     ahead. Raised BEFORE the write, by AuthService.ensureCurrentUserInSupabase,
+    //     which is the last place the real reason is still known — after it, the
+    //     same situation arrives as a foreign-key violation and reads as a
+    //     saving problem rather than an account one. The message is authored at
+    //     the raise site and shown as written.
+    if (error is ProfileUnavailableException) {
+      return AppFailure(
+        title: "We couldn't set up your account",
+        message: error.message,
       );
     }
 

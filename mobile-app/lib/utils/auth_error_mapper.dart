@@ -24,6 +24,17 @@ enum AuthRecovery {
   /// Credentials were rejected → offer "Reset password".
   resetPassword,
 
+  /// The account exists but this credential is not one it carries — the
+  /// classic case being an account created with Google, which has no password
+  /// and never will until one is explicitly linked. Offer the Google door,
+  /// carrying the email.
+  ///
+  /// This is deliberately NOT merged into [resetPassword]. Sending someone to
+  /// reset a password they never created is the dead end this incident was
+  /// reported for: the reset succeeds, the email arrives, and it answers a
+  /// question they were not asking.
+  useGoogle,
+
   /// The code was wrong or stale → offer "Send a new code".
   resendCode,
 
@@ -60,6 +71,8 @@ class AuthFailure {
         return 'Sign in instead';
       case AuthRecovery.resetPassword:
         return 'Reset password';
+      case AuthRecovery.useGoogle:
+        return 'Continue with Google';
       case AuthRecovery.resendCode:
         return 'Send a new code';
       case AuthRecovery.restartPhone:
@@ -134,6 +147,18 @@ class AuthErrorMapper {
           recovery: AuthRecovery.createAccount,
         );
       case 'email-already-in-use':
+        // Flow-aware, because the same code means two different things. While
+        // LINKING, the user is already signed in and the address is already
+        // theirs — telling them "you already have an account" would be telling
+        // them about the account they are looking at.
+        if (flow == AuthFlow.linkMethod) {
+          return const AuthFailure(
+            title: 'Already in use',
+            message:
+                'That email already belongs to another Help24 account, so it '
+                "can't be added to this one.",
+          );
+        }
         return const AuthFailure(
           title: 'You already have an account',
           message: 'This email is already registered with Help24.',
@@ -143,21 +168,26 @@ class AuthErrorMapper {
       // ── Credentials ──────────────────────────────────────────────────
       //
       // With email-enumeration protection enabled, the provider collapses
-      // "no such user" and "wrong password" into `invalid-credential` on
-      // purpose — so the copy must stay honest about the ambiguity instead of
-      // asserting the password was wrong.
+      // "no such user", "wrong password" and "this account has no password at
+      // all" into `invalid-credential` on purpose — so the copy must stay
+      // honest about the ambiguity instead of asserting the password was wrong.
+      //
+      // THE THIRD CASE IS THE ONE THIS INCIDENT WAS ABOUT. An account created
+      // with Google has no password and never will until one is explicitly
+      // linked, so "reset your password" is advice that cannot succeed: the
+      // reset email arrives and answers a question the user was not asking.
+      // Both doors are therefore offered — "Forgot password?" is a permanent
+      // affordance on the password step, and the recovery button carries the
+      // one the user cannot otherwise reach from here.
       case 'wrong-password':
-        return const AuthFailure(
-          title: 'Incorrect password',
-          message: "That password doesn't match this account.",
-          recovery: AuthRecovery.resetPassword,
-        );
       case 'invalid-credential':
       case 'invalid-login-credentials':
         return const AuthFailure(
           title: "That didn't work",
-          message: 'Check your email and password and try again.',
-          recovery: AuthRecovery.resetPassword,
+          message:
+              "That password didn't match. If you first joined with Google, "
+              "you won't have set one — continue with Google instead.",
+          recovery: AuthRecovery.useGoogle,
         );
       case 'invalid-email':
         return const AuthFailure(
@@ -183,13 +213,30 @@ class AuthErrorMapper {
           message: 'For your security, sign in again to make this change.',
         );
       case 'account-exists-with-different-credential':
-      case 'credential-already-in-use':
         return const AuthFailure(
           title: 'Try another way in',
           message:
               'This email is already registered with Help24 using a different '
               'sign-in method. Use the one you set up first.',
-          recovery: AuthRecovery.signIn,
+          recovery: AuthRecovery.useGoogle,
+        );
+
+      // ── Linking a second sign-in method ──────────────────────────────
+      //
+      // These arrive only from linkEmailPassword / linkPhone. They are NOT
+      // failures of authentication — the user is signed in and stays signed in
+      // — so the copy never suggests signing in again.
+      case 'provider-already-linked':
+        return const AuthFailure(
+          title: 'Already set up',
+          message: 'This way of signing in is already on your account.',
+        );
+      case 'credential-already-in-use':
+        return const AuthFailure(
+          title: 'Already in use',
+          message:
+              'Those details already belong to another Help24 account, so they '
+              "can't be added to this one.",
         );
 
       // ── Phone / OTP ──────────────────────────────────────────────────
@@ -324,6 +371,13 @@ class AuthErrorMapper {
           title: "We couldn't send that email",
           message: "We couldn't send your reset email just now. Please try again.",
         );
+      case AuthFlow.linkMethod:
+        return const AuthFailure(
+          title: "We couldn't add that",
+          message:
+              "We couldn't add that way of signing in just now. You're still "
+              'signed in — please try again.',
+        );
       case AuthFlow.generic:
         return const AuthFailure(
           title: 'Something went wrong',
@@ -424,4 +478,9 @@ enum AuthFlow {
   sendCode,
   verifyCode,
   passwordReset,
+
+  /// Attaching a second credential to the account already signed in. Distinct
+  /// from [signIn] because the user's session is never at risk here: a failed
+  /// link leaves them signed in exactly as they were.
+  linkMethod,
 }

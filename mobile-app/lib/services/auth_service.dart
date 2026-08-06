@@ -9,6 +9,19 @@ import '../utils/kenyan_phone.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'user_profile_service.dart';
 
+/// The signed-in account has no Help24 profile row, so an owned write cannot
+/// proceed.
+///
+/// Carries copy that is already safe to show: this is raised at the point where
+/// we still know the real reason, precisely so the user is not handed a
+/// downstream constraint error dressed up as "We couldn't save your changes".
+class ProfileUnavailableException implements Exception {
+  final String message;
+  const ProfileUnavailableException(this.message);
+  @override
+  String toString() => 'ProfileUnavailableException: $message';
+}
+
 /// User model for the app (messaging-ready: userId, name, phone, email, profileImage).
 class AppUser {
   final String id;
@@ -178,6 +191,130 @@ class AuthService {
 
   static bool get isLoggedIn => currentFirebaseUser != null;
   static String? get currentUserId => currentFirebaseUser?.uid;
+
+  // ---------- Sign-in methods (the account's credentials) ----------
+
+  /// Every credential currently attached to the signed-in ACCOUNT.
+  ///
+  /// THE DISTINCTION THIS GETTER EXISTS TO MAKE
+  /// ------------------------------------------
+  /// A credential is not an account. Before this existed, the app had no way to
+  /// ask "how can this person sign in?", so it treated Google, email and phone
+  /// as three independent identities — and a human who used a second one was
+  /// treated as a second person. Firebase has always carried the answer on
+  /// `providerData`; nothing read it.
+  ///
+  /// Returns provider ids as Firebase reports them: `google.com`, `password`,
+  /// `phone`. Empty when signed out.
+  static List<String> get signInMethods =>
+      currentFirebaseUser?.providerData
+          .map((info) => info.providerId)
+          .toList(growable: false) ??
+      const [];
+
+  static bool get hasPassword => signInMethods.contains(_providerPassword);
+  static bool get hasGoogle => signInMethods.contains(_providerGoogle);
+  static bool get hasPhone => signInMethods.contains(_providerPhone);
+
+  static const String _providerPassword = 'password';
+  static const String _providerGoogle = 'google.com';
+  static const String _providerPhone = 'phone';
+
+  /// Attach an email + password credential to the account already signed in.
+  ///
+  /// This is the operation the codebase was missing. Firebase will never add a
+  /// password to an account on its own — not on sign-in, not on sign-up, not
+  /// under any console setting — so a user who first arrived through Google
+  /// could never afterwards use "Continue with Email", and the app had nothing
+  /// to offer them but a password prompt for a password that did not exist.
+  ///
+  /// Linking is defined ONTO THE CURRENT USER, which is what makes the
+  /// one-human-one-uid invariant structural rather than hopeful: there is no
+  /// argument to this call that could name a different account, so it cannot
+  /// create one. The uid before and after is the same uid.
+  ///
+  /// [email] must be the address already on the account. Passing a different
+  /// address is refused by Firebase (`credential-already-in-use` /
+  /// `email-already-in-use`) rather than silently moving the account's identity.
+  static Future<AuthResult> linkEmailPassword({
+    required String email,
+    required String password,
+  }) async {
+    final user = currentFirebaseUser;
+    if (user == null) {
+      return AuthResult.failed(const AuthFailure(
+        title: 'Sign in to continue',
+        message: 'Sign in first, then you can add another way in.',
+      ));
+    }
+    try {
+      final credential = EmailAuthProvider.credential(
+        email: email.trim(),
+        password: password,
+      );
+      final result = await user
+          .linkWithCredential(credential)
+          .timeout(_authTimeout);
+      final linked = result.user ?? user;
+      await linked.reload();
+      final current = _firebaseAuth?.currentUser ?? linked;
+      debugPrint(
+        '[AUTH][LINK] password attached to ${current.uid} — '
+        'methods=${current.providerData.map((p) => p.providerId).join(",")}',
+      );
+      // The address is now a credential, not just a contact field. Prove it,
+      // for the same reason sign-up does: every password-reset path for this
+      // account now points at this mailbox.
+      if (!current.emailVerified) unawaited(sendVerificationEmail());
+      // The profile row is keyed by uid and the uid did not change, so this is
+      // a refresh, not a creation — there is no second row to make here.
+      unawaited(_syncUserToSupabase(current));
+      return AuthResult.success(_appUserFromFirebase(current));
+    } catch (e) {
+      return AuthResult.from(e, AuthFlow.linkMethod);
+    }
+  }
+
+  /// Attach a verified phone credential to the account already signed in.
+  ///
+  /// Same contract as [linkEmailPassword]. This closes the widest hole in the
+  /// invariant: a phone credential carries no email, so Firebase's "link
+  /// accounts that use the same email" setting can never merge it — a Google
+  /// user who later tapped "Continue with Phone" was issued a brand-new uid and
+  /// a brand-new life, with their jobs, chats, reviews and payout history left
+  /// behind on the old one.
+  static Future<AuthResult> linkPhone({
+    required String verificationId,
+    required String smsCode,
+  }) async {
+    final user = currentFirebaseUser;
+    if (user == null) {
+      return AuthResult.failed(const AuthFailure(
+        title: 'Sign in to continue',
+        message: 'Sign in first, then you can add another way in.',
+      ));
+    }
+    try {
+      final credential = PhoneAuthProvider.credential(
+        verificationId: verificationId,
+        smsCode: smsCode.trim(),
+      );
+      final result = await user
+          .linkWithCredential(credential)
+          .timeout(_authTimeout);
+      final linked = result.user ?? user;
+      await linked.reload();
+      final current = _firebaseAuth?.currentUser ?? linked;
+      debugPrint(
+        '[AUTH][LINK] phone attached to ${current.uid} — '
+        'methods=${current.providerData.map((p) => p.providerId).join(",")}',
+      );
+      unawaited(_syncUserToSupabase(current, phoneNumber: current.phoneNumber));
+      return AuthResult.success(_appUserFromFirebase(current));
+    } catch (e) {
+      return AuthResult.from(e, AuthFlow.linkMethod);
+    }
+  }
 
   // ---------- Phone (OTP) ----------
 
@@ -575,15 +712,53 @@ class AuthService {
     }
   }
 
-  /// Ensures the current Firebase user exists in Supabase `users` table.
-  /// Call this before creating a post/job so `posts.author_user_id` FK is satisfied.
+  /// Guarantees the signed-in user has a row in `users` before an owned write.
+  ///
+  /// WHY THIS THROWS, AND WHY THAT IS THE FIX
+  /// ----------------------------------------
+  /// `posts.author_user_id` and `applications.applicant_user_id` are FOREIGN
+  /// KEYS into `users(id)`. If the row is missing, the insert fails with a
+  /// constraint violation that reaches the user as "We couldn't save your
+  /// changes" — a sentence about saving, produced by a problem with identity,
+  /// several layers away from anything an engineer can act on.
+  ///
+  /// This method used to delegate to [_syncUserToSupabase], which swallows its
+  /// own failure and returns a FABRICATED AppUser built from Firebase fields.
+  /// So a function named `ensureCurrentUserInSupabase` reported success without
+  /// having ensured anything, and every layer above it went on to act on a
+  /// premise that was already false. That is the first point at which this
+  /// system stopped being correct; everything after it was healthy code
+  /// reasoning from a lie.
+  ///
+  /// It now verifies and throws. A caller that cannot proceed learns so HERE,
+  /// where the reason is still legible, instead of at an unrelated INSERT.
+  /// [getCurrentAppUser] deliberately keeps its forgiving behaviour — reading a
+  /// profile and guaranteeing one are different promises.
   static Future<void> ensureCurrentUserInSupabase() async {
     final firebaseUser = currentFirebaseUser;
-    if (firebaseUser == null) return;
+    if (firebaseUser == null) {
+      throw const ProfileUnavailableException(
+        'Sign in to continue.',
+      );
+    }
     await _syncUserToSupabase(
       firebaseUser,
       phoneNumber: firebaseUser.phoneNumber,
     );
+    final row = await _supabase
+        .from('users')
+        .select('id')
+        .eq('id', firebaseUser.uid)
+        .maybeSingle();
+    if (row == null) {
+      debugPrint(
+        '[AUTH][PROFILE] no users row for ${firebaseUser.uid} after sync — '
+        'refusing the write rather than letting it fail as a constraint error',
+      );
+      throw const ProfileUnavailableException(
+        "We couldn't finish setting up your account. Please try again.",
+      );
+    }
   }
 
   /// Build AppUser from Firebase only (no network). Use for instant UI update so login never freezes.
