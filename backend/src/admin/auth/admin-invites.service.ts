@@ -230,10 +230,16 @@ export class AdminInvitesService {
     const role = invite.role;
 
     // 2. Supabase Auth login (idempotent: create, or reset password if exists).
-    const authUserId = await this.ensureAuthUser(email, params.password);
+    //    Called for its effect, not its value: the auth UUID identifies a
+    //    DASHBOARD CREDENTIAL and must never travel any further into the
+    //    marketplace — binding a credential to a person is what
+    //    `user_auth_identities` is for (migration 099).
+    await this.ensureAuthUser(email, params.password);
 
-    // 3. Mark them an admin in public.users (by EMAIL, never overwriting id).
-    await this.ensureAdminRole(email, authUserId);
+    // 3. Promote an EXISTING person to admin. Never creates one — see the note
+    //    on ensureAdminRole. `authUserId` is deliberately not passed any more:
+    //    a Supabase Auth UUID must never become a public.users primary key.
+    await this.ensureAdminRole(email);
 
     // 4. Arbitration RBAC identity + one-time bearer (idempotent on retry).
     const admin = await this.auth.createOrRotateAdmin({ email, name, role });
@@ -330,16 +336,34 @@ export class AdminInvitesService {
   }
 
   /**
-   * Set role='admin' on the public.users row for this email. If a row already
-   * exists (an existing Firebase app user being promoted), UPDATE by email and
-   * KEEP its Firebase-UID primary key. Only when no row exists do we insert a
-   * new one — and the id there is just a unique TEXT key (we reuse the auth
-   * UUID string), since the middleware never reads users.id.
+   * PROMOTE an existing person to admin. Never creates one.
+   *
+   * WHY THIS NO LONGER INSERTS
+   * --------------------------
+   * It used to insert `{ id: <supabase auth uuid>, email, role: 'admin' }` when
+   * the invitee had no app account, reasoning that "the id is just a unique TEXT
+   * key, since the middleware never reads users.id". The middleware does not —
+   * but the entire marketplace does. `public.users.id` is the FK target of
+   * posts, applications, chats, notifications, escrow, reviews and reputation,
+   * and every RLS policy compares it against the Firebase UID in
+   * `auth.jwt()->>'user_id'`. A row keyed by anything else is not a person.
+   *
+   * Worse, `users.email` is UNIQUE. Such a row permanently holds that human's
+   * address, so when they later sign into the app their REAL Firebase-UID row
+   * cannot be inserted (23505) — leaving them authenticated with no profile
+   * row, and every post, application and profile save failing. That is not
+   * hypothetical: it is the karenbrina98 outage of 2026-08-07, whose three
+   * ghost rows came from the equivalent DB trigger (dropped in migration 100).
+   * This method was the same bug reachable over HTTP.
+   *
+   * An invite for someone with no app account is not an error and must not fail
+   * acceptance: the `admin_users` row created in step 4 is what actually confers
+   * admin authority, and `user_auth_identities` (migration 099) is what binds
+   * their dashboard credential to their person — once that person exists. They
+   * sign into the app, and an admin links and promotes them per
+   * docs/runbooks/admin-onboarding-and-identity-linking.md.
    */
-  private async ensureAdminRole(
-    email: string,
-    newRowId: string,
-  ): Promise<void> {
+  private async ensureAdminRole(email: string): Promise<void> {
     const { data: existing, error: selErr } = await this.supabase.client
       .from('users')
       .select('id')
@@ -348,24 +372,25 @@ export class AdminInvitesService {
 
     if (selErr) {
       this.logger.error(`[INVITE] users lookup failed for ${email}: ${selErr.message}`);
+      return;
     }
 
-    if (existing) {
-      const { error } = await this.supabase.client
-        .from('users')
-        .update({ role: 'admin' })
-        .eq('email', email);
-      if (error) {
-        this.logger.error(`[INVITE] users role update failed for ${email}: ${error.message}`);
-      }
+    if (!existing) {
+      this.logger.warn(
+        `[INVITE] no marketplace account for ${email} — admin authority granted ` +
+          `via admin_users, but public.users is NOT being created. Creating one ` +
+          `here would key it by a non-Firebase id and block their real account. ` +
+          `Link and promote after they sign in (see admin onboarding runbook).`,
+      );
       return;
     }
 
     const { error } = await this.supabase.client
       .from('users')
-      .insert({ id: newRowId, email, role: 'admin' });
+      .update({ role: 'admin' })
+      .eq('email', email);
     if (error) {
-      this.logger.error(`[INVITE] users insert failed for ${email}: ${error.message}`);
+      this.logger.error(`[INVITE] users role update failed for ${email}: ${error.message}`);
     }
   }
 

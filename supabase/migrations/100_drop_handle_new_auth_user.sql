@@ -1,0 +1,61 @@
+-- =============================================================================
+-- Migration 100 — remove the last path that can mint a ghost user
+-- =============================================================================
+-- WHAT THIS CLOSES
+-- ----------------
+-- `public.handle_new_auth_user()` mirrored every new `auth.users` row into
+-- `public.users` KEYED BY THE SUPABASE AUTH UUID. Its trigger
+-- (`on_auth_user_created`) was dropped in migration 099, but the function was
+-- deliberately kept so the old behaviour could be restored with one
+-- CREATE TRIGGER. That convenience is exactly the risk: while the function
+-- exists, one statement re-arms an architecture we have now proven harmful.
+--
+-- WHY IT WAS HARMFUL — THE EVIDENCE, NOT THE THEORY
+-- -------------------------------------------------
+-- Migration 099 judged the three rows this function had already created to be
+-- "harmless, they own nothing". They owned nothing and they were NOT harmless.
+-- `users.email` is UNIQUE, so each ghost row permanently held one human's email
+-- address. When that same human signed into the app with Google, their REAL
+-- Firebase-UID row could not be inserted:
+--
+--   duplicate key value violates unique constraint "users_email_unique" (23505)
+--
+-- The client swallowed that rejection, so the account had no `users` row at all
+-- — and since `posts.author_user_id` is a FK into `users(id)`, every post,
+-- edit, application and profile save failed. Confirmed on device 2026-08-07 for
+-- karenbrina98@gmail.com (Firebase UID bLbPkk9w2uSX8sLbgvjw2wMBOPb2), and
+-- resolved by removing the ghost. Two identity issuers writing one table is not
+-- a tolerable steady state; it is a latent outage per affected user.
+--
+-- All three ghost rows have since been removed (each verified to own zero rows
+-- across all 19 tables with a FK into `users`). `public.users` is now keyed
+-- exclusively by Firebase UID, which is what the rest of the system — RLS
+-- (`auth.jwt()->>'user_id'`), the backend AuthGuard, every ownership check —
+-- has always assumed.
+--
+-- A dashboard credential is linked to a person via `public.user_auth_identities`
+-- (migration 099). It is never mirrored into a person.
+--
+-- ROLLBACK
+-- --------
+-- 099's rollback was one statement because this function survived. It is now
+-- two, and the function source is reproduced here in full so nothing is lost:
+--
+--   CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
+--     RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+--   AS $fn$
+--   BEGIN
+--     INSERT INTO public.users (id, email, role, created_at)
+--     VALUES (NEW.id::text, NEW.email, 'user', COALESCE(NEW.created_at, now()))
+--     ON CONFLICT (id) DO NOTHING;
+--     RETURN NEW;
+--   END;
+--   $fn$;
+--   CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users
+--     FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
+--
+-- Restoring it re-opens the failure above. Do not, without a plan for the
+-- collision.
+-- =============================================================================
+
+DROP FUNCTION IF EXISTS public.handle_new_auth_user();

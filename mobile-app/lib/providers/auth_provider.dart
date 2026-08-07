@@ -130,6 +130,24 @@ class AuthProvider extends ChangeNotifier {
     // interrupted or never completed cleanly.
     if (previousUid != null && previousUid.isNotEmpty && previousUid != uid) {
       debugPrint('[SESSION] account switch detected — clearing prior session');
+      // BOTH CREDENTIAL CACHES FIRST, SYNCHRONOUSLY.
+      //
+      // A switch does not always pass through null: signing in with a second
+      // Google account calls signInWithCredential on a live session, so Firebase
+      // emits B directly after A. The sign-out branch above drops both cached
+      // credentials; this branch used to drop neither, and they are not
+      // short-lived — the Supabase JWT is reused for 50 minutes and the Firebase
+      // ID token is cached until shortly before its expiry.
+      //
+      // Until the re-exchange below completed, every RLS-scoped read still
+      // carried A's `user_id` claim while the app believed it was B: B's
+      // conversations, notifications and saved items would have been answered
+      // with A's rows. Clearing here makes the worst case "a read has no
+      // credential yet and returns nothing", which is recoverable, instead of
+      // "a read has the WRONG credential and returns someone else's data",
+      // which is not.
+      SupabaseAuthBridge.clearSupabaseSession();
+      api.clearSession();
       unawaited(_endSession(previousUid));
     }
     // Set the session user immediately so the UI can proceed. Everything below is

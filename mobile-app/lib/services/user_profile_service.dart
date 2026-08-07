@@ -9,6 +9,8 @@ import '../utils/phone_utils.dart';
 import 'adaptive_poll.dart';
 import 'post_service.dart';
 import 'storage_service.dart';
+import 'supabase_auth_bridge.dart';
+import 'user_row.dart';
 
 /// User profile: Supabase `users` table + Supabase Storage bucket `profiles` for avatar.
 /// No Firestore or Firebase Storage. id = Firebase Auth UID (synced to Supabase on login).
@@ -16,6 +18,35 @@ class UserProfileService {
   static SupabaseClient get _client => Supabase.instance.client;
 
   static bool get _isAvailable => true;
+
+  /// The ONE way this class writes to `public.users`.
+  ///
+  /// WHY EVERY WRITE GOES THROUGH HERE
+  /// ---------------------------------
+  /// `users` UPDATE is owner-scoped in the database: the policy compares
+  /// `id` against `auth.jwt() ->> 'user_id'`, which only exists once the
+  /// Firebase token has been exchanged for a Supabase JWT. Without that
+  /// exchange the request travels as `anon` and is refused — correctly, because
+  /// an anonymous caller genuinely cannot prove it owns the row.
+  ///
+  /// Thirteen call sites used to issue this update directly, none of which
+  /// established the session first. Chat, applications and reports all did; the
+  /// identity table did not. Rather than add the same line in thirteen places
+  /// and rely on the fourteenth remembering, the session is a precondition of
+  /// the write itself.
+  ///
+  /// Refuses rather than attempting an unprovable write: an update that runs as
+  /// `anon` does not error loudly, it silently matches zero rows, which is how a
+  /// "saved" profile change quietly fails to save.
+  static Future<void> _updateUser(String uid, Map<String, dynamic> changes) async {
+    final ok = await SupabaseAuthBridge.ensureSessionForWriteAsync();
+    if (!ok) {
+      throw UserProfileException(
+        "We couldn't confirm it's you. Check your connection and try again.",
+      );
+    }
+    await _client.from('users').update(changes).eq('id', uid);
+  }
 
   /// Create or ensure user row in Supabase on signup. Call after Firebase Auth user is created.
   static Future<void> createUserOnSignup({
@@ -26,22 +57,58 @@ class UserProfileService {
   }) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
+      // Despite the name, this runs on every phone sign-in, not only the first
+      // — so for a RETURNING user the upsert resolves to an UPDATE, which is
+      // owner-scoped. Establish the session first or a returning phone user's
+      // sign-in would start failing. Best-effort: a first-time INSERT is still
+      // permitted anonymously, so a failed exchange must not block sign-up.
+      await SupabaseAuthBridge.ensureSessionForWriteAsync();
       final displayName = name?.trim() ?? (email.isNotEmpty ? email.split('@').first : '');
-      await _client.from('users').upsert({
-        'id': uid,
-        'email': email,
-        'name': displayName,
-        if (phone != null && phone.isNotEmpty) 'phone_number': phone,
-        'profile_image': '',
-      }, onConflict: 'id');
+      await _client.from('users').upsert(
+        UserRow.build(
+          uid: uid,
+          email: email,
+          name: displayName,
+          phoneNumber: phone,
+          profileImage: '',
+        ),
+        onConflict: 'id',
+      );
       debugPrint('✅ UserProfileService: created/updated user $uid in Supabase');
     } catch (e) {
-      debugPrint('UserProfileService createUserOnSignup: $e');
-      rethrow;
+      // BEST-EFFORT, DELIBERATELY — this no longer rethrows.
+      //
+      // Two reasons, and the second is the one that matters after the
+      // owner-only UPDATE policy. First: rethrowing here made `signUp` report
+      // "we couldn't create your account" AFTER the identity account had
+      // already been created, stranding a Firebase user with no profile and no
+      // way back. Second: this runs on EVERY phone sign-in, so for a returning
+      // user the upsert is an UPDATE — and if the token exchange had not
+      // completed, that update is (correctly) refused, which would have turned
+      // a slow network into a failed sign-in.
+      //
+      // Provisioning is not the guarantee. `AuthService.ensureCurrentUserInSupabase`
+      // is: it runs before every owned write, verifies the row, and refuses
+      // with the real reason if it is genuinely absent. Signing in is allowed to
+      // be optimistic because the write path is not.
+      debugPrint('[PROFILE] createUserOnSignup deferred for $uid: ${e.runtimeType}');
     }
   }
 
-  /// Ensure profile row exists in Supabase (e.g. for existing users).
+  /// Best-effort repair-on-read: create the profile row if it is missing.
+  ///
+  /// NEVER THROWS. This is called fire-and-forget from a post-frame callback in
+  /// the profile screen, where nothing can catch it — the `rethrow` this used
+  /// to end with surfaced as `Unhandled Exception` in production logs, twice
+  /// over: once for the `users_email_unique` collision that caused the
+  /// karenbrina98 outage, and once for a benign `users_pkey` conflict when the
+  /// sign-in sync simply won the race and created the row first.
+  ///
+  /// A repair that loses its race has nothing to report: the row exists, which
+  /// is the entire point of the call. A repair that fails for a real reason is
+  /// logged here and refused properly at the write path by
+  /// [AuthService.ensureCurrentUserInSupabase], which is where a user can
+  /// actually be told.
   static Future<void> ensureProfileDoc({
     required String uid,
     required String email,
@@ -53,17 +120,24 @@ class UserProfileService {
       final existing = await _client.from('users').select('id').eq('id', uid).maybeSingle();
       if (existing != null) return;
       final displayName = name?.trim() ?? (email.isNotEmpty ? email.split('@').first : '');
-      await _client.from('users').insert({
-        'id': uid,
-        'email': email,
-        'name': displayName,
-        if (phone != null && phone.isNotEmpty) 'phone_number': phone,
-        'profile_image': '',
-      });
+      await _client.from('users').insert(UserRow.build(
+        uid: uid,
+        email: email,
+        name: displayName,
+        phoneNumber: phone,
+        profileImage: '',
+      ));
       debugPrint('UserProfileService: ensured user $uid in Supabase');
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') {
+        // Lost the race with the sign-in sync. The row is there; that is a
+        // success by any reading of what this method promises.
+        debugPrint('[PROFILE] ensureProfileDoc: row already present for $uid');
+        return;
+      }
+      debugPrint('[PROFILE] ensureProfileDoc ($uid) rejected: ${e.code} ${e.message}');
     } catch (e) {
-      debugPrint('UserProfileService ensureProfileDoc ($uid): $e');
-      rethrow;
+      debugPrint('[PROFILE] ensureProfileDoc ($uid) failed: ${e.runtimeType}');
     }
   }
 
@@ -78,7 +152,7 @@ class UserProfileService {
     }
     debugPrint('[UserProfileService] saveMpesaPhone uid=$uid normalized=$normalized');
     try {
-      await _client.from('users').update({'phone_number': normalized}).eq('id', uid);
+      await _updateUser(uid, {'phone_number': normalized});
       debugPrint('✅ UserProfileService: saved phone_number=$normalized for $uid');
     } catch (e) {
       debugPrint('UserProfileService saveMpesaPhone: $e');
@@ -102,10 +176,10 @@ class UserProfileService {
   static Future<void> setOnline(String uid, bool isOnline) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      await _client.from('users').update({
+      await _updateUser(uid, {
         'is_online': isOnline,
         'last_seen': DateTime.now().toUtc().toIso8601String(),
-      }).eq('id', uid);
+      });
     } catch (e) {
       debugPrint('UserProfileService setOnline: $e');
     }
@@ -188,7 +262,7 @@ class UserProfileService {
         updates['avatar_url'] = profileImage;
       }
       if (updates.isEmpty) return;
-      await _client.from('users').update(updates).eq('id', uid);
+      await _updateUser(uid, updates);
     } catch (e) {
       debugPrint('UserProfileService updateProfile ($uid): $e');
       rethrow;
@@ -210,7 +284,7 @@ class UserProfileService {
     if (trimmed.isEmpty) {
       throw UserProfileException('Enter your name.');
     }
-    await _client.from('users').update({'name': trimmed}).eq('id', uid);
+    await _updateUser(uid, {'name': trimmed});
     debugPrint('[PROFILE] name updated for $uid');
   }
 
@@ -223,14 +297,14 @@ class UserProfileService {
     required String professionId,
   }) async {
     if (!_isAvailable || uid.isEmpty) return;
-    await _client.from('users').update({'profession': professionId.trim()}).eq('id', uid);
+    await _updateUser(uid, {'profession': professionId.trim()});
     debugPrint('[PROFILE] profession set to "${professionId.trim()}" for $uid');
   }
 
   /// Save the bio. Trimmed; empty clears it.
   static Future<void> updateBio({required String uid, required String bio}) async {
     if (!_isAvailable || uid.isEmpty) return;
-    await _client.from('users').update({'bio': bio.trim()}).eq('id', uid);
+    await _updateUser(uid, {'bio': bio.trim()});
   }
 
   /// The publicly visible profile of ANY user — powers the provider profile
@@ -270,10 +344,10 @@ class UserProfileService {
       if (url.isEmpty) throw UserProfileException('Upload returned no URL.');
       final t = DateTime.now().millisecondsSinceEpoch;
       final urlWithCacheBuster = url.contains('?') ? '$url&t=$t' : '$url?t=$t';
-      await _client.from('users').update({
+      await _updateUser(uid, {
         'profile_image': urlWithCacheBuster,
         'avatar_url': urlWithCacheBuster,
-      }).eq('id', uid);
+      });
       debugPrint('UserProfileService.uploadProfileImage: saved URL to users.profile_image');
       return urlWithCacheBuster;
     } catch (e) {
@@ -287,7 +361,7 @@ class UserProfileService {
   static Future<void> setNotificationsEnabled(String uid, bool enabled) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      await _client.from('users').update({'notifications_enabled': enabled}).eq('id', uid);
+      await _updateUser(uid, {'notifications_enabled': enabled});
     } catch (e) {
       debugPrint('UserProfileService setNotificationsEnabled: $e');
     }
@@ -378,7 +452,7 @@ class UserProfileService {
   static Future<void> setLanguage(String uid, String languageCode) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      await _client.from('users').update({'language': languageCode}).eq('id', uid);
+      await _updateUser(uid, {'language': languageCode});
     } catch (e) {
       debugPrint('UserProfileService setLanguage: $e');
     }
@@ -446,9 +520,9 @@ class UserProfileService {
   static Future<void> setTosAccepted(String uid) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
-      await _client.from('users').update({
+      await _updateUser(uid, {
         'tos_accepted_at': DateTime.now().toUtc().toIso8601String(),
-      }).eq('id', uid);
+      });
     } catch (e) {
       debugPrint('UserProfileService setTosAccepted: $e');
     }

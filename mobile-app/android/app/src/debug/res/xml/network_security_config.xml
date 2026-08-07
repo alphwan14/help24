@@ -7,9 +7,11 @@
   Why this exists: the main config sets cleartextTrafficPermitted="false" for
   every domain, which is correct for release but also blocks local development
   against a backend running on the developer's machine. ApiConfig documents
-  --dart-define=HELP24_API_BASE_URL=http://10.0.2.2:3000 as the dev workflow,
-  and without this file the platform refuses that request before it leaves the
-  device.
+  passing HELP24_API_BASE_URL=http://10.0.2.2:3000 via dart-define as the dev
+  workflow, and without this file the platform refuses that request before it
+  leaves the device. (The flag's two leading dashes are spelled out rather than
+  written literally: a double hyphen is not permitted inside an XML comment, and
+  including it made this file fail to parse, which failed every debug build.)
 
   Note on scope: <domain> matches hostnames, not CIDR ranges — there is no way
   to express "any RFC1918 address" here. So the base config permits cleartext in

@@ -7,7 +7,9 @@ import '../utils/auth_error_mapper.dart';
 import '../utils/error_mapper.dart';
 import '../utils/kenyan_phone.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import 'supabase_auth_bridge.dart';
 import 'user_profile_service.dart';
+import 'user_row.dart';
 
 /// The signed-in account has no Help24 profile row, so an owned write cannot
 /// proceed.
@@ -750,15 +752,44 @@ class AuthService {
         .select('id')
         .eq('id', firebaseUser.uid)
         .maybeSingle();
-    if (row == null) {
-      debugPrint(
-        '[AUTH][PROFILE] no users row for ${firebaseUser.uid} after sync — '
-        'refusing the write rather than letting it fail as a constraint error',
+    if (row != null) return;
+
+    // The sync did not produce a row and swallowed the reason. Re-run the SAME
+    // write here, unguarded, so the rejection itself is in hand — a diagnosis
+    // is worth one extra round trip on a path that is already failing.
+    Object? cause;
+    try {
+      await _upsertUserRow(
+        UserRow.build(uid: firebaseUser.uid, email: firebaseUser.email),
       );
+      // It succeeded this time — a transient failure, now resolved.
+      debugPrint('[AUTH][PROFILE] users row created on retry for ${firebaseUser.uid}');
+      return;
+    } catch (e) {
+      cause = e;
+    }
+
+    // A unique violation here does NOT mean "you already have an account". It
+    // means some OTHER row already holds one of this account's unique values —
+    // in production that was a row keyed by a Supabase Auth UUID rather than a
+    // Firebase UID. The user cannot resolve that, so say so plainly and get the
+    // real reason into the log where it can be acted on.
+    final detail = cause is PostgrestException
+        ? '${cause.code} ${cause.message}'
+        : cause.toString();
+    debugPrint(
+      '[AUTH][PROFILE] cannot create users row for ${firebaseUser.uid} — $detail',
+    );
+
+    if (cause is PostgrestException && cause.code == '23505') {
       throw const ProfileUnavailableException(
-        "We couldn't finish setting up your account. Please try again.",
+        'Your account details are already registered to another profile. '
+        'Please contact Help24 support so we can put this right.',
       );
     }
+    throw const ProfileUnavailableException(
+      "We couldn't finish setting up your account. Please try again.",
+    );
   }
 
   /// Build AppUser from Firebase only (no network). Use for instant UI update so login never freezes.
@@ -818,6 +849,7 @@ class AuthService {
         updates['profile_image'] = photoUrl;
         updates['avatar_url'] = photoUrl;
       }
+      await SupabaseAuthBridge.ensureSessionForWriteAsync();
       await _supabase.from('users').update(updates).eq('id', firebaseUser.uid);
       final updatedUser = await getCurrentAppUser();
       return AuthResult.success(updatedUser);
@@ -831,6 +863,33 @@ class AuthService {
         message: ErrorMapper.toMessage(e, context: ErrorContext.save),
       ));
     }
+  }
+
+  /// The one statement that writes a `users` row. Throws on rejection.
+  ///
+  /// Extracted so the read path and the write path can disagree about what a
+  /// failure MEANS while agreeing on the statement itself. Before this, both
+  /// went through [_syncUserToSupabase], whose catch block turned every
+  /// rejection into a `debugPrint` — including the constraint violation that
+  /// caused the karenbrina98 outage, where a stale row keyed by a Supabase Auth
+  /// UUID held the same address under `users_email_unique`. The app had the
+  /// exact answer ("duplicate key value violates unique constraint
+  /// users_email_unique") on the very first sign-in and threw it away.
+  /// The Supabase session is a PRECONDITION, not a nicety.
+  ///
+  /// An upsert whose row already exists resolves to an UPDATE, and `users`
+  /// UPDATE is owner-scoped on `auth.jwt() ->> 'user_id'`. Without the exchanged
+  /// JWT the request travels as `anon`, matches zero rows and reports success —
+  /// so a returning user's `last_login` and profile refresh would silently stop
+  /// happening. Establishing the session first is what makes the write mean
+  /// something.
+  ///
+  /// Note the ordering this fixes: `_onAuthStateChanged` starts the token
+  /// exchange and the profile sync CONCURRENTLY, so before this guard the sync
+  /// regularly won the race and ran anonymously.
+  static Future<void> _upsertUserRow(Map<String, dynamic> row) async {
+    await SupabaseAuthBridge.ensureSessionForWriteAsync();
+    await _supabase.from('users').upsert(row, onConflict: 'id');
   }
 
   /// Sync Firebase user to Supabase users table (no RPC).
@@ -859,26 +918,28 @@ class AuthService {
     // Only written when non-null so we never overwrite a profile-set phone with null.
     final resolvedPhone = phoneNumber ?? firebaseUser.phoneNumber;
 
-    final row = <String, dynamic>{
-      'id': firebaseUser.uid,
-      'email': email,
-      'name': displayName,
-      'last_login': now.toIso8601String(),
-      if (resolvedPhone != null && resolvedPhone.isNotEmpty)
-        'phone_number': resolvedPhone,
-    };
+    // One shape, one set of rules — see [UserRow], which also refuses any id
+    // that is not a Firebase UID.
+    final row = UserRow.build(
+      uid: firebaseUser.uid,
+      email: email,
+      name: displayName,
+      phoneNumber: resolvedPhone,
+      lastLogin: now,
+    );
 
     try {
-      await _supabase.from('users').upsert(
-        row,
-        onConflict: 'id',
-      );
+      await _upsertUserRow(row);
       final inserted = await _supabase.from('users').select().eq('id', firebaseUser.uid).maybeSingle();
       if (inserted != null) {
         debugPrint('✅ Profile synced: ${firebaseUser.uid}');
         return AppUser.fromJson(inserted);
       }
     } catch (e) {
+      // Forgiving BY DESIGN — this is the read path, and a profile that cannot
+      // be refreshed must not stop someone using the app. The write path
+      // ([ensureCurrentUserInSupabase]) calls [_upsertUserRow] directly so the
+      // real reason reaches the user instead of being reduced to a log line.
       debugPrint('❌ Supabase user sync failed: $e');
     }
 

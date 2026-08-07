@@ -565,12 +565,14 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
           _ensureAttempted = true;
           final user = widget.authUser;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            UserProfileService.ensureProfileDoc(
+            // Explicitly unawaited: nothing here can catch a rejection, which
+            // is exactly why ensureProfileDoc is contractually non-throwing.
+            unawaited(UserProfileService.ensureProfileDoc(
               uid: widget.uid,
               email: user.email,
               name: user.name ?? user.displayName,
               phone: user.phoneNumber,
-            );
+            ));
           });
         }
         final profile = snap.data;
