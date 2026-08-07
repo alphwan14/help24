@@ -192,7 +192,62 @@ in the steady state is one 304 per launch or resume, at most once per 15 min.
 - Device QA (adb) for cold-start timing remains owed after deploy, per the
   standing device-verification-first rule.
 
-## 7. Deployment
+## 7. Production rollout — COMPLETED 2026-08-07
+
+**Stage 1 — migration 109 applied.** Pre-flight confirmed `app_settings` did not
+exist in any schema, no policy/constraint/relation name collisions, no function
+or view referencing it, and that `pg_default_acl` grants new tables to
+`service_role` only (so no accidental anon exposure was possible). Baseline
+fingerprint recorded before applying: 47 tables, 73 policies, 61 routines, 19
+triggers, 109 anon/authenticated grants.
+
+After applying: 48 tables (+1), 74 policies (+1), routines and triggers
+**unchanged**, client grants **still 109**, and the policy fingerprint computed
+over every table except the new one was **byte-identical to baseline** — proving
+no existing policy was touched.
+
+| Verification | Result |
+|---|---|
+| Seed vs compiled defaults | Reassembled document is `jsonb`-equal to `DEFAULT_CLIENT_CONFIG` — the migration provably cannot change behaviour |
+| RLS | enabled, one policy, `cmd=ALL roles={service_role}` |
+| Grants | anon and authenticated hold **no** privilege of any kind |
+| Real role-switch probe | anon SELECT / INSERT / **UPDATE of the kill switches** → all `permission denied`; authenticated SELECT → denied; service_role SELECT → allowed |
+| CHECK constraint | rejects array and string values |
+| Seed idempotency | re-running is a no-op; `payments: true` was not clobbered |
+| Rollback preconditions | 0 inbound FKs, 0 dependent views, 0 triggers → `DROP TABLE` succeeds cleanly, no CASCADE |
+| Security advisors | `app_settings` appears in **none**; all findings pre-existing on other objects |
+| Production before push | `/health`, `/`, `/promotions/packages` → 200; `/config` → 404 (module not deployed) |
+
+**Stage 2 — pushed `e186bf8`; Render auto-deployed.** Verified live:
+
+| Check | Result |
+|---|---|
+| `GET /config` | `200`, and **version `3b6c0888a44bf4c1` — the identical hash produced when the table was absent**, confirming the seed changed nothing |
+| Conditional request, strong ETag (what the client sends) | `304`, 0 bytes |
+| Conditional request, weak `W/"…"` (what the proxy advertises) | `304`, 0 bytes |
+| Stale / absent ETag | `200`, 413 bytes |
+| `GET /admin/config`, `PATCH /admin/config/:key` | `401`, including with a junk bearer |
+| Regression sweep — `/health`, `/health/{database,redis,firebase,events}`, `/`, `/promotions/packages`, `/promotions/slots`, `/reputation`, `/feed`, `/mpesa/health` | all `200` |
+| Latency | 0.5–1.1 s cold-ish over the public internet; 2–4 ms locally |
+
+**End-to-end control-plane test in production.** Changed one benign key
+(`ops.announcement`) via SQL, confirmed `/config` served the new value with a
+new version hash (`ed3525777713517d`) while every other field stayed at its
+default, then restored it and confirmed production returned to
+`3b6c0888a44bf4c1` within the 60 s cache window. This proves the backend genuinely
+reads `app_settings`, that the merge-under-defaults works, and that ETags
+invalidate on change. The announcement key was chosen deliberately: it exercises
+the identical code path as a kill switch at zero risk, and no shipped APK reads
+`/config` yet.
+
+**Correction to the assessment.** `docs/backend-centric-architecture-assessment.md`
+§7 lists `public.notification_queue` as a critical RLS-disabled exposure. Verified
+against the live catalog: RLS is indeed disabled, but the table holds **zero
+anon/authenticated grants**, so PostgREST denies access by grant. It is not
+reachable with the shipped key, and the advisors no longer flag it. The severity
+was overstated; it remains a dead-table cleanup candidate, not an exposure.
+
+## 8. Deployment
 
 1. All code lands in one reviewed commit series on `main` **only after** the
    full verification above passes.
