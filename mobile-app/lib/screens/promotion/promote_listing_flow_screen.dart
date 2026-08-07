@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 import '../../models/post_model.dart';
 import '../../models/promotion_models.dart';
+import '../../models/remote_config.dart';
 import '../../services/post_service.dart';
 import '../../services/promotion_service.dart';
+import '../../services/remote_config_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/error_mapper.dart';
 
@@ -39,7 +41,12 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
   String? _campaignStatus;
   Timer? _pollTimer;
   int _polls = 0;
-  static const int _maxPolls = 24; // × 5 s ≈ 2 minutes
+
+  /// Same served budget the escrow payment loop uses (defaults 24 × 5 s ≈ 2
+  /// min). One knob for both loops, deliberately: they are both waiting on the
+  /// same Safaricom STK prompt, and they previously drifted as two independent
+  /// copies of the same magic numbers.
+  PaymentsTuning get _tuning => RemoteConfigService.instance.config.payments;
 
   @override
   void initState() {
@@ -95,6 +102,16 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
     final pkg = _selectedPackage;
     if (post == null || pkg == null) return;
 
+    // Kill switch — fail-open, same contract as the escrow payment path.
+    if (!RemoteConfigService.instance.promotionsEnabled) {
+      setState(() {
+        _phase = _PayPhase.failed;
+        _payMessage = 'Promotions are temporarily unavailable. '
+            'Please try again shortly — nothing has been charged.';
+      });
+      return;
+    }
+
     setState(() {
       _phase = _PayPhase.sending;
       _payMessage = 'Setting up your promotion…';
@@ -117,10 +134,17 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
       });
       _polls = 0;
       // Deliberately a plain Timer, not an AdaptivePoll: `_polls` counts against
-      // `_maxPolls` as a wall-clock proxy for the STK prompt's own expiry, so
-      // these ticks must keep running even offline. See the longer note on
+      // the poll budget as a wall-clock proxy for the STK prompt's own expiry,
+      // so these ticks must keep running even offline. See the longer note on
       // PaymentScreen._startPolling.
-      _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _poll(campaign.id));
+      //
+      // Budget captured for the life of this payment: a config refresh landing
+      // mid-flight must not move a deadline the user is already waiting on.
+      final tuning = _tuning;
+      _pollTimer = Timer.periodic(
+        tuning.pollInterval,
+        (_) => _poll(campaign.id, budget: tuning.pollBudget),
+      );
     } on PromotionException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -136,7 +160,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
     }
   }
 
-  Future<void> _poll(String campaignId) async {
+  Future<void> _poll(String campaignId, {required int budget}) async {
     _polls++;
     try {
       final status = await PromotionService.paymentStatus(
@@ -171,7 +195,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
     } catch (_) {
       // transient poll error — keep trying until the window closes
     }
-    if (_polls >= _maxPolls && mounted) {
+    if (_polls >= budget && mounted) {
       _pollTimer?.cancel();
       setState(() {
         _phase = _PayPhase.failed;

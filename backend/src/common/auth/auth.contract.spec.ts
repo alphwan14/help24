@@ -26,6 +26,8 @@ import { AdminUsersController } from '../../admin/admin-users.controller';
 import { AdminInvitesPublicController } from '../../admin/admin-invites-public.controller';
 import { DisputesController } from '../../admin/disputes/disputes.controller';
 import { DisputesPublicController } from '../../admin/disputes/disputes-public.controller';
+import { AppConfigController } from '../../app-config/app-config.controller';
+import { AppConfigAdminController } from '../../app-config/app-config-admin.controller';
 
 const CONTROLLERS = [
   FeedController,
@@ -48,6 +50,8 @@ const CONTROLLERS = [
   AdminInvitesPublicController,
   DisputesController,
   DisputesPublicController,
+  AppConfigController,
+  AppConfigAdminController,
 ] as const;
 
 interface Handler {

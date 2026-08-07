@@ -5,10 +5,12 @@ import 'package:provider/provider.dart';
 import '../services/adaptive_poll.dart';
 import '../services/launch_sequence.dart';
 import '../services/notification_store.dart';
+import '../services/remote_config_service.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../services/user_profile_service.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../widgets/auth_guard.dart';
+import '../widgets/ops_banners.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
@@ -88,6 +90,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // flagged offline for the whole session. Start the beat explicitly.
         _startPresence();
       }
+      // Configuration refresh AFTER the first frame, deliberately: warmUp()
+      // already ran off disk during bootstrap, so the app is rendering on the
+      // cached (or compiled) document. Fetching here keeps the launch
+      // transaction free of a network dependency it does not need.
+      unawaited(RemoteConfigService.instance.refreshIfStale());
     });
   }
 
@@ -106,6 +113,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         _startPresence(); // beat now, then keep beating while foregrounded
+        // A kill switch flipped during an incident should reach a backgrounded
+        // app the moment it returns, not 15 minutes later. Cheap: a fresh cache
+        // returns without a request, and a stale one costs a 304.
+        unawaited(RemoteConfigService.instance.refreshIfStale());
         // Re-check location permission in case user granted it in Settings
         // while the app was in the background.
         context.read<LocationProvider>().refreshPermissionStatus();
@@ -197,6 +208,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // The one blocking control in the configuration plane, and the first thing
+    // checked. Reads the LAUNCH snapshot, so a hard gate that arrives while the
+    // app is open takes effect at the next cold start rather than closing over
+    // whatever the user is doing right now.
+    if (RemoteConfigService.instance.requiresHardUpdate) {
+      return const HardUpdateScreen();
+    }
+
     final auth = context.watch<AuthProvider>();
     final uid = auth.currentUserId ?? '';
     if (uid != _lastAuthUserId) {
@@ -248,6 +267,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // state, communicated where it matters — a subtle indicator on the
           // Discover feed (live browsing) and contextual snackbars on actions
           // elsewhere. Keeping the shell calm is deliberate.
+          //
+          // Operational notices are the exception, and they sit ABOVE the tab
+          // content rather than over it: a maintenance window, an announcement
+          // or an update nudge is something the backend needs everyone to read,
+          // and none of them may obstruct what the user came to do. Renders
+          // nothing at all when there is nothing to say — which is every launch
+          // until someone edits the config.
+          const OpsBanners(),
           Expanded(
             child: _showPostScreen
                 ? PopScope(

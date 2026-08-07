@@ -30,6 +30,12 @@ class ApiConfig {
   static const bool isOverridden =
       baseUrl != 'https://help24-backend.onrender.com';
 
+  /// Client bootstrap configuration: kill switches, maintenance notice, the
+  /// minimum-version gate and the operational tunables. Public by design — it
+  /// must be readable before sign-in, and during an incident it is the one
+  /// document that has to arrive. See services/remote_config_service.dart.
+  static const String clientConfig     = '$baseUrl/config';
+
   static const String initiatePayment  = '$baseUrl/mpesa/initiate';
   static const String paymentStatus    = '$baseUrl/mpesa/status';
   static const String releasePayout    = '$baseUrl/mpesa/release-payout';

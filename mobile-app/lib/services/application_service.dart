@@ -10,6 +10,7 @@ import '../config/api_config.dart';
 import '../models/post_model.dart';
 import '../utils/post_ownership.dart';
 import 'auth_service.dart';
+import 'remote_config_service.dart';
 import 'supabase_auth_bridge.dart';
 
 /// Service for handling job/post applications with Supabase. Uses real user ids.
@@ -37,6 +38,15 @@ class ApplicationService {
   }) async {
     if (currentUserId.isEmpty) {
       throw ApplicationServiceException('Sign in to submit an application.');
+    }
+
+    // Kill switch. Fail-OPEN: false only when a fetched config explicitly says
+    // applications are off. Checked before the ownership and duplicate layers
+    // because it is the cheapest of the four and needs no data at all.
+    if (!RemoteConfigService.instance.applicationsEnabled) {
+      throw ApplicationServiceException(
+        'Applications are temporarily unavailable. Please try again shortly.',
+      );
     }
 
     // Layer A: ownership. The database has enforced this since migration 030

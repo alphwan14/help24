@@ -15,6 +15,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { PromotionsModule } from './promotions/promotions.module';
 import { RoutesModule } from './routes/routes.module';
 import { FeedModule } from './feed/feed.module';
+import { AppConfigModule } from './app-config/app-config.module';
 import { DevModule } from './dev/dev.module';
 
 // ── Production infrastructure (Phase 1) ──────────────────────────────────────
@@ -86,6 +87,11 @@ import { HealthModule } from './health/health.module';
     // Journey routing (Phase 3): Google Routes proxy for ETA, remaining
     // distance and polyline. Keeps the billable key off the device.
     RoutesModule,
+    // The client configuration plane: kill switches, maintenance mode, the
+    // minimum-version gate and the client tunables that previously required a
+    // Play release. A leaf — nothing imports it. Serves compiled defaults when
+    // `app_settings` is absent, so it is safe ahead of its own migration.
+    AppConfigModule,
     // EventProcessorModule is registered last: it imports MpesaModule + EventsModule.
     // Nothing imports EventProcessorModule — it is a leaf that starts the retry loop.
     EventProcessorModule,

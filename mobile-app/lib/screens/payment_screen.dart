@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../models/remote_config.dart';
 import '../services/mpesa_service.dart';
+import '../services/remote_config_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
@@ -72,8 +74,23 @@ class _PaymentScreenState extends State<PaymentScreen>
   Timer? _pollTimer;
   Timer? _autoAdvanceTimer;
   int _pollCount = 0;
-  static const int _maxPolls = 24;         // 24 × 5 s ≈ 2 min
-  static const int _processingThreshold = 4; // After 4 polls (~20 s) → PROCESSING
+
+  /// The polling budget and cadence, served by the backend.
+  ///
+  /// Defaults are today's compiled values (24 × 5 s ≈ 2 min) and are used
+  /// verbatim whenever config is unavailable — see RemoteConfig.defaults. They
+  /// are tunable because they track Safaricom's STK prompt lifetime, which is
+  /// theirs to change, not ours: when it moves, this must follow within the
+  /// hour rather than within a Play review.
+  PaymentsTuning get _tuning => RemoteConfigService.instance.config.payments;
+
+  /// After ~20 s of waiting the UI advances AWAITING_PIN → PROCESSING. Derived
+  /// from the interval so the meaning ("about twenty seconds") survives a
+  /// change to the cadence.
+  int get _processingThreshold {
+    final polls = (20 / _tuning.pollIntervalSeconds).round();
+    return polls < 1 ? 1 : polls;
+  }
 
   // ── Debug panel ───────────────────────────────────────────────────────────
   Map<String, dynamic>? _testStkResult;
@@ -122,6 +139,20 @@ class _PaymentScreenState extends State<PaymentScreen>
   // ─── Main flow ─────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
+    // Kill switch. Fail-OPEN by construction: this is false only when a fetched
+    // config explicitly says payments are off, so an unreachable backend or a
+    // fresh install can never disable commerce. The check sits here rather than
+    // on the button because a switch flipped while this screen is open should
+    // still stop the next attempt.
+    if (!RemoteConfigService.instance.paymentsEnabled) {
+      _transition(
+        PaymentState.failed,
+        error: 'Payments are temporarily unavailable. '
+            'Please try again shortly — nothing has been charged.',
+      );
+      return;
+    }
+
     _transition(PaymentState.initiating);
 
     try {
@@ -157,7 +188,7 @@ class _PaymentScreenState extends State<PaymentScreen>
   /// Every other repeating fetch in the app parks while offline (see
   /// services/adaptive_poll.dart). This one must not: `_pollCount` is a proxy
   /// for WALL-CLOCK TIME — it drives the AWAITING_PIN → PROCESSING transition
-  /// and the hard `_maxPolls` timeout — and the M-Pesa STK prompt on the user's
+  /// and the hard poll-budget timeout — and the M-Pesa STK prompt on the user's
   /// handset expires on Safaricom's clock, not on ours. Pausing the ticks would
   /// stop our count while the real prompt kept expiring, so the screen would sit
   /// waiting on a deadline that had already passed and then report a state that
@@ -166,7 +197,12 @@ class _PaymentScreenState extends State<PaymentScreen>
   /// promote_listing_flow_screen.dart.
   void _startPolling() {
     _pollCount = 0;
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+    // Captured once for the life of this poll, not read per tick: a config
+    // refresh landing mid-payment must not move the deadline the user is
+    // already waiting against.
+    final tuning = _tuning;
+    final processingThreshold = _processingThreshold;
+    _pollTimer = Timer.periodic(tuning.pollInterval, (_) async {
       if (!mounted || _state.isTerminal) {
         _pollTimer?.cancel();
         return;
@@ -175,13 +211,13 @@ class _PaymentScreenState extends State<PaymentScreen>
       _pollCount++;
 
       // Advance from AWAITING_PIN → PROCESSING once enough time has passed.
-      if (_pollCount >= _processingThreshold &&
+      if (_pollCount >= processingThreshold &&
           _state == PaymentState.awaitingPin) {
         _transition(PaymentState.processing);
       }
 
       // Hard timeout.
-      if (_pollCount > _maxPolls) {
+      if (_pollCount > tuning.pollBudget) {
         _pollTimer?.cancel();
         _transition(PaymentState.expired);
         return;

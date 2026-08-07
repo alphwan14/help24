@@ -188,6 +188,39 @@ export const RATE_LIMIT_POLICIES: readonly RateLimitPolicy[] = [
   },
 
   {
+    name: 'config:read',
+    rationale:
+      'GET /config — the client bootstrap document (kill switches, maintenance ' +
+      'notice, version gates). remote_config_service.dart fetches on cold start ' +
+      'and on resume behind a 15-minute TTL, so one device costs ~4 requests an ' +
+      'hour, and the steady state is a 304 with an empty body. ' +
+      'ONE RULE, AND DELIBERATELY NOT THE USUAL SUBJECT+IP PAIR. This document ' +
+      'is identical for every caller and is read mostly by clients with no ' +
+      'identity attached — signed-out users, and every client during the first ' +
+      'moments of a cold start. `resolveIdentity` keys a subject rule on ' +
+      '`fallback-ip:<ip>` when no user_id resolves, so a person-sized subject ' +
+      'rule silently becomes a person-sized limit on a CGNAT ADDRESS: hundreds ' +
+      'of Safaricom subscribers sharing one public IPv4 would contend for one ' +
+      'small bucket. That is the wrong failure for the one endpoint that has to ' +
+      'answer during an incident, when every device is relaunching at once — ' +
+      'and this is precisely the surface an operator reaches for to stop the ' +
+      'incident. So the limit is a single crowd-sized IP rule: it still stops ' +
+      'one host hammering the API (2400/min is 40 requests a second sustained, ' +
+      'far above any legitimate client and above a spin loop worth absorbing), ' +
+      'while never turning a busy neighbourhood into a support ticket.',
+    rules: [
+      {
+        id: 'ip',
+        algorithm: 'token-bucket',
+        by: 'ip',
+        capacity: 3000,
+        refillTokens: 2400,
+        refillIntervalMs: MINUTE,
+      },
+    ],
+  },
+
+  {
     name: 'telemetry:ingest',
     rationale:
       'Batched behavioural events and promotion impression/click events. ' +

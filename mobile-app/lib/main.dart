@@ -34,6 +34,7 @@ import 'services/journey_engine.dart';
 import 'services/launch_sequence.dart';
 import 'services/notification_service.dart';
 import 'services/notification_store.dart';
+import 'services/remote_config_service.dart';
 import 'services/reputation_service.dart';
 import 'services/session_scope.dart';
 import 'services/startup_prefetch.dart';
@@ -174,6 +175,15 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
 
   Future<void> _runBackgroundBootstrap() async {
     try {
+      // Client configuration, DISK ONLY at this point — the cached document (or
+      // the compiled defaults on a fresh install) plus the running app version.
+      // Awaited because two things read it before the first frame settles: the
+      // hard-update gate in HomeScreen.build, and the kill switches. It is a
+      // SharedPreferences read and a platform version lookup, so it costs a
+      // frame at most and touches no network — the fetch happens after the
+      // first frame (HomeScreen's post-frame callback) precisely so the launch
+      // transaction keeps no network dependency.
+      await RemoteConfigService.instance.warmUp();
       // Warm the category registry (cache-first, 24h TTL) so feed cards can
       // resolve highlight chips without opening the Post screen. Fire-and-
       // forget: never blocks startup, never throws.

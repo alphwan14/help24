@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/post_model.dart';
 import '../utils/feed_scope.dart';
+import 'remote_config_service.dart';
 import 'reputation_service.dart';
 import 'storage_service.dart';
 
@@ -402,12 +403,29 @@ class PostService {
     if (currentUserId == null || currentUserId.isEmpty) {
       throw PostServiceException('Sign in to create a post.');
     }
+    // Kill switch. Fail-OPEN: false only when a fetched config explicitly says
+    // posting is off, so an unreachable backend never stops anyone listing.
+    if (!RemoteConfigService.instance.postingEnabled) {
+      throw PostServiceException(
+        'Posting is temporarily unavailable. Please try again shortly.',
+      );
+    }
     try {
       final postData = post.toJson();
       postData['author_user_id'] = currentUserId;
       postData['author_temp_id'] = '';
       if (postData['is_urgent'] == true && postData['urgent_expires_at'] == null) {
-        postData['urgent_expires_at'] = DateTime.now().add(const Duration(hours: 1)).toIso8601String();
+        // How long "urgent" lasts is a marketplace policy, not a constant — it
+        // is the kind of number a product decision moves. Served, with the
+        // shipped 1 hour as the default and offline fallback.
+        //
+        // Still stamped from the DEVICE clock, which remains a known weakness
+        // (a wrong device clock produces a wrong window). Moving the stamp to
+        // the server belongs with post creation itself, in the write
+        // centralization phase — see docs/backend-centric-architecture-assessment.md.
+        postData['urgent_expires_at'] = DateTime.now()
+            .add(RemoteConfigService.instance.config.listings.urgentWindow)
+            .toIso8601String();
       }
 
       // Returns the row in FEED SHAPE — same select as every read, in the SAME
