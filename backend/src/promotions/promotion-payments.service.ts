@@ -14,6 +14,7 @@ import { MpesaService, ParsedStkCallback } from '../mpesa/mpesa.service';
 import { EventsService } from '../events/events.service';
 import { EVENT_TYPES } from '../events/event.types';
 import { CampaignsService, PromotionCampaignRow } from './campaigns.service';
+import { normalizeMsisdn } from '../common/phone/msisdn';
 
 export interface PromotionPaymentRow {
   id: string;
@@ -34,16 +35,11 @@ const PAYMENT_COLUMNS =
   'id, campaign_id, payer_user_id, phone, amount_kes, status, checkout_request_id, ' +
   'merchant_request_id, mpesa_receipt, failure_reason, paid_at, created_at';
 
-const PHONE_RE = /^254\d{9}$/;
-
-/** Same normalization contract as MpesaService (kept identical on purpose). */
-function normalizePhone(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  let phone = raw.replace(/[\s\-\(\)\+]/g, '');
-  if (/^0\d{9}$/.test(phone)) phone = '254' + phone.slice(1);
-  else if (/^7\d{8}$/.test(phone)) phone = '254' + phone;
-  return PHONE_RE.test(phone) ? phone : null;
-}
+/**
+ * Same normalization contract as MpesaService — now literally the same
+ * function, not a copy maintained by good intentions.
+ */
+const normalizePhone = normalizeMsisdn;
 
 /**
  * An STK prompt Daraja never resolved is abandoned after this long; a fresh
