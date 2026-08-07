@@ -49,11 +49,11 @@ completion — not architecture.
 
 | # | Item | Where | Status |
 |---|---|---|---|
-| B1 | Mobile `ApiConfig` points at a dev-laptop LAN IP — payments/escrow/ranking are dead for real users | mobile-app | **open** |
+| ~~B1~~ | ~~Mobile `ApiConfig` points at a dev-laptop LAN IP~~ | mobile-app | **WITHDRAWN — was never true.** `api_config.dart:22` defaults to the production origin; a no-flag release APK on a real device talked to production throughout the 2026-08-08 device verification |
 | B2 | Provider onboarding flow (registration → payout destination → verification state → completion) | mobile-app | this sprint (Part 5) |
 | B3 | OTP payout-verification UI (add destination, request/enter/resend OTP, expiry, default selection) | mobile-app | this sprint (Part 6) |
 | B4 | `REDIS_URL` unset on Render → rate limiting per-instance; set it, then `REDIS_REQUIRED=true` so misconfiguration fails the deploy instead of degrading silently | Render env | open (env change, needs approval) |
-| B5 | Auth enforcement is narrowed to `/promotions`; widen to full `enforce` once the client ships attaching tokens and `authWouldDeny` from real clients is ~0 (today every WOULD_DENY line is a curl probe) | Render env | staged, waiting on client rollout |
+| B5 | **Auth enforcement is narrowed to `/promotions` — now the top pre-payout blocker.** Device verification proved every real-client request carries `userIdSource:"verified"` with zero would-denies, so widening is safe; and proved an unauthenticated caller reaches `/payout-destinations` asserting any uid. **`/payout-destinations` must be enforced and re-probed to 401 BEFORE `PAYOUT_DESTINATIONS_ENABLED=true`** — see `launch-readiness-verification-report.md` §C1 | Render env | **ready to widen** |
 | B6 | Firebase client config: SHA-256 fingerprint, authorized domains, Play Integrity, release signing key (release currently signed with the debug key) | Firebase console / app signing | owed (user action) |
 | B7 | Render plan free → paid before real users: free tier spins down on idle (UptimeRobot masks it today) and payments should not run on a best-effort instance | Render | decision owed |
 
