@@ -22,6 +22,11 @@ function queryBuilder(terminal: any, capture: Captured[]) {
     };
   }
   b.single = () => Promise.resolve(terminal);
+  // releasePayout reads the escrow's frozen destination with .maybeSingle().
+  // A pre-migration escrow legitimately has none, which is what this suite
+  // exercises: the terminal row carries no snapshot, so resolution falls
+  // through to the profile-number path.
+  b.maybeSingle = () => Promise.resolve(terminal);
   b.update = () => ({ eq: () => Promise.resolve({ error: null }) });
   return b;
 }
@@ -51,9 +56,36 @@ function buildService(txStatus: string) {
   const transactions = { update: jest.fn().mockResolvedValue(undefined) };
   const events = { emit: jest.fn() };
   const supa = makeSupabase(txStatus, capture);
-  // constructor: (daraja, transactions, supabase, notifications, events)
-  const service = new MpesaService(daraja as any, transactions as any, supa as any, {} as any, events as any);
-  return { service, capture, daraja };
+  // Payout destinations DISABLED — this suite pins the pre-migration behaviour,
+  // i.e. that an escrow with no frozen destination still settles from the
+  // provider's profile number. That path must keep working until Phase 4.
+  const payoutDestinations = {
+    isEnabled: false,
+    buildSnapshot: jest.fn().mockResolvedValue(null),
+    parseSnapshot: jest.fn().mockReturnValue(null),
+    resolveForPayout: jest
+      .fn()
+      .mockResolvedValue({ kind: 'refused', reason: 'no_destination', source: 'none' }),
+  };
+
+  // Audit emission is a no-op stub here: this suite pins settlement behaviour,
+  // and emission is verified separately in payout-audit.emission.spec.ts.
+  const payoutAudit = {
+    emit: jest.fn().mockResolvedValue(null),
+    emitOrThrow: jest.fn().mockResolvedValue(null),
+  };
+
+  // constructor: (daraja, transactions, supabase, notifications, events, payoutDestinations, payoutAudit)
+  const service = new MpesaService(
+    daraja as any,
+    transactions as any,
+    supa as any,
+    {} as any,
+    events as any,
+    payoutDestinations as any,
+    payoutAudit as any,
+  );
+  return { service, capture, daraja, payoutDestinations, payoutAudit };
 }
 
 const statusFilter = (capture: Captured[]) =>

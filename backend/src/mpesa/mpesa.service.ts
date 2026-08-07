@@ -16,7 +16,10 @@ import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { ReleasePayoutDto } from './dto/release-payout.dto';
 import { randomUUID } from 'crypto';
 
-const PHONE_RE = /^254\d{9}$/;
+import { normalizeMsisdn } from '../common/phone/msisdn';
+import { PayoutDestinationsService } from '../payouts/payout-destinations.service';
+import { PayoutAuditService } from '../payouts/payout-audit.service';
+import { explainFailure } from '../payouts/payout-destination.resolver';
 
 /**
  * A Daraja STK callback reduced to the fields consumers need. All STK pushes
@@ -42,14 +45,12 @@ export interface StkCallbackFallback {
 
 /**
  * Normalizes a raw Kenyan phone number to the canonical `254XXXXXXXXX` form.
+ *
+ * Re-exported from the shared definition rather than restated: this string is
+ * handed to Daraja B2C, and a second copy that drifts pays the wrong person.
+ * See `src/common/phone/msisdn.ts`.
  */
-function normalizePhone(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  let phone = raw.replace(/[\s\-\(\)\+]/g, '');
-  if (/^0\d{9}$/.test(phone)) phone = '254' + phone.slice(1);
-  else if (/^7\d{8}$/.test(phone)) phone = '254' + phone;
-  return PHONE_RE.test(phone) ? phone : null;
-}
+const normalizePhone = normalizeMsisdn;
 
 @Injectable()
 export class MpesaService {
@@ -74,6 +75,8 @@ export class MpesaService {
     private readonly supabase: SupabaseService,
     private readonly notifications: NotificationsService,
     private readonly events: EventsService,
+    private readonly payoutDestinations: PayoutDestinationsService,
+    private readonly payoutAudit: PayoutAuditService,
   ) {
     // NON-NEGOTIABLE hard block: dev payment simulation must never run in production.
     if (process.env.MPESA_DEV_FORCE_SUCCESS === 'true' && process.env.NODE_ENV === 'production') {
@@ -242,11 +245,69 @@ export class MpesaService {
       payload: { post_id: dto.post_id, checkout_request_id: stkResult.checkoutRequestId },
     });
 
+    // FREEZE WHERE THE MONEY WILL GO, NOW.
+    //
+    // This is the moment both parties commit: the client is paying, the
+    // provider is selected. Capturing the destination here — rather than
+    // re-deriving it at payout — is what makes the payout destination a TERM OF
+    // THE DEAL instead of a mutable profile field. A provider who later changes
+    // their number is paid to the new one on their NEXT job; money already
+    // earned is unaffected, and neither a careless edit nor an account takeover
+    // can redirect it.
+    //
+    // Null is a normal outcome (feature off, or provider has no destination
+    // row): the escrow is created without a snapshot and settles through the
+    // transitional path, exactly as every escrow does today.
+    // The audit event id is generated BEFORE either write, so the snapshot can
+    // reference the event and the event can reference the escrow without either
+    // pointing at something that does not exist yet.
+    const captureEventId = randomUUID();
+    const frozen = await this.payoutDestinations.buildSnapshot(
+      post.selected_provider_id as string,
+      'mpesa',
+      captureEventId,
+    );
+    if (frozen) {
+      // emitOrThrow: nothing has moved yet. A capture that cannot be recorded
+      // must not happen at all — refusing costs nothing and an unauditable
+      // freeze is exactly what this design exists to prevent.
+      await this.payoutAudit.emitOrThrow({
+        eventId: captureEventId,
+        providerUserId: post.selected_provider_id as string,
+        eventType: 'payout_snapshot_captured',
+        actorType: 'system',
+        payoutDestinationId: frozen.id,
+        transactionId: transaction.id,
+        destinationFingerprint: frozen.snapshot.destination_fingerprint,
+        normalizedDestination: frozen.snapshot.normalized_destination,
+        channel: frozen.snapshot.channel,
+        metadata: {
+          post_id: dto.post_id,
+          amount,
+          verification_method: frozen.snapshot.verification_method,
+        },
+      });
+      this.logger.log(
+        `[PAY][DEST] frozen destination=${frozen.id} method=${frozen.snapshot.verification_method} post=${dto.post_id}`,
+      );
+    }
+
     // Optimistically create escrow. If this insert fails, the payment.success
     // event handler will upsert it when the STK callback arrives (bug fix).
     const { error: escrowError } = await this.supabase.client
       .from('escrow')
-      .insert({ post_id: dto.post_id, transaction_id: transaction.id, amount, status: 'locked' });
+      .insert({
+        post_id: dto.post_id,
+        transaction_id: transaction.id,
+        amount,
+        status: 'locked',
+        ...(frozen
+          ? {
+              payout_destination_id: frozen.id,
+              payout_destination_snapshot: frozen.snapshot,
+            }
+          : {}),
+      });
 
     if (escrowError) {
       this.logger.error(
@@ -468,18 +529,92 @@ export class MpesaService {
       `[PAYOUT][START] postId=${dto.post_id} txId=${transaction.id as string} amount=${transaction.amount as number}`,
     );
 
-    const { data: providerUser } = await this.supabase.client
-      .from('users')
-      .select('phone_number')
-      .eq('id', post.selected_provider_id)
-      .single();
+    // ── WHERE THE MONEY GOES ────────────────────────────────────────────────
+    //
+    // Resolved from the destination FROZEN onto this escrow when it was
+    // created. It is not re-derived from the provider's profile, because a
+    // profile is mutable and this decision was made when both parties agreed.
+    //
+    // `source` is logged on every payout deliberately: it is the measurement
+    // that gates Phase 4. While it reads `current_destination`, escrows created
+    // before the snapshot existed are still settling, and the transitional path
+    // cannot be removed. When it is `escrow_snapshot` for every payout, it can.
+    const { data: escrowRow } = await this.supabase.client
+      .from('escrow')
+      .select('payout_destination_snapshot')
+      .eq('transaction_id', transaction.id as string)
+      .maybeSingle();
 
-    if (!providerUser) throw new NotFoundException('Provider not found.');
+    const resolved = await this.payoutDestinations.resolveForPayout({
+      providerUserId: post.selected_provider_id as string,
+      escrowSnapshot: this.payoutDestinations.parseSnapshot(
+        escrowRow?.payout_destination_snapshot,
+      ),
+    });
 
-    const providerPhone = normalizePhone(providerUser.phone_number);
-    this.logger.log(
-      `[PAYOUT][START] providerPhone raw="${providerUser.phone_number ?? ''}" normalized="${providerPhone ?? 'null'}"`,
-    );
+    let providerPhone: string | null;
+    let payoutDestinationId: string | null = null;
+
+    if (resolved.kind === 'paid') {
+      providerPhone = normalizePhone(resolved.msisdn);
+      payoutDestinationId = resolved.destinationId;
+      this.logger.log(
+        `[PAYOUT][DEST] postId=${dto.post_id} source=${resolved.source} ` +
+          `destination=${resolved.destinationId} verified=${resolved.verified}`,
+      );
+      // emitOrThrow: the B2C call has not happened yet. A payout that cannot be
+      // recorded must not start.
+      await this.payoutAudit.emitOrThrow({
+        providerUserId: post.selected_provider_id as string,
+        eventType: 'payout_initiated',
+        actorType: 'system',
+        payoutDestinationId: resolved.destinationId,
+        transactionId: transaction.id as string,
+        normalizedDestination: resolved.msisdn,
+        channel: 'mpesa',
+        metadata: {
+          post_id: dto.post_id,
+          amount: transaction.amount as number,
+          source: resolved.source,
+          strongly_verified: resolved.verified,
+          from_disputed: opts.allowFromDisputed ?? false,
+        },
+      });
+    } else if (this.payoutDestinations.isEnabled) {
+      // The feature is on and it refused. Refusing is the correct outcome — do
+      // not silently fall back to the profile number, which is the entire
+      // behaviour this work exists to remove.
+      this.logger.error(
+        `[PAYOUT][DEST] postId=${dto.post_id} REFUSED reason=${resolved.reason} source=${resolved.source}`,
+      );
+      // A refusal is a payout decision and belongs in the trail: "why did this
+      // provider not get paid on the 3rd?" is a question support will be asked.
+      // emit (not emitOrThrow) — the refusal itself must reach the caller even
+      // if the audit write also fails.
+      await this.payoutAudit.emit({
+        providerUserId: post.selected_provider_id as string,
+        eventType: 'payout_refused',
+        actorType: 'system',
+        transactionId: transaction.id as string,
+        reason: resolved.reason,
+        metadata: { post_id: dto.post_id, source: resolved.source },
+      });
+      throw new BadRequestException(explainFailure(resolved.reason));
+    } else {
+      // Feature disabled (migrations not yet applied). Behave exactly as before.
+      const { data: providerUser } = await this.supabase.client
+        .from('users')
+        .select('phone_number')
+        .eq('id', post.selected_provider_id)
+        .single();
+
+      if (!providerUser) throw new NotFoundException('Provider not found.');
+      providerPhone = normalizePhone(providerUser.phone_number);
+      this.logger.log(
+        `[PAYOUT][DEST] postId=${dto.post_id} source=profile_phone (payout destinations disabled)`,
+      );
+    }
+
     if (!providerPhone) {
       throw new BadRequestException('Provider has not added a valid M-Pesa payout number.');
     }
@@ -518,6 +653,26 @@ export class MpesaService {
       `[PAYOUT][DARAJA_RESPONSE] postId=${dto.post_id} txId=${transaction.id as string} conversationId=${b2cResult.conversationId} originatorConversationId=${b2cResult.originatorConversationId}`,
     );
 
+    // MONEY HAS NOW LEFT. From here on, emission failures are logged and NEVER
+    // block: refusing to record a payout that already happened does not un-send
+    // it, it only destroys the evidence that it went.
+    void this.payoutAudit.emit({
+      providerUserId: post.selected_provider_id as string,
+      eventType: 'payout_sent_to_processor',
+      actorType: 'system',
+      payoutDestinationId: payoutDestinationId,
+      transactionId: transaction.id as string,
+      normalizedDestination: providerPhone,
+      channel: 'mpesa',
+      metadata: {
+        post_id: dto.post_id,
+        amount: transaction.amount as number,
+        conversation_id: b2cResult.conversationId,
+        originator_conversation_id: b2cResult.originatorConversationId,
+        simulated: this.devForceSuccess,
+      },
+    });
+
     await this.transactions.update(transaction.id as string, {
       status: 'payout_pending',
       conversation_id: b2cResult.conversationId,
@@ -526,6 +681,24 @@ export class MpesaService {
       // OriginatorConversationID rather than the ConversationID.
       originator_conversation_id: b2cResult.originatorConversationId,
     });
+
+    // Stamp what was ACTUALLY paid. This is the record a reconciliation or a
+    // dispute reads years later: it names the destination the money went to,
+    // which — via the destination row — names the verification that proved it.
+    if (payoutDestinationId) {
+      const { error: stampError } = await this.supabase.client
+        .from('transactions')
+        .update({ payout_destination_id: payoutDestinationId })
+        .eq('id', transaction.id as string);
+      if (stampError) {
+        // Never fail a payout that has already left over an audit column, but
+        // say so loudly — a payout whose destination is unrecorded is exactly
+        // the gap this design exists to close.
+        this.logger.error(
+          `[PAYOUT][DEST] destination stamp failed for txId=${transaction.id as string}: ${stampError.message}`,
+        );
+      }
+    }
 
     const { error: escrowError } = await this.supabase.client
       .from('escrow')
@@ -579,7 +752,14 @@ export class MpesaService {
    *   - tx any other status        → no-op (cannot settle a non-pending payout).
    */
   private async settleByTransaction(
-    tx: { id: string; status: string; post_id?: unknown; amount?: unknown },
+    tx: {
+      id: string;
+      status: string;
+      post_id?: unknown;
+      amount?: unknown;
+      /** Present since migration 107; the destination this payout actually used. */
+      payout_destination_id?: unknown;
+    },
     result: { resultCode: number; resultDesc: string; source: string },
   ): Promise<{ outcome: 'released' | 'reverted' | 'repaired' | 'noop'; reason: string }> {
     const { resultCode, resultDesc, source } = result;
@@ -649,6 +829,24 @@ export class MpesaService {
         .eq('id', tx.post_id as string)
         .single();
 
+      // EXACTLY ONCE per payout: we only reach here from `payout_pending`, and
+      // the transition to `released` happened above — so a duplicate callback,
+      // a replayed callback and a status-query racing the callback all land in
+      // the `already_released` no-op branch and never get here twice.
+      void this.payoutAudit.emit({
+        providerUserId: (post?.selected_provider_id as string) ?? 'unknown',
+        eventType: 'payout_completed',
+        actorType: 'processor',
+        transactionId: txId,
+        payoutDestinationId: (tx.payout_destination_id as string | null) ?? null,
+        metadata: {
+          post_id: tx.post_id as string,
+          amount: tx.amount as number,
+          source,
+          result_code: resultCode,
+        },
+      });
+
       // escrow.released → EventProcessorService notifies both parties. Because we
       // only reach here from payout_pending, this fires exactly once per payout.
       void this.events.emit({
@@ -685,6 +883,28 @@ export class MpesaService {
     this.logger.warn(
       `${PS} [${source}] tx=${txId} B2C FAILED (code=${resultCode} "${resultDesc}") → reverted to paid/locked`,
     );
+
+    // Same once-only guarantee as the success branch: reachable only from
+    // `payout_pending`, and that status has already been changed above.
+    // `.single()` to match the success branch above, which queries the same row
+    // the same way. Supabase returns `{data: null, error}` rather than throwing
+    // when there is no match, so a missing post degrades to actor 'unknown'
+    // rather than losing the event.
+    const { data: failedPost } = await this.supabase.client
+      .from('posts')
+      .select('selected_provider_id')
+      .eq('id', tx.post_id as string)
+      .single();
+
+    void this.payoutAudit.emit({
+      providerUserId: (failedPost?.selected_provider_id as string) ?? 'unknown',
+      eventType: 'payout_failed',
+      actorType: 'processor',
+      transactionId: txId,
+      payoutDestinationId: (tx.payout_destination_id as string | null) ?? null,
+      reason: resultDesc ?? 'B2C payout failed.',
+      metadata: { post_id: tx.post_id as string, source, result_code: resultCode },
+    });
 
     void this.events.emit({
       type: EVENT_TYPES.ESCROW_PAYOUT_PENDING,

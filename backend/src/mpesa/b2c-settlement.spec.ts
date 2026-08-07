@@ -70,13 +70,33 @@ function buildService(opts: { dev?: boolean; escrowRow?: EscrowRow; post?: any }
   const events = { emit: jest.fn() };
   const notifications = {};
 
-  // constructor: (daraja, transactions, supabase, notifications, events)
+  // Payout destinations disabled: this suite covers B2C settlement callbacks,
+  // which are downstream of destination resolution and unaffected by it.
+  const payoutDestinations = {
+    isEnabled: false,
+    buildSnapshot: jest.fn().mockResolvedValue(null),
+    parseSnapshot: jest.fn().mockReturnValue(null),
+    resolveForPayout: jest
+      .fn()
+      .mockResolvedValue({ kind: 'refused', reason: 'no_destination', source: 'none' }),
+  };
+
+  // Audit emission stubbed: this suite covers settlement callbacks. Emission is
+  // verified separately in payout-audit.emission.spec.ts.
+  const payoutAudit = {
+    emit: jest.fn().mockResolvedValue(null),
+    emitOrThrow: jest.fn().mockResolvedValue(null),
+  };
+
+  // constructor: (daraja, transactions, supabase, notifications, events, payoutDestinations, payoutAudit)
   const service = new MpesaService(
     daraja as any,
     transactions as any,
     supabase as any,
     notifications as any,
     events as any,
+    payoutDestinations as any,
+    payoutAudit as any,
   );
   return { service, transactions, daraja, events, escrowUpdates };
 }

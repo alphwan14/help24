@@ -9,9 +9,10 @@ import { EventsModule } from '../events/events.module';
 // AdminAuthGuard, and AdminModule imports THIS module — importing it back would
 // close a cycle. See admin-auth.module.ts.
 import { AdminAuthModule } from '../admin/auth/admin-auth.module';
+import { PayoutsModule } from '../payouts/payouts.module';
 
 @Module({
-  imports: [TransactionsModule, NotificationsModule, EventsModule, AdminAuthModule],
+  imports: [TransactionsModule, NotificationsModule, EventsModule, AdminAuthModule, PayoutsModule],
   controllers: [MpesaController],
   providers: [MpesaService, DarajaService],
   // DarajaService is exported for PromotionsModule: promotion purchases reuse
