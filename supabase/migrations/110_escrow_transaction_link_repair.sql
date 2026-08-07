@@ -1,8 +1,14 @@
 -- =============================================================================
 -- Migration 110 — repair six escrow rows bound to a failed transaction
 -- =============================================================================
--- ⚠️ NOT YET APPLIED. Requires explicit approval before it is run anywhere.
---    Design, evidence and rollback: docs/escrow-repair-deployment-report.md
+-- ✅ APPLIED to production 2026-08-07 with explicit approval, recorded in the
+--    Supabase migration ledger as `110_escrow_transaction_link_repair`.
+--    Result: 6 rows re-pointed · 17 rows before and after · sum 73,250 before
+--    and after · 0 funded transactions without escrow · post-apply fingerprint
+--    351c0047cd783dd30bfc8fdea0bf262a, byte-identical to the dry run's
+--    prediction. Design, evidence and rollback:
+--    docs/escrow-repair-deployment-report.md and
+--    docs/escrow-repair-production-verification.md
 --
 -- WHAT WENT WRONG
 -- ---------------
@@ -58,14 +64,22 @@
 -- transaction_id and status, and is likewise guarded and idempotent.
 -- =============================================================================
 
-BEGIN;
-
--- ── Pre-flight: refuse to run against a state we did not review ──────────────
--- If any of the six rows has moved since the dry run, abort rather than repair
--- a situation nobody looked at.
-DO $$
-DECLARE v_expected int;
+-- ATOMICITY
+-- ----------
+-- The whole repair is ONE `DO` block rather than BEGIN/…/COMMIT. A DO block is
+-- a single statement, so it is atomic under every runner — psql, the Supabase
+-- CLI, or a pooled connection that supplies its own transaction wrapper. With
+-- an explicit BEGIN/COMMIT, a runner that already opened a transaction would
+-- nest them, and a post-flight assertion could then fire AFTER a partial write
+-- had committed. One block removes that failure mode by construction.
+DO $repair$
+DECLARE
+  v_expected int;
+  v_orphans int; v_rows int; v_sum bigint; v_dup int;
 BEGIN
+  -- ── Pre-flight: refuse to run against a state we did not review ────────────
+  -- If any of the six rows has moved since the dry run, abort rather than
+  -- repair a situation nobody looked at.
   SELECT count(*) INTO v_expected
   FROM public.escrow
   WHERE (id, transaction_id) IN (
@@ -85,7 +99,6 @@ BEGIN
       'moved since this migration was reviewed. Re-run the dry run in '
       'docs/escrow-repair-deployment-report.md before proceeding.', v_expected;
   END IF;
-END $$;
 
 -- ── The repair ───────────────────────────────────────────────────────────────
 -- Each UPDATE names the row, asserts the stale transaction it must currently
@@ -119,9 +132,6 @@ UPDATE public.escrow SET transaction_id = 'e1bbfde8-d7e6-43cb-92cd-23b00c9d213d'
  WHERE id = '0122736e-50db-4a13-abf4-03947fe3027b' AND transaction_id = '6db9acaf-5552-4221-8880-228818810bd3';
 
 -- ── Post-flight: refuse to commit a partial or over-broad repair ─────────────
-DO $$
-DECLARE v_orphans int; v_rows int; v_sum bigint; v_dup int;
-BEGIN
   SELECT count(*) INTO v_orphans
   FROM public.transactions t
   LEFT JOIN public.escrow e ON e.transaction_id = t.id
@@ -146,12 +156,12 @@ BEGIN
   END IF;
 
   RAISE NOTICE '[110] OK — 6 rows re-pointed, 17 rows total, sum 73250, no orphans, no duplicates.';
-END $$;
-
-COMMIT;
+END $repair$;
 
 -- =============================================================================
 -- ROLLBACK — restores the exact pre-repair state. Guarded and idempotent.
+-- Run the six statements below as one transaction (or wrap them in a DO block
+-- for the same reason the forward repair is one).
 -- =============================================================================
 -- BEGIN;
 --
