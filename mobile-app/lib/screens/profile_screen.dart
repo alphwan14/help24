@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
 import '../config/app_urls.dart';
+import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 import '../utils/external_links.dart';
 import '../utils/phone_utils.dart';
@@ -1164,6 +1165,31 @@ class _NotificationSwitchTile extends StatefulWidget {
 class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
   bool? _optimisticValue;
 
+  /// The OS's answer, not Firebase's — false means Android has Help24's
+  /// notifications switched off and only the user can switch them back on.
+  bool _osBlocked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshOsState();
+  }
+
+  Future<void> _refreshOsState() async {
+    final capability = await NotificationService.capability();
+    if (!mounted) return;
+    setState(() => _osBlocked = capability == NotificationCapability.osBlocked);
+  }
+
+  void _nudgeToSystemSettings() {
+    ActionFeedback.info(
+      context,
+      "Notifications for Help24 are turned off in your phone's settings.",
+      actionLabel: 'Open settings',
+      onAction: NotificationService.openSystemNotificationSettings,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -1175,17 +1201,25 @@ class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
         return _SettingsTile(
           icon: Iconsax.notification,
           title: l10n?.t('notifications') ?? 'Notifications',
+          subtitle: _osBlocked ? "Blocked in phone settings — tap to fix" : null,
+          onTap: _osBlocked ? _nudgeToSystemSettings : null,
           trailing: Switch.adaptive(
-            value: displayed,
+            value: displayed && !_osBlocked,
             onChanged: (val) async {
               setState(() => _optimisticValue = val);
               try {
                 if (val) {
-                  await NotificationService.enableAndSaveToken(widget.uid);
+                  final capability =
+                      await NotificationService.enableAndSaveToken(widget.uid);
+                  if (mounted &&
+                      capability == NotificationCapability.osBlocked) {
+                    _nudgeToSystemSettings();
+                  }
                 } else {
                   await NotificationService.disableAndRemoveToken(widget.uid);
                 }
                 if (mounted) setState(() => _optimisticValue = null);
+                await _refreshOsState();
               } catch (_) {
                 if (mounted) setState(() => _optimisticValue = !val);
               }

@@ -17,6 +17,11 @@ export interface AuthSpec {
   readonly bindings: readonly IdentityBinding[];
   /** Why this route is public. Required for `@Public` — see below. */
   readonly reason?: string;
+  /**
+   * Enforced regardless of the migration environment — see `@AuthCritical`.
+   * Absent (not false) on every ordinary route so old metadata stays byte-identical.
+   */
+  readonly critical?: true;
 }
 
 /**
@@ -49,6 +54,32 @@ export const Auth = (...bindings: string[]): MethodDecorator & ClassDecorator =>
   SetMetadata(AUTH_SPEC_KEY, {
     scheme: 'firebase',
     bindings: bindings.map((path) => parseBinding(path, 'required')),
+  } satisfies AuthSpec);
+
+/**
+ * `@Auth`, but enforced UNCONDITIONALLY — the migration staging
+ * (`AUTH_ENFORCEMENT`/`AUTH_ENFORCE_ONLY`) does not apply to this route.
+ *
+ * Exists because of a production finding (launch-readiness-verification-report
+ * §C1): with enforcement narrowed to `/promotions`, an unauthenticated caller
+ * reached `/payout-destinations` on an asserted `user_id`, stopped only by a
+ * feature flag. Routes that decide WHERE MONEY GOES must not be one env-var
+ * edit away from monitor behaviour. Marking them critical moves that decision
+ * from configuration into the route declaration, where review sees it.
+ *
+ * Semantics are exactly `@Auth` under enforcement: anonymous → 401 (same
+ * error codes), verified caller → bindings applied, identity conflict → 403.
+ * `monitor`/`off` modes and every other route are untouched.
+ *
+ * Use for routes whose handlers move or route money, mint credentials, or
+ * mutate another user's reachable state. Do not use it as a default — the
+ * graduated migration exists for good reasons on everything else.
+ */
+export const AuthCritical = (...bindings: string[]): MethodDecorator & ClassDecorator =>
+  SetMetadata(AUTH_SPEC_KEY, {
+    scheme: 'firebase',
+    bindings: bindings.map((path) => parseBinding(path, 'required')),
+    critical: true,
   } satisfies AuthSpec);
 
 /**

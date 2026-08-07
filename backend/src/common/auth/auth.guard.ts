@@ -90,7 +90,12 @@ export class AuthGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    const enforcing = shouldEnforce(this.config, req.method, req.path);
+    // A critical route is enforced no matter what the migration env says —
+    // `critical: true` in the spec outranks AUTH_ENFORCEMENT/AUTH_ENFORCE_ONLY.
+    // See @AuthCritical: routes that decide where money goes must not be one
+    // env edit away from monitor behaviour.
+    const enforcing =
+      spec?.critical === true || shouldEnforce(this.config, req.method, req.path);
 
     if (!spec) return this.handleUndeclared(req, context, enforcing);
 

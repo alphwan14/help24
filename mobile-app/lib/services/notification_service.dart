@@ -1,14 +1,19 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart' show openAppSettings;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_firebase.dart';
 import 'auth_service.dart';
 import 'chat_local_prefs.dart';
+import 'notification_capability.dart';
 import 'user_profile_service.dart';
+
+export 'notification_capability.dart' show NotificationCapability;
 
 // ── Channel constants ─────────────────────────────────────────────────────────
 // Must match:
@@ -421,24 +426,79 @@ class NotificationService {
 
   // ── Permission + Token ──────────────────────────────────────────────────────
 
-  static Future<bool> _requestPermission() async {
+  /// The OS's own answer — `NotificationManagerCompat.areNotificationsEnabled()`
+  /// on Android, null elsewhere (the question then falls to FCM alone).
+  ///
+  /// This is the check FCM's authorizationStatus cannot replace: below
+  /// Android 13 there is no runtime permission, so FCM reports `authorized`
+  /// even when the user has the app's notifications switched off (§H1 —
+  /// observed on a real Android 12 device with `allowNoti=false`).
+  static Future<bool?> _osNotificationsEnabled() async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    try {
+      return await _localNotifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.areNotificationsEnabled();
+    } catch (e) {
+      debugPrint('[FCM][PERMISSION][OS_CHECK][ERROR] $e');
+      return null; // Unknown must not manufacture a false "blocked".
+    }
+  }
+
+  /// Current capability WITHOUT prompting — safe to call from build paths.
+  static Future<NotificationCapability> capability() async {
+    try {
+      final settings = await _messaging.getNotificationSettings();
+      final status = settings.authorizationStatus;
+      final fcmAuthorized = status == AuthorizationStatus.authorized ||
+          status == AuthorizationStatus.provisional;
+      return resolveNotificationCapability(
+        fcmAuthorized: fcmAuthorized,
+        osEnabled: await _osNotificationsEnabled(),
+      );
+    } catch (e) {
+      debugPrint('[FCM][CAPABILITY][ERROR] $e');
+      // Unknown: report enabled rather than alarm users over a failed probe.
+      return NotificationCapability.enabled;
+    }
+  }
+
+  /// The system page where an OS-level block is fixed. The app cannot flip
+  /// that toggle itself — it can only take the user there.
+  static Future<void> openSystemNotificationSettings() {
+    return openAppSettings();
+  }
+
+  /// Prompt (Android 13+ shows the runtime dialog; older Androids no-op) and
+  /// then report what is TRUE, with the OS state outranking Firebase's claim.
+  static Future<NotificationCapability> _requestPermission() async {
     try {
       final settings = await _messaging.requestPermission(
         alert: true, badge: true, sound: true,
       );
       final status = settings.authorizationStatus;
-      debugPrint('[FCM][PERMISSION] status=$status');
-      return status == AuthorizationStatus.authorized ||
-             status == AuthorizationStatus.provisional;
+      final fcmAuthorized = status == AuthorizationStatus.authorized ||
+          status == AuthorizationStatus.provisional;
+      final osEnabled = await _osNotificationsEnabled();
+      final capability = resolveNotificationCapability(
+        fcmAuthorized: fcmAuthorized,
+        osEnabled: osEnabled,
+      );
+      debugPrint('[FCM][PERMISSION] fcm=$status osEnabled=$osEnabled → $capability');
+      return capability;
     } catch (e) {
       debugPrint('[FCM][PERMISSION][ERROR] $e');
-      return false;
+      return NotificationCapability.denied;
     }
   }
 
   static Future<void> _requestPermissionAndToken() async {
-    final granted = await _requestPermission();
-    if (!granted) return;
+    final capability = await _requestPermission();
+    // A hard denial skips registration. An OS-level block does NOT: the token
+    // stays registered so delivery resumes the instant the user re-enables
+    // notifications in settings — no app round trip required.
+    if (capability == NotificationCapability.denied) return;
     try {
       _currentToken = await _messaging.getToken();
       if (_currentToken == null) return;
@@ -489,18 +549,24 @@ class NotificationService {
     }
   }
 
-  static Future<void> enableAndSaveToken(String uid) async {
-    if (!AppFirebase.isReady || uid.isEmpty) return;
+  /// Returns what is actually true after enabling, so the UI can tell the
+  /// user when the OS toggle — which only they can flip — is the blocker.
+  static Future<NotificationCapability> enableAndSaveToken(String uid) async {
+    if (!AppFirebase.isReady || uid.isEmpty) return NotificationCapability.denied;
     try {
       await UserProfileService.setNotificationsEnabled(uid, true);
-      final granted = await _requestPermission();
-      if (!granted) return;
-      _currentToken = await _messaging.getToken();
-      if (_currentToken != null) {
-        await UserProfileService.addFcmToken(uid, _currentToken!);
+      final capability = await _requestPermission();
+      if (capability != NotificationCapability.denied) {
+        // osBlocked still registers — see _requestPermissionAndToken.
+        _currentToken = await _messaging.getToken();
+        if (_currentToken != null) {
+          await UserProfileService.addFcmToken(uid, _currentToken!);
+        }
       }
+      return capability;
     } catch (e) {
       debugPrint('[FCM][ENABLE][ERROR] $e');
+      return NotificationCapability.denied;
     }
   }
 

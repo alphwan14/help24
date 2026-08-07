@@ -9,7 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { Auth } from '../common/auth/auth.decorator';
+import { AuthCritical } from '../common/auth/auth.decorator';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import {
   AddDestinationDto,
@@ -41,7 +41,7 @@ export class PayoutDestinationsController {
   /** The provider's own destinations, newest first, with live challenge state. */
   @Get()
   @RateLimit('payout:read')
-  @Auth('query.user_id')
+  @AuthCritical('query.user_id')
   async list(@Query() query: ListDestinationsQueryDto) {
     this.onboarding.assertEnabled();
     return { destinations: await this.onboarding.list(query.user_id) };
@@ -54,7 +54,7 @@ export class PayoutDestinationsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @RateLimit('payout:issue')
-  @Auth('body.user_id')
+  @AuthCritical('body.user_id')
   async add(@Body() dto: AddDestinationDto) {
     this.onboarding.assertEnabled();
     return { destination: await this.onboarding.add(dto.user_id, dto.msisdn) };
@@ -64,7 +64,7 @@ export class PayoutDestinationsController {
   @Post(':id/challenge')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payout:issue')
-  @Auth('body.user_id')
+  @AuthCritical('body.user_id')
   async requestChallenge(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: RequestChallengeDto,
@@ -80,7 +80,7 @@ export class PayoutDestinationsController {
   @Post(':id/verify')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payout:verify')
-  @Auth('body.user_id')
+  @AuthCritical('body.user_id')
   async verify(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: VerifyChallengeDto,
@@ -99,7 +99,7 @@ export class PayoutDestinationsController {
   @Post(':id/default')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payout:manage')
-  @Auth('body.user_id')
+  @AuthCritical('body.user_id')
   async setDefault(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: SetDefaultDto,
@@ -116,7 +116,7 @@ export class PayoutDestinationsController {
   @Post(':id/retire')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payout:manage')
-  @Auth('body.user_id')
+  @AuthCritical('body.user_id')
   async retire(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: RetireDestinationDto,
