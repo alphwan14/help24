@@ -157,8 +157,18 @@ public promotion routes (`/promotions/packages`, `/slots`, `/events`) are
 `@Public` and are unaffected: `shouldEnforce` gates enforcement, and `@Public`
 routes never reach the protected branch at all.
 
-Note the prefix matches `/promotions` **and** `/admin/promotions`; the latter is
-admin-guarded and does not use the Firebase scheme, so it is unaffected.
+**Correction to an earlier draft of this document.** I previously wrote that the
+prefix also matches `/admin/promotions`. It does not. `shouldEnforce`
+(`auth.config.ts:118`) uses `path.toUpperCase().startsWith(entry)`, which
+anchors at position 0, so `/admin/promotions/...` never matches `/promotions`.
+The conclusion is unchanged — admin routes are unaffected either way, because
+they carry `scheme: 'admin'` and the guard returns immediately for them
+(`auth.guard.ts:100-104`), leaving `AdminAuthGuard` in charge — but the stated
+reason was wrong.
+
+Re-verified for this rollout: `@Public` routes are **never rejected** under
+enforcement (`handlePublic`, `auth.guard.ts:118-123`), so `/promotions/packages`,
+`/promotions/slots` and `/promotions/events` keep serving anonymous callers.
 
 **Stage 2 — money and workflow.** Add `/mpesa`, `/jobs`, `/disputes`,
 `/reviews` once Stage 1 has been live for a few days with no support signal.
