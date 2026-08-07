@@ -11,6 +11,13 @@ const RETRY_INTERVAL_MS = 60_000; // retry loop cadence
 const MAX_RETRIES       = 3;      // failures before dead_letter
 
 /**
+ * Escrow states where the money has already moved. An escrow row in one of
+ * these is never re-pointed at another transaction, no matter what an event
+ * says — see `lockEscrowForPayment`.
+ */
+const SETTLED_ESCROW_STATUSES = new Set(['released', 'refunded']);
+
+/**
  * Log tag legend (grep these in Render logs):
  *
  *   [PROCESSOR][START]       — module initialized, loop running
@@ -219,16 +226,7 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
     };
 
     // 1. Lock escrow.
-    const { error } = await this.supabase.client
-      .from('escrow')
-      .upsert(
-        { post_id, transaction_id, amount, status: 'locked' },
-        { onConflict: 'transaction_id' },
-      );
-
-    if (error) {
-      throw new Error(`Escrow upsert failed for tx ${transaction_id}: ${error.message}`);
-    }
+    await this.lockEscrowForPayment(post_id, transaction_id, amount);
 
     this.logger.log(`[PAYMENT_SECURED][EVENT] escrow locked tx=${transaction_id} post=${post_id}`);
 
@@ -266,6 +264,121 @@ export class EventProcessorService implements OnModuleInit, OnModuleDestroy {
         `[PAYMENT_SECURED][NOTIFY] no selected_provider_id on post=${post_id} — payment_secured push skipped`,
       );
     }
+  }
+
+  /**
+   * Ensure the post's escrow row exists and belongs to THIS transaction.
+   *
+   * WHY THIS IS NOT AN UPSERT ON `transaction_id`
+   * ---------------------------------------------
+   * It used to be, and it never once worked. `escrow` has no unique constraint
+   * on `transaction_id` — its only unique constraint is `escrow_job_id_key
+   * UNIQUE (post_id)` — so Postgres rejected every call with "there is no
+   * unique or exclusion constraint matching the ON CONFLICT specification".
+   * Six funded transactions reached production with their escrow row still
+   * bound to a *failed* earlier attempt because of it.
+   *
+   * Adding a unique constraint on `transaction_id` does NOT fix this, and that
+   * is worth stating because it is the obvious-looking repair: the INSERT would
+   * then be valid SQL but would still violate `escrow_job_id_key`, because a
+   * row for that post already exists under a different transaction. Verified
+   * against production inside a rolled-back transaction.
+   *
+   * THE SHAPE OF THE BUG
+   * --------------------
+   *   1. attempt 1 → transaction + escrow row inserted optimistically
+   *   2. attempt 1 fails → transaction is `failed`; the escrow row is LEFT
+   *      BEHIND, still `locked`, still pointing at the failed transaction
+   *   3. attempt 2 is allowed (initiate only blocks on `pending`/`paid`) → its
+   *      optimistic insert dies on UNIQUE (post_id)
+   *   4. attempt 2 succeeds → this handler was supposed to repair it
+   *
+   * Escrow is one-row-per-post BY SCHEMA, so the post is the identity that
+   * matters and re-pointing the existing row is the correct repair.
+   *
+   * WHY IT IS EXPLICIT RATHER THAN `ON CONFLICT (post_id) DO UPDATE`
+   * ---------------------------------------------------------------
+   * A blind upsert would also overwrite `status` back to `locked`. Events are
+   * replayable by hand (`POST /admin/events/replay`), and the eleven historical
+   * `payment.success` events are sitting in dead-letter waiting to be replayed
+   * — so a blind upsert could resurrect settled money as locked. Money code
+   * gets to be explicit.
+   */
+  private async lockEscrowForPayment(
+    postId: string,
+    transactionId: string,
+    amount: number,
+  ): Promise<void> {
+    const { data: existing, error: readError } = await this.supabase.client
+      .from('escrow')
+      .select('id, transaction_id, status')
+      .eq('post_id', postId)
+      .maybeSingle();
+
+    if (readError) {
+      throw new Error(`Escrow read failed for post ${postId}: ${readError.message}`);
+    }
+
+    // No escrow yet — the optimistic insert at initiate did not land.
+    if (!existing) {
+      const { error } = await this.supabase.client
+        .from('escrow')
+        .insert({ post_id: postId, transaction_id: transactionId, amount, status: 'locked' });
+
+      if (error) {
+        throw new Error(`Escrow insert failed for tx ${transactionId}: ${error.message}`);
+      }
+      return;
+    }
+
+    // Already ours. The common case, and a replay of this event.
+    if (existing.transaction_id === transactionId) return;
+
+    // Someone else's, and settled. Never resurrect money that has moved.
+    if (SETTLED_ESCROW_STATUSES.has(existing.status as string)) {
+      this.logger.warn(
+        `[PAYMENT_SECURED][EVENT] post=${postId} already has ${existing.status} escrow ` +
+          `(tx=${existing.transaction_id}); refusing to re-point to tx=${transactionId}`,
+      );
+      return;
+    }
+
+    // Someone else's and unsettled: re-point only when the incumbent
+    // transaction actually failed. A live incumbent means two funded payments
+    // for one post, which initiate is supposed to prevent — that is a state to
+    // report, not to silently overwrite.
+    const { data: incumbent } = await this.supabase.client
+      .from('transactions')
+      .select('status')
+      .eq('id', existing.transaction_id)
+      .maybeSingle();
+
+    const incumbentStatus = (incumbent?.status as string | undefined) ?? null;
+    if (incumbentStatus !== null && incumbentStatus !== 'failed') {
+      this.logger.error(
+        `[PAYMENT_SECURED][EVENT] post=${postId} escrow belongs to tx=${existing.transaction_id} ` +
+          `in state '${incumbentStatus}'; refusing to re-point to tx=${transactionId}`,
+      );
+      return;
+    }
+
+    // `.eq('transaction_id', …)` is optimistic concurrency: if anything moved
+    // the row between the read and this write, the update matches nothing
+    // rather than clobbering it.
+    const { error } = await this.supabase.client
+      .from('escrow')
+      .update({ transaction_id: transactionId, amount, status: 'locked' })
+      .eq('id', existing.id)
+      .eq('transaction_id', existing.transaction_id);
+
+    if (error) {
+      throw new Error(`Escrow re-point failed for tx ${transactionId}: ${error.message}`);
+    }
+
+    this.logger.log(
+      `[PAYMENT_SECURED][EVENT] escrow re-pointed post=${postId} ` +
+        `from failed tx=${existing.transaction_id} to tx=${transactionId}`,
+    );
   }
 
   private async handlePayoutRequested(payload: Record<string, unknown>): Promise<void> {
