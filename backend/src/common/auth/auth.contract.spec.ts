@@ -8,6 +8,7 @@ import { IdentityBinding } from './identity-binding';
 // Every controller in the application. Imported directly rather than booted, so
 // this suite needs no environment, no Supabase and no Firebase.
 import { FeedController } from '../../feed/feed.controller';
+import { FeedSettingsAdminController } from '../../feed/feed-settings-admin.controller';
 import { JobsController } from '../../jobs/jobs.controller';
 import { MpesaController } from '../../mpesa/mpesa.controller';
 import { NotificationsController } from '../../notifications/notifications.controller';
@@ -31,6 +32,7 @@ import { AppConfigAdminController } from '../../app-config/app-config-admin.cont
 
 const CONTROLLERS = [
   FeedController,
+  FeedSettingsAdminController,
   JobsController,
   MpesaController,
   NotificationsController,

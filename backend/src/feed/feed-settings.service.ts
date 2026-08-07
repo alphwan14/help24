@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { DEFAULT_FEED_CONFIG } from './ranking/defaults';
 import { FeedConfig } from './ranking/types';
@@ -23,6 +23,33 @@ import { FeedConfig } from './ranking/types';
  */
 
 const CACHE_TTL_MS = 60_000;
+
+/**
+ * The `feed_settings` rows this service reads, and therefore the only keys the
+ * admin surface will write. The list is the contract: a typo becomes a 400 at
+ * the edge instead of a row that `build()` silently ignores — which is exactly
+ * how a "why did my tuning do nothing?" afternoon starts.
+ *
+ * Note `time_of_day`: the table is snake_case while `FeedConfig` is camelCase,
+ * so the mapping is deliberate and lives in `build()`.
+ */
+export const FEED_SETTINGS_KEYS = [
+  'weights',
+  'distance',
+  'urgency',
+  'freshness',
+  'staleness',
+  'engagement',
+  'behaviour',
+  'availability',
+  'reliability',
+  'trust',
+  'time_of_day',
+  'diversity',
+  'retrieval',
+] as const;
+
+export type FeedSettingsKey = (typeof FEED_SETTINGS_KEYS)[number];
 
 @Injectable()
 export class FeedSettingsService {
@@ -63,6 +90,154 @@ export class FeedSettingsService {
   /** Drop the cache so the next read refetches (admin edits, tests). */
   invalidate(): void {
     this.cache = null;
+  }
+
+  isSettingsKey(key: string): key is FeedSettingsKey {
+    return (FEED_SETTINGS_KEYS as readonly string[]).includes(key);
+  }
+
+  /**
+   * The raw stored overrides, unmerged. The admin surface shows these beside
+   * the effective config so it is obvious which numbers are actually pinned in
+   * the table and which are just the compiled default showing through — a
+   * distinction the merged document cannot express.
+   */
+  async storedOverrides(): Promise<Record<string, Record<string, unknown>>> {
+    const { data, error } = await this.supabase.client
+      .from('feed_settings')
+      .select('key, value');
+
+    if (error) throw new Error(`Failed to read feed settings: ${error.message}`);
+
+    const rows: Record<string, Record<string, unknown>> = {};
+    for (const row of data ?? []) {
+      const key = (row as { key: string }).key;
+      const value = (row as { value: unknown }).value;
+      if (key && value && typeof value === 'object' && !Array.isArray(value)) {
+        rows[key] = value as Record<string, unknown>;
+      }
+    }
+    return rows;
+  }
+
+  /**
+   * The compiled default document a stored key merges over. Exists so the
+   * admin surface can reject a field the reader would silently ignore.
+   *
+   * `time_of_day` is the one key whose table name differs from its config
+   * field (`timeOfDay`); everything else is a straight lookup.
+   */
+  defaultDocumentFor(key: FeedSettingsKey): Record<string, unknown> {
+    const d = DEFAULT_FEED_CONFIG as unknown as Record<string, unknown>;
+    const field = key === 'time_of_day' ? 'timeOfDay' : key;
+    return d[field] as Record<string, unknown>;
+  }
+
+  /**
+   * Admin: MERGE fields into one settings document.
+   *
+   * WHY THIS MERGES INSTEAD OF REPLACING
+   * ------------------------------------
+   * Every document in production is a FULL document — `weights` carries all
+   * fifteen entries. A replacing write of `{ distance: 35 }` would therefore
+   * store a one-field document and silently drop the other fourteen, which the
+   * reader would then fill from compiled defaults. Today that is invisible
+   * because the seeded values equal the defaults; the first time anyone pins a
+   * non-default weight, the next partial write would quietly discard it.
+   *
+   * So a PATCH does what PATCH says: the submitted fields win, everything
+   * already stored survives.
+   *
+   * WHY THE WRITE IS GUARDED
+   * ------------------------
+   * Merging requires read-modify-write, which is a lost-update waiting to
+   * happen: two admins tuning different weights in the same minute would see
+   * one edit vanish. The write therefore asserts the `updated_at` it read, the
+   * same optimistic-concurrency pattern `lockEscrowForPayment` and
+   * `campaigns.service.ts` use. A racing write makes the guard match nothing
+   * and the caller gets a 409 instead of a silent loss.
+   */
+  async adminUpdate(key: FeedSettingsKey, patch: Record<string, unknown>): Promise<void> {
+    const unknownFields = Object.keys(patch).filter(
+      (field) => !(field in this.defaultDocumentFor(key)),
+    );
+    if (unknownFields.length > 0) {
+      // The reader drops these at merge time, so storing them would leave an
+      // admin certain they changed something that does nothing, forever.
+      throw new BadRequestException(
+        `Unknown field(s) for '${key}': ${unknownFields.join(', ')}. ` +
+          `Valid fields: ${Object.keys(this.defaultDocumentFor(key)).join(', ')}.`,
+      );
+    }
+
+    const { data: existing, error: readError } = await this.supabase.client
+      .from('feed_settings')
+      .select('value, updated_at')
+      .eq('key', key)
+      .maybeSingle();
+
+    if (readError) {
+      throw new Error(`Failed to read feed settings '${key}': ${readError.message}`);
+    }
+
+    const now = new Date().toISOString();
+
+    if (!existing) {
+      const { error } = await this.supabase.client
+        .from('feed_settings')
+        .insert({ key, value: patch, updated_at: now });
+      if (error) {
+        throw new ConflictException(
+          `Feed settings '${key}' was created concurrently. Re-read and retry.`,
+        );
+      }
+    } else {
+      const current = (existing as { value: unknown }).value;
+      const merged = {
+        ...(current && typeof current === 'object' && !Array.isArray(current)
+          ? (current as Record<string, unknown>)
+          : {}),
+        ...patch,
+      };
+
+      const { data: updated, error } = await this.supabase.client
+        .from('feed_settings')
+        .update({ value: merged, updated_at: now })
+        .eq('key', key)
+        .eq('updated_at', (existing as { updated_at: string }).updated_at)
+        .select('key');
+
+      if (error) throw new Error(`Failed to update feed settings '${key}': ${error.message}`);
+      if (!updated || updated.length === 0) {
+        throw new ConflictException(
+          `Feed settings '${key}' changed while this edit was in flight. ` +
+            `Re-read GET /admin/feed/settings and retry.`,
+        );
+      }
+    }
+
+    this.logger.warn(
+      `[FEED][SETTINGS] '${key}' updated by admin (fields: ${Object.keys(patch).join(', ')}) — ` +
+        `ranking changes within ${CACHE_TTL_MS / 1000}s`,
+    );
+    this.invalidate();
+  }
+
+  /**
+   * Admin: drop one override so the compiled default takes over again.
+   *
+   * This is the rollback lever, and it is the reason this surface is safer than
+   * the SQL console it replaces. Reverting a bad hand-written edit today
+   * requires knowing what the value was BEFORE it was overwritten; here it is
+   * one call, and the value it reverts to is the one asserted by the ranking
+   * regression tests.
+   */
+  async adminReset(key: FeedSettingsKey): Promise<void> {
+    const { error } = await this.supabase.client.from('feed_settings').delete().eq('key', key);
+
+    if (error) throw new Error(`Failed to reset feed settings '${key}': ${error.message}`);
+    this.logger.warn(`[FEED][SETTINGS] '${key}' reset to compiled default by admin`);
+    this.invalidate();
   }
 
   // ── merge helpers ──────────────────────────────────────────────────────────
