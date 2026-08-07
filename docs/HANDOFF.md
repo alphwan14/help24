@@ -56,8 +56,8 @@ dead-lettered payment.success events : 1
 | 3 | **Escrow cleanup design approval** | `escrow-cleanup-design.md`. Five orphaned rows; needs an additive audit table |
 | 4 | **Auth Stage 2** | Add `/mpesa`, `/jobs`, `/disputes`, `/reviews` to `AUTH_ENFORCE_ONLY`. **Gate on real traffic returning, not elapsed time** — see §4 |
 | 5 | **2A round trip unverified** | `PATCH`/`DELETE` against production needs an admin bearer token — see §3 |
-| 6 | **Reputation FK failure** | Recurring 2–6 Aug for user `bLbPkk9w2uSX8sLbgvjw2wMBOPb2`. The user **does** exist and the FK targets `users.id`, so the obvious explanation is wrong. Uninvestigated |
-| 7 | **Deactivated bootstrap admin** | `admin_users` still holds the row whose token is the plaintext `help24-super-admin-CHANGE-ME` from source. `active=false`, and production correctly returns *"This admin account is inactive"* — not exploitable, but worth deleting |
+| 6 | **Reputation FK failure** | RESOLVED by evidence (2026-08-07): the `users` row was created at `2026-08-06 22:13:15` — the exact second of the last error for that uid. A recompute raced user-row creation and stopped once the row existed. Remaining noise is only `GET /reputation/health` probes parsed as `providerId="health"` (see launch-readiness-sprint.md §4 P1) |
+| 7 | **Deactivated bootstrap admin** | REMOVED: migration `111_remove_bootstrap_admin.sql` deletes the `founder@help24.app` row (lockout-guarded), and the startup self-check now treats any row matching the retired public token as an error tripwire |
 
 ---
 

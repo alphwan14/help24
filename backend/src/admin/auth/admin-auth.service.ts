@@ -13,8 +13,13 @@ import { createHash, randomBytes } from 'crypto';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { ADMIN_ROLES, AdminContext, AdminRole } from './admin-role';
 
-/** Plaintext bootstrap token seeded by migrations 045/052. */
-const BOOTSTRAP_TOKEN = 'help24-super-admin-CHANGE-ME';
+/**
+ * Plaintext of the RETIRED bootstrap token that migrations 045/052 once seeded.
+ * The account itself was deleted by migration 111. The constant is kept only so
+ * the startup self-check can detect the row ever reappearing — its value is in
+ * a public repository, so a matching row is a super_admin anyone can use.
+ */
+const RETIRED_BOOTSTRAP_TOKEN = 'help24-super-admin-CHANGE-ME';
 
 // =============================================================================
 // RULE — IDENTITY STANDARDIZATION (applies to this whole auth module)
@@ -64,11 +69,8 @@ export class AdminAuthService implements OnModuleInit {
    * deploy logs). Proves three things at a glance:
    *   1. WHICH Supabase project this backend is actually talking to (ref).
    *   2. Whether admin_users is readable here (and how many rows).
-   *   3. Whether the bootstrap token RESOLVES in THIS project.
-   *
-   * If the bootstrap token does not resolve, auth cannot work for anyone — and
-   * the cause is environment drift (wrong project) or an unapplied migration,
-   * not the token code. This makes that impossible to misdiagnose.
+   *   3. That at least one active admin exists, and that the retired public
+   *      bootstrap token (removed in migration 111) has not reappeared.
    */
   async onModuleInit(): Promise<void> {
     try {
@@ -91,11 +93,9 @@ export class AdminAuthService implements OnModuleInit {
   private async selfCheck(): Promise<void> {
     const url = this.config.get<string>('SUPABASE_URL') ?? '';
     const ref = this.projectRef(url);
-    const bootstrapHash = AdminAuthService.hashToken(BOOTSTRAP_TOKEN);
+    const retiredHash = AdminAuthService.hashToken(RETIRED_BOOTSTRAP_TOKEN);
 
-    this.logger.log(
-      `[ADMIN_AUTH_SELFCHECK] supabase_project=${ref} bootstrap_hash=${bootstrapHash.slice(0, 12)}…`,
-    );
+    this.logger.log(`[ADMIN_AUTH_SELFCHECK] supabase_project=${ref}`);
 
     const { data, error, count } = await this.supabase.client
       .from('admin_users')
@@ -115,72 +115,41 @@ export class AdminAuthService implements OnModuleInit {
 
     const { data: boot } = await this.supabase.client
       .from('admin_users')
-      .select('email, role, active')
-      .eq('token_hash', bootstrapHash)
+      .select('email, active')
+      .eq('token_hash', retiredHash)
       .maybeSingle();
 
-    // How many REAL admins can sign in — i.e. active accounts that are not the
-    // bootstrap. This is the number that decides whether a disabled bootstrap
-    // is good hygiene or a lockout, and the original check never asked it.
-    const { count: realAdmins } = await this.supabase.client
+    if (boot) {
+      // Tripwire: this row was deleted by migration 111 and its plaintext is in
+      // a public repository, so a matching row is a super_admin whose password
+      // everyone has. It reappearing means 045/052 were replayed somewhere.
+      this.logger.error(
+        `[ADMIN_AUTH_SELFCHECK] ✗ a row matching the RETIRED public bootstrap token exists ` +
+          `(${boot.email as string}, active=${String(boot.active)}) in project '${ref}'. ` +
+          `Migration 111 deleted this account and nothing may recreate it. Delete it again:\n` +
+          `    DELETE FROM public.admin_users WHERE token_hash = '${retiredHash}';`,
+      );
+    }
+
+    const { count: activeAdmins } = await this.supabase.client
       .from('admin_users')
       .select('email', { count: 'exact', head: true })
       .eq('active', true)
-      .neq('token_hash', bootstrapHash);
+      .neq('token_hash', retiredHash);
 
-    const realAdminCount = realAdmins ?? 0;
+    const activeAdminCount = activeAdmins ?? 0;
 
-    if (boot && boot.active === true) {
-      // Resolving is not the same as healthy. BOOTSTRAP_TOKEN is a literal in
-      // this file and in migration 052, both of which are in a public repo — so
-      // an ACTIVE bootstrap row is a super_admin whose password everyone has.
-      // Fine on day one; an open door once real admins exist.
-      if (realAdminCount > 0) {
-        this.logger.warn(
-          `[ADMIN_AUTH_SELFCHECK] ⚠ bootstrap token is ACTIVE (${boot.email as string}, ` +
-            `role=${boot.role as string}) alongside ${realAdminCount} real admin(s). Its plaintext ` +
-            `is committed to the repository. Disable it now that real admins exist:\n` +
-            `    UPDATE public.admin_users SET active = FALSE\n` +
-            `     WHERE token_hash = encode(digest('${BOOTSTRAP_TOKEN}','sha256'),'hex');`,
-        );
-      } else {
-        this.logger.log(
-          `[ADMIN_AUTH_SELFCHECK] ✓ bootstrap token RESOLVES → ${boot.email as string} ` +
-            `(role=${boot.role as string}). Admin auth is wired correctly. Create a real admin ` +
-            `and disable this row — its plaintext is public.`,
-        );
-      }
-    } else if (boot && realAdminCount > 0) {
-      // The state this check used to call a failure. It is the HARDENED state:
-      // the public bootstrap token is switched off and real admins carry the
-      // access. Telling an operator to "run migration 052" here was actively
-      // harmful — 052 re-enables the row AND resets its hash back to the
-      // published default.
+    if (activeAdminCount > 0) {
       this.logger.log(
-        `[ADMIN_AUTH_SELFCHECK] ✓ bootstrap token is disabled and ${realAdminCount} real admin(s) ` +
-          `are active in project '${ref}'. This is the intended hardened state — do NOT re-run ` +
-          `migration 052, which would re-enable a publicly-known super_admin token.`,
-      );
-    } else if (boot) {
-      // Disabled bootstrap and nobody else active: genuinely locked out.
-      this.logger.error(
-        `[ADMIN_AUTH_SELFCHECK] ✗ LOCKED OUT — the bootstrap row exists but active=false and there ` +
-          `are NO other active admins in project '${ref}'. Re-enable one account:\n` +
-          `    UPDATE public.admin_users SET active = TRUE WHERE email = '<your-admin-email>';\n` +
-          `Re-running migration 052 also works but resets the bootstrap token to its published ` +
-          `default — rotate it immediately afterwards if you do.`,
-      );
-    } else if (realAdminCount > 0) {
-      this.logger.log(
-        `[ADMIN_AUTH_SELFCHECK] ✓ bootstrap row is absent and ${realAdminCount} real admin(s) are ` +
-          `active in project '${ref}'. Fully hardened.`,
+        `[ADMIN_AUTH_SELFCHECK] ✓ ${activeAdminCount} active admin(s) in project '${ref}'` +
+          (boot ? '.' : '. No bootstrap account exists — fully hardened.'),
       );
     } else {
       this.logger.error(
-        `[ADMIN_AUTH_SELFCHECK] ✗ NO ADMIN CAN SIGN IN to project '${ref}' — no bootstrap row ` +
-          `(expected hash=${bootstrapHash.slice(0, 12)}…) and no active admins. Either SUPABASE_URL ` +
-          `points at the WRONG project, or migrations 045/052 were applied to a DIFFERENT project ` +
-          `than this one. Compare ref '${ref}' against the project where your SELECT showed the rows.`,
+        `[ADMIN_AUTH_SELFCHECK] ✗ NO ADMIN CAN SIGN IN to project '${ref}' — no active admins. ` +
+          `Either SUPABASE_URL points at the WRONG project, or every account was deactivated. ` +
+          `Re-enable one directly in the database:\n` +
+          `    UPDATE public.admin_users SET active = TRUE WHERE email = '<your-admin-email>';`,
       );
     }
   }

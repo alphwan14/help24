@@ -29,6 +29,8 @@ import '../widgets/reputation_widgets.dart';
 import 'professional_profile_screen.dart';
 import 'my_posts_screen.dart';
 import 'promotion/promote_business_screen.dart';
+import 'provider/payout_destinations_screen.dart';
+import 'provider/provider_onboarding_screen.dart';
 import 'saved_screen.dart';
 import 'location_permission_explainer_screen.dart';
 
@@ -606,6 +608,37 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
             _SettingsSection(
               title: 'Business',
               children: [
+                _SettingsTile(
+                  icon: Iconsax.briefcase,
+                  title: 'Become a Provider',
+                  subtitle: 'Profession, contact & verified payout number',
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ProviderOnboardingScreen(
+                        uid: widget.uid,
+                        initialProfile: profile,
+                        emailFromAuth: widget.authUser.email ?? '',
+                        phoneFromAuth: widget.authUser.phoneNumber,
+                      ),
+                    ),
+                  ).then((changed) {
+                    if (changed == true) _resubscribe();
+                  }),
+                ),
+                _SettingsTile(
+                  icon: Iconsax.card,
+                  title: 'Payout Destinations',
+                  subtitle: 'Where your M-Pesa earnings are sent',
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PayoutDestinationsScreen(uid: widget.uid),
+                    ),
+                  ),
+                ),
                 _SettingsTile(
                   icon: Iconsax.flash_1,
                   title: 'Promote Business',

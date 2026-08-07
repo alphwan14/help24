@@ -540,6 +540,87 @@ export const RATE_LIMIT_POLICIES: readonly RateLimitPolicy[] = [
   },
 
   {
+    name: 'payout:read',
+    rationale:
+      'Listing your own payout destinations. Cheap reads, but they reveal ' +
+      'verification state — bounded so the endpoint cannot be used to probe ' +
+      'the rate limiter itself.',
+    rules: [
+      {
+        id: 'subject',
+        algorithm: 'sliding-window',
+        by: ['auth.uid'],
+        windowMs: HOUR,
+        limit: 120,
+      },
+      { id: 'ip', algorithm: 'sliding-window', by: 'ip', windowMs: HOUR, limit: 240 },
+    ],
+  },
+
+  {
+    name: 'payout:issue',
+    rationale:
+      'Minting a payout-destination OTP. Same economics as otp:issue — each ' +
+      'issue will cost an SMS once Africa`s Talking is wired, and each reissue ' +
+      'supersedes the previous code, so an unbounded version is a denial tool ' +
+      'against a provider trying to verify. Keyed on the VERIFIED uid (these ' +
+      'routes bind identity), so rotating a caller-supplied id does not reset ' +
+      'the window. 5/hour covers add + a few resends on top of the 60s ' +
+      'server-side cooldown.',
+    rules: [
+      {
+        id: 'subject',
+        algorithm: 'sliding-window',
+        by: ['auth.uid'],
+        windowMs: HOUR,
+        limit: 5,
+      },
+      { id: 'ip', algorithm: 'sliding-window', by: 'ip', windowMs: HOUR, limit: 15 },
+    ],
+  },
+
+  {
+    name: 'payout:verify',
+    rationale:
+      'Guess attempts against a payout-destination OTP — the same keyspace ' +
+      'arithmetic as otp:verify, with two additional walls that flow already ' +
+      'lacks: the challenge row hard-stops at max_attempts=5 in the database, ' +
+      'and the subject key is the verified uid rather than a caller-supplied ' +
+      'provider_id. 5 per 15 minutes matches otp:verify — how often a person ' +
+      'mistypes a code they are reading off a screen; the IP rule stays the ' +
+      'backstop against distributed guessing.',
+    rules: [
+      {
+        id: 'subject',
+        algorithm: 'sliding-window',
+        by: ['auth.uid'],
+        windowMs: 15 * MINUTE,
+        limit: 5,
+      },
+      { id: 'ip', algorithm: 'sliding-window', by: 'ip', windowMs: HOUR, limit: 30 },
+    ],
+  },
+
+  {
+    name: 'payout:manage',
+    rationale:
+      'Default selection and retirement. State changes with audit rows behind ' +
+      'them — a runaway client flapping the default would flood the audit ' +
+      'chain, and retirement is irreversible per row, so both deserve a ' +
+      'ceiling a human would never hit.',
+    rules: [
+      {
+        id: 'subject',
+        algorithm: 'sliding-window',
+        by: ['auth.uid'],
+        windowMs: HOUR,
+        limit: 30,
+      },
+      { id: 'ip', algorithm: 'sliding-window', by: 'ip', windowMs: HOUR, limit: 60 },
+    ],
+  },
+
+  {
     name: 'admin:auth',
     rationale:
       'Unauthenticated admin surface: invite lookup, invite acceptance, and ' +
