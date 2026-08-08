@@ -167,6 +167,10 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             lastMessageTime: DateTime.now(),
           ),
           currentUserId: currentUserId,
+          // No post context here. Continue the most recently active thread with
+          // this provider rather than always opening the general one (§D2); the
+          // general conversation is created only if none exists at all.
+          resolveMostRecent: true,
         ),
       ),
     );

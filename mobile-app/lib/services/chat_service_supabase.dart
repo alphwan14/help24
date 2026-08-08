@@ -11,6 +11,7 @@ import '../config/api_config.dart';
 import '../models/post_model.dart';
 import '../utils/time_utils.dart';
 import 'adaptive_poll.dart';
+import 'chat_resolution.dart';
 import 'supabase_auth_bridge.dart';
 
 /// Outcome of a delete-for-everyone attempt. Distinct cases so the UI can show
@@ -71,17 +72,19 @@ class ChatServiceSupabase {
   }) async {
     final idA = user1Id.trim();
     final idB = user2Id.trim();
-    String u1 = idA.compareTo(idB) <= 0 ? idA : idB;
-    String u2 = idA.compareTo(idB) <= 0 ? idB : idA;
-    final postIdUuid = _parseUuid(postId ?? jobId);
-    debugPrint('ChatServiceSupabase createChat: ordered user1_id=$u1 user2_id=$u2');
-
-    if (u1.isEmpty || u2.isEmpty) {
-      throw ChatServiceException('Cannot create chat with empty participant id');
-    }
-    if (u1 == u2) {
+    // Reader and writer MUST order the pair identically or the lookup misses an
+    // existing conversation and inserts a duplicate — hence one shared source.
+    final pair = canonicalPair(idA, idB);
+    if (pair == null) {
+      if (idA.isEmpty || idB.isEmpty) {
+        throw ChatServiceException('Cannot create chat with empty participant id');
+      }
       throw ChatServiceException('Cannot create chat with same participant ids');
     }
+    String u1 = pair.user1;
+    String u2 = pair.user2;
+    final postIdUuid = _parseUuid(postId ?? jobId);
+    debugPrint('ChatServiceSupabase createChat: ordered user1_id=$u1 user2_id=$u2');
 
     try {
       // Prevent duplicates: always check canonical pair first.
@@ -162,6 +165,81 @@ class ChatServiceSupabase {
     } catch (e) {
       debugPrint('ChatServiceSupabase createChat: $e');
       rethrow;
+    }
+  }
+
+  /// Read-only: does a conversation already exist for this key?
+  ///
+  /// CREATES NOTHING. Exists so `ChatScreen` can answer "is there a
+  /// conversation?" when it opens, instead of discovering the answer on first
+  /// send — see `chat_resolution.dart` (§D1).
+  ///
+  /// `ok` distinguishes "asked and there is none" (`ok: true, row: null`) from
+  /// "could not ask" (`ok: false`). Callers MUST NOT treat the second as an
+  /// absence: offline, that would offer to start a second conversation
+  /// alongside one that already exists.
+  ///
+  /// [postId] scopes the lookup exactly as the DB does — `post_id = X` and
+  /// `post_id IS NULL` are different conversations, enforced by
+  /// `idx_chats_unique_post` and `idx_chats_unique_null`.
+  static Future<({Map<String, dynamic>? row, bool ok})> findExistingChat({
+    required String user1Id,
+    required String user2Id,
+    String? postId,
+  }) async {
+    final pair = canonicalPair(user1Id, user2Id);
+    if (pair == null) return (row: null, ok: true);
+    try {
+      final row = await _findExistingChat(
+        user1Ordered: pair.user1,
+        user2Ordered: pair.user2,
+        postIdUuid: _parseUuid(postId),
+      );
+      return (row: row, ok: true);
+    } catch (e) {
+      debugPrint('ChatServiceSupabase findExistingChat: lookup FAILED — $e');
+      return (row: null, ok: false);
+    }
+  }
+
+  /// Read-only: the most recently ACTIVE conversation with this person, across
+  /// every post context.
+  ///
+  /// CREATES NOTHING. Used by Provider Profile → Message, which carries no post
+  /// context: rather than always targeting the general (`post_id IS NULL`)
+  /// conversation, "message this provider" continues the conversation you were
+  /// already having. Product decision, not an identity change — `post_id`
+  /// remains part of conversation identity and contextual entry points still
+  /// resolve their own specific post.
+  ///
+  /// "Active" means a message has actually been sent (`last_message != ''`),
+  /// which is the same filter the Messages tab lists by. Empty rows left behind
+  /// by a failed first send are therefore never adopted as "the conversation".
+  /// When there is no active conversation, `row` is null and the caller falls
+  /// back to the general conversation.
+  static Future<({Map<String, dynamic>? row, bool ok})> findMostRecentChatForPair({
+    required String userAId,
+    required String userBId,
+  }) async {
+    final pair = canonicalPair(userAId, userBId);
+    if (pair == null) return (row: null, ok: true);
+    try {
+      final rows = await _client
+          .from('chats')
+          .select('*, posts!chats_post_id_fkey(title)')
+          .eq('user1', pair.user1)
+          .eq('user2', pair.user2)
+          .neq('last_message', '')
+          .order('updated_at', ascending: false)
+          .limit(1);
+      final list = rows as List;
+      return (
+        row: list.isEmpty ? null : list.first as Map<String, dynamic>,
+        ok: true,
+      );
+    } catch (e) {
+      debugPrint('ChatServiceSupabase findMostRecentChatForPair: FAILED — $e');
+      return (row: null, ok: false);
     }
   }
 

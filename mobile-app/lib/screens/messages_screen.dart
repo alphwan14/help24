@@ -17,6 +17,7 @@ import '../widgets/reputation_widgets.dart';
 import '../services/location_service.dart';
 import '../services/reputation_service.dart';
 import '../services/chat_local_prefs.dart';
+import '../services/chat_resolution.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/post_service.dart';
 import '../services/cache_service.dart';
@@ -470,10 +471,21 @@ class ChatScreen extends StatefulWidget {
   final Conversation conversation;
   final String currentUserId;
 
+  /// Entry points with NO post context (Provider Profile → Message) set this.
+  ///
+  /// The conversation is then resolved to the most recently active thread with
+  /// this person, whatever its post, instead of always targeting the general
+  /// (`post_id IS NULL`) one — so "message this provider" continues the
+  /// conversation you were already having (§D2). Contextual entry points
+  /// (application, post, job) leave it false and keep resolving their own
+  /// specific `post_id`.
+  final bool resolveMostRecent;
+
   const ChatScreen({
     super.key,
     required this.conversation,
     required this.currentUserId,
+    this.resolveMostRecent = false,
   });
 
   @override
@@ -586,7 +598,118 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // Populated on first message send via _ensureChatCreated().
   late String _activeChatId;
 
+  /// Whether a conversation exists — see `chat_resolution.dart`. Never let
+  /// `resolving` or `unresolved` render the start-conversation state.
+  ChatResolution _resolution = ChatResolution.resolving;
+
+  /// The post context of the conversation we actually adopted, which can differ
+  /// from the entry point's when Provider Profile resolved to the most recent
+  /// (post-scoped) thread. Null until a lookup adopts one.
+  String? _resolvedPostId;
+  String? _resolvedPostTitle;
+
+  /// What the CHAT is about — the adopted thread's post wins over the entry
+  /// point's. Used for display and post-dependent actions only; the lookup key
+  /// and lazy creation deliberately keep using `widget.conversation.postId`.
+  String? get _postId => _resolvedPostId ?? widget.conversation.postId;
+  String? get _postTitle => _resolvedPostTitle ?? widget.conversation.postTitle;
+
   String get _chatId => _activeChatId;
+
+  /// Everything that must happen once a canonical chat UUID is known.
+  ///
+  /// Extracted so the initState path (id supplied by the caller) and the
+  /// resolver path (id discovered by lookup) are literally the same code —
+  /// the divergence between them is what §D1 was.
+  void _beginExistingChat() {
+    _loadLocalPrefs();
+    // Paint the cached thread instantly (no spinner), then let realtime
+    // replace it silently with fresh data.
+    _hydrateFromCache();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AppProvider>().setActiveChatId(_chatId);
+    });
+    _startRealtimeMessages();
+    _startChatRowRealtime();
+    _typingPoll ??= _makeTypingPoll()..start();
+    _markSeenNow();
+  }
+
+  /// Resolve "does a conversation already exist?" when the caller had no id.
+  ///
+  /// Read-only — creates nothing. A failed lookup resolves to `unresolved`,
+  /// never to `absent`: offline, offering "Start the conversation" would invite
+  /// a second conversation beside one that already exists.
+  Future<void> _resolveExistingChat() async {
+    final otherId = widget.conversation.participantId;
+    if (otherId.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _resolution = ChatResolution.absent;
+          _loadingMessages = false;
+        });
+      }
+      return;
+    }
+
+    // No post context (Provider Profile) → continue the most recent thread.
+    // Otherwise resolve this post's own conversation (§D2).
+    final result = widget.resolveMostRecent
+        ? await ChatServiceSupabase.findMostRecentChatForPair(
+            userAId: widget.currentUserId,
+            userBId: otherId,
+          )
+        : await ChatServiceSupabase.findExistingChat(
+            user1Id: widget.currentUserId,
+            user2Id: otherId,
+            // The ENTRY POINT's post, not `_postId` — this is the lookup key,
+            // and nothing has been adopted yet.
+            postId: widget.conversation.postId,
+          );
+
+    if (!mounted) return;
+
+    final row = result.row;
+    final foundId = (row?['id'] ?? '').toString();
+    final resolution = chatResolutionFor(
+      knownId: false,
+      lookupDone: true,
+      lookupSucceeded: result.ok,
+      found: foundId.isNotEmpty,
+    );
+
+    if (resolution == ChatResolution.existing) {
+      final postsRaw = row?['posts'];
+      final resolvedTitle =
+          postsRaw is Map<String, dynamic> ? postsRaw['title'] as String? : null;
+      setState(() {
+        _activeChatId = foundId;
+        _resolution = ChatResolution.existing;
+        // Adopting the thread's real post context keeps the post banner and the
+        // job-status card correct when Profile resolved to a post-scoped chat.
+        _resolvedPostId = row?['post_id']?.toString();
+        _resolvedPostTitle = resolvedTitle;
+      });
+      debugPrint(
+        '[CHAT][RESOLVED] existing chatId=$foundId '
+        'postId=${_resolvedPostId ?? 'null'} mostRecent=${widget.resolveMostRecent}',
+      );
+      _beginExistingChat();
+      // The post context just changed under us; refresh what depends on it.
+      _ensureChatPost();
+      return;
+    }
+
+    debugPrint(
+      '[CHAT][RESOLVED] $resolution participant=$otherId '
+      'postId=${widget.conversation.postId ?? 'null'} '
+      'mostRecent=${widget.resolveMostRecent}',
+    );
+    setState(() {
+      _resolution = resolution;
+      _loadingMessages = false;
+    });
+  }
 
   @override
   void initState() {
@@ -603,20 +726,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (mounted) _flushOutbox();
     });
     if (_chatId.isNotEmpty) {
-      _loadLocalPrefs();
-      // Existing chat: paint the cached thread instantly (no spinner), then
-      // let realtime replace it silently with fresh data.
-      _hydrateFromCache();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) context.read<AppProvider>().setActiveChatId(_chatId);
-      });
-      _startRealtimeMessages();
-      _startChatRowRealtime();
-      _typingPoll = _makeTypingPoll()..start();
-      _markSeenNow();
+      _resolution = ChatResolution.existing;
+      _beginExistingChat();
     } else {
-      // Pending chat: show empty state, no realtime until first send.
-      _loadingMessages = false;
+      // The id being unknown is NOT proof that no conversation exists — that
+      // conflation was the bug (§D1). Ask, and show progress while asking.
+      _resolution = ChatResolution.resolving;
+      _loadingMessages = true;
+      unawaited(_resolveExistingChat());
     }
     // Presence seeded from the conversation list (already fetched there);
     // refreshed live while the chat is open.
@@ -1174,6 +1291,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         user1Id: widget.currentUserId,
         user2Id: user2Id,
         currentUserId: widget.currentUserId,
+        // The ENTRY POINT's post. Creation only happens when resolution found
+        // nothing, so there is no adopted thread whose context could apply —
+        // and Provider Profile (postId null) correctly creates the general one.
         postId: widget.conversation.postId,
       );
       if (!mounted) return false;
@@ -1660,7 +1780,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     // 3) The provider just arrived and I'm the customer: close the loop.
     // ReviewService/backend stays the gatekeeper of review validity.
-    final postId = widget.conversation.postId;
+    final postId = _postId;
     if (_chatPost != null &&
         !_travellerFirst &&
         postId != null &&
@@ -1675,7 +1795,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               builder: (_) => ReviewSubmissionScreen(
                 postId: postId,
                 clientUserId: widget.currentUserId,
-                postTitle: widget.conversation.postTitle,
+                postTitle: _postTitle,
               ),
             ),
           );
@@ -1763,7 +1883,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Lazily fetches the post behind this chat (destination, picker centering,
   /// role ordering). Deduplicated; a failure just means graceful fallbacks.
   Future<void> _ensureChatPost() {
-    final postId = widget.conversation.postId;
+    final postId = _postId;
     if (_chatPost != null || postId == null || postId.isEmpty) {
       return Future.value();
     }
@@ -1814,7 +1934,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => JourneyConfirmScreen(
           destination: dest == null ? null : LatLng(dest.latitude, dest.longitude),
-          destinationTitle: widget.conversation.postTitle ?? post?.title ?? 'This job',
+          destinationTitle: _postTitle ?? post?.title ?? 'This job',
           destinationSubtitle: post?.location ?? '',
         ),
       ),
@@ -2154,14 +2274,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       reportedUserId: widget.conversation.participantId,
       reportedUserName: widget.conversation.userName,
       chatId: _chatId.isNotEmpty ? _chatId : null,
-      postId: widget.conversation.postId,
+      postId: _postId,
       messageId: messageId,
     );
   }
 
   /// Dispatch for the three-dot conversation command menu.
   void _onMenuAction(ChatMenuAction action) {
-    final postId = widget.conversation.postId;
+    final postId = _postId;
     final hasPost = postId != null && postId.isNotEmpty;
     switch (action) {
       case ChatMenuAction.viewPost:
@@ -2172,7 +2292,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             context,
             postId: postId,
             currentUserId: widget.currentUserId,
-            postTitle: widget.conversation.postTitle,
+            postTitle: _postTitle,
           );
         }
       case ChatMenuAction.search:
@@ -2469,8 +2589,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onSelected: _onMenuAction,
               itemBuilder: (context) => buildChatMenuItems(
                 isDark: isDark,
-                hasPost: widget.conversation.postId != null &&
-                    widget.conversation.postId!.isNotEmpty,
+                hasPost: _postId != null &&
+                    _postId!.isNotEmpty,
                 isMuted: _isMuted,
               ),
             ),
@@ -2480,13 +2600,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         body: Column(
           children: [
             // Post context banner — lets the user always know what job this chat is about
-            if (widget.conversation.postTitle != null && widget.conversation.postTitle!.isNotEmpty)
+            if (_postTitle != null && _postTitle!.isNotEmpty)
               _PostContextBanner(
-                postTitle: widget.conversation.postTitle!,
+                postTitle: _postTitle!,
                 isDark: isDark,
                 busy: _openingPost,
-                onTap: widget.conversation.postId != null && widget.conversation.postId!.isNotEmpty
-                    ? () => _openPostFromChat(widget.conversation.postId!)
+                onTap: _postId != null && _postId!.isNotEmpty
+                    ? () => _openPostFromChat(_postId!)
                     : null,
               ),
             // Journey strip — narrates the journey as it evolves: on the way →
@@ -2547,6 +2667,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   }
                   combined.sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
+                  // Still asking whether a conversation exists. Progress, never
+                  // an empty state — "Start the conversation" here was §D1.
+                  if (showsResolvingProgress(_resolution) && combined.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
                   if (_loadingMessages && combined.isEmpty) {
                     return const Center(child: CircularProgressIndicator());
                   }
@@ -2599,7 +2724,60 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ),
                     );
                   }
-                  if (combined.isEmpty) {
+                  // We could not find out whether a conversation exists
+                  // (offline / error). Say exactly that. Offering to start one
+                  // here is how a user ends up with two parallel threads.
+                  if (combined.isEmpty && _resolution == ChatResolution.unresolved) {
+                    _lastMessageCount = 0;
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Iconsax.cloud_cross,
+                              size: 52,
+                              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              "Couldn't open this conversation",
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: isDark
+                                        ? AppTheme.darkTextSecondary
+                                        : AppTheme.lightTextSecondary,
+                                  ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Check your connection and try again.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: isDark
+                                        ? AppTheme.darkTextTertiary
+                                        : AppTheme.lightTextTertiary,
+                                  ),
+                            ),
+                            const SizedBox(height: 14),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _resolution = ChatResolution.resolving;
+                                  _loadingMessages = true;
+                                });
+                                unawaited(_resolveExistingChat());
+                              },
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Try again'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  // Only a COMPLETED lookup that found nothing may say this.
+                  if (combined.isEmpty && showsStartConversation(_resolution)) {
                     _lastMessageCount = 0;
                     return Center(
                       child: Column(
@@ -2622,6 +2800,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             'Say hello 👋',
                             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  if (combined.isEmpty) {
+                    // Existing conversation with genuinely no messages yet.
+                    _lastMessageCount = 0;
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Iconsax.message,
+                            size: 52,
+                            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No messages yet',
+                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
                             ),
                           ),
                         ],
