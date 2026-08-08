@@ -45,6 +45,14 @@ class ApplicantCard extends StatelessWidget {
   /// Show the proposed price badge (only meaningful where a price was offered).
   final bool showPrice;
 
+  /// The listing this application belongs to, by name.
+  ///
+  /// `application.postId` supplies the id; only the title has to be passed,
+  /// and both surfaces that build this card already hold it. It travels into
+  /// the provider profile so "Message" from there opens the conversation about
+  /// THIS post rather than the general one — see [ProviderProfileScreen.contextPostId].
+  final String? postTitle;
+
   const ApplicantCard({
     super.key,
     required this.application,
@@ -54,6 +62,7 @@ class ApplicantCard extends StatelessWidget {
     required this.onAccept,
     required this.onMessage,
     this.showPrice = true,
+    this.postTitle,
   });
 
   String get _name =>
@@ -69,6 +78,10 @@ class ApplicantCard extends StatelessWidget {
           initialName: _name,
           initialAvatarUrl: application.applicantAvatarUrl,
           initialProfession: application.applicantProfession,
+          // You are looking at this person BECAUSE of this listing. Message
+          // from the profile means message about it.
+          contextPostId: application.postId,
+          contextPostTitle: postTitle,
         ),
       ),
     );

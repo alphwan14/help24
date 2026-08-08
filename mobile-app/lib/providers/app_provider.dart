@@ -4,10 +4,13 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/filter_selection.dart';
 import '../models/post_model.dart';
 import '../models/theme_preference.dart';
 import '../services/post_service.dart';
+import '../services/category_schema_service.dart';
 import '../services/chat_service_supabase.dart';
+import '../services/filter_history_service.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
 import '../services/cache_service.dart';
@@ -46,14 +49,23 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// concurrently and each cleared the slot on entry).
   final FeatureErrors _errors = FeatureErrors();
   
-  // Filter state
+  // Filter state.
+  //
+  // `difficulty` is deliberately absent. It was written by the client on every
+  // post (always 'medium', because the posting flow stopped asking years of
+  // rows ago), read by no ranking signal, and offered as a filter whose Easy
+  // and Hard options matched zero rows in the entire production corpus — so
+  // choosing either emptied Discover completely. The column and the server
+  // parameter are untouched; the client simply no longer asks the question.
   String _searchQuery = '';
   String _selectedFilter = 'All';
   Set<String> _selectedCategories = {};
   String _selectedCity = '';
   String _selectedArea = '';
-  RangeValues _priceRange = const RangeValues(0, 100000);
-  Difficulty? _selectedDifficulty;
+  RangeValues _priceRange = const RangeValues(
+    FilterSelection.priceFloor,
+    FilterSelection.priceCeiling,
+  );
   Urgency? _selectedUrgency;
 
   // ── Viewer context (drives the recommendation engine) ────────────────────
@@ -216,8 +228,42 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   String get selectedCity => _selectedCity;
   String get selectedArea => _selectedArea;
   RangeValues get priceRange => _priceRange;
-  Difficulty? get selectedDifficulty => _selectedDifficulty;
   Urgency? get selectedUrgency => _selectedUrgency;
+
+  /// The whole filter set as one value — what the sheet edits and what history
+  /// stores. Reading it is how a caller asks "what is in force right now?"
+  /// without reaching for six separate getters that could drift apart.
+  FilterSelection get filterSelection => FilterSelection(
+        categories: Set<String>.from(_selectedCategories),
+        city: _selectedCity,
+        area: _selectedArea,
+        minPrice: _priceRange.start,
+        maxPrice: _priceRange.end,
+        urgency: _selectedUrgency,
+      );
+
+  /// Category / profession names this build can meaningfully filter by: the
+  /// server-driven registry plus every name actually present in what the feed
+  /// has returned.
+  ///
+  /// The corpus half is the part that matters for custom professions. The
+  /// registry has "House Cleaning"; production also holds posts filed under
+  /// "Cleaning", "Cooking", "Nyama Choma" and four other names nobody can pick
+  /// from a chip. Including them lets [Category.resolveFilterName] fold a typed
+  /// "cleaning" onto the "Cleaning" the rows really use, and lets the sheet
+  /// suggest it before the user guesses the capitalisation wrong.
+  Set<String> get knownCategoryNames {
+    final names = <String>{
+      for (final c in CategorySchemaService.instance.categories) c.name,
+      for (final p in _posts) p.category.name,
+      for (final j in _jobs) j.categoryName,
+      // Whatever is already selected stays offerable even if this session's
+      // feed happens not to contain it.
+      ..._selectedCategories,
+    };
+    names.removeWhere((n) => n.trim().isEmpty);
+    return names;
+  }
 
   /// Identity of the installed snapshot, bumped on every replacement. Discover
   /// keys its list on this to crossfade one ranking into the next.
@@ -438,6 +484,20 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _readerEngaged = false;
     _jobsIdentity = null;
     InteractionTracker.instance.setUser(null);
+    // The filters themselves are dropped: a search someone else assembled must
+    // not still be narrowing Discover for whoever signs in next. Their stored
+    // history stays on disk under their own uid — signing back in restores it,
+    // and a different account reads a different key and finds nothing.
+    _selectedCategories = {};
+    _selectedCity = '';
+    _selectedArea = '';
+    _priceRange = const RangeValues(
+      FilterSelection.priceFloor,
+      FilterSelection.priceCeiling,
+    );
+    _selectedUrgency = null;
+    _searchQuery = '';
+    FilterHistoryService.instance.clearForSignOut();
     notifyListeners();
   }
 
@@ -800,9 +860,13 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         city: _selectedCity.isNotEmpty ? _selectedCity : null,
         area: _selectedArea.isNotEmpty ? _selectedArea : null,
         urgency: _selectedUrgency?.name,
-        minPrice: _priceRange.start > 0 ? _priceRange.start : null,
-        maxPrice: _priceRange.end < 100000 ? _priceRange.end : null,
-        difficulty: _selectedDifficulty?.name,
+        minPrice:
+            _priceRange.start > FilterSelection.priceFloor ? _priceRange.start : null,
+        maxPrice:
+            _priceRange.end < FilterSelection.priceCeiling ? _priceRange.end : null,
+        // No `difficulty`. See the filter-state declaration: the client stopped
+        // asking, so it has nothing truthful to send, and every value it used
+        // to send was either the whole corpus or none of it.
       );
 
   /// Rebuild the feed IF something that feeds the ranking actually changed.
@@ -2177,55 +2241,58 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     loadPosts(reason: FeedInvalidation.query);
   }
 
-  void toggleCategory(String category) {
-    if (_selectedCategories.contains(category)) {
-      _selectedCategories.remove(category);
-    } else {
-      _selectedCategories.add(category);
-      // Choosing a category is one of the clearest statements of intent the
-      // app receives — ranking signal 9 reads it back as category affinity.
-      InteractionTracker.instance.trackCategoryOpen(category);
+  /// Put [selection] in force, and issue AT MOST ONE feed request.
+  ///
+  /// This replaces six individual setters that the filter sheet called in
+  /// sequence. The first of them was `clearFilters()`, which issued a full
+  /// ranked request with the filters already emptied and the new ones not yet
+  /// applied; the screen then issued a second one when the sheet closed. Every
+  /// apply cost two round trips, the first of which existed only to be thrown
+  /// away by the request-sequence guard.
+  ///
+  /// Returns whether anything actually changed, so a caller can tell an apply
+  /// from a no-op without comparing state itself. Cancelling the sheet does not
+  /// call this at all.
+  Future<bool> applyFilterSelection(FilterSelection selection) async {
+    final before = filterSelection;
+    if (before == selection) {
+      // Nothing changed — the user opened the sheet and pressed Search without
+      // touching it, or restored the filter that was already in force. Silence
+      // is the correct response; a reload here would re-rank a feed somebody is
+      // reading in exchange for the same posts.
+      debugPrint('[FILTER] unchanged — no request');
+      return false;
     }
-    notifyListeners();
-  }
 
-  void setCity(String city) {
-    _selectedCity = city;
-    _selectedArea = '';
-    notifyListeners();
-  }
+    // Choosing a category is one of the clearest statements of intent the app
+    // receives — ranking signal 9 reads it back as category affinity. Only
+    // NEWLY added ones are tracked: re-applying a filter you already had is not
+    // a fresh statement of interest.
+    for (final category in selection.categories) {
+      if (!before.categories.contains(category)) {
+        InteractionTracker.instance.trackCategoryOpen(category);
+      }
+    }
 
-  void setArea(String area) {
-    _selectedArea = area;
-    notifyListeners();
-  }
+    _selectedCategories = Set<String>.from(selection.categories);
+    _selectedCity = selection.city;
+    _selectedArea = selection.area;
+    _priceRange = RangeValues(selection.minPrice, selection.maxPrice);
+    _selectedUrgency = selection.urgency;
 
-  void setPriceRange(RangeValues range) {
-    _priceRange = range;
-    notifyListeners();
-  }
+    // Remembered on APPLY, which is the only moment we know a filter set was
+    // something the user actually wanted. Fire-and-forget: a disk failure must
+    // never delay the feed request the user is waiting on.
+    unawaited(FilterHistoryService.instance.record(selection));
 
-  void setDifficulty(Difficulty? difficulty) {
-    _selectedDifficulty = difficulty;
-    notifyListeners();
-  }
-
-  void setUrgency(Urgency? urgency) {
-    _selectedUrgency = urgency;
-    notifyListeners();
-  }
-
-  void clearFilters() {
-    _selectedCategories = {};
-    _selectedCity = '';
-    _selectedArea = '';
-    _priceRange = const RangeValues(0, 100000);
-    _selectedDifficulty = null;
-    _selectedUrgency = null;
     notifyListeners();
     _searchDebounce?.cancel();
-    loadPosts(reason: FeedInvalidation.query);
+    await loadPosts(reason: FeedInvalidation.query);
+    return true;
   }
+
+  /// Drop every filter. Reloads only if something was actually in force.
+  Future<bool> clearFilters() => applyFilterSelection(FilterSelection.none);
 
   /// Tell the recommendation engine who is looking and from where.
   ///
@@ -2267,6 +2334,10 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _viewerLatitude = latitude;
     _viewerLongitude = longitude;
     InteractionTracker.instance.setUser(nextUserId);
+    // Filter history belongs to the person, so it is (re)read whenever we learn
+    // who that is. Idempotent per account; a different uid reads a different key
+    // and therefore cannot surface the previous account's searches.
+    unawaited(FilterHistoryService.instance.load(nextUserId ?? ''));
 
     // The identity has now been heard from, whoever it turned out to be. This
     // releases the first ranking, which deliberately waited so it could be
@@ -2302,20 +2373,28 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     unawaited(loadJobs());
   }
 
-  /// Apply current filters and reload posts
+  /// Re-run the current filters. NOT the apply path — see
+  /// [applyFilterSelection], which is what the filter sheet returns into.
+  /// This exists for callers that genuinely want to re-ask the same question.
   Future<void> applyFilters() async {
     _searchDebounce?.cancel();
     await loadPosts(reason: FeedInvalidation.query);
   }
 
-  bool get hasActiveFilters {
-    return _selectedCategories.isNotEmpty ||
-        _selectedCity.isNotEmpty ||
-        _selectedArea.isNotEmpty ||
-        _selectedDifficulty != null ||
-        _selectedUrgency != null ||
-        _priceRange.start > 0 ||
-        _priceRange.end < 100000;
+  bool get hasActiveFilters => filterSelection.isNotEmpty;
+
+  /// Case-folded view of the selected categories, rebuilt only when the
+  /// selection changes — `filteredPosts` runs per post on every rebuild.
+  Set<String> _selectedCategoriesFoldedCache = const {};
+  Set<String> _selectedCategoriesFoldedFor = const {};
+
+  Set<String> get _selectedCategoriesFolded {
+    if (!identical(_selectedCategoriesFoldedFor, _selectedCategories)) {
+      _selectedCategoriesFoldedFor = _selectedCategories;
+      _selectedCategoriesFoldedCache =
+          _selectedCategories.map((c) => c.toLowerCase()).toSet();
+    }
+    return _selectedCategoriesFoldedCache;
   }
 
   /// Get filtered posts (local filtering for instant UI)
@@ -2345,9 +2424,14 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // the worse behaviour, and openPostFromFeed already answers a closed
       // listing in place.
 
-      // Category filter
+      // Category filter — case-insensitive, matching what the SELECTION means
+      // rather than how it happens to be capitalised. The server side is an
+      // exact `category = ANY(...)`, which is why the selection is resolved to
+      // the corpus's own spelling before it is ever sent
+      // ([Category.resolveFilterName]); folding here as well means this instant
+      // client-side pass can never hide a row the server deliberately returned.
       if (_selectedCategories.isNotEmpty &&
-          !_selectedCategories.contains(post.category.name)) {
+          !_selectedCategoriesFolded.contains(post.category.name.toLowerCase())) {
         return false;
       }
 
@@ -2366,13 +2450,17 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // post priced 0 ("negotiable") was returned by the query and then hidden
       // by the client the moment the minimum was above zero: a post that
       // existed, matched, and was invisible (audit §3.5).
-      if (_priceRange.start > 0 && post.price < _priceRange.start) return false;
-      if (_priceRange.end < 100000 && post.price > _priceRange.end) return false;
-
-      // Difficulty filter
-      if (_selectedDifficulty != null && post.difficulty != _selectedDifficulty) {
+      if (_priceRange.start > FilterSelection.priceFloor &&
+          post.price < _priceRange.start) {
         return false;
       }
+      if (_priceRange.end < FilterSelection.priceCeiling &&
+          post.price > _priceRange.end) {
+        return false;
+      }
+
+      // No difficulty filter. The client no longer asks the question and no
+      // longer sends the parameter — see the filter-state declaration.
 
       // Urgency filter
       if (_selectedUrgency != null && post.urgency != _selectedUrgency) {

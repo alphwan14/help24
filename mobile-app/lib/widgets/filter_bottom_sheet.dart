@@ -1,14 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
+import '../models/filter_selection.dart';
 import '../models/place.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/location_provider.dart';
+import '../services/filter_history_service.dart';
 import '../theme/app_theme.dart';
-import '../utils/format_utils.dart';
 import 'location_picker.dart';
 
+/// The filter sheet.
+///
+/// RETURNS ITS ANSWER; it does not apply itself. `Navigator.pop` carries a
+/// [FilterSelection] when the user searches and `null` when they leave — which
+/// is the whole reason cancelling now costs nothing.
+///
+/// It used to mutate AppProvider through six setters, the first being
+/// `clearFilters()`, which issued a full ranked feed request with the filters
+/// emptied and the new ones not yet applied. The screen then issued a second
+/// request unconditionally on close — including on cancel, which was measured
+/// on the S20+ as a complete round trip and feed reinstall for a sheet the user
+/// had dismissed without touching.
 class FilterBottomSheet extends StatefulWidget {
   const FilterBottomSheet({super.key});
 
@@ -20,9 +33,16 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
   late Set<String> _selectedCategories;
   late String _selectedCity;
   late String _selectedArea;
-  late RangeValues _priceRange;
-  late Difficulty? _selectedDifficulty;
+  late double _minPrice;
+  late double _maxPrice;
   late Urgency? _selectedUrgency;
+
+  /// The vocabulary a typed profession is resolved against: the registry plus
+  /// every category name the feed has actually returned. Captured once so the
+  /// suggestion list does not shift under the user's finger mid-type.
+  late List<String> _vocabulary;
+
+  late List<FilterSelection> _history;
 
   final _customCategoryController = TextEditingController();
   bool _showCustomCategoryInput = false;
@@ -31,12 +51,17 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
   void initState() {
     super.initState();
     final provider = context.read<AppProvider>();
-    _selectedCategories = Set.from(provider.selectedCategories);
-    _selectedCity = provider.selectedCity;
-    _selectedArea = provider.selectedArea;
-    _priceRange = provider.priceRange;
-    _selectedDifficulty = provider.selectedDifficulty;
-    _selectedUrgency = provider.selectedUrgency;
+    final current = provider.filterSelection;
+    _selectedCategories = Set<String>.from(current.categories);
+    _selectedCity = current.city;
+    _selectedArea = current.area;
+    _minPrice = current.minPrice;
+    _maxPrice = current.maxPrice;
+    _selectedUrgency = current.urgency;
+    _vocabulary = provider.knownCategoryNames.toList()..sort();
+    // Read, not run. Opening the sheet shows what you have searched before; it
+    // never executes one of them.
+    _history = FilterHistoryService.instance.entries;
   }
 
   @override
@@ -45,15 +70,61 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     super.dispose();
   }
 
-  void _addCustomCategory() {
-    final name = _customCategoryController.text.trim();
-    if (name.isNotEmpty && !_selectedCategories.contains(name)) {
-      setState(() {
-        _selectedCategories.add(name);
-        _customCategoryController.clear();
-        _showCustomCategoryInput = false;
-      });
+  FilterSelection get _selection => FilterSelection(
+        categories: _selectedCategories,
+        city: _selectedCity,
+        area: _selectedArea,
+        minPrice: _minPrice,
+        maxPrice: _maxPrice,
+        urgency: _selectedUrgency,
+      );
+
+  /// Add whatever the user typed, resolved to a spelling the corpus can match.
+  ///
+  /// `posts.category` is matched exactly and case-sensitively on both sides, so
+  /// sending "cleaning" when the rows say "Cleaning" returned nothing at all —
+  /// verified against production: 'Cleaning' → 2 posts, 'cleaning' → 0.
+  void _addCustomCategory([String? raw]) {
+    final resolved = Category.resolveFilterName(
+      raw ?? _customCategoryController.text,
+      _vocabulary,
+    );
+    if (resolved == null) {
+      // Not a usable service name (too short, too long, no letters). Say so
+      // rather than silently accepting something that can only match nothing.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a service name of 3–40 letters')),
+      );
+      return;
     }
+    setState(() {
+      // Case-insensitive on the way in too, so tapping a suggestion that is
+      // already selected cannot produce a near-duplicate chip.
+      _selectedCategories
+          .removeWhere((c) => c.toLowerCase() == resolved.toLowerCase());
+      _selectedCategories.add(resolved);
+      _customCategoryController.clear();
+      _showCustomCategoryInput = false;
+    });
+  }
+
+  void _restore(FilterSelection selection) {
+    setState(() {
+      _selectedCategories = Set<String>.from(selection.categories);
+      _selectedCity = selection.city;
+      _selectedArea = selection.area;
+      _minPrice = selection.minPrice;
+      _maxPrice = selection.maxPrice;
+      _selectedUrgency = selection.urgency;
+      _showCustomCategoryInput = false;
+      _customCategoryController.clear();
+    });
+  }
+
+  Future<void> _clearHistory() async {
+    await FilterHistoryService.instance.clear();
+    if (!mounted) return;
+    setState(() => _history = FilterHistoryService.instance.entries);
   }
 
   /// The filter's location as one human string. Mirrors exactly what the
@@ -93,6 +164,16 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final registryNames = {
+      for (final c in Category.all) c.name.toLowerCase(),
+    };
+    // Custom professions the user has chosen (typed, or restored from history)
+    // stay visible and deselectable even though no chip in the registry row
+    // represents them.
+    final customSelected = _selectedCategories
+        .where((c) => !registryNames.contains(c.toLowerCase()))
+        .toList()
+      ..sort();
 
     return Container(
       decoration: BoxDecoration(
@@ -123,16 +204,9 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _selectedCategories = {};
-                      _selectedCity = '';
-                      _selectedArea = '';
-                      _priceRange = const RangeValues(0, 100000);
-                      _selectedDifficulty = null;
-                      _selectedUrgency = null;
-                    });
-                  },
+                  // Clears the SELECTION being edited, not the feed and not the
+                  // history. Nothing is applied until Search.
+                  onPressed: () => _restore(FilterSelection.none),
                   child: Text(
                     'Clear All',
                     style: TextStyle(color: AppTheme.primaryAccent),
@@ -147,7 +221,64 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Categories
+                  // ── Recent ────────────────────────────────────────────────
+                  if (_history.isNotEmpty) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Recent', style: Theme.of(context).textTheme.titleLarge),
+                        TextButton(
+                          onPressed: _clearHistory,
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: Text(
+                            'Clear history',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isDark
+                                  ? AppTheme.darkTextTertiary
+                                  : AppTheme.lightTextTertiary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final entry in _history)
+                          ActionChip(
+                            avatar: Icon(
+                              Iconsax.clock,
+                              size: 15,
+                              color: AppTheme.primaryAccent,
+                            ),
+                            label: Text(
+                              entry.label,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            // Fills the sheet in. Applying is still Search —
+                            // opening this sheet must never run a search by
+                            // itself.
+                            onPressed: () => _restore(entry),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                              side: BorderSide(
+                                color: AppTheme.primaryAccent.withValues(alpha: 0.4),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+
+                  // ── Category ──────────────────────────────────────────────
                   Text(
                     'Category',
                     style: Theme.of(context).textTheme.titleLarge,
@@ -158,7 +289,9 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                     runSpacing: 8,
                     children: [
                       ...Category.all.map((category) {
-                        final isSelected = _selectedCategories.contains(category.name);
+                        final isSelected = _selectedCategories.any(
+                          (c) => c.toLowerCase() == category.name.toLowerCase(),
+                        );
                         return FilterChip(
                           selected: isSelected,
                           label: Row(
@@ -177,10 +310,10 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                           ),
                           onSelected: (selected) {
                             setState(() {
+                              _selectedCategories.removeWhere((c) =>
+                                  c.toLowerCase() == category.name.toLowerCase());
                               if (selected) {
                                 _selectedCategories.add(category.name);
-                              } else {
-                                _selectedCategories.remove(category.name);
                               }
                             });
                           },
@@ -191,6 +324,29 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                           ),
                         );
                       }),
+                      // Custom professions already chosen — not in the registry
+                      // row, so they need their own removable chips or they
+                      // could never be deselected.
+                      ...customSelected.map((name) => FilterChip(
+                            selected: true,
+                            label: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.work_outline,
+                                    size: 16, color: AppTheme.primaryAccent),
+                                const SizedBox(width: 6),
+                                Text(name),
+                              ],
+                            ),
+                            onSelected: (_) => setState(
+                                () => _selectedCategories.remove(name)),
+                            selectedColor:
+                                AppTheme.primaryAccent.withValues(alpha: 0.2),
+                            checkmarkColor: AppTheme.primaryAccent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          )),
                       // Add custom category chip
                       if (!_showCustomCategoryInput)
                         ActionChip(
@@ -229,10 +385,15 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                         Expanded(
                           child: TextField(
                             controller: _customCategoryController,
-                            decoration: InputDecoration(
-                              hintText: 'Enter your profession...',
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            // Focused on open: the field used to appear inert,
+                            // and typing went nowhere until it was tapped.
+                            autofocus: true,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: const InputDecoration(
+                              hintText: 'Enter a service — e.g. Nyama Choma',
+                              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             ),
+                            onChanged: (_) => setState(() {}),
                             onSubmitted: (_) => _addCustomCategory(),
                           ),
                         ),
@@ -252,6 +413,38 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                         ),
                       ],
                     ),
+                    // Suggestions from what the marketplace actually contains,
+                    // so the user picks a spelling that can match instead of
+                    // guessing one that cannot.
+                    Builder(builder: (context) {
+                      final suggestions = Category.suggestFilterNames(
+                        _customCategoryController.text,
+                        _vocabulary,
+                      );
+                      if (suggestions.isEmpty) return const SizedBox(height: 4);
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final name in suggestions)
+                              ActionChip(
+                                label: Text(name, style: const TextStyle(fontSize: 13)),
+                                onPressed: () => _addCustomCategory(name),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  side: BorderSide(
+                                    color: isDark
+                                        ? AppTheme.darkBorder
+                                        : AppTheme.lightBorder,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    }),
                   ],
                   const SizedBox(height: 24),
 
@@ -325,102 +518,38 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Price Range
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Price Range',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      Text(
-                        '${formatPriceDisplay(_priceRange.start)} - ${formatPriceDisplay(_priceRange.end)}',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppTheme.primaryAccent,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  RangeSlider(
-                    values: _priceRange,
-                    min: 0,
-                    max: 100000,
-                    divisions: 20,
-                    onChanged: (values) {
-                      setState(() {
-                        _priceRange = values;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Complexity/Difficulty
+                  // ── Price ─────────────────────────────────────────────────
+                  //
+                  // Bands, not a slider. The old control spanned 0–100,000 KES
+                  // in 20 divisions, so its smallest step was 5,000 — and the
+                  // entire production corpus (median 600, maximum 4,500) fits
+                  // inside that first step. Moving the minimum handle one notch
+                  // emptied Discover; moving the maximum did nothing until it
+                  // fell below 5,000. See [PriceBand].
                   Text(
-                    'Complexity',
+                    'Price',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    children: Difficulty.values.map((difficulty) {
-                      final isSelected = _selectedDifficulty == difficulty;
-                      String label = difficulty.name[0].toUpperCase() + difficulty.name.substring(1);
-                      Color color;
-                      switch (difficulty) {
-                        case Difficulty.easy:
-                          color = AppTheme.successGreen;
-                          break;
-                        case Difficulty.medium:
-                          color = AppTheme.warningOrange;
-                          break;
-                        case Difficulty.hard:
-                          color = AppTheme.errorRed;
-                          break;
-                        case Difficulty.any:
-                          color = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
-                          break;
-                      }
-                      return Expanded(
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                            right: difficulty != Difficulty.any ? 8 : 0,
-                          ),
-                          child: GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _selectedDifficulty = isSelected ? null : difficulty;
-                              });
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? color.withValues(alpha: 0.2)
-                                    : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? color
-                                      : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-                                ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  label,
-                                  style: TextStyle(
-                                    color: isSelected
-                                        ? color
-                                        : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final band in PriceBand.all)
+                        FilterChip(
+                          selected: band.matches(_selection),
+                          showCheckmark: false,
+                          label: Text(band.isAny ? band.label : 'KES ${band.label}'),
+                          onSelected: (_) => setState(() {
+                            _minPrice = band.min;
+                            _maxPrice = band.max;
+                          }),
+                          selectedColor: AppTheme.primaryAccent.withValues(alpha: 0.2),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
                           ),
                         ),
-                      );
-                    }).toList(),
+                    ],
                   ),
                   const SizedBox(height: 24),
 
@@ -502,6 +631,14 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                       );
                     }).toList(),
                   ),
+                  // Complexity REMOVED. The posting flow stopped asking for it,
+                  // so every row in production carries the same default value:
+                  // 'Easy' and 'Hard' matched zero posts and emptied Discover,
+                  // 'Any' was matched as a literal value, and 'Medium' was the
+                  // whole corpus. A filter with no answerable options is worse
+                  // than no filter. The column and the server parameter are
+                  // untouched — the client simply stopped asking.
+                  //
                   // Minimum Rating filter removed (Phase 3.2C cleanup): provider
                   // rating is backend-derived and per-provider, not a syncable
                   // post field — client-side rating filtering is not supported.
@@ -530,6 +667,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
+                    // Leaves with NO answer, so the caller does nothing at all.
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Iconsax.close_circle),
                     label: const Text('Exit'),
@@ -539,21 +677,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                 Expanded(
                   flex: 2,
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      final provider = context.read<AppProvider>();
-                      provider.clearFilters();
-                      for (var category in _selectedCategories) {
-                        provider.toggleCategory(category);
-                      }
-                      provider.setCity(_selectedCity);
-                      if (_selectedArea.isNotEmpty) {
-                        provider.setArea(_selectedArea);
-                      }
-                      provider.setPriceRange(_priceRange);
-                      provider.setDifficulty(_selectedDifficulty);
-                      provider.setUrgency(_selectedUrgency);
-                      Navigator.pop(context);
-                    },
+                    onPressed: () => Navigator.pop(context, _selection),
                     icon: const Icon(Iconsax.search_normal),
                     label: const Text('Search'),
                   ),
@@ -565,5 +689,4 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
       ),
     );
   }
-
 }

@@ -393,7 +393,17 @@ Future<void> openChatWithUser(
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (c) => ChatScreen(conversation: conv, currentUserId: currentUserId),
+      builder: (c) => ChatScreen(
+        conversation: conv,
+        currentUserId: currentUserId,
+        // Callers that pass no post (Saved → Message a provider) are asking to
+        // message a PERSON, not to talk about a listing — the same question
+        // Provider Profile → Message asks. They get the same answer: continue
+        // the most recently active thread (§D2), whose post context ChatScreen
+        // then adopts and displays. Passing a post keeps the contextual
+        // behaviour of resolving that post's own conversation.
+        resolveMostRecent: postId.trim().isEmpty,
+      ),
     ),
   );
 }

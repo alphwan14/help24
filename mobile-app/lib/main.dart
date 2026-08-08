@@ -26,6 +26,7 @@ import 'screens/notifications_screen.dart';
 import 'services/auth_service.dart';
 import 'services/cache_service.dart';
 import 'services/category_schema_service.dart';
+import 'services/chat_service_supabase.dart';
 import 'services/feed_snapshot.dart';
 import 'services/location_registry.dart';
 import 'services/profession_registry.dart';
@@ -333,15 +334,14 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
     try {
       final chatRow = await Supabase.instance.client
           .from('chats')
-          .select('user1, user2, post_id, posts!chats_post_id_fkey(title)')
+          .select(ChatServiceSupabase.chatRowSelect)
           .eq('id', chatId)
           .maybeSingle();
       if (chatRow != null) {
         final u1 = chatRow['user1'] as String? ?? '';
         final u2 = chatRow['user2'] as String? ?? '';
-        postId = chatRow['post_id']?.toString();
-        final postsData = chatRow['posts'];
-        postTitle = postsData is Map<String, dynamic> ? postsData['title'] as String? : null;
+        postId = ChatServiceSupabase.postIdOf(chatRow);
+        postTitle = ChatServiceSupabase.postTitleOf(chatRow);
         participantId = (u1 == uid) ? u2 : u1;
         if (participantId.isNotEmpty) {
           // Same columns the chat list resolves avatars from (avatar_url with

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/app_notification.dart';
 import '../models/post_model.dart';
 import '../providers/connectivity_provider.dart';
+import '../services/chat_service_supabase.dart';
 import '../services/notification_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/notification_sections.dart';
@@ -426,21 +427,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// `profile_picture_url`, which does not exist on `users`: the query threw,
   /// the failure was swallowed, and every chat opened from the bell showed a
   /// generic name and no picture.
+  ///
+  /// The post context is read here too, and that is not optional. This path
+  /// supplies a chat id, so `chatResolutionFor(knownId: true)` resolves to
+  /// `existing` immediately and ChatScreen NEVER runs a lookup — whatever post
+  /// context is missing at this moment stays missing for the life of the
+  /// screen. A post-scoped chat opened from the bell therefore rendered with no
+  /// 📌 banner, no "View post" and no "Job status", while the same chat opened
+  /// from an FCM tap (main.dart) rendered all three. Same select now.
   Future<void> _openChatById(
       {required String chatId, String userName = 'Chat'}) async {
     if (!mounted) return;
     String resolvedName = userName;
     String resolvedAvatar = '';
     String participantId = '';
+    String? postId;
+    String? postTitle;
     try {
       final chatRow = await Supabase.instance.client
           .from('chats')
-          .select('user1, user2')
+          .select(ChatServiceSupabase.chatRowSelect)
           .eq('id', chatId)
           .maybeSingle();
       if (chatRow != null) {
         final u1 = chatRow['user1'] as String? ?? '';
         final u2 = chatRow['user2'] as String? ?? '';
+        postId = ChatServiceSupabase.postIdOf(chatRow);
+        postTitle = ChatServiceSupabase.postTitleOf(chatRow);
         participantId = (u1 == widget.userId) ? u2 : u1;
         if (participantId.isNotEmpty) {
           final userRow = await Supabase.instance.client
@@ -467,6 +480,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         userAvatar: resolvedAvatar,
         lastMessage: '',
         lastMessageTime: DateTime.now(),
+        postId: postId,
+        postTitle: postTitle,
       ),
       currentUserId: widget.userId,
     ));

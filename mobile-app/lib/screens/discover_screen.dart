@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
+import '../models/filter_selection.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/connectivity_provider.dart';
@@ -470,7 +471,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     const Spacer(),
                     GestureDetector(
                       onTap: () async {
-                        await showModalBottomSheet(
+                        // The sheet ANSWERS; it does not apply itself. A null
+                        // answer means the user left without searching — Exit,
+                        // a swipe down, or the system back gesture — and a
+                        // cancelled sheet must cost nothing. This used to call
+                        // applyFilters() unconditionally, so dismissing the
+                        // sheet untouched issued a full ranked request and
+                        // reinstalled the feed.
+                        final selection =
+                            await showModalBottomSheet<FilterSelection>(
                           context: context,
                           isScrollControlled: true,
                           backgroundColor: Colors.transparent,
@@ -482,10 +491,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                 const FilterBottomSheet(),
                           ),
                         );
-                        if (mounted) {
-                          provider.applyFilters();
-                          _loadSponsoredSlots();
-                        }
+                        if (!mounted || selection == null) return;
+                        // One request, and only when something actually changed
+                        // — applyFilterSelection reports which it was.
+                        final changed =
+                            await provider.applyFilterSelection(selection);
+                        if (mounted && changed) _loadSponsoredSlots();
                       },
                       child: Container(
                         padding: const EdgeInsets.all(10),

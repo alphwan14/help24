@@ -707,16 +707,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
 
     if (resolution == ChatResolution.existing) {
-      final postsRaw = row?['posts'];
-      final resolvedTitle =
-          postsRaw is Map<String, dynamic> ? postsRaw['title'] as String? : null;
       setState(() {
         _activeChatId = foundId;
         _resolution = ChatResolution.existing;
         // Adopting the thread's real post context keeps the post banner and the
         // job-status card correct when Profile resolved to a post-scoped chat.
-        _resolvedPostId = row?['post_id']?.toString();
-        _resolvedPostTitle = resolvedTitle;
+        //
+        // BOTH lookups now carry the join (ChatServiceSupabase.chatRowSelect),
+        // so this recovers the post name by itself instead of depending on the
+        // entry point to have brought one. `_postTitle` still prefers what is
+        // adopted here over what the caller supplied, because the adopted
+        // thread is the one actually on screen.
+        _resolvedPostId = ChatServiceSupabase.postIdOf(row);
+        _resolvedPostTitle = ChatServiceSupabase.postTitleOf(row);
       });
       debugPrint(
         '[CHAT][RESOLVED] existing chatId=$foundId '
@@ -1328,6 +1331,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         // nothing, so there is no adopted thread whose context could apply —
         // and Provider Profile (postId null) correctly creates the general one.
         postId: widget.conversation.postId,
+        // So the row lands in the Messages tab already able to name its post,
+        // instead of appearing without its 📌 until the next poll.
+        postTitle: widget.conversation.postTitle,
       );
       if (!mounted) return false;
       setState(() => _activeChatId = conv.id);

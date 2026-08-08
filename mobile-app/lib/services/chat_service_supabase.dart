@@ -61,6 +61,37 @@ ConversationEmission conversationEmissionFor({
 class ChatServiceSupabase {
   static SupabaseClient get _client => Supabase.instance.client;
 
+  /// THE POST-CONTEXT SELECT. Every read of a `chats` row that will end up in
+  /// front of a user goes through this.
+  ///
+  /// A conversation associated with a post must show that post's name wherever
+  /// it is rendered — the Messages row, the chat header banner, "View post",
+  /// "Job status". That invariant is only as good as the weakest read, and the
+  /// app had four hand-written selects: two joined `posts`, two did not. The
+  /// notifications list picked one of the two that did not, so a post-scoped
+  /// chat opened from the bell rendered as though it had no post at all.
+  ///
+  /// Single-sourced so a new call site cannot quietly reintroduce that.
+  static const String chatRowSelect = '*, posts!chats_post_id_fkey(title)';
+
+  /// The post title embedded by [chatRowSelect], or null when the chat has no
+  /// post (`post_id IS NULL`) — which is a real answer, not a missing one, and
+  /// must never be replaced with an invented name.
+  static String? postTitleOf(Map<String, dynamic>? row) {
+    final posts = row?['posts'];
+    if (posts is! Map) return null;
+    final title = posts['title'];
+    if (title is! String) return null;
+    final trimmed = title.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  /// The post id on a chat row, or null for a general conversation.
+  static String? postIdOf(Map<String, dynamic>? row) {
+    final id = row?['post_id']?.toString().trim();
+    return (id == null || id.isEmpty) ? null : id;
+  }
+
   /// Get or create a chat by (user1, user2, post_id). postId and jobId map to post_id (uuid or null).
   static Future<Conversation> createChat({
     required String user1Id,
@@ -69,6 +100,10 @@ class ChatServiceSupabase {
     String initialMessage = '',
     String? postId,
     String? jobId,
+    /// The post's name, when the caller already knows it. Carried onto the
+    /// returned [Conversation] so the Messages tab renders the 📌 the instant
+    /// the row exists — see the note at the return site.
+    String? postTitle,
   }) async {
     final idA = user1Id.trim();
     final idB = user2Id.trim();
@@ -160,7 +195,15 @@ class ChatServiceSupabase {
         lastMessage: (row['last_message'] as String? ?? '').toString(),
         lastMessageTime: parseServerTime(row['updated_at']),
         unreadCount: 0,
-        postId: row['post_id']?.toString(),
+        postId: postIdOf(row),
+        // The INSERT returns the row it wrote, which carries `post_id` but no
+        // embedded `posts` — so a freshly created post-scoped chat used to
+        // reach AppProvider.updateConversation with an id and no name, and the
+        // Messages tab showed it without its 📌 until the next poll (up to 60s).
+        // The caller already knows the title in every post-scoped entry point;
+        // it is passed in rather than costing a second round trip on the send
+        // path, and falls back to the join for the resolved-existing case.
+        postTitle: postTitle ?? postTitleOf(row),
       );
     } catch (e) {
       debugPrint('ChatServiceSupabase createChat: $e');
@@ -226,7 +269,7 @@ class ChatServiceSupabase {
     try {
       final rows = await _client
           .from('chats')
-          .select('*, posts!chats_post_id_fkey(title)')
+          .select(chatRowSelect)
           .eq('user1', pair.user1)
           .eq('user2', pair.user2)
           .neq('last_message', '')
@@ -248,9 +291,13 @@ class ChatServiceSupabase {
     required String user2Ordered,
     required String? postIdUuid,
   }) async {
+    // Joined, not bare: this is the lookup the contextual entry points use, and
+    // it must be able to RECOVER the post title on its own rather than trusting
+    // every caller to have carried one. `findMostRecentChatForPair` already
+    // joined; these two diverged and only one of them could name its post.
     var query = _client
         .from('chats')
-        .select()
+        .select(chatRowSelect)
         .eq('user1', user1Ordered)
         .eq('user2', user2Ordered);
     if (postIdUuid != null) {
@@ -275,7 +322,7 @@ class ChatServiceSupabase {
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
     if (postIdUuid != null) insert['post_id'] = postIdUuid;
-    return _client.from('chats').insert(insert).select().single();
+    return _client.from('chats').insert(insert).select(chatRowSelect).single();
   }
 
   static final _uuidRegex = RegExp(
@@ -423,7 +470,7 @@ class ChatServiceSupabase {
     // This hides empty/orphaned chat rows that were created before a message was sent.
     final response = await _client
         .from('chats')
-        .select('*, posts!chats_post_id_fkey(title)')
+        .select(chatRowSelect)
         .or('user1.eq.$currentUserId,user2.eq.$currentUserId')
         .neq('last_message', '')
         .order('updated_at', ascending: false)
@@ -450,9 +497,6 @@ class ChatServiceSupabase {
       final otherId = user1 == currentUserId ? user2 : user1;
       final profile = profiles[otherId] ??
           (name: '?', avatarUrl: '', isOnline: false, lastSeen: null);
-      final postsRaw = map['posts'];
-      final postsData = postsRaw is Map<String, dynamic> ? postsRaw : null;
-      final postTitle = postsData?['title'] as String?;
 
       // Determine this user's unread count from the correct column.
       final int unreadCount;
@@ -470,8 +514,8 @@ class ChatServiceSupabase {
         lastMessage: map['last_message'] as String? ?? '',
         lastMessageTime: parseServerTime(map['updated_at']),
         unreadCount: unreadCount,
-        postId: map['post_id']?.toString(),
-        postTitle: postTitle,
+        postId: postIdOf(map),
+        postTitle: postTitleOf(map),
         isOnline: profile.isOnline,
         lastSeen: profile.lastSeen,
       ));

@@ -158,24 +158,31 @@ void main() {
       expect(body.contains("order('updated_at', ascending: false)"), isTrue);
     });
 
-    test('Provider Profile resolves the most recent thread (§D2)', () {
+    test('Provider Profile resolves most-recent ONLY without post context', () {
+      // §D2 still holds for a context-free profile visit. But a profile reached
+      // FROM an application is about that listing, and must resolve that
+      // listing's conversation like every other contextual entry point —
+      // otherwise "Message" lands on the general thread, which then correctly
+      // shows no post name because it genuinely has no post.
       final src = read('lib/screens/provider_profile_screen.dart');
-      expect(src.contains('resolveMostRecent: true'), isTrue);
+      expect(src.contains('resolveMostRecent: !hasPostContext'), isTrue);
+      expect(src.contains('contextPostId'), isTrue);
+      expect(src.contains('contextPostTitle'), isTrue);
     });
 
-    test('contextual entry points keep their own post scope', () {
-      // Application, post detail, saved: they must NOT opt into most-recent,
-      // or a post-scoped chat would silently retarget another post's thread.
-      for (final path in const [
-        'lib/screens/applications_screen.dart',
-        'lib/widgets/post_flows.dart',
-      ]) {
-        expect(
-          read(path).contains('resolveMostRecent'),
-          isFalse,
-          reason: '$path must keep post-scoped resolution',
-        );
-      }
+    test('openChatWithUser resolves most-recent only when it has no post', () {
+      final src = read('lib/widgets/post_flows.dart');
+      expect(src.contains('resolveMostRecent: postId.trim().isEmpty'), isTrue,
+          reason: 'a post-scoped caller must keep post-scoped resolution');
+    });
+
+    test('the applications list keeps its own post scope', () {
+      // It always has a post, so it must never opt into most-recent or a
+      // post-scoped chat would silently retarget another post's thread.
+      expect(
+        read('lib/screens/applications_screen.dart').contains('resolveMostRecent'),
+        isFalse,
+      );
     });
 
     test('ChatScreen gates the start-conversation copy behind the resolution', () {

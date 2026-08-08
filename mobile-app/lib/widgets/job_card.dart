@@ -133,17 +133,28 @@ class JobCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
 
-                  // Difficulty & Urgency as small tags — wrap to avoid overflow
+                  // Employment type & Urgency as small tags — wrap to avoid overflow.
+                  //
+                  // The first tag used to be difficulty, and it said "Medium"
+                  // on effectively every job in the marketplace: the posting
+                  // flow stopped asking for complexity, so the client writes
+                  // the model default on every row. An orange badge that is
+                  // identical on every card carries no information and reads as
+                  // though it does. `job.type` is the employment type
+                  // (Full-time / Part-time / Contract / Temporary) that the
+                  // card already resolved and that a job seeker actually
+                  // chooses on — it was previously shown only for the one
+                  // legacy value that happened to be 'any'. Now it is the tag.
+                  // (post_card.dart dropped the same badge for the same reason.)
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: [
-                      _SmallTag(
-                        label: job.difficulty == Difficulty.any ? job.type : job.difficultyText,
-                        color: job.difficulty == Difficulty.any
-                            ? AppTheme.primaryAccent
-                            : _difficultyColor(job.difficulty),
-                      ),
+                      if (job.type.trim().isNotEmpty)
+                        _SmallTag(
+                          label: job.type,
+                          color: AppTheme.primaryAccent,
+                        ),
                       _SmallTag(
                         label: job.urgencyText,
                         color: job.urgencyColor,
@@ -326,15 +337,6 @@ class JobCard extends StatelessWidget {
         ),
       ),
     ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.02, end: 0);
-  }
-
-  static Color _difficultyColor(Difficulty d) {
-    switch (d) {
-      case Difficulty.easy: return const Color(0xFF4CAF50);
-      case Difficulty.medium: return const Color(0xFFFF9800);
-      case Difficulty.hard: return const Color(0xFFE53935);
-      case Difficulty.any: return AppTheme.primaryAccent;
-    }
   }
 
   Widget _buildImage(String url) {

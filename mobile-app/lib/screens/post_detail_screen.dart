@@ -1650,6 +1650,7 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
               isSelected: isSelected,
               isAccepting: isSelecting,
               canAccept: canSelect,
+              postTitle: widget.post.title,
               onMessage: () async {
                 if (_chatLoading) return;
                 setState(() => _chatLoading = true);

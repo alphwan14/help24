@@ -135,6 +135,64 @@ class Category {
     return collapsed;
   }
 
+  /// Turn what a user TYPED into a value the corpus can actually match.
+  ///
+  /// `posts.category` stores a display name, and both matchers are exact and
+  /// case-sensitive: the server does `category = ANY(...)` and the client does
+  /// a `Set<String>.contains`. So a custom-profession filter only ever worked
+  /// if the user reproduced the stored spelling byte for byte. Measured against
+  /// production through the same RPC the app calls:
+  ///
+  ///   'Cleaning' → 2 posts        'cleaning' → 0 posts
+  ///
+  /// The posting flow normalises through [normalizeCustomName] but never folds
+  /// case, so both spellings can and do exist. Resolving here — against the
+  /// category registry AND the names actually present in the corpus — means the
+  /// filter sends a spelling that can match, instead of sending the user's
+  /// capitalisation and quietly returning nothing.
+  ///
+  /// Returns null when the input is not a usable service name at all.
+  /// Otherwise returns the vocabulary's spelling when one matches
+  /// case-insensitively, and the normalised input when none does (a genuinely
+  /// new profession, which correctly matches nothing yet).
+  static String? resolveFilterName(String raw, Iterable<String> vocabulary) {
+    final normalized = normalizeCustomName(raw);
+    if (normalized == null) return null;
+    final folded = normalized.toLowerCase();
+    for (final known in vocabulary) {
+      if (known.trim().toLowerCase() == folded) return known.trim();
+    }
+    return normalized;
+  }
+
+  /// Vocabulary entries worth offering while the user types, best match first:
+  /// prefix matches before substring matches, each alphabetical. Empty query →
+  /// nothing, because a suggestion list nobody asked for is just noise.
+  static List<String> suggestFilterNames(
+    String raw,
+    Iterable<String> vocabulary, {
+    int limit = 6,
+  }) {
+    final query = raw.trim().toLowerCase();
+    if (query.isEmpty) return const [];
+    final seen = <String>{};
+    final prefix = <String>[];
+    final contains = <String>[];
+    for (final entry in vocabulary) {
+      final name = entry.trim();
+      if (name.isEmpty || !seen.add(name.toLowerCase())) continue;
+      final folded = name.toLowerCase();
+      if (folded.startsWith(query)) {
+        prefix.add(name);
+      } else if (folded.contains(query)) {
+        contains.add(name);
+      }
+    }
+    prefix.sort();
+    contains.sort();
+    return [...prefix, ...contains].take(limit).toList();
+  }
+
   String toJson() => name;
 }
 
@@ -445,7 +503,12 @@ class PostModel {
       'type': type.name,
       'pricing_type': pricingType.name,
       if (employmentType != null) 'employment_type': _employmentTypeToDb(employmentType!),
-      'difficulty': difficulty.name,
+      // NO 'difficulty'. The posting flow has no complexity step, so this field
+      // only ever carried the model's own default — the client asserting a
+      // complexity nobody chose, on every row it wrote. `posts.difficulty` is
+      // nullable with a server-side default, so omitting it produces exactly the
+      // value the column would have held anyway; the difference is that the app
+      // no longer claims to know something it never asked.
       'rating': rating,
       'author_temp_id': authorTempId,
       'is_urgent': isUrgent || urgency == Urgency.urgent,
@@ -975,7 +1038,9 @@ class JobModel {
       'type': 'job',
       'pricing_type': pricingType.name,
       if (employmentType != null) 'employment_type': employmentType,
-      'difficulty': difficulty.name,
+      // NO 'difficulty' — see PostModel.toJson. The job flow's default was
+      // `any`, which is how the single production row holding that value came
+      // to exist.
       'author_temp_id': authorTempId,
       // Only sent when answers exist — see PostModel.toJson.
       if (attributes.isNotEmpty) 'attributes': attributes,

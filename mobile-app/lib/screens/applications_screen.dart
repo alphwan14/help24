@@ -371,6 +371,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
               app.applicantUserId.isNotEmpty,
           onAccept: () => _accept(app),
           onMessage: () => _openChatWith(app),
+          postTitle: widget.postTitle,
         );
       },
     );

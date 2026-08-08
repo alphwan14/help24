@@ -40,12 +40,31 @@ class ProviderProfileScreen extends StatefulWidget {
   final String? initialAvatarUrl;
   final String? initialProfession;
 
+  /// The listing this profile was reached FROM, when there was one.
+  ///
+  /// An applicant card is always about a specific post — you are looking at
+  /// this person because they answered that listing — and "Message" from here
+  /// means "message them about it". Dropping that context (which is what this
+  /// screen used to do) sent the conversation to the general `post_id IS NULL`
+  /// thread, which then correctly rendered with no 📌 anywhere, because it
+  /// genuinely had no post. The name was never lost in transit; it was never
+  /// captured. Carrying it makes this path behave like every other contextual
+  /// entry point.
+  ///
+  /// Null for genuinely context-free entries (a profile opened from the
+  /// notifications list), where [_message] keeps the resolve-most-recent
+  /// behaviour that exists for exactly that case.
+  final String? contextPostId;
+  final String? contextPostTitle;
+
   const ProviderProfileScreen({
     super.key,
     required this.providerId,
     this.initialName,
     this.initialAvatarUrl,
     this.initialProfession,
+    this.contextPostId,
+    this.contextPostTitle,
   });
 
   @override
@@ -154,6 +173,8 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   void _message() {
     final currentUserId = context.read<AuthProvider>().currentUserId ?? '';
     if (currentUserId.isEmpty || widget.providerId.isEmpty) return;
+    final postId = widget.contextPostId?.trim();
+    final hasPostContext = postId != null && postId.isNotEmpty;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -165,12 +186,18 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
             userAvatar: _avatar,
             lastMessage: '',
             lastMessageTime: DateTime.now(),
+            postId: hasPostContext ? postId : null,
+            postTitle: hasPostContext ? widget.contextPostTitle : null,
           ),
           currentUserId: currentUserId,
-          // No post context here. Continue the most recently active thread with
-          // this provider rather than always opening the general one (§D2); the
-          // general conversation is created only if none exists at all.
-          resolveMostRecent: true,
+          // With a post in hand this behaves like Post → Message and every
+          // other contextual entry point: resolve THAT post's conversation.
+          //
+          // Without one there is nothing to scope to, so continue the most
+          // recently active thread with this provider rather than always
+          // opening the general one (§D2); the general conversation is created
+          // only if none exists at all.
+          resolveMostRecent: !hasPostContext,
         ),
       ),
     );
