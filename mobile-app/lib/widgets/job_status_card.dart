@@ -235,7 +235,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
 
       if (normalizedPhone == null) {
         _showSnack(
-          'Add a valid M-Pesa number in Profile → Payment Settings.',
+          'Add a valid M-Pesa number in Profile → Payment Number.',
           color: AppTheme.warningOrange,
           icon: Icons.phone_android_rounded,
         );

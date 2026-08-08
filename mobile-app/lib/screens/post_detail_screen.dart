@@ -1949,7 +1949,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
               SizedBox(width: 10),
               Flexible(
                   child: Text(
-                      'Add a valid M-Pesa number in Profile → Payment Settings.')),
+                      'Add a valid M-Pesa number in Profile → Payment Number.')),
             ]),
             backgroundColor: AppTheme.warningOrange,
             behavior: SnackBarBehavior.floating,

@@ -21,7 +21,7 @@ import '../widgets/profile_widgets.dart';
 /// saved implicitly.
 ///
 /// PHONE IS READ-ONLY HERE, BY DESIGN. The number lives in Account behind
-/// device authentication (Payment Settings). Duplicating the editor here would
+/// device authentication (Payment Number). Duplicating the editor here would
 /// create a second write path for the most security-sensitive field on the
 /// account, so this screen shows it and points back — one source of truth, one
 /// flow.
@@ -137,8 +137,10 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
       builder: (sheetContext) => ProfileEditorSheet(
         title: 'Phone number',
         subtitle:
-            'Your number is used for M-Pesa payments and payouts, so it is changed '
-            'in Account with device authentication. It is shown here for reference only.',
+            'This is the M-Pesa number you pay from, and how clients reach you. '
+            'It is changed in Account → Payment Number with device authentication, '
+            'and shown here for reference only. Where your earnings are SENT is set '
+            'separately, under Business → Payout Destinations.',
         children: [
           SizedBox(
             width: double.infinity,
@@ -146,7 +148,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
             child: FilledButton.icon(
               onPressed: () {
                 Navigator.pop(sheetContext);
-                // Back to Account → Payment Settings, the one place it changes.
+                // Back to Account → Payment Number, the one place it changes.
                 Navigator.of(context).pop(_changed);
               },
               icon: const Icon(Icons.arrow_back_rounded, size: 18),
@@ -242,7 +244,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                           value: phone.isEmpty ? null : maskPhone(phone),
                           emptyHint: 'Not set',
                           note: phone.isEmpty
-                              ? 'Add it in Account to get paid'
+                              ? 'Add it in Account so clients can reach you'
                               : 'Managed in Account',
                           onTap: _explainPhoneIsManagedInAccount,
                         ),

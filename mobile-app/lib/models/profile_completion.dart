@@ -195,7 +195,8 @@ class ProfileCompletion {
       weight: 20,
       // Deliberately points at Account: the number is managed there, behind
       // device authentication, and must never gain a second editor.
-      hint: 'Verified in Account · needed to get paid',
+      // Not "needed to get paid" (§M4) — that is Payout Destinations' job.
+      hint: 'Verified in Account · how clients reach you',
       satisfiedBy: (f) => f.hasPhone,
     ),
 

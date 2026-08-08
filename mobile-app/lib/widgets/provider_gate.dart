@@ -37,8 +37,10 @@ enum ProviderRequirement {
     Icons.work_outline_rounded,
   ),
   phone(
-    'Add your M-Pesa number',
-    'This is how you get paid when a client selects you.',
+    'Add your contact M-Pesa number',
+    // NOT a payout claim (§M4). This number makes you hireable and is the
+    // number you pay from; where earnings are SENT is Payout Destinations.
+    'Clients need a way to reach you before they can select you.',
     Icons.phone_iphone_rounded,
   );
 
@@ -219,8 +221,9 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Your number is added in Account → Payment Settings, '
-                    'protected by your device lock.',
+                    'Your number is added in Account → Payment Number, '
+                    'protected by your device lock. Where your earnings are '
+                    'sent is set separately, under Payout Destinations.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),

@@ -19,6 +19,8 @@ import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/location_provider.dart';
 import '../services/notification_service.dart';
+import '../services/payout_authority.dart';
+import '../services/payout_service.dart';
 import '../services/user_profile_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
@@ -697,13 +699,17 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                     }),
                   );
                 }),
+                // NOT a payout surface. This is the number the client PAYS
+                // FROM (buyer STK push) and the contact number that makes a
+                // provider hireable. Where earnings are SENT is Payout
+                // Destinations, and only that. See payout_authority.dart (§M4).
                 _SettingsTile(
                   icon: Iconsax.card,
-                  title: 'Payment Settings',
+                  title: 'Payment Number',
                   // The number is sensitive — masked here; the full value is
                   // only revealed behind the biometric gate in the sheet.
                   subtitle: (profile?.phone?.isNotEmpty == true)
-                      ? maskPhone(profile!.phone!)
+                      ? '${maskPhone(profile!.phone!)} · the number you pay from'
                       : 'M-Pesa number not set',
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => showModalBottomSheet(
@@ -1246,12 +1252,38 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
   bool _unlocked = false;
   bool _authenticating = false;
 
+  /// Starts `unknown` so the sheet says NOTHING about payouts until the probe
+  /// answers. A wrong claim here either strands earnings or invites a provider
+  /// to configure a number the backend will ignore.
+  PayoutAuthority _authority = PayoutAuthority.unknown;
+
   @override
   void initState() {
     super.initState();
     _phoneController = TextEditingController(text: widget.currentPhone ?? '');
     // Skip biometric gate when no number has been set yet
     _unlocked = widget.currentPhone == null || widget.currentPhone!.isEmpty;
+    _resolveAuthority();
+  }
+
+  /// Ask the same production signal the rest of the app uses:
+  /// `/payout-destinations` answers 503 while the feature flag is off.
+  Future<void> _resolveAuthority() async {
+    PayoutAuthority resolved;
+    try {
+      await PayoutService.listDestinations(widget.uid);
+      resolved = resolvePayoutAuthority(reachable: true, featureUnavailable: false);
+    } on PayoutException catch (e) {
+      // Only the documented 503 proves "flag off". Any other non-2xx (401,
+      // 429, 500) proves nothing about the flag, so it stays `unknown`.
+      resolved = resolvePayoutAuthority(
+        reachable: e.featureUnavailable,
+        featureUnavailable: e.featureUnavailable,
+      );
+    } catch (_) {
+      resolved = resolvePayoutAuthority(reachable: false, featureUnavailable: false);
+    }
+    if (mounted) setState(() => _authority = resolved);
   }
 
   @override
@@ -1349,7 +1381,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
               child: Icon(Iconsax.mobile, color: AppTheme.primaryAccent, size: 20),
             ),
             const SizedBox(width: 12),
-            Text('Payment Settings', style: Theme.of(context).textTheme.titleLarge),
+            Text('Payment Number', style: Theme.of(context).textTheme.titleLarge),
           ],
         ),
       ],
@@ -1412,6 +1444,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
             ],
           ),
         ),
+        _PayoutAuthorityNote(authority: _authority, uid: widget.uid),
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
@@ -1452,7 +1485,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'This number is used for M-Pesa payments and payouts.',
+                  'The M-Pesa number you pay from, and how clients reach you.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: AppTheme.primaryAccent),
                 ),
@@ -1460,6 +1493,9 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
             ],
           ),
         ),
+        // The payout claim is never hard-coded: it tracks the live backend
+        // flag, and stays silent when the probe could not answer (§M4).
+        _PayoutAuthorityNote(authority: _authority, uid: widget.uid),
         const SizedBox(height: 20),
         TextField(
           controller: _phoneController,
@@ -1491,6 +1527,90 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The one place the legacy number is allowed to mention payouts.
+///
+/// Renders nothing at all for [PayoutAuthority.unknown] — silence is the
+/// correct output when the probe could not answer, per the state-truthfulness
+/// contract. When Payout Destinations is live it both disclaims payout
+/// authority AND routes there, so the sheet can never be a dead end that
+/// leaves a provider believing this number pays them.
+class _PayoutAuthorityNote extends StatelessWidget {
+  final PayoutAuthority authority;
+  final String uid;
+
+  const _PayoutAuthorityNote({required this.authority, required this.uid});
+
+  @override
+  Widget build(BuildContext context) {
+    final note = payoutNoteFor(authority);
+    if (note == null) return const SizedBox.shrink();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDisclaimer = authority == PayoutAuthority.destinations;
+    final accent = isDisclaimer ? AppTheme.warningOrange : AppTheme.primaryAccent;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: accent.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  isDisclaimer ? Iconsax.warning_2 : Iconsax.info_circle,
+                  size: 18,
+                  color: accent,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    note,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: isDark
+                              ? AppTheme.darkTextSecondary
+                              : AppTheme.lightTextSecondary,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            if (isDisclaimer) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    // Capture before popping — this context belongs to the
+                    // sheet and is defunct the moment it closes.
+                    final navigator = Navigator.of(context);
+                    navigator.pop();
+                    navigator.push<void>(
+                      MaterialPageRoute(
+                        builder: (_) => PayoutDestinationsScreen(uid: uid),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Iconsax.wallet_check, size: 16),
+                  label: const Text('Open Payout Destinations'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

@@ -18,16 +18,31 @@ class NotificationBannerOverlay {
   static OverlayEntry? _entry;
   static Timer? _dismissTimer;
 
+  /// [overlay] is the OverlayState to insert into. Callers holding a
+  /// `GlobalKey<NavigatorState>` MUST pass `key.currentState?.overlay`: the
+  /// navigator's context is the context OF the Navigator widget, and that
+  /// navigator's Overlay is its DESCENDANT, so an ancestor lookup from there
+  /// finds nothing. `Overlay.of` on such a context threw
+  /// "Null check operator used on a null value" on every foreground push —
+  /// and because the OS card is deliberately suppressed in the foreground,
+  /// the user saw nothing at all.
   static void show({
     required BuildContext context,
     required String title,
     required String body,
+    OverlayState? overlay,
     VoidCallback? onTap,
     Duration displayDuration = const Duration(seconds: 4),
   }) {
     _dismiss();
 
-    final overlay = Overlay.of(context);
+    // maybeOf, never of: a missing overlay must degrade to "no banner", not
+    // to an unhandled exception on the notification path.
+    final resolved = overlay ?? Overlay.maybeOf(context, rootOverlay: true);
+    if (resolved == null) {
+      debugPrint('[BANNER] no overlay available — in-app banner skipped');
+      return;
+    }
     late OverlayEntry entry;
     entry = OverlayEntry(
       builder: (_) => _NotificationBanner(
@@ -41,7 +56,7 @@ class NotificationBannerOverlay {
       ),
     );
     _entry = entry;
-    overlay.insert(entry);
+    resolved.insert(entry);
 
     _dismissTimer = Timer(displayDuration, _dismiss);
   }

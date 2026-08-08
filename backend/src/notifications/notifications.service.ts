@@ -124,6 +124,11 @@ export class NotificationsService {
       ),
     ];
 
+    // Which store these tokens came from decides where stale ones get pruned.
+    // Deleting a legacy token from `fcm_tokens` is a no-op, which is how nine
+    // dead tokens survived on one account (§L4).
+    let tokenSource: 'table' | 'legacy' = 'table';
+
     this.logger.log(
       `[FCM][TOKENS_TABLE] userId=${payload.userId} rows=${tokenRows?.length ?? 0} valid=${tokens.length}`,
     );
@@ -141,7 +146,8 @@ export class NotificationsService {
         );
       }
       const legacy = Array.isArray(user?.fcm_tokens) ? (user.fcm_tokens as string[]) : [];
-      tokens = legacy.filter(Boolean);
+      tokens = [...new Set(legacy.filter(Boolean))];
+      tokenSource = 'legacy';
       this.logger.log(
         `[FCM][LEGACY_TOKENS] userId=${payload.userId} legacy_count=${legacy.length} valid=${tokens.length}`,
       );
@@ -257,13 +263,44 @@ export class NotificationsService {
 
       if (invalidTokens.length > 0) {
         this.logger.log(
-          `[FCM][CLEANUP] removing ${invalidTokens.length} stale tokens for userId=${payload.userId}`,
+          `[FCM][CLEANUP] removing ${invalidTokens.length} stale token(s) for ` +
+            `userId=${payload.userId} source=${tokenSource}`,
         );
-        await this.supabase.client
-          .from('fcm_tokens')
-          .delete()
-          .eq('user_id', payload.userId)
-          .in('token', invalidTokens);
+        if (tokenSource === 'table') {
+          await this.supabase.client
+            .from('fcm_tokens')
+            .delete()
+            .eq('user_id', payload.userId)
+            .in('token', invalidTokens);
+        } else {
+          // Legacy JSONB: rewrite the array without the dead entries. Re-read
+          // rather than reuse `tokens`, so a token registered between the send
+          // and this write is not dropped.
+          const dead = new Set(invalidTokens);
+          const { data: fresh } = await this.supabase.client
+            .from('users')
+            .select('fcm_tokens')
+            .eq('id', payload.userId)
+            .single();
+          const current = Array.isArray(fresh?.fcm_tokens)
+            ? (fresh.fcm_tokens as string[])
+            : [];
+          const surviving = [...new Set(current.filter((t) => t && !dead.has(t)))];
+          const { error: pruneErr } = await this.supabase.client
+            .from('users')
+            .update({ fcm_tokens: surviving })
+            .eq('id', payload.userId);
+          if (pruneErr) {
+            this.logger.warn(
+              `[FCM][CLEANUP_LEGACY_FAILED] userId=${payload.userId} — ${pruneErr.message}`,
+            );
+          } else {
+            this.logger.log(
+              `[FCM][CLEANUP_LEGACY] userId=${payload.userId} ` +
+                `${current.length} → ${surviving.length} token(s)`,
+            );
+          }
+        }
       }
     } catch (err) {
       this.logger.error(

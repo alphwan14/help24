@@ -6,20 +6,39 @@ import { EVENT_TYPES, EventType } from '../events/event.types';
 import { FirebaseAdminService } from '../notifications/firebase-admin.service';
 import { MulticastMessage } from 'firebase-admin/messaging';
 
-function isDevEnv(): boolean {
-  return (process.env.MPESA_ENV ?? 'sandbox') !== 'production';
+/**
+ * Whether the dev harness may run at all. DEFAULT-CLOSED, and deliberately
+ * NOT derived from any other setting.
+ *
+ * This used to read `MPESA_ENV !== 'production'`, which tied "is this a test
+ * harness?" to "which Daraja environment do we bill against?" — two unrelated
+ * questions. Production runs `MPESA_ENV=sandbox` because the Daraja cutover
+ * has not happened, so the check passed and the whole harness was live: a
+ * real launch-readiness probe reached `POST /dev/test-fcm` on the production
+ * deploy with no credential and got 200 (requestId 1f81cc3d, 2026-08-08).
+ * `reset-state` (wipes transactions/escrow/events) and `trigger-event`
+ * (injects and processes arbitrary canonical events) sat behind the same
+ * false guard.
+ *
+ * Now it takes an explicit opt-in, matching how every other dangerous feature
+ * in this codebase is gated. An unset variable means OFF, so no deployment
+ * can inherit the harness by accident.
+ */
+function devRoutesEnabled(): boolean {
+  return process.env.DEV_ROUTES_ENABLED === 'true';
 }
 
 function guardDev(logger: Logger, label: string): void {
-  if (!isDevEnv()) {
-    logger.error(`[DEV] ${label} called in production — BLOCKED`);
-    throw new ForbiddenException(`${label} is not available in production.`);
+  if (!devRoutesEnabled()) {
+    logger.error(`[DEV] ${label} called while DEV_ROUTES_ENABLED is not 'true' — BLOCKED`);
+    throw new ForbiddenException(`${label} is not available in this environment.`);
   }
 }
 
 /**
  * DEV-ONLY service for test-harness operations.
- * Every method starts with guardDev() — all calls are no-ops in production.
+ * Every method starts with guardDev() — all calls are refused unless
+ * DEV_ROUTES_ENABLED=true is explicitly set.
  */
 @Injectable()
 export class DevService {

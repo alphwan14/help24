@@ -306,6 +306,9 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
 
     NotificationBannerOverlay.show(
       context: context,
+      // The navigator's OWN overlay — an ancestor lookup from
+      // `currentContext` finds no Overlay and used to throw.
+      overlay: _navigatorKey.currentState?.overlay,
       title: title,
       body: body,
       onTap: onTap,

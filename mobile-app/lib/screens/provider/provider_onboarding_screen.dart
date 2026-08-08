@@ -234,7 +234,8 @@ class _ProviderOnboardingScreenState extends State<ProviderOnboardingScreen> {
             title: 'Add your contact number',
             detail: phoneDone
                 ? 'On file — clients and Help24 can reach you.'
-                : 'Added under Account → Payment Settings, protected by your device lock.',
+                : 'Added under Account → Payment Number, protected by your device lock. '
+                    'This is your contact number — not where payouts are sent.',
             actionLabel: phoneDone ? 'Edit' : 'Add',
             onTap: _openProfessionalProfile,
           ),

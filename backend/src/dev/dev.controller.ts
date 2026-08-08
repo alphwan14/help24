@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, HttpCode, HttpStatus, Logger, Post } from '@nestjs/common';
 import { DevService } from './dev.service';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
-import { Auth } from '../common/auth/auth.decorator';
+import { AuthCritical } from '../common/auth/auth.decorator';
 
 /**
  * DEV / sandbox endpoints — all guarded inside DevService by MPESA_ENV check.
@@ -11,13 +11,22 @@ import { Auth } from '../common/auth/auth.decorator';
  * POST /dev/trigger-event         — inject + immediately process any event type
  * POST /mpesa/dev/reset-payment-lock  → handled in MpesaController
  */
-// Requires a signed-in caller as depth behind the production check inside
-// DevService, not instead of it. These routes wipe transactions and inject
-// arbitrary events, so if that check is ever weakened by an edit, the fallback
-// should be "an account is needed" rather than "the internet can call this".
+// Requires a signed-in caller as depth behind the DEV_ROUTES_ENABLED check
+// inside DevService, not instead of it. These routes wipe transactions and
+// inject arbitrary events, so if that check is ever weakened by an edit, the
+// fallback should be "an account is needed" rather than "the internet can
+// call this".
+//
+// @AuthCritical, not @Auth: under the graduated auth migration
+// (AUTH_ENFORCEMENT=enforce, AUTH_ENFORCE_ONLY=/promotions) an ordinary @Auth
+// route still runs in MONITOR mode, which logs `authWouldDeny` and lets the
+// call through. That is exactly what happened in production — an anonymous
+// curl reached this controller and got 200. Like the payout routes, a route
+// that can destroy financial state must not be one env-var edit away from
+// monitor behaviour.
 @Controller('dev')
 @RateLimit('dev:harness')
-@Auth()
+@AuthCritical()
 export class DevController {
   private readonly logger = new Logger(DevController.name);
 

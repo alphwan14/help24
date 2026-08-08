@@ -278,7 +278,7 @@ class _PaymentScreenState extends State<PaymentScreen>
   static String _friendlyError(String raw) {
     final lower = raw.toLowerCase();
     if (lower.contains('m-pesa number') || lower.contains('phone')) {
-      return 'Add a valid M-Pesa number in Profile → Payment Settings.';
+      return 'Add a valid M-Pesa number in Profile → Payment Number.';
     }
     if (lower.contains('no provider')) {
       return 'No provider selected for this service yet.';

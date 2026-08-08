@@ -17,7 +17,7 @@ void main() {
     });
   });
 
-  group('maskPhone (profile Payment Settings subtitle)', () {
+  group('maskPhone (profile Payment Number subtitle)', () {
     test('masks the middle, keeps prefix and suffix', () {
       expect(maskPhone('254712345678'), '254••••••678');
     });
