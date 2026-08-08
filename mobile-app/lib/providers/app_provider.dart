@@ -412,6 +412,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _errors.clear(AppFeature.messages);
     _conversations = [];
     _pagedConversationIds.clear();
+    _prefetchedThreads.clear();
     _hasMoreConversations = true;
     _isLoadingConversations = false;
     _loadingMoreConversations = false;
@@ -1654,6 +1655,76 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   ///    refreshes silently. The skeleton only ever shows on a true first run.
   /// 3. Avatars are pre-warmed into the image cache so tiles render without
   ///    pop-in.
+  /// Chats whose thread this session has already warmed. Cleared on sign-out
+  /// with the rest of the conversation state.
+  final Set<String> _prefetchedThreads = {};
+
+  /// How many of the most recent conversations get their thread warmed.
+  ///
+  /// Deliberately small. Opening the app is not a reason to download every
+  /// conversation the account has ever had; it is a reason to make the handful
+  /// the user is realistically about to tap open instantly.
+  static const int _prefetchThreadLimit = 5;
+
+  /// Warm the message cache for the most recent threads, so the FIRST open of
+  /// a conversation on a new install is instant instead of the measured 522 ms
+  /// spinner (Galaxy S20+, cold cache).
+  ///
+  /// Bounded on every axis that could make this abusive:
+  ///  * at most [_prefetchThreadLimit] conversations PER SESSION, most recent
+  ///    first — the budget is `_prefetchedThreads.length`, not a per-call
+  ///    counter. This matters: the conversation stream emits on every poll and
+  ///    every realtime nudge, so a per-call counter would warm the next five
+  ///    each time and eventually download every thread the account has. That
+  ///    bug was real and was caught on device — position 7 turned up warm.
+  ///  * one existing 30-message page each — no history walk;
+  ///  * once per chat per session (`_prefetchedThreads`);
+  ///  * skipped entirely for threads already mirrored in memory, so it never
+  ///    duplicates work ChatScreen or a previous run already did;
+  ///  * sequential, so it cannot burst;
+  ///  * never runs offline — the caller only reaches here from a successful
+  ///    server emission, and each fetch failure simply leaves the cache cold.
+  ///
+  /// Failures are silent by design: this is an optimisation, and a chat that
+  /// fails to pre-warm just loads normally when opened.
+  Future<void> _prefetchRecentThreads(
+    String currentUserId,
+    List<Conversation> conversations,
+  ) async {
+    if (conversations.isEmpty) return;
+    if (_prefetchedThreads.length >= _prefetchThreadLimit) return;
+    var warmed = 0;
+    for (final conversation in conversations) {
+      // SESSION budget, not per-call. See the note above.
+      if (_prefetchedThreads.length >= _prefetchThreadLimit) break;
+      // The session may have ended, or switched account, mid-walk.
+      if (_conversationsUserId != currentUserId) return;
+      final chatId = conversation.id;
+      if (chatId.isEmpty) continue;
+      if (!_prefetchedThreads.add(chatId)) continue;
+      if (CacheService.peekMessages(chatId, currentUserId) != null) continue;
+      try {
+        final messages =
+            await ChatServiceSupabase.getMessages(chatId, currentUserId);
+        if (_conversationsUserId != currentUserId) return;
+        if (messages.isNotEmpty) {
+          await CacheService.saveMessages(currentUserId, chatId, messages);
+          warmed++;
+        }
+      } catch (_) {
+        // Leave it cold; opening the chat will load it the normal way. The id
+        // is released so a later emission may retry it, still inside budget.
+        _prefetchedThreads.remove(chatId);
+      }
+    }
+    if (warmed > 0) {
+      debugPrint(
+        '[CHAT][PREFETCH] warmed $warmed thread(s), '
+        'session budget ${_prefetchedThreads.length}/$_prefetchThreadLimit',
+      );
+    }
+  }
+
   Future<void> loadConversations(String currentUserId) async {
     if (currentUserId.isEmpty) {
       resetForSignOut();
@@ -1669,6 +1740,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     if (_conversationsUserId != currentUserId) {
       _conversations = [];
       _pagedConversationIds.clear();
+      _prefetchedThreads.clear();
     }
     _conversationsUserId = currentUserId;
     _errors.clear(AppFeature.messages);
@@ -1735,6 +1807,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         // records a fact rather than overwriting history with an outage.
         CacheService.saveConversations(currentUserId, list);
         if (list.isNotEmpty) _warmAvatarCache(list);
+        unawaited(_prefetchRecentThreads(currentUserId, list));
         notifyListeners();
       },
       onError: (e) {

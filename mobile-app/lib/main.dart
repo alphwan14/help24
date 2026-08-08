@@ -24,6 +24,7 @@ import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'services/auth_service.dart';
+import 'services/cache_service.dart';
 import 'services/category_schema_service.dart';
 import 'services/feed_snapshot.dart';
 import 'services/location_registry.dart';
@@ -206,6 +207,9 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // by a previous account, and the pre-scoping device-global keys that
       // caused the cross-account leak. Devices that ran the leaking build are
       // cleaned on their first launch after this update.
+      // The in-memory mirror of the message cache is user-owned like the disk
+      // entries it mirrors, so it must be reset at a session boundary too.
+      SessionScope.instance.register(const MessageMemoScope());
       await SessionScope.instance.purgeForeignScopes(await _restoredUid());
 
       if (AppFirebase.isReady) {

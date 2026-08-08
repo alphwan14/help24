@@ -602,6 +602,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// `resolving` or `unresolved` render the start-conversation state.
   ChatResolution _resolution = ChatResolution.resolving;
 
+  /// Time-to-first-paint instrumentation for the chat thread.
+  ///
+  /// "It feels faster" is not a measurement. This records how long the user
+  /// actually stares at a spinner: `CACHE_PAINT` is the cached thread appearing,
+  /// `NET_PAINT` is the server's first page. The gap between them is the whole
+  /// value of the cache, and if CACHE_PAINT never fires the cache did nothing.
+  final Stopwatch _openWatch = Stopwatch();
+  bool _loggedFirstPaint = false;
+
+  void _logPaint(String stage, int count) {
+    debugPrint(
+      '[CHAT][$stage] +${_openWatch.elapsedMilliseconds}ms n=$count chat=$_chatId',
+    );
+  }
+
   /// The post context of the conversation we actually adopted, which can differ
   /// from the entry point's when Provider Profile resolved to the most recent
   /// (post-scoped) thread. Null until a lookup adopts one.
@@ -623,6 +638,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// the divergence between them is what §D1 was.
   void _beginExistingChat() {
     _loadLocalPrefs();
+    // FIRST FRAME: if this thread is already mirrored in memory, seed it
+    // synchronously so the chat opens with its history on screen — no spinner
+    // at all, not even the one frame the async disk read used to cost.
+    // A null peek means "not known yet", NOT "no messages": the async read
+    // below is still authoritative.
+    final memo = CacheService.peekMessages(_chatId, widget.currentUserId);
+    if (memo != null && memo.isNotEmpty && _messages.isEmpty) {
+      _messages = List<Message>.from(memo);
+      _loadingMessages = false;
+      _hasMoreOlder = memo.length >= 30;
+      _loggedFirstPaint = true;
+      _logPaint('MEMO_PAINT', memo.length);
+    }
     // Paint the cached thread instantly (no spinner), then let realtime
     // replace it silently with fresh data.
     _hydrateFromCache();
@@ -714,6 +742,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _openWatch.start();
     WidgetsBinding.instance.addObserver(this);
     _activeChatId = widget.conversation.id;
     _scrollController.addListener(_onScroll);
@@ -901,6 +930,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _loadingMessages = false;
       _hasMoreOlder = cached.length >= 30;
     });
+    _loggedFirstPaint = true;
+    _logPaint('CACHE_PAINT', cached.length);
   }
 
   /// Subscribe to Supabase Realtime for this chat. Messages arrive instantly.
@@ -962,6 +993,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _scheduleCacheSave(merged);
       }
       if (_lastMessageCount == 0) {
+        _logPaint(_loggedFirstPaint ? 'NET_REFRESH' : 'NET_PAINT', messages.length);
+        _loggedFirstPaint = true;
         // Initial page. The reversed list is already anchored on the newest
         // message — no scroll command needed.
         _lastMessageCount = messages.length;
