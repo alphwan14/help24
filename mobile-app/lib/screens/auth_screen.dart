@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -153,59 +152,56 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
-      child: Scaffold(
-        backgroundColor:
-            isDark ? AppTheme.darkBackground : AppTheme.lightBackground,
-        body: SafeArea(
-          child: Stack(
-            children: [
-              Column(
-                children: [
-                  _buildTopBar(isDark),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      physics: const ClampingScrollPhysics(),
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
-                        transitionBuilder: (child, animation) => FadeTransition(
-                          opacity: animation,
-                          child: SlideTransition(
-                            position: Tween<Offset>(
-                              begin: const Offset(0.04, 0),
-                              end: Offset.zero,
-                            ).animate(CurvedAnimation(
-                              parent: animation,
-                              curve: Curves.easeOutCubic,
-                            )),
-                            child: child,
-                          ),
+    return Scaffold(
+      backgroundColor:
+          isDark ? AppTheme.darkBackground : AppTheme.lightBackground,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                _buildTopBar(isDark),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    physics: const ClampingScrollPhysics(),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      transitionBuilder: (child, animation) => FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0.04, 0),
+                            end: Offset.zero,
+                          ).animate(CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.easeOutCubic,
+                          )),
+                          child: child,
                         ),
-                        child: KeyedSubtree(
-                          key: ValueKey(_step),
-                          child: _buildStep(isDark),
-                        ),
+                      ),
+                      child: KeyedSubtree(
+                        key: ValueKey(_step),
+                        child: _buildStep(isDark),
                       ),
                     ),
                   ),
-                ],
-              ),
-              // Signed in, finishing up. Blocks input so a second tap cannot
-              // start another credential flow underneath.
-              if (_resolvingProfile)
-                Positioned.fill(
-                  child: ColoredBox(
-                    color: (isDark
-                            ? AppTheme.darkBackground
-                            : AppTheme.lightBackground)
-                        .withValues(alpha: 0.72),
-                    child: const Center(child: CircularProgressIndicator()),
-                  ),
                 ),
-            ],
-          ),
+              ],
+            ),
+            // Signed in, finishing up. Blocks input so a second tap cannot
+            // start another credential flow underneath.
+            if (_resolvingProfile)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: (isDark
+                          ? AppTheme.darkBackground
+                          : AppTheme.lightBackground)
+                      .withValues(alpha: 0.72),
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+          ],
         ),
       ),
     );

@@ -13,7 +13,8 @@
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show HapticFeedback, SystemUiOverlayStyle;
+import 'package:flutter/services.dart' show HapticFeedback;
+import '../theme/system_bars.dart';
 
 class ImageViewerScreen extends StatefulWidget {
   final String imageUrl;
@@ -165,7 +166,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
-        systemOverlayStyle: SystemUiOverlayStyle.light,
+        systemOverlayStyle: SystemBars.immersive,
       ),
       body: GestureDetector(
         onDoubleTapDown: _handleDoubleTap,

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/app_firebase.dart';
@@ -43,6 +42,7 @@ import 'services/session_scope.dart';
 import 'services/startup_prefetch.dart';
 import 'services/supabase_auth_bridge.dart';
 import 'theme/app_theme.dart';
+import 'theme/system_bars.dart';
 import 'widgets/launch_splash.dart';
 import 'widgets/notification_banner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -101,34 +101,11 @@ void main() async {
   // launch, so a system-themed user also gets the correct first frame.
   final prefs = await SharedPreferences.getInstance();
   final themePreference = await AppProvider.loadThemePreference(prefs);
-  final isDark = themePreference.isDark(
-    WidgetsBinding.instance.platformDispatcher.platformBrightness,
-  );
 
   // Decode the splash badge before the first frame. See LaunchSplash.warm.
   await LaunchSplash.warm();
 
-  _applySystemOverlay(isDark);
-
   runApp(Help24App(initialTheme: themePreference));
-}
-
-/// The app's system-bar style, in one place.
-///
-/// Called from three points that must agree: `main()` before the first frame,
-/// the theme builder when the user's choice changes, and [StartupGate] the
-/// moment the splash hands over — because while the splash is up it declares
-/// the bars itself (an [AnnotatedRegion] holding the brand field's light
-/// icons), and this must not be issued underneath it.
-void _applySystemOverlay(bool isDark) {
-  SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-    systemNavigationBarColor:
-        isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-    systemNavigationBarIconBrightness:
-        isDark ? Brightness.light : Brightness.dark,
-  ));
 }
 
 class Help24App extends StatefulWidget {
@@ -639,32 +616,37 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
             final isDark = themePreference.isDark(
               WidgetsBinding.instance.platformDispatcher.platformBrightness,
             );
-            // Not while the splash owns the bars — StartupGate re-applies this
-            // the moment it hands over.
-            if (!LaunchSequence.isHoldingSplash) _applySystemOverlay(isDark);
 
-            return AppLocalizationsLoader(
-              child: MaterialApp(
-                navigatorKey: _navigatorKey,
-                scaffoldMessengerKey: _scaffoldMessengerKey,
-                title: 'Help24',
-                debugShowCheckedModeBanner: false,
-                theme: AppTheme.lightTheme,
-                darkTheme: AppTheme.darkTheme,
-                themeMode: themePreference.themeMode,
-                locale: const Locale('en'),
-                localizationsDelegates: const [appLocalizationsDelegate],
-                supportedLocales: const [
-                  Locale('en'),
-                  Locale('sw'),
-                ],
-                // Offline is a background state, not global chrome: the subtle
-                // indicator lives inside the home shell (below the OS status
-                // bar), never as a full-app overlay. Pushed routes handle
-                // offline contextually instead — silent auto-refresh on
-                // reconnect (ReconnectListener), ErrorRetryView on a failed
-                // load, and ErrorMapper's "You're offline" on actions.
-                home: StartupGate(bootstrapFuture: _bootstrapFuture),
+            // ONE OWNER FOR THE SYSTEM BARS. This annotation sits above every
+            // route, so the bars are re-declared on every composite and cannot
+            // go stale when a screen that styled them is popped. The splash and
+            // the image viewer override it deeper in the tree and revert on
+            // their own. See lib/theme/system_bars.dart.
+            return SystemBars(
+              brightness: isDark ? Brightness.dark : Brightness.light,
+              child: AppLocalizationsLoader(
+                child: MaterialApp(
+                  navigatorKey: _navigatorKey,
+                  scaffoldMessengerKey: _scaffoldMessengerKey,
+                  title: 'Help24',
+                  debugShowCheckedModeBanner: false,
+                  theme: AppTheme.lightTheme,
+                  darkTheme: AppTheme.darkTheme,
+                  themeMode: themePreference.themeMode,
+                  locale: const Locale('en'),
+                  localizationsDelegates: const [appLocalizationsDelegate],
+                  supportedLocales: const [
+                    Locale('en'),
+                    Locale('sw'),
+                  ],
+                  // Offline is a background state, not global chrome: the subtle
+                  // indicator lives inside the home shell (below the OS status
+                  // bar), never as a full-app overlay. Pushed routes handle
+                  // offline contextually instead — silent auto-refresh on
+                  // reconnect (ReconnectListener), ErrorRetryView on a failed
+                  // load, and ErrorMapper's "You're offline" on actions.
+                  home: StartupGate(bootstrapFuture: _bootstrapFuture),
+                ),
               ),
             );
           },
@@ -748,7 +730,6 @@ class _StartupGateState extends State<StartupGate> {
       _open = true;
       _splashRetired = true;
       LaunchSequence.lift();
-      _applyThemedOverlay();
       return;
     }
 
@@ -773,22 +754,9 @@ class _StartupGateState extends State<StartupGate> {
         // same microtask must already be answering to FeedArrival rather than
         // to the "nothing is on screen" launch rule.
         LaunchSequence.lift();
-        // The splash's AnnotatedRegion is about to go; the app's own bar style
-        // has to replace it, or the bars keep the brand field's light icons
-        // over a light-theme app.
-        _applyThemedOverlay();
         setState(() => _open = true);
       });
     }));
-  }
-
-  /// Hand the system bars back to the app's own theme.
-  void _applyThemedOverlay() {
-    _applySystemOverlay(
-      context.read<AppProvider>().themePreference.isDark(
-            WidgetsBinding.instance.platformDispatcher.platformBrightness,
-          ),
-    );
   }
 
   @override

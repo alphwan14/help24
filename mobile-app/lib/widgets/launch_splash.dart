@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../theme/system_bars.dart';
 
 /// The Flutter half of the launch screen.
 ///
@@ -45,20 +46,17 @@ class LaunchSplash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The bars must stay as the Android launch theme left them — light icons on
-    // the brand field. Without this the app-wide overlay style, which is
-    // resolved from the user's THEME, would flip a light-mode user's status bar
-    // icons to dark the instant Flutter takes over — invisible on #0A0A0A, and
-    // visibly flashing back a second later. An AnnotatedRegion is applied at
-    // paint time, so it wins over the imperative call made during build.
+    // The bars must stay as the Android launch theme left them: light icons
+    // on the brand field, so the handoff from the native splash has nothing
+    // flashing in between.
+    //
+    // This is one of only TWO AnnotatedRegions in the app. It overrides the
+    // root owner while the splash is mounted, and the root re-asserts the
+    // theme's own bars by itself the moment this unmounts — which is what
+    // stops the brand-dark bars outliving the splash. See
+    // lib/theme/system_bars.dart.
     return const AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle(
-        statusBarColor: background,
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
-        systemNavigationBarColor: background,
-        systemNavigationBarIconBrightness: Brightness.light,
-      ),
+      value: SystemBars.splash,
       child: ColoredBox(
         color: background,
         child: Center(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'system_bars.dart';
 
 class AppTheme {
   // Dark Theme Colors - Premium Deep Black
@@ -120,6 +121,7 @@ class AppTheme {
         ),
       ),
       appBarTheme: const AppBarTheme(
+        systemOverlayStyle: SystemBars.dark,
         backgroundColor: darkBackground,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -307,6 +309,7 @@ class AppTheme {
         ),
       ),
       appBarTheme: const AppBarTheme(
+        systemOverlayStyle: SystemBars.light,
         backgroundColor: lightBackground,
         elevation: 0,
         scrolledUnderElevation: 0,
