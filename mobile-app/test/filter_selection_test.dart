@@ -258,9 +258,20 @@ void main() {
 
     test('Discover does nothing when the sheet is dismissed', () {
       final src = read('lib/screens/discover_screen.dart');
+      // Scoped to the HANDLER, not to a character count. This used to slice a
+      // fixed ±800/900 window around the call, so adding a comment inside the
+      // handler pushed the asserted line out of the window and failed a test
+      // whose subject had not changed. The window now ends where the closure
+      // does — the `child:` of the GestureDetector that owns it — so the
+      // assertions below still cover exactly the code that runs on dismiss,
+      // and only that code.
       final start = src.indexOf('showModalBottomSheet<FilterSelection>');
-      final body = src.substring(start - 800, start + 900);
-      expect(body.contains('if (!mounted || selection == null) return;'), isTrue);
+      expect(start, isNot(-1));
+      final end = src.indexOf('child: Container(', start);
+      expect(end, isNot(-1));
+      final body = src.substring(start, end);
+      expect(body.contains('if (!mounted || selection == null) return;'), isTrue,
+          reason: 'a dismissed sheet must return before applying anything');
       expect(body.contains('provider.applyFilters()'), isFalse,
           reason: 'this fired a full ranked request even on cancel');
     });

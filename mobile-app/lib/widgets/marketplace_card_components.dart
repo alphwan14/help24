@@ -253,59 +253,6 @@ class UrgencyChip extends StatelessWidget {
   }
 }
 
-/// Difficulty chip: Easy (green), Medium (orange), Hard (red), Any (grey).
-class DifficultyChip extends StatelessWidget {
-  final Difficulty difficulty;
-
-  const DifficultyChip({super.key, required this.difficulty});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _color;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        _label,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  String get _label {
-    switch (difficulty) {
-      case Difficulty.easy:
-        return 'Easy';
-      case Difficulty.medium:
-        return 'Medium';
-      case Difficulty.hard:
-        return 'Hard';
-      case Difficulty.any:
-        return 'Any';
-    }
-  }
-
-  Color get _color {
-    switch (difficulty) {
-      case Difficulty.easy:
-        return const Color(0xFF4CAF50);
-      case Difficulty.medium:
-        return const Color(0xFFFF9800);
-      case Difficulty.hard:
-        return const Color(0xFFE53935);
-      case Difficulty.any:
-        return const Color(0xFF6B7280);
-    }
-  }
-}
-
 /// Location chip: "📍 City" (Kenyan cities).
 class LocationChip extends StatelessWidget {
   final String location;

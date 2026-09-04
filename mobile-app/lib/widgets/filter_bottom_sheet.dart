@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:iconsax/iconsax.dart';
@@ -23,7 +25,17 @@ import 'location_picker.dart';
 /// on the S20+ as a complete round trip and feed reinstall for a sheet the user
 /// had dismissed without touching.
 class FilterBottomSheet extends StatefulWidget {
-  const FilterBottomSheet({super.key});
+  /// The scroll controller [DraggableScrollableSheet] hands its child.
+  ///
+  /// It used to be discarded — the sheet was built as `const FilterBottomSheet()`
+  /// and scrolled with a controller of its own. A DraggableScrollableSheet
+  /// resizes by watching THIS controller, so ignoring it meant the sheet could
+  /// not be dragged from its content and the inner list scrolled independently
+  /// of the box containing it. Passing it through is what makes the two one
+  /// gesture again.
+  final ScrollController? scrollController;
+
+  const FilterBottomSheet({super.key, this.scrollController});
 
   @override
   State<FilterBottomSheet> createState() => _FilterBottomSheetState();
@@ -61,7 +73,18 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     _vocabulary = provider.knownCategoryNames.toList()..sort();
     // Read, not run. Opening the sheet shows what you have searched before; it
     // never executes one of them.
+    //
+    // Seeded synchronously from whatever is already in memory so a warm sheet
+    // paints Recent on its first frame, then confirmed from disk — which is
+    // what makes it work on a signed-out cold start, where nothing has had a
+    // reason to load it yet.
     _history = FilterHistoryService.instance.entries;
+    unawaited(provider.ensureFilterHistoryLoaded().then((_) {
+      if (!mounted) return;
+      final loaded = FilterHistoryService.instance.entries;
+      if (loaded.length == _history.length) return;
+      setState(() => _history = loaded);
+    }));
   }
 
   @override
@@ -216,11 +239,19 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
             ),
           ),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            // A visible thumb, because this is a long sheet: eight Recent chips,
+            // thirty-odd categories, location, seven price bands and urgency.
+            // Nothing here told the reader how far down they were or let them
+            // move quickly — the list simply ran on.
+            child: Scrollbar(
+              controller: widget.scrollController,
+              thumbVisibility: widget.scrollController != null,
+              child: SingleChildScrollView(
+                controller: widget.scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                   // ── Recent ────────────────────────────────────────────────
                   if (_history.isNotEmpty) ...[
                     Row(
@@ -642,8 +673,9 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                   // Minimum Rating filter removed (Phase 3.2C cleanup): provider
                   // rating is backend-derived and per-provider, not a syncable
                   // post field — client-side rating filtering is not supported.
-                  const SizedBox(height: 24),
-                ],
+                    const SizedBox(height: 24),
+                  ],
+                ),
               ),
             ),
           ),

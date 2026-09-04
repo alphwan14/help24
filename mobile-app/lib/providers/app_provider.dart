@@ -1140,9 +1140,32 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   void setFeedEngaged(bool engaged) {
     if (_readerEngaged == engaged) return;
     _readerEngaged = engaged;
-    // Returning to the top is the moment a held-back rebuild becomes free to
-    // show, but it still is not applied automatically — the prompt is already on
-    // screen and it is the reader's to tap.
+
+    // RETURNING TO THE TOP IS THE MOMENT THE SWAP BECOMES FREE — SO TAKE IT.
+    //
+    // This used to do nothing but record the flag, because a prompt was on
+    // screen and applying the ranking was the reader's decision. Ranking is
+    // Help24's job, not something to delegate to the person browsing: the
+    // prompt asked them to manage a system they cannot see, and the honest
+    // answer to "should I press this?" was always yes.
+    //
+    // The stability contract is unchanged and is the reason this is safe. A
+    // rebuild still never lands under a reader: `engaged` is false only when
+    // they are back at the head of the list, where nothing they are looking at
+    // can move. The other free moment — leaving Discover entirely — is already
+    // taken by [setDiscoverVisible].
+    //
+    // Deferred by a microtask because this is driven by a scroll notification,
+    // and `_install` tears down and rebuilds the list; doing that inside the
+    // notification is how a scroll ends in a stutter.
+    if (!engaged && _pending != null) {
+      Future.microtask(() {
+        // Re-checked: the reader may have scrolled away again, or a load may
+        // have superseded the pending page, in the time it took to get here.
+        if (_readerEngaged || _pending == null) return;
+        applyPendingFeed();
+      });
+    }
   }
 
   /// Keep [snapshot] for the question it answers, so coming back to that tab is
@@ -1156,6 +1179,44 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     while (_snapshotsByQuery.length > _rememberedQueries) {
       _snapshotsByQuery.remove(_snapshotsByQuery.keys.first);
     }
+  }
+
+  /// Put the remembered ranking for [identity] on screen, if we have one.
+  ///
+  /// Returns true when it did, meaning NO request is needed: the question has
+  /// already been answered and the answer is still good.
+  ///
+  /// WHY THIS IS SHARED WITH THE FILTER PATH
+  /// ---------------------------------------
+  /// Measured on the S20+ against production: one filter apply is one request
+  /// and costs ~1.8 s on the wire (parse 1 ms) — the client was never issuing
+  /// duplicates, the round trip simply IS the wait. So the only way to make
+  /// filtering feel fast is to not make the round trip when the answer is
+  /// already in hand.
+  ///
+  /// A tab switch already did this. A filter apply did not, so re-applying a
+  /// filter from the Recent row — which is precisely "ask the question I asked
+  /// a minute ago" — paid full price, and so did clearing filters, even though
+  /// the default ranking is the one page guaranteed to be remembered.
+  bool _installRemembered(FeedIdentity identity) {
+    final remembered = _rememberedFor(identity);
+    if (remembered == null) return false;
+    // Nothing is fetched on this path, so the sequence has to be advanced by
+    // hand: a load still in flight for the question we just left would
+    // otherwise pass its own freshness check and install the PREVIOUS page
+    // over this one.
+    ++_postsRequestSeq;
+    _isLoadingPosts = false;
+    _install(remembered);
+    notifyListeners();
+    // Fresh enough to be the answer, so nothing else is asked for. A page older
+    // than the server's own ranking bucket is rebuilt quietly and OFFERED — the
+    // user asked to see this page, not to have it re-sorted a second after it
+    // appeared.
+    if (remembered.isExpiredAt(DateTime.now())) {
+      unawaited(loadPosts(reason: FeedInvalidation.expired));
+    }
+    return true;
   }
 
   /// The remembered ranking for [identity], if it still answers that question.
@@ -2245,25 +2306,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
     final scope = _scopeForFilter;
     final identity = _identityFor(scope, _currentFilters);
-    final remembered = _rememberedFor(identity);
-    if (remembered != null) {
-      // Nothing is fetched on this path, so the sequence has to be advanced by
-      // hand: a load still in flight for the tab we just left would otherwise
-      // pass its own freshness check and install the PREVIOUS tab's page over
-      // this one.
-      ++_postsRequestSeq;
-      _isLoadingPosts = false;
-      _install(remembered);
-      notifyListeners();
-      // Fresh enough to be the answer, so nothing else is asked for. A page
-      // older than the server's own ranking bucket is rebuilt quietly and
-      // OFFERED — the user asked to see this tab, not to have it re-sorted a
-      // second after it appeared.
-      if (remembered.isExpiredAt(DateTime.now())) {
-        unawaited(loadPosts(reason: FeedInvalidation.expired));
-      }
-      return;
-    }
+    if (_installRemembered(identity)) return;
 
     final seed = _seedFor(scope, identity);
     if (seed != null) _install(seed);
@@ -2332,6 +2375,19 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
     notifyListeners();
     _searchDebounce?.cancel();
+
+    // The question may already be answered. A filter set the user has applied
+    // before in this session — every tap on the Recent row, and every Clear All
+    // back to the default page — is a question `_snapshotsByQuery` is still
+    // holding the ranking for. Measured: 1.8 s on the wire versus one frame.
+    //
+    // Deliberately AFTER the state assignment above, so `_currentFilters`
+    // describes the new selection and the identity we look up is the one the
+    // user just asked for.
+    if (_installRemembered(_identityFor(_scopeForFilter, _currentFilters))) {
+      return true;
+    }
+
     await loadPosts(reason: FeedInvalidation.query);
     return true;
   }

@@ -109,6 +109,30 @@ class FeedService {
   /// recency that arrives now — the fallback is genuinely good, not a stub.
   static const Duration _timeout = Duration(seconds: 8);
 
+  /// Monotonic per-process request number, for the `[FEED][REQ n]` log lines.
+  /// Counting requests is the only way to tell "the backend is slow" apart from
+  /// "we asked three times", and those need opposite fixes.
+  static int _requestCounter = 0;
+
+  /// The filter set, short enough for one log line. Only what can change the
+  /// answer — a digest that omitted a field would hide exactly the duplicate
+  /// requests this exists to find.
+  static String _filterDigest(PostFilters? f) {
+    if (f == null) return 'none';
+    final parts = <String>[
+      if (f.categories != null && f.categories!.isNotEmpty)
+        'cat=${f.categories!.join('|')}',
+      if (f.city != null && f.city!.isNotEmpty) 'city=${f.city}',
+      if (f.area != null && f.area!.isNotEmpty) 'area=${f.area}',
+      if (f.minPrice != null) 'min=${f.minPrice}',
+      if (f.maxPrice != null) 'max=${f.maxPrice}',
+      if (f.urgency != null && f.urgency!.isNotEmpty) 'urg=${f.urgency}',
+      if (f.difficulty != null && f.difficulty!.isNotEmpty) 'diff=${f.difficulty}',
+      if (f.searchQuery != null && f.searchQuery!.isNotEmpty) 'q=${f.searchQuery}',
+    ];
+    return parts.isEmpty ? 'none' : parts.join(',');
+  }
+
   // ── Discover ───────────────────────────────────────────────────────────────
 
   /// One ranked page of requests/offers for Discover.
@@ -213,14 +237,31 @@ class FeedService {
         ),
       );
 
+      // ONE LINE PER REQUEST, SO "FILTERS ARE SLOW" BECOMES A NUMBER.
+      //
+      // The report was that applying a filter takes a long time. Nothing in the
+      // feed path recorded how long anything took or how many requests one tap
+      // produced, so the question could not be answered — only guessed at.
+      // `req` is a per-call counter and `+Nms` the wire time, so a duplicate
+      // shows up as two REQ lines for one action and a slow backend shows up as
+      // a large number on one line. Cheap, and it is the only way to tell those
+      // two apart from a device.
+      final seq = ++_requestCounter;
+      final watch = Stopwatch()..start();
+      debugPrint('[FEED][REQ $seq] ${scope.wire} '
+          'filters=${_filterDigest(filters)} page=$page');
+
       final response = await api.get(uri).timeout(_timeout);
+      final wireMs = watch.elapsedMilliseconds;
       if (response.statusCode != 200) {
-        debugPrint('[FEED] ranked feed ${response.statusCode} — falling back');
+        debugPrint('[FEED][REQ $seq] HTTP ${response.statusCode} +${wireMs}ms — falling back');
         return _degrade(fallback);
       }
 
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       final result = _parse<T>(body, parse, idOf);
+      debugPrint('[FEED][REQ $seq] ok +${wireMs}ms '
+          'parse+${watch.elapsedMilliseconds - wireMs}ms n=${result.items.length}');
 
       // An empty ranked first page is indistinguishable from a retrieval
       // problem, and "No posts found — try adjusting your filters" is a costly

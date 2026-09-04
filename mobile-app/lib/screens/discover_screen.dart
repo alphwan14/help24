@@ -123,22 +123,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     super.dispose();
   }
 
-  /// Show the ranking that has been waiting, and put the reader back at the top
-  /// of it. This is the ONLY path by which a background rebuild reaches the
-  /// screen while Discover is in front of the user — and it runs because they
-  /// tapped it.
-  void _applyPendingFeed() {
-    context.read<AppProvider>().applyPendingFeed();
-    if (_feedScroll.hasClients) {
-      _feedScroll.animateTo(
-        0,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOutCubic,
-      );
-    }
-    _loadSponsoredSlots();
-  }
-
   /// Maps the current feed context to a promotion placement and fetches
   /// slots. Sequence-guarded so a slow older response never overwrites a
   /// newer one.
@@ -483,12 +467,40 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           context: context,
                           isScrollControlled: true,
                           backgroundColor: Colors.transparent,
-                          builder: (context) => DraggableScrollableSheet(
-                            initialChildSize: 0.85,
-                            minChildSize: 0.5,
-                            maxChildSize: 0.95,
-                            builder: (context, scrollController) =>
-                                const FilterBottomSheet(),
+                          // THE SHEET IS SIZED AGAINST THE SPACE ABOVE THE
+                          // KEYBOARD, NOT AGAINST THE SCREEN.
+                          //
+                          // `DraggableScrollableSheet` takes fractions of the
+                          // box it is given. That box used to be the whole
+                          // screen, so 0.85 stayed 0.85 of the screen when the
+                          // keyboard opened and everything in the bottom ~45%
+                          // went behind it — including the Search and Exit
+                          // buttons, which are outside the scroll view and so
+                          // could not be scrolled back into reach. Verified on
+                          // the S20+: typing a custom profession left no way to
+                          // press Search without dismissing the keyboard first.
+                          //
+                          // Taking the inset off the box is the structural fix,
+                          // not an offset: the fractions are unchanged and every
+                          // screen size gets the same behaviour, because the box
+                          // is now whatever is actually visible.
+                          builder: (context) => Padding(
+                            padding: EdgeInsets.only(
+                              bottom: MediaQuery.viewInsetsOf(context).bottom,
+                            ),
+                            child: DraggableScrollableSheet(
+                              initialChildSize: 0.85,
+                              minChildSize: 0.5,
+                              maxChildSize: 0.95,
+                              // Without this the sheet expands to fill the box
+                              // regardless of its fractions, which is what makes
+                              // the resize look like it never happened.
+                              expand: false,
+                              builder: (context, scrollController) =>
+                                  FilterBottomSheet(
+                                scrollController: scrollController,
+                              ),
+                            ),
                           ),
                         );
                         if (!mounted || selection == null) return;
@@ -568,93 +580,17 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
           // ── Feed ─────────────────────────────────────────────
           //
-          // The prompt floats OVER the list rather than sitting above it: it
-          // must not push the feed down when it appears, because moving the
-          // cards is the exact thing this whole mechanism exists to avoid.
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(child: _buildPostsFeed()),
-                Positioned(
-                  top: 8,
-                  left: 0,
-                  right: 0,
-                  child: Center(child: _buildNewRecommendationsPill()),
-                ),
-              ],
-            ),
-          ),
+          // No overlay. A pill announcing newly computed recommendations used
+          // to float here, and the Stack existed only to hold it.
+          // Recommending is Help24's job: a better ranking now lands on its own
+          // at the next moment landing is free — the reader returning to the
+          // top (AppProvider.setFeedEngaged) or leaving Discover
+          // (setDiscoverVisible). Both were already the conditions under which
+          // the prompt was safe to tap, so what has been removed is the asking,
+          // not the safety.
+          Expanded(child: _buildPostsFeed()),
         ],
       ),
-    );
-  }
-
-  /// "New recommendations available" — the offer.
-  ///
-  /// A better ranking has been computed while the user was reading. It is NOT
-  /// applied: the reader decides when the feed rearranges. This is the standard
-  /// production behaviour for a live-ranked feed, and the reason Discover can be
-  /// both fresh and calm at the same time.
-  ///
-  /// The copy is fixed, and that is a product decision rather than a
-  /// simplification. "3 new posts" describes a timeline — everything that was
-  /// published, in the order it happened — and Help24 is not one. The engine
-  /// selects; most of what gets posted never enters this feed at all. Counting
-  /// would promise an enumeration the app does not perform, and would make the
-  /// prompt read as a notification about the marketplace rather than what it is:
-  /// an offer to re-rank. What has been earned by the time this appears is
-  /// stated in AppProvider._worthOffering.
-  Widget _buildNewRecommendationsPill() {
-    // One boolean, so the pill does not rebuild for search keystrokes, filter
-    // changes or load transitions — none of which can make it appear or go away.
-    return Selector<AppProvider, bool>(
-      selector: (_, provider) => provider.hasPendingFeed,
-      builder: (context, hasPending, _) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          transitionBuilder: (child, animation) => FadeTransition(
-            opacity: animation,
-            child: SizeTransition(sizeFactor: animation, child: child),
-          ),
-          child: !hasPending
-              ? const SizedBox.shrink()
-              : Semantics(
-                  button: true,
-                  label: 'Show new recommendations',
-                  child: Material(
-                    color: AppTheme.primaryAccent,
-                    borderRadius: BorderRadius.circular(24),
-                    elevation: 4,
-                    shadowColor: Colors.black.withValues(alpha: isDark ? 0.5 : 0.25),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(24),
-                      onTap: _applyPendingFeed,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 9),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.arrow_upward_rounded,
-                                size: 16, color: Colors.white),
-                            const SizedBox(width: 7),
-                            const Text(
-                              'New recommendations available',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-        );
-      },
     );
   }
 
