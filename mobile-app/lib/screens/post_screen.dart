@@ -1003,6 +1003,28 @@ class _PostScreenState extends State<PostScreen> {
         _pinnedLat = picked.latitude;
         _pinnedLng = picked.longitude;
       });
+      // A PINNED SPOT IS A LOCATION — a more precise one than a town name.
+      //
+      // The step's Continue button is gated on `_hasLocation`, which reads the
+      // LABEL. Pinning wrote only the coordinates, so a user who answered
+      // "where?" with the most exact answer available was told nothing and
+      // handed a dead button: the pin showed its green tick and Continue stayed
+      // disabled with no explanation. Reproduced on the S20+ before this change.
+      //
+      // Snapping to the nearest known place is the same move `_prefillLocation-
+      // FromCache` already makes for a GPS fix, and it keeps `posts.location`
+      // a name people recognise and city filters can match — while the post
+      // still carries the PINNED coordinates, which are finer than the town's.
+      // A pin the registry cannot name leaves the label empty on purpose; the
+      // step now says so rather than going quiet (see `_buildRequestLocationStep`).
+      if (!_hasLocation) {
+        final near = LocationRegistry.instance
+            .nearest(picked.latitude, picked.longitude);
+        if (near != null) {
+          setState(() => _location = LocationSelection.fromPlace(near)
+              .copyWith(latitude: picked.latitude, longitude: picked.longitude));
+        }
+      }
     }
   }
 
@@ -1497,6 +1519,10 @@ class _PostScreenState extends State<PostScreen> {
 
   Widget _buildRequestLocationStep() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // A pin that no known place is near cannot fill in the label by itself, so
+    // the town is still needed. Saying which answer is missing is the whole
+    // difference between a button that is disabled and a button that is broken.
+    final pinnedWithoutPlace = !_hasLocation && _pinnedLat != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1507,6 +1533,17 @@ class _PostScreenState extends State<PostScreen> {
             _isOfferFlow
                 ? 'Clients nearby find you first.'
                 : 'Providers nearby see your request first.',
+            style: TextStyle(
+              fontSize: 13,
+              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+            ),
+          )
+        else
+          Text(
+            pinnedWithoutPlace
+                ? "Your pin is saved, but we couldn't match it to a known town. "
+                    'Choose a location above to continue.'
+                : 'Choose a location to continue.',
             style: TextStyle(
               fontSize: 13,
               color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,

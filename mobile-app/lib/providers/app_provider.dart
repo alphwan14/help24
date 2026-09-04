@@ -19,6 +19,7 @@ import '../services/feed_snapshot.dart';
 import '../services/interaction_tracker.dart';
 import '../services/jobs_service.dart';
 import '../services/launch_sequence.dart';
+import '../services/outbox_store.dart';
 import '../services/session_scope.dart';
 import '../services/startup_prefetch.dart';
 import '../utils/error_mapper.dart';
@@ -242,9 +243,25 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         urgency: _selectedUrgency,
       );
 
+  /// Category / profession names seen from the server this session.
+  ///
+  /// ACCUMULATED, never recomputed from what is on screen. Reading `_posts`
+  /// directly looked equivalent and was not: the moment a filter is in force,
+  /// `_posts` is the FILTERED page, so the vocabulary collapsed to the very
+  /// categories the user had already chosen. Caught on the S20+ — with a
+  /// Plumbing filter applied, typing "cleaning" resolved to "cleaning" because
+  /// "Cleaning" was no longer anywhere in view.
+  final Set<String> _seenCategoryNames = {};
+
+  void _rememberCategoryNames(Iterable<String> names) {
+    for (final name in names) {
+      final trimmed = name.trim();
+      if (trimmed.isNotEmpty) _seenCategoryNames.add(trimmed);
+    }
+  }
+
   /// Category / profession names this build can meaningfully filter by: the
-  /// server-driven registry plus every name actually present in what the feed
-  /// has returned.
+  /// server-driven registry plus every name the feed has returned this session.
   ///
   /// The corpus half is the part that matters for custom professions. The
   /// registry has "House Cleaning"; production also holds posts filed under
@@ -255,8 +272,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   Set<String> get knownCategoryNames {
     final names = <String>{
       for (final c in CategorySchemaService.instance.categories) c.name,
-      for (final p in _posts) p.category.name,
-      for (final j in _jobs) j.categoryName,
+      ..._seenCategoryNames,
       // Whatever is already selected stays offerable even if this session's
       // feed happens not to contain it.
       ..._selectedCategories,
@@ -1173,6 +1189,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     final previous = _installed;
     _installed = snapshot;
     _posts = [...snapshot.posts];
+    _rememberCategoryNames(snapshot.posts.map((p) => p.category.name));
 
     // THE GENERATION MEANS "WHAT THE READER IS LOOKING AT CHANGED" — NOTHING
     // ELSE.
@@ -1306,6 +1323,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
       _jobs = result.items;
       _jobsResolved = true;
+      _rememberCategoryNames(_jobs.map((j) => j.categoryName));
       _cacheJobsIfDefault();
     } catch (e) {
       if (seq != _jobsRequestSeq) return;
@@ -1807,6 +1825,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       _prefetchedThreads.clear();
     }
     _conversationsUserId = currentUserId;
+    // Hand the outbox its owner. It reads what a previous session left queued
+    // on disk and drains it on every reconnect edge from here on — which is
+    // what makes a message composed offline arrive without the user having to
+    // re-open that exact conversation. Idempotent per uid; does not block.
+    unawaited(OutboxStore.instance.start(currentUserId));
     _errors.clear(AppFeature.messages);
     _hasMoreConversations = true;
     _conversationStreamSubscription?.cancel();
@@ -2063,8 +2086,15 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
   /// Called by ChatScreen on open/close so foreground FCM for the current
   /// chat is suppressed (the user already sees the messages).
+  ///
+  /// The outbox needs the same fact for a different reason: ChatScreen sends
+  /// for the thread it is showing, so the store's reconnect drain must skip it
+  /// or one queued message gets two senders. Routed through here rather than
+  /// added as a second call in ChatScreen — "which chat is on screen" should
+  /// have one answer, not two that can drift.
   void setActiveChatId(String? chatId) {
     _activeChatId = chatId;
+    OutboxStore.instance.setActiveChat(chatId ?? '');
     // No notifyListeners() — this is only read by the FCM handler.
   }
 
@@ -2241,6 +2271,19 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     loadPosts(reason: FeedInvalidation.query);
   }
 
+  /// Make sure this viewer's filter history is in memory.
+  ///
+  /// Load-on-demand rather than load-on-sign-in, because there is no sign-in to
+  /// hang it off for most of the audience: Discover is fully browsable signed
+  /// out, and the auth listener that announces a viewer only fires when the uid
+  /// CHANGES — so a signed-out cold start never announced one at all, and the
+  /// Recent row never appeared for exactly the sessions that browse the most.
+  ///
+  /// Idempotent and cheap after the first call, so both readers (the sheet
+  /// opening, and the apply that records) can simply ask.
+  Future<void> ensureFilterHistoryLoaded() =>
+      FilterHistoryService.instance.load(_viewerUserId ?? '');
+
   /// Put [selection] in force, and issue AT MOST ONE feed request.
   ///
   /// This replaces six individual setters that the filter sheet called in
@@ -2282,8 +2325,10 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
     // Remembered on APPLY, which is the only moment we know a filter set was
     // something the user actually wanted. Fire-and-forget: a disk failure must
-    // never delay the feed request the user is waiting on.
-    unawaited(FilterHistoryService.instance.record(selection));
+    // never delay the feed request the user is waiting on. Loaded first, so the
+    // new entry is prepended to what is already stored rather than replacing it.
+    unawaited(ensureFilterHistoryLoaded()
+        .then((_) => FilterHistoryService.instance.record(selection)));
 
     notifyListeners();
     _searchDebounce?.cancel();
@@ -2337,7 +2382,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     // Filter history belongs to the person, so it is (re)read whenever we learn
     // who that is. Idempotent per account; a different uid reads a different key
     // and therefore cannot surface the previous account's searches.
-    unawaited(FilterHistoryService.instance.load(nextUserId ?? ''));
+    unawaited(ensureFilterHistoryLoaded());
 
     // The identity has now been heard from, whoever it turned out to be. This
     // releases the first ranking, which deliberately waited so it could be

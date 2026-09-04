@@ -20,6 +20,7 @@ import '../theme/app_theme.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
+import '../utils/payment_copy.dart';
 import '../utils/payment_utils.dart';
 import '../utils/phone_utils.dart';
 import '../utils/post_ownership.dart';
@@ -262,7 +263,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       ..._buildDetailsSection(isDark),
                       if (post.type == PostType.request && post.price > 0) ...[
                         const SizedBox(height: 24),
-                        _PaymentProtectionCard(isDark: isDark),
+                        _PaymentProtectionCard(isDark: isDark, isAuthor: isAuthor),
                       ],
                       // Applicants: for EVERY listing that takes them, which is
                       // requests and job posts alike. This condition used to
@@ -1399,7 +1400,17 @@ class _DetailTile extends StatelessWidget {
 class _PaymentProtectionCard extends StatelessWidget {
   final bool isDark;
 
-  const _PaymentProtectionCard({required this.isDark});
+  /// Which side of the money the reader is on.
+  ///
+  /// TWO PEOPLE READ THIS CARD AND THEY ARE NOT DOING THE SAME THING.
+  /// It used to take no role at all, so a provider looking at a request they
+  /// might offer service on was told to "pay through Help24" and that "the
+  /// provider is paid only after YOUR approval" — the buyer's script, read by
+  /// the person being paid. Verified on the S20+: the same screen that says
+  /// "Offer Service" carried the client's wording verbatim.
+  final bool isAuthor;
+
+  const _PaymentProtectionCard({required this.isDark, required this.isAuthor});
 
   @override
   Widget build(BuildContext context) {
@@ -1421,9 +1432,9 @@ class _PaymentProtectionCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Payment Protected',
-                  style: TextStyle(
+                Text(
+                  PaymentCopy.protectionTitle(isAuthor: isAuthor),
+                  style: const TextStyle(
                     color: AppTheme.successGreen,
                     fontWeight: FontWeight.w700,
                     fontSize: 14,
@@ -1431,9 +1442,7 @@ class _PaymentProtectionCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Pay through Help24 with M-Pesa and your money is held '
-                  'safely until you approve the completed work. The provider '
-                  'is paid only after your approval.',
+                  PaymentCopy.protectionBody(isAuthor: isAuthor),
                   style: TextStyle(fontSize: 12.5, height: 1.45, color: secondary),
                 ),
               ],

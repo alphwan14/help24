@@ -36,6 +36,7 @@ import 'services/journey_engine.dart';
 import 'services/launch_sequence.dart';
 import 'services/notification_service.dart';
 import 'services/notification_store.dart';
+import 'services/outbox_store.dart';
 import 'services/remote_config_service.dart';
 import 'services/reputation_service.dart';
 import 'services/session_scope.dart';
@@ -211,6 +212,10 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // The in-memory mirror of the message cache is user-owned like the disk
       // entries it mirrors, so it must be reset at a session boundary too.
       SessionScope.instance.register(const MessageMemoScope());
+      // The outbox holds the user's own unsent words, keyed by uid on disk and
+      // mirrored in memory for the session. Both halves are user-owned, so it
+      // registers here like every other user-scoped store.
+      SessionScope.instance.register(OutboxStore.instance);
       await SessionScope.instance.purgeForeignScopes(await _restoredUid());
 
       if (AppFirebase.isReady) {

@@ -21,6 +21,7 @@ import '../services/chat_resolution.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/post_service.dart';
 import '../services/cache_service.dart';
+import '../services/outbox_store.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../services/storage_service.dart';
 import 'post_detail_screen.dart';
@@ -65,6 +66,20 @@ class _MessagesScreenState extends State<MessagesScreen> {
     ChatLocalPrefs.ensureLoaded().then((_) {
       if (mounted) setState(() {});
     });
+    // The outbox is not part of the conversation stream, so the list would not
+    // otherwise repaint when a message is queued, delivered or fails while the
+    // user is looking at it.
+    OutboxStore.instance.addListener(_onOutboxChanged);
+  }
+
+  void _onOutboxChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    OutboxStore.instance.removeListener(_onOutboxChanged);
+    super.dispose();
   }
 
   /// Start Supabase chat list stream for Messages tab (real-time).
@@ -196,6 +211,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                       final tile = _ConversationTile(
                         key: ValueKey(conversation.id),
                         conversation: conversation,
+                        currentUserId: uid,
                         onTap: () async {
                           final result = await Navigator.push<Conversation>(
                             context,
@@ -234,10 +250,15 @@ class _ConversationTile extends StatelessWidget {
   final Conversation conversation;
   final VoidCallback onTap;
 
+  /// The owner of these conversations. The outbox is user-owned, so reading it
+  /// requires naming whose it is rather than trusting an ambient current user.
+  final String currentUserId;
+
   const _ConversationTile({
     super.key,
     required this.conversation,
     required this.onTap,
+    required this.currentUserId,
   });
 
   static const _months = [
@@ -293,6 +314,33 @@ class _ConversationTile extends StatelessWidget {
     final isCleared =
         cleared != null && !conversation.lastMessageTime.isAfter(cleared);
     final showUnread = conversation.unreadCount > 0 && !isCleared;
+
+    // AN UNSENT MESSAGE IS STILL THE LATEST THING IN THIS CONVERSATION.
+    //
+    // `conversation.lastMessage` is the server's `chats.last_message`, written
+    // only after a successful insert. So a message composed offline used to
+    // leave no trace here at all: the row kept showing the PREVIOUS message as
+    // the latest one, and the user's own words were missing from the list with
+    // nothing to explain why. What is queued is newer than what the server
+    // knows, and it is shown as such — marked, never disguised as delivered.
+    final pending = OutboxStore.instance.pendingFor(currentUserId, conversation.id);
+    final hasFailure = OutboxStore.instance.hasFailure(currentUserId, conversation.id);
+    final previewText = pending?.text ?? conversation.lastMessage;
+    final previewTime = pending?.timestamp ?? conversation.lastMessageTime;
+    // Three states, three honest labels. "Sending…" is reserved for a request
+    // that is genuinely open RIGHT NOW — asked of the store, not read off the
+    // message's persisted status, because a status survives being killed
+    // mid-send and would then claim a request that no longer exists. Anything
+    // else says the true thing, which is that it has NOT been sent.
+    final String? pendingLabel = pending == null
+        ? null
+        : (!hasFailure && OutboxStore.instance.isSending(pending.id))
+            ? 'Sending…'
+            : 'Not sent';
+    // A cleared conversation is cleared UP TO A POINT; something composed since
+    // is newer than that watermark and must show, exactly as a received message
+    // newer than the watermark does.
+    final showCleared = isCleared && pending == null;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -362,7 +410,7 @@ class _ConversationTile extends StatelessWidget {
                               const SizedBox(width: 4),
                             ],
                             Text(
-                              _formatTime(conversation.lastMessageTime),
+                              _formatTime(previewTime),
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 fontSize: 12,
                                 color: showUnread ? AppTheme.primaryAccent : null,
@@ -375,27 +423,65 @@ class _ConversationTile extends StatelessWidget {
                         const SizedBox(height: 2),
                         Row(
                           children: [
+                            // The unsent marker. A clock for "waiting for a
+                            // network", a warning for "this did not go" — the
+                            // two must not look alike, because only one of them
+                            // needs the user to do something.
+                            if (pending != null) ...[
+                              Icon(
+                                hasFailure
+                                    ? Icons.error_outline_rounded
+                                    : Icons.schedule_rounded,
+                                size: 13,
+                                color: hasFailure
+                                    ? AppTheme.errorRed
+                                    : (isDark
+                                        ? AppTheme.darkTextTertiary
+                                        : AppTheme.lightTextTertiary),
+                              ),
+                              const SizedBox(width: 4),
+                            ],
                             Expanded(
                               child: Text(
-                                isCleared
+                                showCleared
                                     ? 'No messages'
-                                    : conversation.lastMessage.isNotEmpty
-                                        ? conversation.lastMessage
+                                    : previewText.isNotEmpty
+                                        ? previewText
                                         : 'No messages yet',
                                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                   fontWeight: showUnread
                                       ? FontWeight.w600
                                       : FontWeight.normal,
                                   fontStyle:
-                                      isCleared ? FontStyle.italic : FontStyle.normal,
-                                  color: showUnread
-                                      ? (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary)
-                                      : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+                                      showCleared ? FontStyle.italic : FontStyle.normal,
+                                  color: hasFailure
+                                      ? AppTheme.errorRed
+                                      : showUnread
+                                          ? (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary)
+                                          : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
+                            // Says in words what the icon says in shape. "Not
+                            // sent" is the fact the report asked for and the
+                            // one a glyph alone cannot be trusted to carry.
+                            if (pendingLabel != null) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                pendingLabel,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: hasFailure
+                                      ? AppTheme.errorRed
+                                      : (isDark
+                                          ? AppTheme.darkTextTertiary
+                                          : AppTheme.lightTextTertiary),
+                                ),
+                              ),
+                            ],
                             if (showUnread) ...[
                               const SizedBox(width: 8),
                               Container(
@@ -529,10 +615,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   // ── Offline outbox ──
   // Messages composed while unsent are queued (persisted per chat) and resent
-  // automatically the moment the connection returns. _inFlightSends guards
-  // against a manual retry racing the auto-flush and double-sending.
+  // automatically the moment the connection returns.
+  //
+  // This screen sends for the thread it is showing; `OutboxStore` owns the
+  // queue for the session and drains every other thread. The in-flight claim
+  // lives THERE, not here, so a manual retry, this screen's auto-flush and the
+  // store's drain cannot all send the same message.
   StreamSubscription<void>? _reconnectSub;
-  final Set<String> _inFlightSends = {};
 
   // ── Journey Engine (Phase 2) ──
   // The screen owns NO journey state: no timers, no position subscriptions,
@@ -1115,11 +1204,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _markSeenNow() async {
+    // Resolved BEFORE the await, while the element is certainly usable.
+    //
+    // `mounted` does not make `context` safe after an async gap: it stays true
+    // through a window in which the element is already defunct, and reading a
+    // provider off it then throws. Observed on the S20+ during the offline
+    // messaging run:
+    //   Unhandled Exception: Null check operator used on a null value
+    //   #0 Element.widget  #2 Provider.of  #4 _ChatScreenState._markSeenNow
+    // AppProvider lives above this route, so holding the reference across the
+    // await is safe — it is the BuildContext that stops being safe, not the
+    // provider.
+    final app = context.read<AppProvider>();
     await ChatServiceSupabase.markMessagesSeen(_chatId, widget.currentUserId);
     // Zero out the local unread badge immediately without waiting for the
     // next conversation list poll.
     if (mounted) {
-      context.read<AppProvider>().markConversationRead(_chatId);
+      app.markConversationRead(_chatId);
     }
   }
 
@@ -1336,7 +1437,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         postTitle: widget.conversation.postTitle,
       );
       if (!mounted) return false;
-      setState(() => _activeChatId = conv.id);
+      setState(() {
+        _activeChatId = conv.id;
+        // ADOPT THE CREATED ROW'S OWN POST CONTEXT.
+        //
+        // `_insertChatRow` selects through `chatRowSelect`, so the row that
+        // comes back already carries `posts(title)` whether or not the entry
+        // point brought one. Reading it here closes the last way the post-name
+        // invariant could be broken: a caller that knew `postId` but not
+        // `postTitle` would create a genuinely post-scoped chat whose banner
+        // stayed empty for the life of the screen — the Messages tab would
+        // show the 📌 and the open conversation would not. No entry point does
+        // that today; this makes it impossible for a new one to.
+        _resolvedPostId ??= conv.postId;
+        _resolvedPostTitle ??= conv.postTitle;
+      });
       // Start realtime and typing now that the chat exists.
       _startRealtimeMessages();
       _startChatRowRealtime();
@@ -1377,7 +1492,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       timestamp: DateTime.now(),
       isMe: true,
       type: 'text',
-      status: 'sending',
+      // Queued until a request is actually open for it — see [OutboxStatus].
+      // `sending` used to cover both, so an offline message showed a spinner
+      // for work that was not happening.
+      status: OutboxStatus.queued,
       replyToId: replyingTo?.id,
       replyToSender: replyingTo == null
           ? null
@@ -1395,7 +1513,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     // Offline: don't burn a long timeout — leave it queued (clock) and reassure
     // the user it will go out on its own. Online: try now.
-    final offline = mounted && context.read<ConnectivityProvider>().isOffline;
+    // One definition of offline for the whole send path — see `_attemptSend`.
+    final offline = NetworkHealth.isOffline;
     if (offline) {
       // Reassure once, not on every queued message — the clock on each bubble
       // already shows they're waiting to send.
@@ -1411,16 +1530,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// marks it 'failed' (tap-to-retry) on error, and leaves it 'sending' (queued)
   /// when we're offline. Safe to call repeatedly — an in-flight id is skipped.
   Future<void> _attemptSend(Message pending) async {
-    if (_inFlightSends.contains(pending.id)) return;
+    // The claim is shared with OutboxStore, which drains every OTHER thread on
+    // the reconnect edge. Two senders holding the same message is how one
+    // message becomes two.
+    if (OutboxStore.instance.isSending(pending.id)) return;
 
-    final offline = mounted && context.read<ConnectivityProvider>().isOffline;
-    if (offline) {
-      _updatePendingStatus(pending.id, 'sending');
+    // NetworkHealth, not `context.read<ConnectivityProvider>()`. Same verdict —
+    // ConnectivityProvider is the only thing that publishes it — but reachable
+    // without an Element.
+    //
+    // This path is driven by a STREAM, not by a tap. Device evidence: on the
+    // reconnect edge, `_flushOutbox` reached here from a ChatScreen whose
+    // element was already defunct and threw
+    //   Unhandled Exception: Null check operator used on a null value
+    //   #0  Element.widget  #2 Provider.of  #4 _ChatScreenState._attemptSend
+    // which aborted the flush, and the queued message was still undelivered
+    // afterwards. `mounted` did not protect it: the guard was true while the
+    // element was already unusable. A send must not depend on a widget being
+    // alive — the message belongs to the account, not to the screen.
+    if (NetworkHealth.isOffline) {
+      _updatePendingStatus(pending.id, OutboxStatus.queued);
       return;
     }
 
-    _inFlightSends.add(pending.id);
-    _updatePendingStatus(pending.id, 'sending');
+    if (!OutboxStore.instance.claimSend(pending.id)) return;
+    _updatePendingStatus(pending.id, OutboxStatus.sending);
     try {
       // Lazy chat creation for a brand-new conversation's first message. Needs
       // the network, so it lives here: offline it fails and the message simply
@@ -1457,10 +1591,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       } else {
         debugPrint('[CHAT][SEND] failed: $e');
       }
-      _updatePendingStatus(pending.id, 'failed');
+      _updatePendingStatus(pending.id, OutboxStatus.failed);
       _persistOutbox();
     } finally {
-      _inFlightSends.remove(pending.id);
+      OutboxStore.instance.releaseSend(pending.id);
     }
   }
 
@@ -1469,7 +1603,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _flushOutbox() async {
     if (_pendingMessages.isEmpty) return;
     final queue = _pendingMessages
-        .where((m) => !_inFlightSends.contains(m.id))
+        .where((m) => !OutboxStore.instance.isSending(m.id))
         .toList()
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     for (final m in queue) {
@@ -1480,7 +1614,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Manual retry from a failed message's "Tap to retry" chip.
   void _retryPending(Message m) {
-    _updatePendingStatus(m.id, 'sending');
+    _updatePendingStatus(m.id, OutboxStatus.sending);
     _attemptSend(m);
   }
 
@@ -1499,8 +1633,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Keyed by chat id; a brand-new conversation has none yet, so its queue
     // lives in memory until the chat row exists (created on the first flush).
     if (_chatId.isEmpty) return;
-    CacheService.saveOutbox(
-        widget.currentUserId, _chatId, List<Message>.of(_pendingMessages));
+    final queue = List<Message>.of(_pendingMessages);
+    CacheService.saveOutbox(widget.currentUserId, _chatId, queue);
+    // THE SINGLE CHOKE POINT. Every add, status change and successful send
+    // passes through here, so publishing from this one place is what lets the
+    // Messages tab show an unsent message without this screen knowing the tab
+    // exists — and what clears the pending preview the moment it is delivered.
+    OutboxStore.instance.publish(widget.currentUserId, _chatId, queue);
   }
 
   /// Restore messages queued in a previous session and drain them if online.
@@ -1513,7 +1652,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         if (!_pendingMessages.any((p) => p.id == m.id)) _pendingMessages.add(m);
       }
     });
-    if (!context.read<ConnectivityProvider>().isOffline) {
+    if (!NetworkHealth.isOffline) {
       _flushOutbox();
     }
   }
@@ -3805,6 +3944,18 @@ class _MessageStatusIcon extends StatelessWidget {
 
   Widget _icon() {
     if (isPending) {
+      // A clock, not a spinner, while the message is merely QUEUED. Offline
+      // there is no request open, and an indeterminate spinner claims work that
+      // is not happening — the one thing an unsent message must not do is look
+      // like it is on its way. The spinner is kept for a real in-flight send.
+      if (status == OutboxStatus.queued) {
+        return Icon(
+          Icons.schedule_rounded,
+          size: 13,
+          color: Colors.white.withValues(alpha: 0.75),
+          key: const ValueKey('queued'),
+        );
+      }
       return SizedBox(
         key: const ValueKey('pending'),
         width: 12,
