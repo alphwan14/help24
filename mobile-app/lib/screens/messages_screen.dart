@@ -687,6 +687,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // Populated on first message send via _ensureChatCreated().
   late String _activeChatId;
 
+  /// AppProvider, captured in [initState] while the element is still active.
+  ///
+  /// `dispose()` runs from `StatefulElement.unmount()`, which has already
+  /// released the element's widget — so `context.read<AppProvider>()` there
+  /// walks into `Element.widget` and throws a null check on a null value. That
+  /// is not a debug assert; it happens in release, on every close, and it
+  /// aborts the rest of dispose(). See the note in [_markSeenNow]: the
+  /// BuildContext stops being safe, the provider does not.
+  late final AppProvider _appProvider;
+
   /// Whether a conversation exists — see `chat_resolution.dart`. Never let
   /// `resolving` or `unresolved` render the start-conversation state.
   ChatResolution _resolution = ChatResolution.resolving;
@@ -836,6 +846,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     super.initState();
     _openWatch.start();
     WidgetsBinding.instance.addObserver(this);
+    // Read here, not in dispose(): the element is active now and defunct then.
+    _appProvider = context.read<AppProvider>();
     _activeChatId = widget.conversation.id;
     _scrollController.addListener(_onScroll);
     _messageController.addListener(_onTypingChanged);
@@ -956,7 +968,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     // Clear active chat so notifications resume for other chats.
-    context.read<AppProvider>().setActiveChatId(null);
+    //
+    // Through the captured reference, NEVER `context.read` — this line used to
+    // throw on every close, and because it sits second in dispose() it took
+    // everything below it with it: the realtime subscription, the chats-row
+    // channel, six timers, the journey listener and the cache flush all
+    // leaked. Measured on an A21s: five chats opened and closed left five live
+    // watchMessages channel pairs, each still running its own backoff loop.
+    _appProvider.setActiveChatId(null);
     _realtimeSubscription?.cancel();
     _chatRowChannel?.unsubscribe();
     _typingExpireTimer?.cancel();

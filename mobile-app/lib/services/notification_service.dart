@@ -286,6 +286,10 @@ class NotificationService {
 
   static void Function(Map<String, dynamic> data)? _onLocalTapCallback;
 
+  /// Held so the launch-message check in [initialize] can route a tap through
+  /// the same handler as a live one. See [_deliverLaunchMessage].
+  static void Function(RemoteMessage message)? _onNotificationTapCallback;
+
   static String? get currentToken => _currentToken;
 
   static void setNavigatorKey(GlobalKey<NavigatorState>? key) {
@@ -336,6 +340,8 @@ class NotificationService {
 
       await _requestPermissionAndToken();
       _attachTokenRefreshListener();
+      // Firebase is ready here, so the launch-message check can finally run.
+      await _deliverLaunchMessage();
 
       debugPrint('[FCM][INIT] complete');
     } catch (e, st) {
@@ -377,6 +383,7 @@ class NotificationService {
       return;
     }
     _handlersAttached = true;
+    _onNotificationTapCallback = onNotificationTap;
     try {
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         final type     = message.data['type'] as String? ?? '';
@@ -413,14 +420,39 @@ class NotificationService {
         onNotificationTap(message);
       }, onError: (e) => debugPrint('[FCM][OPENED][ERROR] $e'));
 
-      FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
-        if (message != null) {
-          debugPrint('[FCM][INITIAL] data=${message.data}');
-          onNotificationTap(message);
-        }
-      }).catchError((e) => debugPrint('[FCM][INITIAL][ERROR] $e'));
+      // NOTE: getInitialMessage() is deliberately NOT called here — see
+      // [_deliverLaunchMessage]. Everything above is a static platform stream
+      // and attaches with no Firebase app; `FirebaseMessaging.instance` is not.
     } catch (e) {
       debugPrint('[FCM][SETUP][ERROR] $e');
+    }
+  }
+
+  /// Route the notification that LAUNCHED the app, if there was one.
+  ///
+  /// This used to sit at the end of [setupMessageHandlers], which runs from
+  /// `initState` — before `Firebase.initializeApp()` has completed. Reaching
+  /// `FirebaseMessaging.instance` there evaluates `Firebase.app()`, which
+  /// throws `[core/no-app]`; the surrounding catch swallowed it and every
+  /// launch logged `[FCM][SETUP][ERROR]`. The two listeners above survived
+  /// (they are static platform streams and need no app), so the only casualty
+  /// was this call — meaning a tap on a notification-block push that started
+  /// the app from cold was never routed. `_handlersAttached` was already true
+  /// by then, so no later call could repair it either.
+  ///
+  /// Called from [initialize], which runs only once `AppFirebase.isReady`.
+  ///
+  /// Help24's own chat pushes are data-only and rendered by the background
+  /// isolate, so their launch taps arrive through the local-notifications
+  /// plugin instead and were never affected. This closes the other door.
+  static Future<void> _deliverLaunchMessage() async {
+    try {
+      final message = await FirebaseMessaging.instance.getInitialMessage();
+      if (message == null) return;
+      debugPrint('[FCM][INITIAL] data=${message.data}');
+      _onNotificationTapCallback?.call(message);
+    } catch (e) {
+      debugPrint('[FCM][INITIAL][ERROR] $e');
     }
   }
 

@@ -228,6 +228,32 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
     }
   }
 
+  /// The uid to route a notification tap as — waiting for the session if the
+  /// app is still starting up.
+  ///
+  /// WHY THIS IS NOT JUST `context.read<AuthProvider>().currentUserId`
+  /// -----------------------------------------------------------------
+  /// There are two clocks. `AuthProvider` is created in the MultiProvider at
+  /// roughly +10ms and its `initialize()` bails immediately because Firebase
+  /// is not ready yet; nothing retries it until `StartupGate` does, after the
+  /// bootstrap future resolves. A notification tap, meanwhile, is delivered as
+  /// soon as the local-notifications plugin initialises — measured at +183ms
+  /// on a Galaxy S20+. In that window the provider truthfully reports null for
+  /// a user who is signed in, and every caller that treated null as "signed
+  /// out" dropped the tap on the floor.
+  ///
+  /// So: take the provider's answer when it HAS one (the warm case, no await),
+  /// and otherwise wait for Firebase's own restored session, which is the
+  /// earlier and more authoritative of the two clocks. Bounded by the 5s
+  /// timeout inside [_restoredUid]; a genuinely signed-out user still ends up
+  /// at null, just later.
+  Future<String?> _routingUid(BuildContext context) async {
+    final known = context.read<AuthProvider>().currentUserId;
+    if (known != null && known.isNotEmpty) return known;
+    await AppFirebase.initialize(); // memoized — joins the in-flight init
+    return _restoredUid();
+  }
+
   Future<void> _onForegroundMessage(RemoteMessage message) async {
     final data = message.data;
     final chatId = (data['chatId'] ?? data['chat_id']) as String?;
@@ -302,9 +328,12 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _openChat(BuildContext context, String chatId) async {
-    final uid = context.read<AuthProvider>().currentUserId;
-    if (uid == null) return;
+  /// [uid] is passed in, never re-read from the provider. The caller has
+  /// already resolved it (see _routingUid) and on a cold launch the provider
+  /// is still null at this point — reading it again would re-introduce exactly
+  /// the race the caller just waited out.
+  Future<void> _openChat(BuildContext context, String chatId, String uid) async {
+    if (uid.isEmpty) return;
     debugPrint('[NAV][OPEN_CHAT] chatId=$chatId');
 
     // Load the partner's name and avatar so the chat header shows the real user.
@@ -377,21 +406,29 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
     String? postId,
     required Map<String, dynamic> data,
   }) async {
-    final uid = context.read<AuthProvider>().currentUserId;
+    // Resolved, not read. A tap that COLD-LAUNCHES the app arrives ~200ms in,
+    // and AuthProvider is not populated by then: its `initialize()` returns
+    // early while Firebase is still starting, and only StartupGate re-runs it
+    // once the bootstrap future completes (~2.5s). A synchronous read here
+    // therefore answered "signed out" for a signed-in user and this method
+    // returned — silently. The notification opened the app on Discover and the
+    // conversation was simply lost. See _routingUid.
+    final uid = await _routingUid(context);
     if (uid == null || uid.isEmpty) return;
+    if (!context.mounted) return;
 
     switch (type) {
       // ── Chat message → open the exact conversation ─────────────────────────
       case 'chat_message':
         if (chatId != null && chatId.isNotEmpty) {
-          await _openChat(context, chatId);
+          await _openChat(context, chatId, uid);
         }
         break;
 
       // ── Provider selected → open the job chat (next step: secure payment) ──
       case 'provider_selected':
         if (chatId != null && chatId.isNotEmpty) {
-          await _openChat(context, chatId);
+          await _openChat(context, chatId, uid);
         } else if (postId != null && postId.isNotEmpty) {
           await _findAndOpenChat(context, postId: postId, uid: uid);
         }
@@ -494,7 +531,7 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       final foundChatId = res?['id'] as String?;
       if (foundChatId != null && foundChatId.isNotEmpty && context.mounted) {
         debugPrint('[NAV][OPEN_CHAT] resolved chatId=$foundChatId for postId=$postId');
-        await _openChat(context, foundChatId);
+        await _openChat(context, foundChatId, uid);
       } else if (context.mounted) {
         debugPrint('[NAV][OPEN_CHAT] no chat found for postId=$postId — fallback');
         _openNotificationsScreen(context);
