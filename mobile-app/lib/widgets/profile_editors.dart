@@ -256,8 +256,8 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
       // Profession is the second-heaviest ranking signal (25 points), so the
       // recommendations computed under the old one are now answering the wrong
       // question. Rebuild — quietly: the user is editing their profile, not
-      // asking for the feed behind them to be rearranged. The result is offered
-      // as "New recommendations" when they next look at Discover.
+      // asking for the feed behind them to be rearranged. The result lands on
+      // its own the next time Discover is free to change.
       context.read<AppProvider>().markProfileChanged();
       Navigator.pop(context, true);
     } catch (e) {
@@ -373,81 +373,89 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
                         ),
                       ),
                     )
-                  : ListView.builder(
+                  // 517 professions in 32 categories: flick-scrolling alone
+                  // makes the tail of the catalogue effectively unreachable.
+                  // An interactive thumb turns the whole list into one drag.
+                  : Scrollbar(
                       controller: scrollController,
-                      padding: const EdgeInsets.only(bottom: 24),
-                      itemCount: rows.length,
-                      itemBuilder: (context, i) {
-                        final row = rows[i];
-                        if (row.isHeader) {
-                          return Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 18, 4, 6),
-                            child: Row(
-                              children: [
-                                Icon(row.category!.icon,
-                                    size: 15,
-                                    color: isDark
-                                        ? AppTheme.darkTextTertiary
-                                        : AppTheme.lightTextTertiary),
-                                const SizedBox(width: 8),
-                                Text(
-                                  row.category!.name.toUpperCase(),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.8,
-                                    color: isDark
-                                        ? AppTheme.darkTextTertiary
-                                        : AppTheme.lightTextTertiary,
+                      thumbVisibility: true,
+                      interactive: true,
+                      child: ListView.builder(
+                        controller: scrollController,
+                        padding: const EdgeInsets.only(bottom: 24),
+                        itemCount: rows.length,
+                        itemBuilder: (context, i) {
+                          final row = rows[i];
+                          if (row.isHeader) {
+                            return Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 18, 4, 6),
+                              child: Row(
+                                children: [
+                                  Icon(row.category!.icon,
+                                      size: 15,
+                                      color: isDark
+                                          ? AppTheme.darkTextTertiary
+                                          : AppTheme.lightTextTertiary),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    row.category!.name.toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.8,
+                                      color: isDark
+                                          ? AppTheme.darkTextTertiary
+                                          : AppTheme.lightTextTertiary,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
+                            );
+                          }
+                          final p = row.profession!;
+                          final isSelected = selected?.id == p.id;
+                          final isSaving = _saving == p.id;
+                          // When searching, the group is no longer implied by a
+                          // header above the row, so each result carries it.
+                          final category = _registry.categoryOf(p);
+                          return ListTile(
+                            contentPadding:
+                                const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            leading: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryAccent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(11),
+                              ),
+                              child: Icon(_registry.iconFor(p),
+                                  size: 20, color: AppTheme.primaryAccent),
                             ),
+                            title: Text(
+                              p.name,
+                              style: TextStyle(
+                                fontWeight:
+                                    isSelected ? FontWeight.w700 : FontWeight.w500,
+                              ),
+                            ),
+                            subtitle: (_query.isNotEmpty && category != null)
+                                ? Text(category.name,
+                                    style: Theme.of(context).textTheme.bodySmall)
+                                : null,
+                            trailing: isSaving
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : isSelected
+                                    ? const Icon(Icons.check_circle_rounded,
+                                        color: AppTheme.primaryAccent)
+                                    : null,
+                            onTap: _saving != null ? null : () => _select(p),
                           );
-                        }
-                        final p = row.profession!;
-                        final isSelected = selected?.id == p.id;
-                        final isSaving = _saving == p.id;
-                        // When searching, the group is no longer implied by a
-                        // header above the row, so each result carries it.
-                        final category = _registry.categoryOf(p);
-                        return ListTile(
-                          contentPadding:
-                              const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                          leading: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(11),
-                            ),
-                            child: Icon(_registry.iconFor(p),
-                                size: 20, color: AppTheme.primaryAccent),
-                          ),
-                          title: Text(
-                            p.name,
-                            style: TextStyle(
-                              fontWeight:
-                                  isSelected ? FontWeight.w700 : FontWeight.w500,
-                            ),
-                          ),
-                          subtitle: (_query.isNotEmpty && category != null)
-                              ? Text(category.name,
-                                  style: Theme.of(context).textTheme.bodySmall)
-                              : null,
-                          trailing: isSaving
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : isSelected
-                                  ? const Icon(Icons.check_circle_rounded,
-                                      color: AppTheme.primaryAccent)
-                                  : null,
-                          onTap: _saving != null ? null : () => _select(p),
-                        );
-                      },
+                        },
+                      ),
                     ),
             ),
           ],

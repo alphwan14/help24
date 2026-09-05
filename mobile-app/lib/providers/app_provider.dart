@@ -346,14 +346,19 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
   /// True when a newer ranking has been computed and is waiting to be shown.
   ///
-  /// Discover renders this as "New recommendations available". It is never
-  /// applied on its own: a feed that reorganises itself while someone reads it
-  /// is the behaviour this whole mechanism exists to prevent.
+  /// NOTHING RENDERS THIS. It used to drive a "New recommendations available"
+  /// pill; that pill is gone, because the honest answer to "should I press
+  /// this?" was always yes, which is an interruption rather than a choice.
+  /// The ranking now lands on its own at a moment when nothing the reader is
+  /// looking at can move — see [setFeedEngaged] and [setDiscoverVisible]. What
+  /// did NOT change is the reason it waits: a feed that reorganises itself
+  /// while someone reads it is the behaviour this mechanism exists to prevent.
   bool get hasPendingFeed => _pending != null;
 
   /// How many listings in the waiting ranking are ones the reader has not seen
-  /// and did not write. Diagnostic and telemetry only — the prompt says
-  /// "New recommendations available" whatever this is (see [_worthOffering]).
+  /// and did not write. Diagnostic and telemetry only: nothing user-facing is
+  /// keyed off the number, and whether a ranking is held at all is decided by
+  /// [_worthOffering], not by this count.
   int get pendingFeedNewPostCount {
     final next = _pending;
     final current = _installed;
@@ -408,8 +413,9 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     return current.fromCache;
   }
 
-  /// Show the waiting ranking. Called by the prompt and by pull-to-refresh —
-  /// i.e. only ever as a direct result of the user asking.
+  /// Show the waiting ranking. Called by pull-to-refresh, and by the two
+  /// moments where the swap is free: the reader returning to the top of the
+  /// feed, and Discover ceasing to be the visible tab.
   void applyPendingFeed() {
     final next = _pending;
     if (next == null) return;
@@ -889,7 +895,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   ///
   /// This is the automatic path — app resume, a location update, a profile
   /// edit, the snapshot ageing out. It never disturbs the screen: whatever it
-  /// computes is offered through [hasPendingFeed], not installed.
+  /// computes is held as pending and installed silently at the next moment
+  /// nothing on screen can be disturbed.
   ///
   /// Cheap to call as often as you like: with nothing changed and a fresh
   /// snapshot it issues no request at all.
@@ -921,7 +928,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   ///   * the user did something (refresh, filter, tab, sign-in) → install it,
   ///     because they are waiting for exactly this;
   ///   * the app noticed something (moved, profile edited, snapshot aged) →
-  ///     compute it, hold it, and offer it as "New recommendations available".
+  ///     compute it, hold it, and let it land silently once the reader is back
+  ///     at the top of the feed or has left Discover.
   ///
   /// The second case is the whole point. A better feed is not a licence to
   /// reorganise a screen someone is reading.
@@ -1112,10 +1120,10 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   ///   5. the new ranking does not visibly differ — installing it moves nothing,
   ///      so holding it back would only produce a prompt that does nothing.
   ///
-  /// Rule 5 is what keeps the prompt honest. Most background rebuilds return
-  /// the same order (the server's ranking clock is bucketed for exactly this
-  /// reason), and a "New recommendations available" pill that reorders nothing
-  /// teaches people to ignore it.
+  /// Rule 5 is what keeps the list stable. Most background rebuilds return the
+  /// same order (the server's ranking clock is bucketed for exactly this
+  /// reason), and re-keying the feed for a ranking that moves nothing costs a
+  /// rebuild and buys the reader nothing.
   bool _shouldInstall(FeedSnapshot next, FeedInvalidation reason) {
     final current = _installed;
     return FeedArrival.installs(
