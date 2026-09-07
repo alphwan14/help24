@@ -317,6 +317,20 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       _routeNotification(context, type: type, chatId: chatId, postId: postId, data: data),
     );
 
+    // The sender's photo, if this device already has it. Read straight out of
+    // the conversation list AppProvider loaded when the home screen mounted —
+    // no query is issued to decorate a banner, and a chat this device has
+    // never opened falls back to the sender's initials.
+    var avatarUrl = '';
+    if (type == 'chat_message' && chatId != null && chatId.isNotEmpty) {
+      for (final c in context.read<AppProvider>().conversations) {
+        if (c.id == chatId) {
+          avatarUrl = c.userAvatar;
+          break;
+        }
+      }
+    }
+
     NotificationBannerOverlay.show(
       context: context,
       // The navigator's OWN overlay — an ancestor lookup from
@@ -324,6 +338,10 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       overlay: _navigatorKey.currentState?.overlay,
       title: title,
       body: body,
+      // Presentation only: picks the eyebrow label, icon and tone from the
+      // notification registry. Routing stays entirely in onTap above.
+      type: type,
+      avatarUrl: avatarUrl,
       onTap: onTap,
     );
   }
