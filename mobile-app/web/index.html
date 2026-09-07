@@ -24,7 +24,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="help24">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <!-- The full-bleed rendition, not the tile. iOS applies its own squircle
+       mask and composites any transparency onto black, so the tile's
+       transparent corners would show as four black notches inside the mask. -->
+  <link rel="apple-touch-icon" href="icons/Icon-maskable-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>

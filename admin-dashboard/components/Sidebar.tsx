@@ -245,16 +245,18 @@ function NavTree({
       {/* Logo */}
       <div className="px-5 py-[17px] shrink-0 border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 ring-1 ring-white/[0.12] bg-white">
-            <Image
-              src="/help24.png"
-              alt="Help24 logo"
-              width={32}
-              height={32}
-              className="w-full h-full object-contain"
-              priority
-            />
-          </div>
+          {/* The mark carries its own squircle with transparent corners, so it
+              needs no plate and no crop. The white circle that used to sit here
+              cut the artwork's corners off and showed as four bright notches
+              behind them. */}
+          <Image
+            src="/help24.png"
+            alt="Help24 logo"
+            width={32}
+            height={32}
+            className="w-8 h-8 shrink-0"
+            priority
+          />
           <div>
             <p className="text-white font-semibold text-[13.5px] leading-none tracking-tight">
               Help24
@@ -460,16 +462,14 @@ export default function Sidebar({
         </button>
 
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-full overflow-hidden ring-1 ring-white/[0.12] bg-white shrink-0">
-            <Image
-              src="/help24.png"
-              alt="Help24"
-              width={28}
-              height={28}
-              className="w-full h-full object-contain"
-              priority
-            />
-          </div>
+          <Image
+            src="/help24.png"
+            alt="Help24"
+            width={28}
+            height={28}
+            className="w-7 h-7 shrink-0"
+            priority
+          />
           <span className="text-white font-semibold text-[13.5px] tracking-tight">
             Help24
           </span>

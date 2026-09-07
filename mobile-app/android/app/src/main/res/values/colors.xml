@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#0A0A0A</color>
-    <!-- Splash background — matches AppTheme.darkBackground so the handoff from
-         native splash to the Flutter first frame is seamless (no flash). -->
-    <color name="splash_background">#0A0A0A</color>
+    <color name="ic_launcher_background">#12161A</color>
+    <!-- Splash background — brand Ink, and the SAME value as
+         LaunchSplash.background, which is what keeps the handoff from the
+         native splash to the Flutter first frame free of a flash.
+
+         It is deliberately NOT AppTheme.darkBackground (#0A0A0A) any more. The
+         rebrand moved the launch surface to Ink; moving the app's scaffold with
+         it would have repainted eighteen screens, which is a theme decision and
+         not a logo one. The two now differ by rgb(8,12,16) at the moment the
+         splash unmounts. If that step ever reads as a flash on a real screen,
+         the fix is to move darkBackground onto Ink, not to move this back. -->
+    <color name="splash_background">#12161A</color>
 </resources>

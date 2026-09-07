@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -410,15 +411,21 @@ class _WelcomeStepState extends State<_WelcomeStep> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 12),
+          // THE MARK, NOT THE LOCKUP. The lockup carries the wordmark, and the
+          // 'Help24' headline is the very next widget — using it here would set
+          // the name twice. Mark plus headline already IS a vertical lockup.
+          //
+          // Vector, so the gaps either side of the gold bar stay open at any
+          // size; and the variant follows the theme, because the uprights are
+          // Ink on light and Bone on dark. Hardcoding either one makes the mark
+          // vanish into the background in the other mode. Height is left to
+          // follow the 60:56 viewBox rather than forced square.
           Center(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(22),
-              child: Image.asset(
-                'assets/help24_icon.png',
-                width: 80,
-                height: 80,
-                fit: BoxFit.cover,
-              ),
+            child: SvgPicture.asset(
+              isDark
+                  ? 'assets/brand/help24-mark-on-dark.svg'
+                  : 'assets/brand/help24-mark.svg',
+              width: 80,
             ),
           ),
           const SizedBox(height: 20),

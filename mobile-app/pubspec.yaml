@@ -52,25 +52,52 @@ dev_dependencies:
   flutter_lints: ^3.0.1
   flutter_launcher_icons: ^0.14.3
 
+# THE FOREGROUND IS NOT THE TILE.
+# `image_path` is the full square tile, which is right for the legacy launcher
+# icon and for iOS/macOS/Windows, where the platform draws the artwork as given.
+# The adaptive icon is different: Android composites the foreground inside a
+# mask of its own, so handing it the tile would put a square inside that mask
+# and letterbox the mark. `adaptive_icon_foreground` is therefore a TRANSPARENT
+# render of the bare mark at 47% of the 108dp canvas. It lives in branding/
+# rather than assets/ so it is not also shipped inside the APK.
+#
+# WHY 47% AND NOT MORE. The guaranteed-visible region is a CIRCLE 66dp across,
+# and a launcher may mask to any shape inscribed in it. This mark is wide and
+# tall, so the quantity that has to fit inside that circle is its diagonal, not
+# its width. At 61% by width the artwork's furthest point sat 42.7dp from centre
+# against a 33dp safe radius and One UI's squircle sheared the caps off both
+# uprights. Verified on an SM-G986U. Re-derive this number if the artwork's
+# aspect ratio ever changes.
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
   image_path: "assets/help24_icon.png"
   min_sdk_android: 21
-  adaptive_icon_background: "#0A0A0A"
-  adaptive_icon_foreground: "assets/help24_icon.png"
+  adaptive_icon_background: "#12161A"
+  adaptive_icon_foreground: "branding/adaptive_foreground.png"
+  # MUST be 0. The package insets the foreground by 16% on each side by default,
+  # which is right when the foreground is a full-bleed image and wrong here: the
+  # padding is already drawn into adaptive_foreground.png, where the mark spans
+  # 61% of the canvas. Leaving the default applies it twice — 61% × 0.68 = 41.5%
+  # — and the mark lands undersized inside the launcher's mask.
+  adaptive_icon_foreground_inset: 0
   web:
     generate: false
   windows:
-    generate: false
+    generate: true
+    icon_size: 256
   macos:
-    generate: false
+    generate: true
 
 flutter:
   uses-material-design: true
   assets:
     - assets/
     - assets/l10n/
+    # The vector brand marks the app renders at runtime. A bare `assets/` entry
+    # does NOT recurse, so this subdirectory needs its own line or every
+    # SvgPicture.asset against it throws at runtime rather than at build time.
+    - assets/brand/
     # Reference datasets (locations, professions). Bundled so every picker is
     # complete, searchable and offline-capable on a fresh install, before any
     # migration is applied. See lib/services/reference_registry.dart.
