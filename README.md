@@ -334,7 +334,6 @@ To report a vulnerability, email **support@help24.co.ke** rather than opening a 
 Help24 is built in Kenya by its co-founders:
 
 - **Lincoln Waniala** — Co-founder, engineering · [GitHub](https://github.com/alphwan14) · [LinkedIn](https://www.linkedin.com/in/lincoln-waniala/)
-- **Lawrence Mawanda** — Co-founder · [GitHub](https://github.com/lawmwad123)
 
 ---
 
