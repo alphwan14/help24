@@ -585,8 +585,13 @@ class NotificationService {
   /// user when the OS toggle — which only they can flip — is the blocker.
   static Future<NotificationCapability> enableAndSaveToken(String uid) async {
     if (!AppFirebase.isReady || uid.isEmpty) return NotificationCapability.denied;
+    // The PREFERENCE write is the part the switch reflects, so its failure must
+    // reach the caller — swallowing it here left the toggle showing a state the
+    // database had rejected. Everything below is best-effort token plumbing: a
+    // saved preference with no token recovers on the next launch and must not
+    // be reported to the user as a failed toggle.
+    await UserProfileService.setNotificationsEnabled(uid, true);
     try {
-      await UserProfileService.setNotificationsEnabled(uid, true);
       final capability = await _requestPermission();
       if (capability != NotificationCapability.denied) {
         // osBlocked still registers — see _requestPermissionAndToken.
@@ -604,8 +609,10 @@ class NotificationService {
 
   static Future<void> disableAndRemoveToken(String uid) async {
     if (uid.isEmpty) return;
+    // Preference write first and unguarded, for the reason in
+    // [enableAndSaveToken]: the caller must hear about a rejected write.
+    await UserProfileService.setNotificationsEnabled(uid, false);
     try {
-      await UserProfileService.setNotificationsEnabled(uid, false);
       if (_currentToken != null) {
         await UserProfileService.removeFcmToken(uid, _currentToken!);
       }

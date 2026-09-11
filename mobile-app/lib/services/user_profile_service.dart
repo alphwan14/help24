@@ -7,6 +7,7 @@ import '../models/post_model.dart';
 import '../models/user_model.dart';
 import '../utils/phone_utils.dart';
 import 'adaptive_poll.dart';
+import 'notification_toggle_state.dart';
 import 'post_service.dart';
 import 'storage_service.dart';
 import 'supabase_auth_bridge.dart';
@@ -358,12 +359,24 @@ class UserProfileService {
 
   // ---------- User preferences (Supabase users table) ----------
 
+  /// Counts preference writes that have LANDED. Read by [watchUserPrefs] to
+  /// recognise a read that was in flight across one of them.
+  static int _prefsWriteEpoch = 0;
+
+  /// Save the notifications preference.
+  ///
+  /// RETHROWS on failure. This used to swallow the error, which made every
+  /// caller's `catch` unreachable: a rejected write looked exactly like a saved
+  /// one, so the switch sat in a state the database did not agree with. The
+  /// toggle's revert-and-report path depends on hearing about this.
   static Future<void> setNotificationsEnabled(String uid, bool enabled) async {
     if (!_isAvailable || uid.isEmpty) return;
     try {
       await _updateUser(uid, {'notifications_enabled': enabled});
+      _prefsWriteEpoch++;
     } catch (e) {
       debugPrint('UserProfileService setNotificationsEnabled: $e');
+      rethrow;
     }
   }
 
@@ -537,9 +550,20 @@ class UserProfileService {
     var hasDelivered = false;
 
     Future<void> fetch() async {
+      // A read that is in flight when a write lands answers the question as it
+      // stood BEFORE that write. Publishing it flips the switch back to the
+      // value the user just changed away from — the defect this guard closes.
+      final epochAtRequest = _prefsWriteEpoch;
       try {
         final r = await _client.from('users').select('notifications_enabled, language').eq('id', uid).maybeSingle();
         if (controller.isClosed) return;
+        if (preferenceReadIsStale(
+          epochAtRequest: epochAtRequest,
+          epochNow: _prefsWriteEpoch,
+        )) {
+          debugPrint('[PREFS] dropped a read that crossed a write');
+          return;
+        }
         final enabled = r?['notifications_enabled'] as bool? ?? true;
         final lang = r?['language']?.toString();
         final language = (lang == 'sw' || lang == 'en') ? lang! : 'en';

@@ -19,6 +19,7 @@ import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/location_provider.dart';
 import '../services/notification_service.dart';
+import '../services/notification_toggle_state.dart';
 import '../services/payout_authority.dart';
 import '../services/payout_service.dart';
 import '../services/user_profile_service.dart';
@@ -1160,7 +1161,7 @@ class _ThemeOptionTile extends StatelessWidget {
   }
 }
 
-// ── Notification toggle — instant optimistic update ──────────────────────────
+// ── Notification toggle ──────────────────────────────────────────────────────
 class _NotificationSwitchTile extends StatefulWidget {
   final String uid;
   const _NotificationSwitchTile({required this.uid});
@@ -1168,8 +1169,23 @@ class _NotificationSwitchTile extends StatefulWidget {
   State<_NotificationSwitchTile> createState() => _NotificationSwitchTileState();
 }
 
+/// One tap, one transition.
+///
+/// The switch reads exactly one value — [NotificationToggleState.displayed] —
+/// and that value moves only when the user chooses, when a write resolves, or
+/// when a fresh read arrives. See `notification_toggle_state.dart` for the
+/// device trace of the three-transition flicker this replaced.
 class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
-  bool? _optimisticValue;
+  /// ONE subscription for the life of the tile.
+  ///
+  /// `watchUserPrefs()` used to be called inside `build()`, so every rebuild —
+  /// including the one the user's own tap causes — spun up a new controller and
+  /// an `AdaptivePoll` that immediately fired a read. That read overlapped the
+  /// write and came back with the pre-write value, which is what the switch
+  /// then snapped to.
+  StreamSubscription<({bool notificationsEnabled, String language})>? _prefsSub;
+
+  NotificationToggleState _toggle = const NotificationToggleState();
 
   /// The OS's answer, not Firebase's — false means Android has Help24's
   /// notifications switched off and only the user can switch them back on.
@@ -1178,13 +1194,46 @@ class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
   @override
   void initState() {
     super.initState();
+    _listenToPrefs();
     _refreshOsState();
+  }
+
+  @override
+  void didUpdateWidget(covariant _NotificationSwitchTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid) {
+      // A different account: nothing is known about it yet, and the previous
+      // account's preference must not be shown for it.
+      setState(() => _toggle = const NotificationToggleState());
+      _listenToPrefs();
+    }
+  }
+
+  @override
+  void dispose() {
+    _prefsSub?.cancel();
+    super.dispose();
+  }
+
+  void _listenToPrefs() {
+    _prefsSub?.cancel();
+    _prefsSub = UserProfileService.watchUserPrefs(widget.uid).listen((prefs) {
+      if (!mounted) return;
+      final next = _toggle.storedValueRead(prefs.notificationsEnabled);
+      // The poll re-reads every 15s and almost always reports what is already
+      // on screen. Rebuilding the switch for an answer that changes nothing is
+      // work the control does not need.
+      if (next == _toggle) return;
+      setState(() => _toggle = next);
+    });
   }
 
   Future<void> _refreshOsState() async {
     final capability = await NotificationService.capability();
     if (!mounted) return;
-    setState(() => _osBlocked = capability == NotificationCapability.osBlocked);
+    final blocked = capability == NotificationCapability.osBlocked;
+    if (blocked == _osBlocked) return; // No change, no rebuild.
+    setState(() => _osBlocked = blocked);
   }
 
   void _nudgeToSystemSettings() {
@@ -1196,43 +1245,44 @@ class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
     );
   }
 
+  Future<void> _onChanged(bool value) async {
+    setState(() => _toggle = _toggle.userChose(value));
+    try {
+      if (value) {
+        final capability =
+            await NotificationService.enableAndSaveToken(widget.uid);
+        if (!mounted) return;
+        setState(() => _toggle = _toggle.writeSucceeded(true));
+        if (capability == NotificationCapability.osBlocked) {
+          _nudgeToSystemSettings();
+        }
+      } else {
+        await NotificationService.disableAndRemoveToken(widget.uid);
+        if (!mounted) return;
+        setState(() => _toggle = _toggle.writeSucceeded(false));
+      }
+      await _refreshOsState();
+    } catch (e) {
+      // Nothing was saved, so the switch returns to what IS saved and says why
+      // — a silent revert reads as the control being broken.
+      if (!mounted) return;
+      setState(() => _toggle = _toggle.writeFailed(value));
+      ActionFeedback.failure(context, e, context_: ErrorContext.save);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return StreamBuilder<({bool notificationsEnabled, String language})>(
-      stream: UserProfileService.watchUserPrefs(widget.uid),
-      builder: (context, snap) {
-        final actual = snap.data?.notificationsEnabled ?? true;
-        final displayed = _optimisticValue ?? actual;
-        return _SettingsTile(
-          icon: Iconsax.notification,
-          title: l10n?.t('notifications') ?? 'Notifications',
-          subtitle: _osBlocked ? "Blocked in phone settings — tap to fix" : null,
-          onTap: _osBlocked ? _nudgeToSystemSettings : null,
-          trailing: Switch.adaptive(
-            value: displayed && !_osBlocked,
-            onChanged: (val) async {
-              setState(() => _optimisticValue = val);
-              try {
-                if (val) {
-                  final capability =
-                      await NotificationService.enableAndSaveToken(widget.uid);
-                  if (mounted &&
-                      capability == NotificationCapability.osBlocked) {
-                    _nudgeToSystemSettings();
-                  }
-                } else {
-                  await NotificationService.disableAndRemoveToken(widget.uid);
-                }
-                if (mounted) setState(() => _optimisticValue = null);
-                await _refreshOsState();
-              } catch (_) {
-                if (mounted) setState(() => _optimisticValue = !val);
-              }
-            },
-          ),
-        );
-      },
+    return _SettingsTile(
+      icon: Iconsax.notification,
+      title: l10n?.t('notifications') ?? 'Notifications',
+      subtitle: _osBlocked ? "Blocked in phone settings — tap to fix" : null,
+      onTap: _osBlocked ? _nudgeToSystemSettings : null,
+      trailing: Switch.adaptive(
+        value: _toggle.displayed && !_osBlocked,
+        onChanged: _onChanged,
+      ),
     );
   }
 }
