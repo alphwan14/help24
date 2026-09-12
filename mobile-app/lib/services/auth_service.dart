@@ -7,6 +7,7 @@ import '../utils/auth_error_mapper.dart';
 import '../utils/error_mapper.dart';
 import '../utils/kenyan_phone.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import 'email_verification_cooldown.dart';
 import 'supabase_auth_bridge.dart';
 import 'user_profile_service.dart';
 import 'user_row.dart';
@@ -590,6 +591,17 @@ class AuthService {
   /// unbranded email that ARRIVES beats a branded one that never sends. The
   /// rejection is logged loudly because it is a deployment fault, not a user
   /// one — but it must never be the user's problem.
+  ///
+  /// PACING IS ENFORCED HERE, NOT IN THE UI
+  /// --------------------------------------
+  /// Two screens can ask for a confirmation email (the step after sign-up and
+  /// the profile banner) and `signUp` fires one on its own. When each surface
+  /// owned its own pause, the pauses did not compose — and the provider's
+  /// `too-many-requests` was the first thing that actually limited anything.
+  /// The rule now lives at the single point every send passes through, so it
+  /// holds across screens, across restarts, and for any caller added later.
+  /// See [EmailVerificationCooldown] for why the two pause lengths mean
+  /// different things.
   static Future<AuthResult> sendVerificationEmail() async {
     final user = currentFirebaseUser;
     if (user == null || (user.email ?? '').isEmpty) {
@@ -600,10 +612,23 @@ class AuthService {
             'confirm one.',
       ));
     }
+
+    final waiting = await EmailVerificationCooldown.remaining(user.uid);
+    if (waiting > Duration.zero) {
+      debugPrint('[AUTH] verification send held for ${waiting.inSeconds}s');
+      return AuthResult.failed(AuthFailure(
+        title: 'Already on its way',
+        message:
+            'We sent one a moment ago. You can ask for another in '
+            '${EmailVerificationCooldown.format(waiting)}.',
+      ));
+    }
+
     try {
       await user
           .sendEmailVerification(_actionCodeSettings)
           .timeout(_authTimeout);
+      await EmailVerificationCooldown.recordSend(user.uid);
       debugPrint('✅ Verification email dispatched');
       return AuthResult.success(null);
     } on FirebaseAuthException catch (e) {
@@ -615,19 +640,31 @@ class AuthService {
         );
         try {
           await user.sendEmailVerification().timeout(_authTimeout);
+          await EmailVerificationCooldown.recordSend(user.uid);
           debugPrint('✅ Verification email dispatched (no continue URL)');
           return AuthResult.success(null);
         } catch (fallbackError) {
           debugPrint('[AUTH] verification fallback failed: $fallbackError');
-          return AuthResult.from(fallbackError, AuthFlow.generic);
+          return AuthResult.from(fallbackError, AuthFlow.verifyEmail);
         }
       }
+      // The provider is applying its own limit. Back off hard: every further
+      // request while it is blocking extends the block, which is how a user
+      // who tapped four times ends up locked out for far longer than the
+      // provider's base window.
+      if (e.code == 'too-many-requests') {
+        await EmailVerificationCooldown.recordProviderBlock(user.uid);
+      }
       debugPrint('[AUTH] verification send rejected: ${e.code}');
-      return AuthResult.from(e, AuthFlow.generic);
+      return AuthResult.from(e, AuthFlow.verifyEmail);
     } catch (e) {
-      return AuthResult.from(e, AuthFlow.generic);
+      return AuthResult.from(e, AuthFlow.verifyEmail);
     }
   }
+
+  /// How long until [sendVerificationEmail] will actually send again.
+  static Future<Duration> verificationResendWait() =>
+      EmailVerificationCooldown.remaining(currentUserId ?? '');
 
   /// Re-read the account from the server to pick up a verification that
   /// happened in the user's mail app. The local user object caches
@@ -638,7 +675,12 @@ class AuthService {
     if (user == null) return false;
     try {
       await user.reload().timeout(const Duration(seconds: 10));
-      return currentFirebaseUser?.emailVerified ?? false;
+      final verified = currentFirebaseUser?.emailVerified ?? false;
+      // Nothing left to pace once the address is confirmed, and leaving a
+      // pause armed would greet a user who later changes their address with a
+      // countdown they did nothing to earn.
+      if (verified) await EmailVerificationCooldown.clear(user.uid);
+      return verified;
     } catch (e) {
       debugPrint('[AUTH] verification refresh failed: ${e.runtimeType}');
       return false;
@@ -996,8 +1038,21 @@ class AuthService {
 
   /// Rough strength score in 0–3, for the signup meter. Length dominates,
   /// because length is what actually resists guessing.
+  ///
+  /// THE FLOOR IS THE VALIDATOR, NOT THE LENGTH.
+  /// -------------------------------------------
+  /// This used to start its own check at `length < minPasswordLength`, which
+  /// meant it agreed with [validatePassword] about short passwords and
+  /// disagreed about every other rule. `12345678` scored 1 and rendered as
+  /// "Okay" under the field — and then the submit button refused it with "Add
+  /// letters as well as numbers". A meter that endorses what the form is about
+  /// to reject is worse than no meter: it is the product contradicting itself
+  /// in the space of one tap.
+  ///
+  /// Deriving the floor from the validator means a rule added there can never
+  /// again be missing here.
   static int passwordStrength(String password) {
-    if (password.length < minPasswordLength) return 0;
+    if (validatePassword(password) != null) return 0;
     var score = 1;
     if (password.length >= 12) score++;
     final classes = [

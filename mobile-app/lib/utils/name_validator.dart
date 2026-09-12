@@ -20,6 +20,43 @@
 /// vanity words. Real names survive; handles do not.
 library;
 
+/// Outcome of [NameValidator.checkParts], where the name was typed as two
+/// fields and a rejection has to point at ONE of them.
+///
+/// WHY THIS IS NOT JUST A [NameCheck]
+/// ----------------------------------
+/// A single-field form can put "Enter your first and last name" under the
+/// field, because there is only one field it could mean. A two-field form
+/// cannot: the same sentence under both boxes tells the user nothing about
+/// which one is wrong. So the outcome carries the errors separately, and the
+/// pair-level error is reserved for rules that genuinely span both (the
+/// handle check, the total word count).
+class NamePartsCheck {
+  /// The combined, capitalization-normalized name — exactly what
+  /// [NameValidator.check] would have produced for the same person. This is
+  /// the value that gets persisted; the split exists only on screen.
+  final String normalized;
+
+  final String? firstError;
+  final String? lastError;
+
+  /// A rejection that belongs to the whole name rather than either half.
+  final String? error;
+
+  const NamePartsCheck({
+    this.normalized = '',
+    this.firstError,
+    this.lastError,
+    this.error,
+  });
+
+  bool get ok => firstError == null && lastError == null && error == null;
+
+  /// The one sentence to show when the form has nowhere field-specific to put
+  /// it. First error wins — the eye is already at the top of the form.
+  String? get message => firstError ?? lastError ?? error;
+}
+
 /// Outcome of [NameValidator.check].
 class NameCheck {
   /// The cleaned, capitalization-normalized name. Only meaningful when [ok].
@@ -134,6 +171,64 @@ class NameValidator {
     }
 
     return NameCheck.valid(normalize(collapsed));
+  }
+
+  /// Validate a name typed as two fields.
+  ///
+  /// WHY THE STORED SHAPE DOES NOT CHANGE
+  /// -----------------------------------
+  /// Help24 holds ONE name: `public.users.name`, mirrored to the identity
+  /// provider's `displayName`. There is no `first_name` column anywhere in the
+  /// schema, nothing reads one, and the 30-day change cooldown is a trigger on
+  /// that single column (migration 087). Splitting the storage as well as the
+  /// form would mean a migration, two writers, and a rule about which one wins
+  /// for every account created before the change — all to hold information the
+  /// product never asks a question about.
+  ///
+  /// So the split is where it belongs: on the screen. Two fields are easier to
+  /// fill, autofill correctly, and validate precisely; they are joined with a
+  /// single space and everything downstream is unchanged. Existing accounts are
+  /// untouched, because nothing about them was ever stored differently.
+  ///
+  /// Every cross-cutting rule is delegated to [check] rather than restated, so
+  /// the two entry points cannot drift on what a real name is.
+  static NamePartsCheck checkParts(String first, String last) {
+    final f = first.trim().replaceAll(_whitespace, ' ');
+    final l = last.trim().replaceAll(_whitespace, ' ');
+
+    final firstError = _checkPart(f, 'first');
+    if (firstError != null) return NamePartsCheck(firstError: firstError);
+    final lastError = _checkPart(l, 'last');
+    if (lastError != null) return NamePartsCheck(lastError: lastError);
+
+    // Both halves are individually plausible. The remaining rules — total
+    // length, word count, and the handle check — only make sense on the whole
+    // name, so the existing validator owns them.
+    final combined = check('$f $l');
+    if (!combined.ok) return NamePartsCheck(error: combined.error);
+    return NamePartsCheck(normalized: combined.normalized);
+  }
+
+  /// Per-field rules. [which] is `first` or `last`, used only in the copy.
+  static String? _checkPart(String value, String which) {
+    final label = which == 'first' ? 'first name' : 'last name';
+    if (value.isEmpty) return 'Enter your $label.';
+    if (!_allowedChars.hasMatch(value)) {
+      return 'Use letters only in your $label. Numbers, emoji and symbols are '
+          'not allowed.';
+    }
+    if (!_hasLetter.hasMatch(value)) return 'Enter your real $label.';
+    // Two letters is the floor a real name clears; it is also what stops a
+    // single initial standing in for a surname, which is the shape the
+    // single-field validator rejected as "enter your first and last name".
+    if (_lettersOnly(value).length < minLength) {
+      return 'That $label is too short.';
+    }
+    if (_lettersOnly(value).length > 30) return 'That $label is too long.';
+    if (_tripleRepeat.hasMatch(value)) {
+      return 'That does not look like a real $label.';
+    }
+    return null;
   }
 
   /// True when the name reads as a handle rather than a person.

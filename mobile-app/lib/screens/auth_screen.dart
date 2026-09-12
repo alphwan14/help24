@@ -1,16 +1,20 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../config/app_urls.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
+import '../services/email_verification_cooldown.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/auth_error_mapper.dart';
+import '../utils/external_links.dart';
 import '../utils/kenyan_phone.dart';
 import '../utils/name_validator.dart';
 import '../widgets/auth/otp_input.dart';
@@ -44,6 +48,21 @@ import '../widgets/google_logo.dart';
 /// other. Firebase's own resolution for this is `linkWithCredential` — attach
 /// the second credential to the SAME uid — and it requires the user to be
 /// signed in first. So this step comes after the Google door, not instead of it.
+/// WHY `verifyEmail` EXISTS — THE INVISIBLE FIRST EMAIL
+/// ---------------------------------------------------
+/// Creating an account already sent a confirmation email (`AuthService.signUp`
+/// fires one), and nothing told the user. They landed in the marketplace, and
+/// the only mention of confirming anything was a banner on the Profile tab —
+/// several taps away, and phrased as though nothing had been sent yet. So the
+/// first thing a conscientious new user did on finding it was ask for an email
+/// they had already been sent, then ask again, and the provider's rate limit
+/// answered with "Too many attempts" for a mailbox that already held two.
+///
+/// This step is where that sentence now goes: said once, at the moment it is
+/// true, on the screen the user is already looking at. It is NOT a wall —
+/// "Continue to Help24" is always live, because verification is a nudge in
+/// this product and blocking browsing on it would cost far more than it
+/// protects (see EmailVerificationBanner for that reasoning).
 enum _AuthStep {
   welcome,
   phoneInput,
@@ -51,6 +70,7 @@ enum _AuthStep {
   emailIdentify,
   emailPassword,
   emailCreate,
+  verifyEmail,
   addPassword,
   profileSetup,
 }
@@ -129,6 +149,10 @@ class _AuthScreenState extends State<AuthScreen> {
       case _AuthStep.emailPassword:
       case _AuthStep.emailCreate:
         return _AuthStep.emailIdentify;
+      case _AuthStep.verifyEmail:
+        // The account exists by now. Going back to the create form would
+        // invite a second attempt at an address that is already registered.
+        return null;
       case _AuthStep.addPassword:
         // The user is already signed in by the time this shows. Going back
         // would suggest the sign-in can be undone, which it cannot — "Not now"
@@ -286,10 +310,19 @@ class _AuthScreenState extends State<AuthScreen> {
       case _AuthStep.emailCreate:
         return _EmailCreateStep(
           email: _email,
-          onSuccess: _afterCredential,
+          // A brand-new email account is the ONE path that lands on the
+          // confirmation step: the address is unproven and an email is already
+          // in flight. Every other route in (phone, Google, returning
+          // password) either has no address to confirm or has one the provider
+          // has already verified, and stopping those users to tell them about
+          // an email nobody sent would be noise.
+          onSuccess: () => _goTo(_AuthStep.verifyEmail),
           onSignInInstead: () => _goTo(_AuthStep.emailPassword),
           onChangeEmail: () => _goTo(_AuthStep.emailIdentify),
         );
+
+      case _AuthStep.verifyEmail:
+        return _VerifyEmailStep(email: _email, onContinue: _afterCredential);
 
       case _AuthStep.profileSetup:
         return _ProfileSetupStep(onDone: _onSuccess);
@@ -864,9 +897,12 @@ class _EmailIdentifyStepState extends State<_EmailIdentifyStep> {
         children: [
           _StepHeading(
             title: "What's your email?",
-            subtitle:
-                "We'll check whether you already have a Help24 account and take "
-                'you to the right place.',
+            // The previous line described the app's own routing logic —
+            // "we'll check whether you already have an account and take you to
+            // the right place". That is a note to the engineer who built the
+            // step, not information the user can act on: they typed an email
+            // either way. Say what the step is FOR instead.
+            subtitle: 'Sign in, or create your account.',
             isDark: isDark,
           ),
           const SizedBox(height: 28),
@@ -1178,7 +1214,8 @@ class _EmailCreateStep extends StatefulWidget {
 }
 
 class _EmailCreateStepState extends State<_EmailCreateStep> {
-  final _name = TextEditingController();
+  final _firstName = TextEditingController();
+  final _lastName = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   bool _obscure = true;
@@ -1187,7 +1224,8 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
 
   @override
   void dispose() {
-    _name.dispose();
+    _firstName.dispose();
+    _lastName.dispose();
     _password.dispose();
     _confirm.dispose();
     super.dispose();
@@ -1200,11 +1238,14 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
     // 30-day change cooldown authoritative), applied at the point of entry so
     // a user is never allowed to set a name they would immediately be stuck
     // with and unable to correct.
-    final nameCheck = NameValidator.check(_name.text);
+    //
+    // Two fields, one stored value: see NameValidator.checkParts for why the
+    // split stops at the screen and never reaches the schema.
+    final nameCheck = NameValidator.checkParts(_firstName.text, _lastName.text);
     if (!nameCheck.ok) {
       auth.setFailure(AuthFailure(
         title: 'Check your name',
-        message: nameCheck.error!,
+        message: nameCheck.message!,
       ));
       return;
     }
@@ -1252,7 +1293,10 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
         children: [
           _StepHeading(
             title: 'Create your account',
-            subtitle: 'Two details and you’re in.',
+            // The previous line was "Two details and you're in" — a promise
+            // the form directly below it broke, since it asks for four. Copy
+            // that the next glance disproves costs more trust than it buys.
+            subtitle: 'Use the name people will see on your posts and messages.',
             isDark: isDark,
           ),
           const SizedBox(height: 16),
@@ -1269,14 +1313,36 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
             ),
             const SizedBox(height: 16),
           ],
-          _AuthField(
-            controller: _name,
-            hint: 'First and last name',
-            icon: Iconsax.user,
-            autofocus: true,
-            textCapitalization: TextCapitalization.words,
-            action: TextInputAction.next,
-            autofillHints: const [AutofillHints.name],
+          // Two fields, not one. A single "First and last name" box is the
+          // shape that produces "john", because nothing in it says a second
+          // word is expected until the form rejects the first attempt. Two
+          // labelled boxes ask the question directly, and they let the phone's
+          // autofill put the right half in each — Android offers given and
+          // family name separately and had nowhere to put them before.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _AuthField(
+                  controller: _firstName,
+                  hint: 'First name',
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                  action: TextInputAction.next,
+                  autofillHints: const [AutofillHints.givenName],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _AuthField(
+                  controller: _lastName,
+                  hint: 'Last name',
+                  textCapitalization: TextCapitalization.words,
+                  action: TextInputAction.next,
+                  autofillHints: const [AutofillHints.familyName],
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           _AuthField(
@@ -1332,6 +1398,176 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Email — step 3: confirm the address
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Said once, at the moment it is true: an email is on its way.
+///
+/// TWO PAUSES, TWO MEANINGS, AND THE UI MUST NOT CONFLATE THEM
+/// ----------------------------------------------------------
+/// The countdown on "Send it again" is HELP24's pacing. It is exact, it is
+/// ours, and counting it down to the second is honest.
+///
+/// When the provider answers with its own rate limit, the copy changes to say
+/// so and the button waits out a conservative floor — but it never claims to
+/// know when the provider will relent, because that window is adaptive and
+/// unpublished. A clock that reaches zero and fails again would be a worse lie
+/// than no clock at all. See [EmailVerificationCooldown].
+class _VerifyEmailStep extends StatefulWidget {
+  final String email;
+  final VoidCallback onContinue;
+
+  const _VerifyEmailStep({required this.email, required this.onContinue});
+
+  @override
+  State<_VerifyEmailStep> createState() => _VerifyEmailStepState();
+}
+
+class _VerifyEmailStepState extends State<_VerifyEmailStep>
+    with WidgetsBindingObserver {
+  Timer? _ticker;
+  Duration _wait = Duration.zero;
+  bool _sending = false;
+  bool _justSent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // THE USER LEAVES THIS SCREEN TO DO WHAT IT ASKS.
+    //
+    // They switch to their mail app, tap the link, a browser confirms it, and
+    // they come back. Nothing in that sequence tells this process anything:
+    // `emailVerified` is cached on the local user object and the identity
+    // stream does not fire for it. Without this observer the screen would
+    // still be asking for something already done — the exact state the user
+    // has just proved they finished.
+    WidgetsBinding.instance.addObserver(this);
+    // `signUp` already dispatched one and armed the pause. Read it rather than
+    // starting a fresh clock, or the screen would offer a resend the service
+    // is about to refuse.
+    _syncWait();
+    // Covers the case where it was confirmed before this screen ever appeared.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkVerified());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _checkVerified();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _syncWait() async {
+    final left = await AuthService.verificationResendWait();
+    if (!mounted) return;
+    setState(() => _wait = left);
+    _ticker?.cancel();
+    if (left <= Duration.zero) return;
+    _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return timer.cancel();
+      final next = _wait - const Duration(seconds: 1);
+      setState(() => _wait = next.isNegative ? Duration.zero : next);
+      if (_wait <= Duration.zero) timer.cancel();
+    });
+  }
+
+  Future<void> _checkVerified() async {
+    if (!mounted) return;
+    final verified = await context.read<AuthProvider>().refreshEmailVerified();
+    if (verified && mounted) widget.onContinue();
+  }
+
+  Future<void> _resend() async {
+    final auth = context.read<AuthProvider>();
+    setState(() {
+      _sending = true;
+      _justSent = false;
+    });
+    final ok = await auth.sendVerificationEmail();
+    if (!mounted) return;
+    setState(() {
+      _sending = false;
+      _justSent = ok;
+    });
+    // Either way the pause moved — a success arms the next one, a provider
+    // refusal arms the longer floor. Reading it back is what keeps the button
+    // and the service telling the same story.
+    await _syncWait();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final auth = context.watch<AuthProvider>();
+    final waiting = _wait > Duration.zero;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _StepHeading(
+            title: 'Confirm your email',
+            subtitle: _justSent
+                ? 'Sent. Open the link in your inbox to confirm this address.'
+                : 'We sent a link to your inbox. Open it to confirm this '
+                    'address is yours.',
+            isDark: isDark,
+          ),
+          const SizedBox(height: 16),
+          _EmailChip(email: widget.email, onChange: null),
+          const SizedBox(height: 20),
+          if (auth.failure != null) ...[
+            _FailureCard(failure: auth.failure!, onDismiss: auth.clearError),
+            const SizedBox(height: 16),
+          ],
+          // The account is real and usable right now. Confirming protects the
+          // way back IN if the password is ever forgotten — it is not a gate,
+          // and the primary button says so.
+          _PrimaryButton(
+            label: 'Continue to Help24',
+            loading: false,
+            onPressed: widget.onContinue,
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: TextButton(
+              onPressed: (_sending || waiting) ? null : _resend,
+              child: Text(
+                _sending
+                    ? 'Sending…'
+                    : waiting
+                        ? 'Send it again in ${EmailVerificationCooldown.format(_wait)}'
+                        : 'Send it again',
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              'Not there? Check your spam folder.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: isDark
+                    ? AppTheme.darkTextTertiary
+                    : AppTheme.lightTextTertiary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
 /// Length-first strength feedback. Deliberately not a scold: it explains what
 /// would make the password better rather than blocking on character classes,
 /// which is what pushes people towards `Password1!` and a sticky note.
@@ -1354,7 +1590,10 @@ class _PasswordStrengthBar extends StatelessWidget {
     }
 
     final score = AuthService.passwordStrength(password);
-    const labels = ['Too short', 'Okay', 'Good', 'Strong'];
+    // "Too weak", not "Too short". Zero is now returned for anything the
+    // validator refuses — which includes an all-digit password of any length —
+    // and calling that one "too short" would be simply untrue.
+    const labels = ['Too weak', 'Okay', 'Good', 'Strong'];
     const colors = [
       AppTheme.errorRed,
       AppTheme.warningOrange,
@@ -1411,13 +1650,15 @@ class _ProfileSetupStep extends StatefulWidget {
 }
 
 class _ProfileSetupStepState extends State<_ProfileSetupStep> {
-  final _nameController = TextEditingController();
+  final _firstName = TextEditingController();
+  final _lastName = TextEditingController();
   XFile? _pickedFile;
   bool _uploading = false;
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _firstName.dispose();
+    _lastName.dispose();
     super.dispose();
   }
 
@@ -1437,11 +1678,11 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
 
   Future<void> _submit() async {
     final auth = context.read<AuthProvider>();
-    final check = NameValidator.check(_nameController.text);
+    final check = NameValidator.checkParts(_firstName.text, _lastName.text);
     if (!check.ok) {
       auth.setFailure(AuthFailure(
         title: 'Check your name',
-        message: check.error!,
+        message: check.message!,
       ));
       return;
     }
@@ -1482,9 +1723,7 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
         children: [
           _StepHeading(
             title: 'What should we call you?',
-            subtitle:
-                'Your name appears on your posts, your messages and your '
-                'reviews, so use the name people will recognise.',
+            subtitle: 'Use the name people will see on your posts and messages.',
             isDark: isDark,
           ),
           const SizedBox(height: 28),
@@ -1545,15 +1784,32 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
             ),
           ),
           const SizedBox(height: 24),
-          _AuthField(
-            controller: _nameController,
-            hint: 'First and last name',
-            icon: Iconsax.user,
-            autofocus: true,
-            textCapitalization: TextCapitalization.words,
-            action: TextInputAction.done,
-            autofillHints: const [AutofillHints.name],
-            onSubmitted: (_) => _submit(),
+          // Split for the same reasons as the create-account step; see there.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _AuthField(
+                  controller: _firstName,
+                  hint: 'First name',
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                  action: TextInputAction.next,
+                  autofillHints: const [AutofillHints.givenName],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _AuthField(
+                  controller: _lastName,
+                  hint: 'Last name',
+                  textCapitalization: TextCapitalization.words,
+                  action: TextInputAction.done,
+                  autofillHints: const [AutofillHints.familyName],
+                  onSubmitted: (_) => _submit(),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Text(
@@ -1652,8 +1908,27 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
           ),
           const SizedBox(height: 24),
           if (_sent) ...[
-            const Icon(Icons.mark_email_read_outlined,
-                color: AppTheme.successGreen, size: 52),
+            // A state marker, not a trophy. The 52px green envelope this
+            // replaces was the loudest thing in the sheet, and what it
+            // celebrated was a request being accepted.
+            //
+            // Align, not a bare Container: this Column stretches its children
+            // on the cross axis, which turned a 40x40 square into a green bar
+            // the full width of the sheet with the glyph marooned in the
+            // middle of it. Left, because everything under it is left-aligned.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppTheme.successGreen.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.mark_email_read_outlined,
+                    color: AppTheme.successGreen, size: 21),
+              ),
+            ),
             const SizedBox(height: 16),
             Text(
               'Check your email',
@@ -1663,17 +1938,28 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                   ),
             ),
             const SizedBox(height: 8),
-            // Phrased so it is true whether or not the address is registered —
-            // a reset form that confirms which emails exist is an account-
-            // harvesting tool.
+            // THE CONSTRAINT AND THE TONE ARE BOTH REAL, AND THEY CONFLICT.
+            //
+            // The sentence must stay true whether or not the address is
+            // registered: a reset form that confirms which emails exist is an
+            // account-harvesting tool, and that list is what phishing
+            // campaigns are built from. So the conditional cannot go.
+            //
+            // What CAN go is everything that made the conditional sound like a
+            // disclaimer. This previously ran to three paragraphs — the
+            // condition, the expiry, and a separate sentence about spam and
+            // promotions folders — which reads as a system explaining its own
+            // rules. Two sentences carry the same five facts: the request
+            // landed, where to look, how long it lasts, that it may take a
+            // moment, and what to do if it does not come.
             Text(
-              'If ${_emailController.text.trim()} has a Help24 account, a reset '
-              'link is on its way. It expires in one hour.',
+              'If ${_emailController.text.trim()} is registered with Help24, a '
+              'reset link is on its way. It works for one hour.',
               style: TextStyle(color: textSecondary, height: 1.45),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Text(
-              'Nothing after a few minutes? Check your spam or promotions folder.',
+              'Give it a minute. If nothing arrives, check your spam folder.',
               style: TextStyle(color: textSecondary, fontSize: 13, height: 1.45),
             ),
             const SizedBox(height: 24),
@@ -1689,7 +1975,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              "Enter your email and we'll send you a link to set a new password.",
+              "We'll email you a link to set a new one.",
               style: TextStyle(color: textSecondary, height: 1.45),
             ),
             const SizedBox(height: 20),
@@ -1847,6 +2133,24 @@ class _FailureCard extends StatelessWidget {
     final actionLabel = failure.actionLabel;
     final showAction = onAction != null && actionLabel != null;
 
+    // THE TONE COMES FROM THE CONTAINER, NOT FROM RECOLOURING THE WORDS.
+    //
+    // Every string in this card used to be painted `errorRed` on a 10%-red
+    // wash. Measured against that wash in light mode, #EF4444 lands at
+    // 3.14:1 — under the 4.5:1 that WCAG asks of body text, and the body here
+    // is 13.5px so none of the large-text exemptions apply. The one paragraph
+    // in the whole flow that a user MUST be able to read was the hardest to
+    // read, and only in light mode, which is why it survived review on a dark
+    // phone.
+    //
+    // The icon, the border and the tint already say "this went wrong". Setting
+    // the text in the normal colour takes it to 14.8:1 light / 17.5:1 dark and
+    // costs the card nothing — it is also what EmailVerificationBanner has
+    // always done, so the two error surfaces now agree.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary =
+        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
       decoration: BoxDecoration(
@@ -1872,8 +2176,8 @@ class _FailureCard extends StatelessWidget {
                   children: [
                     Text(
                       failure.title,
-                      style: const TextStyle(
-                        color: AppTheme.errorRed,
+                      style: TextStyle(
+                        color: textPrimary,
                         fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1881,8 +2185,8 @@ class _FailureCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       failure.message,
-                      style: const TextStyle(
-                        color: AppTheme.errorRed,
+                      style: TextStyle(
+                        color: textPrimary,
                         fontSize: 13.5,
                         height: 1.4,
                       ),
@@ -1891,7 +2195,7 @@ class _FailureCard extends StatelessWidget {
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.close, size: 17, color: AppTheme.errorRed),
+                icon: Icon(Icons.close, size: 17, color: textPrimary),
                 onPressed: onDismiss,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -1906,9 +2210,11 @@ class _FailureCard extends StatelessWidget {
               child: TextButton(
                 onPressed: onAction,
                 style: TextButton.styleFrom(
-                  foregroundColor: AppTheme.errorRed,
-                  padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 4),
-                  minimumSize: Size.zero,
+                  foregroundColor: textPrimary,
+                  // 30px of left padding put the label a third of the way
+                  // across the card, unaligned with every other word in it.
+                  padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
+                  minimumSize: const Size(0, 36),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 child: Text(
@@ -2006,20 +2312,50 @@ class _SmsCostNote extends StatelessWidget {
   }
 }
 
+/// The consent line — with both documents actually reachable.
+///
+/// It previously named the Terms and the Privacy Policy as plain grey text.
+/// Asking someone to agree to two documents while giving them no way to read
+/// either is the shape of a form that hopes nobody looks, and on a product
+/// that will hold escrow money it is the wrong first impression as well as the
+/// wrong posture. Both open in the in-app browser tab, through the same
+/// gateway every other legal link in the app uses.
 class _LegalFootnote extends StatelessWidget {
   const _LegalFootnote();
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Text(
-      'By continuing you agree to the Help24 Terms of Service and Privacy Policy.',
-      textAlign: TextAlign.center,
-      style: TextStyle(
-        fontSize: 12,
-        height: 1.45,
-        color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+    final muted =
+        isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+    final base = TextStyle(fontSize: 12, height: 1.45, color: muted);
+    final link = base.copyWith(
+      color: AppTheme.primaryAccent,
+      fontWeight: FontWeight.w600,
+    );
+
+    return Text.rich(
+      TextSpan(
+        style: base,
+        children: [
+          const TextSpan(text: 'By continuing you agree to our '),
+          TextSpan(
+            text: 'Terms of Service',
+            style: link,
+            recognizer: TapGestureRecognizer()
+              ..onTap = () => openHelp24Url(context, AppUrls.termsOfService),
+          ),
+          const TextSpan(text: ' and '),
+          TextSpan(
+            text: 'Privacy Policy',
+            style: link,
+            recognizer: TapGestureRecognizer()
+              ..onTap = () => openHelp24Url(context, AppUrls.privacyPolicy),
+          ),
+          const TextSpan(text: '.'),
+        ],
       ),
+      textAlign: TextAlign.center,
     );
   }
 }
@@ -2119,7 +2455,12 @@ class _AuthButton extends StatelessWidget {
 class _AuthField extends StatelessWidget {
   final TextEditingController controller;
   final String hint;
-  final IconData icon;
+
+  /// Optional. The first/last name pair leaves it off: two identical person
+  /// glyphs side by side label nothing and only add ink, and dropping them
+  /// gives each of the two narrow fields back 34dp of text width — which is
+  /// what keeps them from reading as cramped on a 360dp screen.
+  final IconData? icon;
   final bool obscure;
   final bool autofocus;
   final TextInputType? keyboardType;
@@ -2133,7 +2474,7 @@ class _AuthField extends StatelessWidget {
   const _AuthField({
     required this.controller,
     required this.hint,
-    required this.icon,
+    this.icon,
     this.obscure = false,
     this.autofocus = false,
     this.keyboardType,
@@ -2167,10 +2508,12 @@ class _AuthField extends StatelessWidget {
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: iconColor, fontSize: 15.5),
-        prefixIcon: Padding(
-          padding: const EdgeInsets.only(left: 14, right: 10),
-          child: Icon(icon, size: 19, color: iconColor),
-        ),
+        prefixIcon: icon == null
+            ? null
+            : Padding(
+                padding: const EdgeInsets.only(left: 14, right: 10),
+                child: Icon(icon, size: 19, color: iconColor),
+              ),
         prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 48),
         suffixIcon: suffixIcon,
         filled: true,

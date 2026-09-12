@@ -12,7 +12,25 @@ import '../utils/auth_error_mapper.dart';
 
 /// Authentication state: session, phone OTP flow, errors.
 /// Auth does NOT block the app; only protected actions require login.
-class AuthProvider extends ChangeNotifier {
+///
+/// WHY THIS OBSERVES THE APP LIFECYCLE
+/// -----------------------------------
+/// `emailVerified` is a CACHED field on the local user object. Confirming an
+/// address happens in a browser, in a mail app, sometimes on another device
+/// entirely — and none of those tell this process anything. Firebase does not
+/// push the change down either: `authStateChanges` does not fire for it.
+///
+/// So a user who did exactly what they were asked — tapped the link, saw
+/// "Your email address is confirmed" on the website — came back to Help24 and
+/// was still being told to confirm their email. The only thing that had ever
+/// re-read it was the Profile banner's `initState`, and the Profile tab lives
+/// in an IndexedStack that mounts once per launch. In practice that meant the
+/// prompt survived until the app was restarted.
+///
+/// Returning to the foreground is the exact moment the answer may have
+/// changed, so that is where it is asked. Bounded to the case that needs it:
+/// no reload is issued for an account with nothing to confirm.
+class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
   AppUser? _currentUser;
   bool _isLoading = false;
   bool _isInitialized = false;
@@ -69,6 +87,10 @@ class AuthProvider extends ChangeNotifier {
     if (_isInitialized) return;
     if (!AppFirebase.isReady) return;
     _isInitialized = true;
+    // Registered here rather than in a constructor so that tests, which build
+    // AuthProvider subclasses without an identity backend, never attach an
+    // observer they would have to tear down.
+    WidgetsBinding.instance.addObserver(this);
     notifyListeners();
     try {
       // Defensive: never stack two subscriptions (would double-fire every event).
@@ -658,6 +680,23 @@ class AuthProvider extends ChangeNotifier {
     return verified;
   }
 
+  /// True while a foreground re-check is in flight, so two resumes in quick
+  /// succession issue one network call rather than two.
+  bool _refreshingVerification = false;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed) return;
+    // Only for an account that has something outstanding. A confirmed address,
+    // a phone-only account and a signed-out device all cost nothing here.
+    if (!needsEmailVerification || _refreshingVerification) return;
+    _refreshingVerification = true;
+    unawaited(refreshEmailVerified().whenComplete(() {
+      _refreshingVerification = false;
+    }));
+  }
+
   Future<bool> updateProfile({String? name, String? photoUrl}) async {
     _isLoading = true;
     _failure = null;
@@ -703,6 +742,9 @@ class AuthProvider extends ChangeNotifier {
   @override
   void dispose() {
     _authSubscription?.cancel();
+    // Safe when initialize() never ran: removing an observer that was never
+    // added is a no-op, and that is the shape every test builds.
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 }

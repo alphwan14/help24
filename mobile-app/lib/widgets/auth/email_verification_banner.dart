@@ -5,6 +5,8 @@ import 'package:iconsax/iconsax.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../services/auth_service.dart';
+import '../../services/email_verification_cooldown.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/auth_error_mapper.dart';
 
@@ -45,12 +47,25 @@ class _EmailVerificationBannerState extends State<EmailVerificationBanner> {
   /// "Send Link does not send any email and nothing happens".
   AuthFailure? _failure;
 
-  /// Sends are provider-rate-limited. A visible retry button invites repeat
-  /// taps, and enough of them earn a lockout that looks like a new bug — so
-  /// the button states its own cooldown.
-  static const Duration _cooldown = Duration(seconds: 30);
+  /// THE PAUSE IS NOT THIS WIDGET'S ANY MORE.
+  ///
+  /// It used to be a 30s timer in this State, armed only `if (ok)`. Two things
+  /// were wrong with that, and together they are most of the "Too many
+  /// attempts" report:
+  ///
+  ///   * A REJECTED send armed nothing. The button reverted to "Try again"
+  ///     immediately — the one state in which another tap is guaranteed to
+  ///     fail and to keep the provider's block alive.
+  ///   * It lived in widget state, so it did not survive an app restart, and a
+  ///     restart is exactly what happens between the sends that consume the
+  ///     quota. It also could not see the email `signUp` had already sent.
+  ///
+  /// The rule now lives in [EmailVerificationCooldown], is enforced inside
+  /// `AuthService.sendVerificationEmail`, is written to disk, and is keyed by
+  /// account — so this screen and the sign-up step cannot disagree, and
+  /// neither can bypass it. This widget only READS the remaining time.
   Timer? _cooldownTimer;
-  int _cooldownRemaining = 0;
+  Duration _wait = Duration.zero;
 
   @override
   void dispose() {
@@ -58,13 +73,17 @@ class _EmailVerificationBannerState extends State<EmailVerificationBanner> {
     super.dispose();
   }
 
-  void _startCooldown() {
+  Future<void> _syncWait() async {
+    final left = await AuthService.verificationResendWait();
+    if (!mounted) return;
+    setState(() => _wait = left);
     _cooldownTimer?.cancel();
-    setState(() => _cooldownRemaining = _cooldown.inSeconds);
+    if (left <= Duration.zero) return;
     _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return timer.cancel();
-      setState(() => _cooldownRemaining--);
-      if (_cooldownRemaining <= 0) timer.cancel();
+      final next = _wait - const Duration(seconds: 1);
+      setState(() => _wait = next.isNegative ? Duration.zero : next);
+      if (_wait <= Duration.zero) timer.cancel();
     });
   }
 
@@ -74,8 +93,12 @@ class _EmailVerificationBannerState extends State<EmailVerificationBanner> {
     // The user may have tapped the link in another app while Help24 sat in the
     // background; the local session caches `emailVerified`, so ask the server
     // once on mount rather than showing a prompt for something already done.
+    // (AuthProvider also re-asks on every foreground resume — this covers the
+    // first mount, which happens before any resume.)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<AuthProvider>().refreshEmailVerified();
+      if (!mounted) return;
+      context.read<AuthProvider>().refreshEmailVerified();
+      _syncWait();
     });
   }
 
@@ -102,7 +125,9 @@ class _EmailVerificationBannerState extends State<EmailVerificationBanner> {
                     'Please try again in a moment.',
               ));
     });
-    if (ok) _startCooldown();
+    // Read back on BOTH outcomes. A refusal moves the pause too — that is the
+    // whole point — and the old code's `if (ok)` is the line this replaces.
+    await _syncWait();
   }
 
   @override
@@ -177,8 +202,9 @@ class _EmailVerificationBannerState extends State<EmailVerificationBanner> {
                 if (!_sent || failed) ...[
                   const SizedBox(height: 4),
                   TextButton(
-                    onPressed:
-                        (_sending || _cooldownRemaining > 0) ? null : _resend,
+                    onPressed: (_sending || _wait > Duration.zero)
+                        ? null
+                        : _resend,
                     style: TextButton.styleFrom(
                       foregroundColor: accent,
                       padding: EdgeInsets.zero,
@@ -188,8 +214,9 @@ class _EmailVerificationBannerState extends State<EmailVerificationBanner> {
                     child: Text(
                       _sending
                           ? 'Sending…'
-                          : _cooldownRemaining > 0
-                              ? 'Try again in ${_cooldownRemaining}s'
+                          : _wait > Duration.zero
+                              ? 'Try again in '
+                                  '${EmailVerificationCooldown.format(_wait)}'
                               : failed
                                   ? 'Try again'
                                   : 'Send the link',

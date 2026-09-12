@@ -62,7 +62,6 @@ class ProfileScreen extends StatelessWidget {
                   return Column(
                     children: [
                       _GuestProfile(onSignIn: () => _navigateToAuth(context)),
-                      const SizedBox(height: 20),
                       _SettingsSection(
                         title: 'Account',
                         children: [
@@ -91,8 +90,6 @@ class ProfileScreen extends StatelessWidget {
                 );
               },
             ),
-            const SizedBox(height: 16),
-
             // ── Preferences ─────────────────────────────────────────────────
             _SettingsSection(
               title: AppLocalizations.of(context)?.t('preferences') ?? 'Preferences',
@@ -228,7 +225,7 @@ class ProfileScreen extends StatelessWidget {
               children: [
                 _SettingsTile(
                   icon: Iconsax.message_question,
-                  title: AppLocalizations.of(context)?.t('help_center') ?? 'Help Center',
+                  title: AppLocalizations.of(context)?.t('help_center') ?? 'Help Centre',
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openHelpCenter(context),
                 ),
@@ -254,7 +251,7 @@ class ProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // Login/Logout Button
+            // Sign in / sign out
             Consumer<AuthProvider>(
               builder: (context, auth, _) {
                 if (auth.isLoggedIn) {
@@ -269,7 +266,7 @@ class ProfileScreen extends StatelessWidget {
                     ),
                     child: _SettingsTile(
                       icon: Iconsax.logout,
-                      title: 'Log Out',
+                      title: 'Sign out',
                       iconColor: AppTheme.errorRed,
                       titleColor: AppTheme.errorRed,
                       onTap: () => _showLogoutDialog(context, auth),
@@ -287,7 +284,7 @@ class ProfileScreen extends StatelessWidget {
                     ),
                     child: _SettingsTile(
                       icon: Iconsax.login,
-                      title: 'Sign In',
+                      title: 'Sign in',
                       iconColor: AppTheme.primaryAccent,
                       titleColor: AppTheme.primaryAccent,
                       onTap: () => _navigateToAuth(context),
@@ -473,12 +470,26 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
+  /// ONE VERB FOR ONE ACTION.
+  ///
+  /// Everywhere else in Help24 the user "signs in". Here they were asked to
+  /// "Log Out", told they had "Logged out successfully", and shown a green
+  /// tick for it. Three things wrong in one dialog: a second vocabulary for
+  /// the same session, a confirmation nobody needs (the button says what it
+  /// does, and the way back is one tap), and a success celebration for an
+  /// action whose result is plainly visible on the screen behind it.
+  ///
+  /// The confirmation itself stays — signing out drops the session on a shared
+  /// or borrowed phone and the mis-tap is worth catching — but it now asks the
+  /// only question that matters and says what it costs.
   void _showLogoutDialog(BuildContext context, AuthProvider auth) {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Log Out'),
-        content: const Text('Are you sure you want to log out?'),
+        title: const Text('Sign out?'),
+        content: const Text(
+          "You'll need to sign in again to post, apply or message.",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
@@ -488,27 +499,9 @@ class ProfileScreen extends StatelessWidget {
             onPressed: () async {
               Navigator.pop(dialogContext);
               await auth.signOut();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Row(
-                      children: [
-                        Icon(Icons.check_circle, color: Colors.white),
-                        SizedBox(width: 12),
-                        Text('Logged out successfully'),
-                      ],
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    backgroundColor: AppTheme.successGreen,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                );
-              }
             },
             child: Text(
-              'Log Out',
+              'Sign out',
               style: TextStyle(color: AppTheme.errorRed),
             ),
           ),
@@ -585,7 +578,6 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
         return Column(
           children: [
             _LoggedInProfile(profile: profile, authUser: widget.authUser),
-            const SizedBox(height: 20),
 
             // ── My Activity ─────────────────────────────────────────────
             _SettingsSection(
@@ -606,8 +598,6 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-
             // ── Business (Promote Business) ─────────────────────────────
             _SettingsSection(
               title: 'Business',
@@ -657,8 +647,6 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-
             // ── Account ─────────────────────────────────────────────────
             _SettingsSection(
               title: 'Account',
@@ -949,8 +937,13 @@ class _GuestProfile extends StatelessWidget {
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 8),
+        // "Sign in to access all features" is true of every app ever written
+        // and says nothing about this one. Browsing already works without an
+        // account — what an account actually buys is naming the three things
+        // it unlocks, which is also what makes the ask feel proportionate.
         Text(
-          'Sign in to access all features',
+          'Sign in to post a job, apply for work and message people.',
+          textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
           ),
@@ -964,7 +957,7 @@ class _GuestProfile extends StatelessWidget {
           child: ElevatedButton.icon(
             onPressed: onSignIn,
             icon: const Icon(Iconsax.login),
-            label: const Text('Sign In'),
+            label: const Text('Sign in'),
           ),
         ),
       ],
@@ -994,6 +987,17 @@ class _SettingsSection extends StatelessWidget {
 
   const _SettingsSection({required this.title, required this.children});
 
+  /// The gap ABOVE a section heading, owned here rather than typed between
+  /// call sites.
+  ///
+  /// It used to be a `SizedBox(height: 16)` written out before each section —
+  /// and the one before "Support" was missing, so that heading sat hard
+  /// against the Preferences card while every other heading had air above it.
+  /// One section out of rhythm reads as a rendering fault rather than as a
+  /// design, which is exactly what it was. Owning the spacing means the next
+  /// section added cannot be the one that forgets it.
+  static const double _gapAbove = 16;
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1002,7 +1006,7 @@ class _SettingsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 12),
+          padding: const EdgeInsets.only(left: 4, top: _gapAbove, bottom: 12),
           child: Text(
             title,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(

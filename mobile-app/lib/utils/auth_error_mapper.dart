@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-import '../config/app_urls.dart';
 
 /// What the user can usefully DO about a failure. The auth UI renders this as
 /// a real button, which is how a flow stops being a dead end.
@@ -141,6 +140,25 @@ class AuthErrorMapper {
     switch (e.code) {
       // ── Account existence ────────────────────────────────────────────
       case 'user-not-found':
+        // DURING A PASSWORD RESET THIS ANSWER IS NEVER GIVEN.
+        //
+        // A reset form is unauthenticated and anyone may type any address into
+        // it. Saying "no account yet" for one address and "check your email"
+        // for another turns the form into an account-enumeration oracle: an
+        // attacker learns which Help24 users exist, one guess at a time, and
+        // that list is what phishing campaigns are built from.
+        //
+        // AuthService.sendPasswordResetEmail already converts this code into a
+        // SUCCESS, so this branch is not reachable from the reset sheet today.
+        // The guard is here anyway, because that is one call site's discipline
+        // and this is the layer that decides what a user is told — a future
+        // reset path that forgets the rule would otherwise leak silently, and
+        // nothing would fail.
+        //
+        // On sign-in the answer is still given: the user has proved nothing,
+        // but they are being told about an address they just typed with intent
+        // to use, and "create an account instead" is the only useful next step.
+        if (flow == AuthFlow.passwordReset) return _generic(flow);
         return const AuthFailure(
           title: 'No account yet',
           message: "We couldn't find a Help24 account with this email.",
@@ -202,9 +220,20 @@ class AuthErrorMapper {
 
       // ── Account state ────────────────────────────────────────────────
       case 'user-disabled':
-        return AuthFailure(
+        // WHY THIS NAMES A PAGE AND NOT A MAILBOX
+        // ---------------------------------------
+        // `support@help24.co.ke` cannot receive mail today: help24.co.ke
+        // carries no MX record, so a sender falls back to the domain's A
+        // records — the web host — and the message times out. Handing someone
+        // who has just been locked out an address that bounces is worse than
+        // handing them nothing. help24.co.ke/support is a page that works and
+        // lists every route to a human, so it is what the copy points at until
+        // inbound mail exists.
+        return const AuthFailure(
           title: 'Account unavailable',
-          message: 'This account has been suspended. ${AppSupport.email} can help.',
+          message:
+              'This account has been suspended. Visit help24.co.ke/support and '
+              'we will look into it with you.',
           recovery: AuthRecovery.contactSupport,
         );
       case 'requires-recent-login':
@@ -289,6 +318,29 @@ class AuthErrorMapper {
       case 'network-request-failed':
         return _offline();
       case 'too-many-requests':
+        // Flow-aware, because the same code describes two different
+        // situations and only one of them is about the user getting something
+        // wrong.
+        //
+        // On sign-in it IS "too many attempts": repeated failures against a
+        // credential, and the pause is the defence working.
+        //
+        // On a confirmation email it is not. The user tapped a button two or
+        // three times, every request succeeded, and the provider is throttling
+        // the SEND. Telling them "too many attempts, for your security" reads
+        // as an accusation for something they did correctly, and — worse — it
+        // omits the fact that actually helps: the emails were sent. They are
+        // in the inbox, or in spam. Asking for another cannot make one arrive
+        // sooner, so the copy points at the mailbox instead of at the button.
+        if (flow == AuthFlow.verifyEmail) {
+          return const AuthFailure(
+            title: 'Give it a few minutes',
+            message:
+                "We've already sent a confirmation email to this address. "
+                'Check your inbox and your spam folder — asking again will not '
+                'make one arrive sooner.',
+          );
+        }
         return const AuthFailure(
           title: 'Too many attempts',
           message: 'For your security, please wait a few minutes and try again.',
@@ -298,11 +350,12 @@ class AuthErrorMapper {
       case 'operation-not-allowed':
       case 'not-configured':
       case 'unsupported-first-factor':
-        return AuthFailure(
+        // Same reason as `user-disabled` above: a page, not a mailbox.
+        return const AuthFailure(
           title: 'Not available right now',
           message:
-              "This way of signing in isn't available at the moment. "
-              'Try another option, or contact ${AppSupport.email}.',
+              "This way of signing in isn't available at the moment. Try "
+              'another option, or visit help24.co.ke/support.',
           recovery: AuthRecovery.contactSupport,
         );
 
@@ -370,6 +423,13 @@ class AuthErrorMapper {
         return const AuthFailure(
           title: "We couldn't send that email",
           message: "We couldn't send your reset email just now. Please try again.",
+        );
+      case AuthFlow.verifyEmail:
+        return const AuthFailure(
+          title: "We couldn't send that email",
+          message:
+              "We couldn't send the confirmation email just now. You're still "
+              'signed in — please try again shortly.',
         );
       case AuthFlow.linkMethod:
         return const AuthFailure(
@@ -478,6 +538,11 @@ enum AuthFlow {
   sendCode,
   verifyCode,
   passwordReset,
+
+  /// Sending the address-confirmation email. Distinct from [passwordReset]
+  /// because the user is already signed in and nothing is blocked by the
+  /// failure — the copy must not imply they have lost access to anything.
+  verifyEmail,
 
   /// Attaching a second credential to the account already signed in. Distinct
   /// from [signIn] because the user's session is never at risk here: a failed
