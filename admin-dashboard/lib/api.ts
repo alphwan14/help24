@@ -16,13 +16,19 @@ import { cookies } from "next/headers";
  */
 
 // Backend origin is environment-driven. Vercel/production set
-// NEXT_PUBLIC_BACKEND_URL; this default points at the deployed Render backend so
-// requests work even if the env var is missing. For local dev, override with
-// NEXT_PUBLIC_BACKEND_URL=http://localhost:3000 in .env.local.
+// NEXT_PUBLIC_BACKEND_URL; this default points at the production API on
+// Help24's own domain so requests work even if the env var is missing. For
+// local dev, override with NEXT_PUBLIC_BACKEND_URL=http://localhost:3000 in
+// .env.local.
+//
+// `api.help24.co.ke` is a verified custom domain in front of the same service
+// — same routes, same responses — so this is a hostname change and nothing
+// else. It matches ApiConfig.productionOrigin in the Flutter app; the two are
+// deliberately kept in lock-step.
 const BACKEND =
   process.env.BACKEND_URL ??
   process.env.NEXT_PUBLIC_BACKEND_URL ??
-  "https://help24-backend.onrender.com";
+  "https://api.help24.co.ke";
 
 export const ADMIN_TOKEN_COOKIE = "h24_admin_token";
 
