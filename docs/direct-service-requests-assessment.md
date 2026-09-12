@@ -164,14 +164,48 @@ Signals that correctly drop out: `profession`, `skills`, `behaviour`,
 anonymous callers. The only new work is a server-side fetch from the admin app,
 which today talks to the backend only for disputes.
 
-### 6.1 One data-quality problem to fix first
+### 6.1 Off-catalogue categories are a feature, not drift — verified
 
-Offer categories have drifted off the canonical catalogue. Live offers carry
-`Nyama Choma`, `Cooking`, `Delivery` and `Cleaning`, none of which exist in
-`categories` (which has `Catering`, `House Cleaning`, `Delivery Rider`). A
-category filter is exact-match, so those offers are unreachable by any filtered
-search — including the app's own Discover filters. This is worth fixing
-regardless of whether this feature is ever built.
+An earlier draft of this document claimed that posts filed under names outside
+the `categories` catalogue were unreachable by any filtered search. **That was
+wrong, and it is corrected here.**
+
+Nine posts across eight names sit outside the catalogue: `Cleaning` (2),
+`Nyama Choma`, `Teaching`, `Cooking`, `Delivery`, `Posho Mill Grinding`,
+`Repair`, `IT`. They are there by design. A provider may file a post under their
+own profession — see `mobile-app/test/custom_category_test.dart`, whose contract
+is that an unknown name "must round-trip … WITHOUT being collapsed to 'Other'" —
+validated through `Category.normalizeCustomName` (3–40 chars, must contain a
+letter, whitespace collapsed).
+
+They are reachable. Measured against the live API on 2026-09-12:
+
+| `categories=` | candidates |
+|---|---|
+| Cleaning | 2 |
+| Cooking | 1 |
+| Delivery | 1 |
+| Posho Mill Grinding | 1 |
+| Repair | 1 |
+| Nyama Choma | 0 — **archived**, correctly excluded |
+
+The one apparent miss is a post archived 28 seconds after it was created. The
+feed is right to drop it.
+
+The case-sensitivity hazard is real but already closed in the client.
+`Category.resolveFilterName` folds a typed name against the registry *and* the
+names the feed has actually returned this session, so "cleaning" is sent as
+"Cleaning". The code comment records the same production measurement:
+`'Cleaning' → 2 posts, 'cleaning' → 0`. `AppProvider.knownCategoryNames`
+accumulates the corpus rather than reading the filtered page, which is what makes
+resolution work while a filter is already in force.
+
+Database state is clean: zero case collisions, zero untrimmed or double-spaced
+values, zero case mismatches against the catalogue.
+
+**No action required.** The only thing an operator UI would need to respect is
+that the category filter is exact and case-sensitive server-side, so it must send
+a resolved spelling — exactly as the app already does.
 
 ## 7. Risks this defers
 
