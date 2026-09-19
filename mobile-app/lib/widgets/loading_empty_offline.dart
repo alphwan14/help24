@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:provider/provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../theme/app_theme.dart';
@@ -52,7 +52,7 @@ class EmptyStateView extends StatelessWidget {
 
   const EmptyStateView({
     super.key,
-    this.icon = Iconsax.document,
+    this.icon = AppIcons.empty,
     required this.title,
     required this.subtitle,
     this.actions,
@@ -126,7 +126,7 @@ class ErrorRetryView extends StatelessWidget {
     super.key,
     required this.message,
     this.onRetry,
-    this.icon = Iconsax.warning_2,
+    this.icon = AppIcons.warning,
   });
 
   @override
@@ -163,7 +163,7 @@ class ErrorRetryView extends StatelessWidget {
               const SizedBox(height: 24),
               FilledButton.tonalIcon(
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh, size: 20),
+                icon: const Icon(AppIcons.refresh, size: 20),
                 label: const Text('Retry'),
               ),
             ],
@@ -236,7 +236,7 @@ class OfflineEmptyView extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Iconsax.wifi_square,
+              AppIcons.offline,
               size: 64,
               color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
             ),
@@ -260,7 +260,7 @@ class OfflineEmptyView extends StatelessWidget {
               const SizedBox(height: 24),
               TextButton.icon(
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh, size: 20),
+                icon: const Icon(AppIcons.refresh, size: 20),
                 label: const Text('Retry'),
               ),
             ],
@@ -309,7 +309,7 @@ class OfflineBanner extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  unreachable ? Iconsax.global_refresh : Iconsax.wifi_square,
+                  unreachable ? AppIcons.unreachable : AppIcons.offline,
                   size: 18,
                   color: AppTheme.warningOrange,
                 ),

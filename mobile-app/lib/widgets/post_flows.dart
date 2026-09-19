@@ -8,6 +8,7 @@ import '../screens/post_detail_screen.dart';
 import '../services/application_service.dart';
 import '../services/interaction_tracker.dart';
 import '../services/post_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
@@ -148,7 +149,7 @@ Future<bool> confirmAndDeletePost(BuildContext context, PostModel post) async {
         SnackBar(
           content: const Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.white),
+              Icon(AppIcons.successFilled, color: Colors.white),
               SizedBox(width: 12),
               Text('Post deleted'),
             ],

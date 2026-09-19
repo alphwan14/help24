@@ -22,7 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/post_model.dart';
@@ -53,7 +53,7 @@ class LocationIntents {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final onMyWay = _IntentRow(
-      icon: Iconsax.routing_2,
+      icon: AppIcons.route,
       color: AppTheme.primaryAccent,
       title: 'On my way',
       subtitle: 'Share your journey to this job',
@@ -63,7 +63,7 @@ class LocationIntents {
       },
     );
     final sendPlace = _IntentRow(
-      icon: Iconsax.location,
+      icon: AppIcons.location,
       color: AppTheme.successGreen,
       title: 'Send a place',
       subtitle: 'Drop a pin — the gate, the building, the exact spot',
@@ -73,7 +73,7 @@ class LocationIntents {
       },
     );
     final request = _IntentRow(
-      icon: Iconsax.location_tick,
+      icon: AppIcons.locationConfirmed,
       color: AppTheme.secondaryAccent,
       title: 'Request location',
       subtitle: 'Ask them to share where to go',
@@ -142,15 +142,7 @@ class _IntentRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: color, size: 21),
-            ),
+            IconBadge(icon, color: color),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -176,7 +168,7 @@ class _IntentRow extends StatelessWidget {
               ),
             ),
             Icon(
-              Icons.chevron_right_rounded,
+              AppIcons.disclosure,
               size: 20,
               color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
             ),
@@ -392,7 +384,7 @@ class PlaceCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Iconsax.location, size: 15, color: mine ? Colors.white : AppTheme.successGreen),
+                Icon(AppIcons.location, size: 15, color: mine ? Colors.white : AppTheme.successGreen),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Column(
@@ -430,7 +422,7 @@ class PlaceCard extends StatelessWidget {
                 HapticFeedback.selectionClick();
                 launchNavigation(lat, lng, label: hasLabel ? message.text : '');
               },
-              icon: const Icon(Iconsax.routing_2, size: 16),
+              icon: const Icon(AppIcons.route, size: 16),
               label: const Text('Navigate'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: mine ? Colors.white : AppTheme.primaryAccent,
@@ -605,7 +597,7 @@ class JourneyCard extends StatelessWidget {
                       .withValues(alpha: onAccent ? 0.40 : 0.18),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.check_rounded,
+                child: Icon(AppIcons.check,
                     size: 20,
                     color: onAccent ? Colors.white : AppTheme.successGreen),
               ),
@@ -652,7 +644,7 @@ class JourneyCard extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Iconsax.location_slash, size: 17, color: subColor),
+              Icon(AppIcons.locationOff, size: 17, color: subColor),
               const SizedBox(width: 8),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -806,7 +798,7 @@ class JourneyCard extends StatelessWidget {
                                 HapticFeedback.selectionClick();
                                 onArrived!();
                               },
-                        icon: const Icon(Icons.check_rounded, size: 17),
+                        icon: const Icon(AppIcons.check, size: 17),
                         label: const Text("I've arrived"),
                         style: FilledButton.styleFrom(
                           backgroundColor:
@@ -900,7 +892,7 @@ class _RequestCardState extends State<RequestCard> {
                       .withValues(alpha: mine ? 0.22 : 0.14),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Iconsax.location_tick,
+                child: Icon(AppIcons.locationConfirmed,
                     size: 16, color: mine ? Colors.white : AppTheme.secondaryAccent),
               ),
               const SizedBox(width: 9),
@@ -1085,7 +1077,7 @@ class JourneyStatusStrip extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
-                    arrived ? Icons.check_rounded : Iconsax.routing_2,
+                    arrived ? AppIcons.check : AppIcons.route,
                     size: 15,
                     color: accent,
                   ),
@@ -1129,7 +1121,7 @@ class JourneyStatusStrip extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 if (arrived)
-                  const Icon(Icons.check_circle_rounded,
+                  const Icon(AppIcons.successFilled,
                       size: 15, color: AppTheme.successGreen)
                 else if (reconnecting) ...[
                   Container(
@@ -1178,7 +1170,7 @@ class JourneyStatusStrip extends StatelessWidget {
                   ),
                 ] else
                   Icon(
-                    Icons.chevron_right_rounded,
+                    AppIcons.disclosure,
                     size: 18,
                     color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                   ),

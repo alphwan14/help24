@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
@@ -53,15 +53,15 @@ class CustomBottomNav extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 _NavItem(
-                  icon: Iconsax.discover,
-                  activeIcon: Iconsax.discover5,
+                  icon: AppIcons.discover,
+                  activeIcon: AppIcons.discoverActive,
                   label: 'Discover',
                   isActive: currentIndex == 0,
                   onTap: () => onTap(0),
                 ),
                 _NavItem(
-                  icon: Iconsax.briefcase,
-                  activeIcon: Iconsax.briefcase5,
+                  icon: AppIcons.jobs,
+                  activeIcon: AppIcons.jobsActive,
                   label: 'Jobs',
                   isActive: currentIndex == 1,
                   onTap: () => onTap(1),
@@ -71,8 +71,8 @@ class CustomBottomNav extends StatelessWidget {
                 ),
                 Consumer<AppProvider>(
                   builder: (_, appProvider, __) => _NavItem(
-                    icon: Iconsax.message,
-                    activeIcon: Iconsax.message5,
+                    icon: AppIcons.messages,
+                    activeIcon: AppIcons.messagesActive,
                     label: 'Messages',
                     isActive: currentIndex == 3,
                     badgeCount: appProvider.totalUnreadCount,
@@ -80,8 +80,8 @@ class CustomBottomNav extends StatelessWidget {
                   ),
                 ),
                 _NavItem(
-                  icon: Iconsax.profile_circle,
-                  activeIcon: Iconsax.profile_circle5,
+                  icon: AppIcons.profile,
+                  activeIcon: AppIcons.profileActive,
                   label: 'Profile',
                   isActive: currentIndex == 4,
                   onTap: () => onTap(4),
@@ -229,7 +229,7 @@ class _CenterButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.add_rounded,
+              AppIcons.compose,
               color: Colors.white,
               size: 26,
             ),

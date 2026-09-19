@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../../theme/app_icons.dart';
 import '../../models/promotion_models.dart';
 import '../../services/promotion_service.dart';
 import '../../theme/app_theme.dart';
@@ -55,7 +55,7 @@ class _PromoteBusinessScreenState extends State<PromoteBusinessScreen> {
         ),
         floatingActionButton: FloatingActionButton.extended(
           onPressed: _startPromotionFlow,
-          icon: const Icon(Iconsax.flash_1),
+          icon: const Icon(AppIcons.promote),
           label: const Text('Promote a listing'),
         ),
         body: TabBarView(
@@ -106,7 +106,7 @@ class _CampaignsTab extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Iconsax.flash_1, size: 48, color: AppTheme.primaryAccent),
+                  const Icon(AppIcons.promote, size: 48, color: AppTheme.primaryAccent),
                   const SizedBox(height: 16),
                   Text('Get discovered', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
@@ -119,7 +119,7 @@ class _CampaignsTab extends StatelessWidget {
                   const SizedBox(height: 20),
                   FilledButton.icon(
                     onPressed: onPromote,
-                    icon: const Icon(Iconsax.flash_1, size: 18),
+                    icon: const Icon(AppIcons.promote, size: 18),
                     label: const Text('Promote a listing'),
                   ),
                 ],
@@ -201,9 +201,9 @@ class _PaymentsTab extends StatelessWidget {
             itemBuilder: (context, i) {
               final p = payments[i];
               final (color, icon) = switch (p.status) {
-                'paid' => (AppTheme.successGreen, Icons.check_circle_outline),
-                'failed' => (AppTheme.errorRed, Icons.error_outline),
-                _ => (AppTheme.warningOrange, Icons.hourglass_top_rounded),
+                'paid' => (AppTheme.successGreen, AppIcons.success),
+                'failed' => (AppTheme.errorRed, AppIcons.error),
+                _ => (AppTheme.warningOrange, AppIcons.pending),
               };
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
@@ -247,13 +247,13 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off_outlined, size: 40),
+            const Icon(AppIcons.offline, size: 40),
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 12),
             TextButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(AppIcons.refresh),
               label: const Text('Retry'),
             ),
           ],

@@ -6,6 +6,7 @@ import '../models/post_model.dart';
 import '../providers/connectivity_provider.dart' show NetworkHealth;
 import '../screens/provider_profile_screen.dart';
 import '../services/reputation_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
@@ -207,7 +208,7 @@ class ApplicantCard extends StatelessWidget {
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.check_circle_rounded,
+                    Icon(AppIcons.successFilled,
                         color: AppTheme.successGreen, size: 16),
                     SizedBox(width: 6),
                     Text(
@@ -230,7 +231,7 @@ class ApplicantCard extends StatelessWidget {
                     onPressed: application.applicantUserId.isEmpty
                         ? null
                         : () => _openProfile(context),
-                    icon: const Icon(Icons.person_outline_rounded, size: 15),
+                    icon: const Icon(AppIcons.person, size: 15),
                     label: const Text('View Profile'),
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -245,7 +246,7 @@ class ApplicantCard extends StatelessWidget {
                     height: 36,
                     child: OutlinedButton.icon(
                       onPressed: onMessage,
-                      icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
+                      icon: const Icon(AppIcons.chat, size: 15),
                       label: const Text('Message'),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -385,7 +386,7 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
             TierBadge(tier: rep.tier, label: rep.tierLabel, fontSize: 11),
             if (rep.hasReviews)
               _stat(
-                icon: Icons.star_rounded,
+                icon: AppIcons.reviewFilled,
                 iconColor: AppTheme.warningOrange,
                 text: '${rep.averageRating.toStringAsFixed(1)} '
                     '(${rep.totalReviews})',
@@ -394,7 +395,7 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
               ),
             if (rep.completedJobs > 0)
               _stat(
-                icon: Icons.task_alt_rounded,
+                icon: AppIcons.completedWork,
                 iconColor: AppTheme.successGreen,
                 text: '${rep.completedJobs} '
                     '${rep.completedJobs == 1 ? 'job' : 'jobs'} done',
@@ -404,7 +405,7 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
             // A completion rate over zero concluded jobs is not a fact.
             if (hasActivity && rep.completedJobs > 0)
               _stat(
-                icon: Icons.trending_up_rounded,
+                icon: AppIcons.rate,
                 iconColor: AppTheme.primaryAccent,
                 text: '${rep.completionPercent}% completion',
                 muted: muted,
@@ -412,7 +413,7 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
               ),
             if (rep.memberSinceYear != null)
               _stat(
-                icon: Icons.event_available_rounded,
+                icon: AppIcons.memberSince,
                 iconColor: muted,
                 text: 'Since ${rep.memberSinceYear}',
                 muted: muted,
@@ -420,7 +421,7 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
               ),
             if (!hasActivity)
               _stat(
-                icon: Icons.auto_awesome_rounded,
+                icon: AppIcons.newMember,
                 iconColor: muted,
                 text: 'New on Help24',
                 muted: muted,
@@ -439,11 +440,11 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
   Widget _unavailable(ReputationOutcome outcome, Color muted) {
     final (icon, text) = switch (outcome) {
       ReputationOutcome.offline => (
-          Icons.wifi_off_rounded,
+          AppIcons.offline,
           "You're offline — ratings will appear when you reconnect",
         ),
       _ => (
-          Icons.cloud_off_rounded,
+          AppIcons.unreachable,
           "Couldn't load ratings — pull down to retry",
         ),
     };

@@ -7,6 +7,7 @@ import '../services/application_service.dart';
 import '../services/jobs_service.dart';
 import '../services/post_service.dart';
 import '../services/reputation_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 import '../widgets/applicant_card.dart';
@@ -175,7 +176,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(children: [
-            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+            const Icon(AppIcons.successFilled, color: Colors.white, size: 18),
             const SizedBox(width: 10),
             Flexible(
               child: Text('${app.applicantName.isNotEmpty ? app.applicantName : 'Provider'} selected! Opening chat…'),
@@ -200,7 +201,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(children: [
-            const Icon(Icons.error_outline, color: Colors.white, size: 18),
+            const Icon(AppIcons.error, color: Colors.white, size: 18),
             const SizedBox(width: 10),
             Flexible(child: Text(msg)),
           ]),
@@ -270,7 +271,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
         actions: [
           if (!_loading)
             IconButton(
-              icon: Icon(Icons.refresh_rounded, color: textPrimary),
+              icon: Icon(AppIcons.refresh, color: textPrimary),
               onPressed: _load,
               tooltip: 'Refresh',
             ),
@@ -302,7 +303,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
               child: Column(
                 children: [
                   Icon(
-                    _errorIsOffline ? Icons.wifi_off_rounded : Icons.cloud_off_rounded,
+                    _errorIsOffline ? AppIcons.offline : AppIcons.unreachable,
                     size: 48,
                     color: AppTheme.errorRed.withValues(alpha: 0.7),
                   ),
@@ -311,7 +312,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
                     onPressed: _load,
-                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    icon: const Icon(AppIcons.refresh, size: 16),
                     label: const Text('Try again'),
                   ),
                 ],
@@ -331,7 +332,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Column(
                 children: [
-                  Icon(Icons.inbox_rounded, size: 52, color: textSecondary.withValues(alpha: 0.4)),
+                  Icon(AppIcons.application, size: 52, color: textSecondary.withValues(alpha: 0.4)),
                   const SizedBox(height: 16),
                   Text(
                     'No applications yet.',
@@ -402,7 +403,7 @@ class _ReputationOfflineBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.wifi_off_rounded, size: 18, color: AppTheme.warningOrange),
+          const Icon(AppIcons.offline, size: 18, color: AppTheme.warningOrange),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../models/app_notification.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 
 // ── Tuning ───────────────────────────────────────────────────────────────────
@@ -646,16 +647,7 @@ class _NotificationBannerState extends State<_NotificationBanner>
         ),
       );
     }
-    return Container(
-      width: 44,
-      height: 44,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: tone.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Icon(widget.kind.icon, color: tone, size: 20),
-    );
+    return IconBadge(widget.kind.icon, color: tone);
   }
 
   Widget _initialsAvatar() => Container(
@@ -700,7 +692,7 @@ class _NotificationBannerState extends State<_NotificationBanner>
                     : const Color(0x0D111827),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.close_rounded, size: 15, color: textTertiary),
+              child: Icon(AppIcons.close, size: 15, color: textTertiary),
             ),
           ),
         ),

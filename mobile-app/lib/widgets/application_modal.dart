@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
@@ -161,15 +161,7 @@ class _ApplicationModalState extends State<ApplicationModal> {
               // Header
               Row(
                 children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(Iconsax.send_2, color: AppTheme.primaryAccent),
-                  ),
+                  const IconBadge(AppIcons.send, color: AppTheme.primaryAccent),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
@@ -235,7 +227,7 @@ class _ApplicationModalState extends State<ApplicationModal> {
                     children: [
                       const Padding(
                         padding: EdgeInsets.only(top: 1),
-                        child: Icon(Icons.error_outline_rounded,
+                        child: Icon(AppIcons.error,
                             color: AppTheme.errorRed, size: 19),
                       ),
                       const SizedBox(width: 10),

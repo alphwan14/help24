@@ -1,9 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
 import '../models/attribute_display.dart';
 import '../models/post_model.dart';
 import '../services/saved_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_flows.dart';
@@ -106,7 +106,7 @@ class _SavedScreenState extends State<SavedScreen> {
         backgroundColor: bg,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded, color: textPrimary, size: 20),
+          icon: Icon(AppIcons.back, color: textPrimary, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
@@ -174,7 +174,7 @@ class _SavedScreenState extends State<SavedScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline_rounded, color: secondary, size: 40),
+            Icon(AppIcons.warning, color: secondary, size: 40),
             const SizedBox(height: 12),
             Text(_error!, style: TextStyle(color: secondary, fontSize: 14)),
             const SizedBox(height: 12),
@@ -198,7 +198,7 @@ class _SavedScreenState extends State<SavedScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Iconsax.archive_1, color: secondary, size: 44),
+              Icon(AppIcons.saved, color: secondary, size: 44),
               const SizedBox(height: 14),
               Text(
                 'Nothing saved yet',
@@ -375,7 +375,7 @@ class _SavedPostRow extends StatelessWidget {
               ),
               IconButton(
                 tooltip: 'Remove from saved',
-                icon: const Icon(Icons.bookmark_rounded,
+                icon: const Icon(AppIcons.savedActive,
                     color: AppTheme.primaryAccent, size: 22),
                 onPressed: () => SavedService.instance.togglePost(
                   userId,
@@ -462,7 +462,7 @@ class _SavedProviderRow extends StatelessWidget {
           ),
           IconButton(
             tooltip: 'Message',
-            icon: const Icon(Iconsax.message,
+            icon: const Icon(AppIcons.chat,
                 color: AppTheme.primaryAccent, size: 20),
             onPressed: () => openChatWithUser(
               context,
@@ -474,7 +474,7 @@ class _SavedProviderRow extends StatelessWidget {
           ),
           IconButton(
             tooltip: 'Remove from saved',
-            icon: const Icon(Icons.bookmark_rounded,
+            icon: const Icon(AppIcons.savedActive,
                 color: AppTheme.primaryAccent, size: 22),
             onPressed: () =>
                 SavedService.instance.toggleProvider(userId, provider.userId),

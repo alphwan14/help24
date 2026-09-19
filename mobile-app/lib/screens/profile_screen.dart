@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:iconsax/iconsax.dart';
 import '../config/app_urls.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
@@ -24,6 +23,7 @@ import '../services/payout_authority.dart';
 import '../services/payout_service.dart';
 import '../services/user_profile_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
 import '../widgets/auth/email_verification_banner.dart';
@@ -67,10 +67,10 @@ class ProfileScreen extends StatelessWidget {
                         title: 'Account',
                         children: [
                           _SettingsTile(
-                            icon: Iconsax.profile_circle,
+                            icon: AppIcons.account,
                             title: 'Professional Profile',
                             subtitle: 'Sign in to build your profile',
-                            trailing: const Icon(Icons.chevron_right),
+                            trailing: const Icon(AppIcons.disclosure),
                             onTap: () => _showAuthModalForEditProfile(context),
                           ),
                         ],
@@ -105,7 +105,7 @@ class ProfileScreen extends StatelessWidget {
                       icon: preference.icon,
                       title: AppLocalizations.of(context)?.t('theme') ?? 'Theme',
                       subtitle: preference.label,
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(AppIcons.disclosure),
                       onTap: () => _showThemeSheet(context, provider),
                     );
                   },
@@ -114,10 +114,10 @@ class ProfileScreen extends StatelessWidget {
                   builder: (context, auth, _) {
                     if (!auth.isLoggedIn) {
                       return _SettingsTile(
-                        icon: Iconsax.notification,
+                        icon: AppIcons.notifications,
                         title: AppLocalizations.of(context)?.t('notifications') ?? 'Notifications',
                         subtitle: AppLocalizations.of(context)?.t('sign_in') ?? 'Sign in',
-                        trailing: const Icon(Icons.chevron_right),
+                        trailing: const Icon(AppIcons.disclosure),
                         onTap: () => _navigateToAuth(context),
                       );
                     }
@@ -129,10 +129,10 @@ class ProfileScreen extends StatelessWidget {
                   builder: (context, auth, location, _) {
                     if (!auth.isLoggedIn) {
                       return _SettingsTile(
-                        icon: Icons.location_on_outlined,
+                        icon: AppIcons.location,
                         title: 'Location Access',
                         subtitle: 'Sign in',
-                        trailing: const Icon(Icons.chevron_right),
+                        trailing: const Icon(AppIcons.disclosure),
                         onTap: () => _navigateToAuth(context),
                       );
                     }
@@ -155,10 +155,10 @@ class ProfileScreen extends StatelessWidget {
                       subtitle = 'Off · tap to turn on';
                     }
                     return _SettingsTile(
-                      icon: Icons.location_on_outlined,
+                      icon: AppIcons.location,
                       title: 'Location Access',
                       subtitle: subtitle,
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(AppIcons.disclosure),
                       onTap: () async {
                         final locationProvider = context.read<LocationProvider>();
                         await locationProvider.initializeForUser(uid);
@@ -202,18 +202,18 @@ class ProfileScreen extends StatelessWidget {
                         : (AppLocalizations.of(context)?.t('language_english') ?? 'English');
                     if (!auth.isLoggedIn) {
                       return _SettingsTile(
-                        icon: Iconsax.language_square,
+                        icon: AppIcons.language,
                         title: AppLocalizations.of(context)?.t('language') ?? 'Language',
                         subtitle: langLabel,
-                        trailing: const Icon(Icons.chevron_right),
+                        trailing: const Icon(AppIcons.disclosure),
                         onTap: () => _navigateToAuth(context),
                       );
                     }
                     return _SettingsTile(
-                      icon: Iconsax.language_square,
+                      icon: AppIcons.language,
                       title: AppLocalizations.of(context)?.t('language') ?? 'Language',
                       subtitle: langLabel,
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(AppIcons.disclosure),
                       onTap: () => _showLanguageSheet(context, auth.currentUserId!, localeProvider),
                     );
                   },
@@ -225,25 +225,25 @@ class ProfileScreen extends StatelessWidget {
               title: AppLocalizations.of(context)?.t('support') ?? 'Support',
               children: [
                 _SettingsTile(
-                  icon: Iconsax.message_question,
+                  icon: AppIcons.help,
                   title: AppLocalizations.of(context)?.t('help_center') ?? 'Help Centre',
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openHelpCenter(context),
                 ),
                 _SettingsTile(
-                  icon: Icons.support_agent_rounded,
+                  icon: AppIcons.support,
                   title: AppLocalizations.of(context)?.t('contact_support') ?? 'Contact Support',
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openSupport(context),
                 ),
                 _SettingsTile(
-                  icon: Iconsax.document_text,
+                  icon: AppIcons.legal,
                   title: AppLocalizations.of(context)?.t('terms_of_service') ?? 'Terms of Service',
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openTerms(context),
                 ),
                 _SettingsTile(
-                  icon: Iconsax.shield_tick,
+                  icon: AppIcons.verified,
                   title: AppLocalizations.of(context)?.t('privacy_policy') ?? 'Privacy Policy',
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openPrivacy(context),
@@ -266,7 +266,7 @@ class ProfileScreen extends StatelessWidget {
                       ),
                     ),
                     child: _SettingsTile(
-                      icon: Iconsax.logout,
+                      icon: AppIcons.signOut,
                       title: 'Sign out',
                       iconColor: AppTheme.errorRed,
                       titleColor: AppTheme.errorRed,
@@ -284,7 +284,7 @@ class ProfileScreen extends StatelessWidget {
                       ),
                     ),
                     child: _SettingsTile(
-                      icon: Iconsax.login,
+                      icon: AppIcons.signIn,
                       title: 'Sign in',
                       iconColor: AppTheme.primaryAccent,
                       titleColor: AppTheme.primaryAccent,
@@ -435,7 +435,7 @@ class ProfileScreen extends StatelessWidget {
             ListTile(
               title: Text(l10n?.t('language_english') ?? 'English'),
               trailing: localeProvider.languageCode == 'en'
-                  ? const Icon(Icons.check_rounded, color: AppTheme.primaryAccent)
+                  ? const Icon(AppIcons.check, color: AppTheme.primaryAccent)
                   : null,
               onTap: () {
                 Navigator.pop(ctx);
@@ -445,7 +445,7 @@ class ProfileScreen extends StatelessWidget {
             ListTile(
               title: Text(l10n?.t('language_swahili') ?? 'Kiswahili'),
               subtitle: const Text('Coming soon'),
-              trailing: const Icon(Icons.lock_outline_rounded, size: 18),
+              trailing: const Icon(AppIcons.locked, size: 18),
               onTap: () {
                 Navigator.pop(ctx);
                 showDialog(
@@ -586,10 +586,10 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
               children: [
                 _MyPostsTile(uid: widget.uid),
                 _SettingsTile(
-                  icon: Iconsax.archive_1,
+                  icon: AppIcons.saved,
                   title: 'Saved',
                   subtitle: 'Your shortlist of posts & providers',
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const Icon(AppIcons.disclosure),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -602,10 +602,10 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                 // on Help24. It covers both sides of the deal — services bought
                 // and work done — so it is one entry, not two.
                 _SettingsTile(
-                  icon: Iconsax.receipt_item,
+                  icon: AppIcons.serviceHistory,
                   title: 'Service History',
                   subtitle: 'Completed services, work & receipts',
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const Icon(AppIcons.disclosure),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -620,10 +620,10 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
               title: 'Business',
               children: [
                 _SettingsTile(
-                  icon: Iconsax.briefcase,
+                  icon: AppIcons.provider,
                   title: 'Become a Provider',
                   subtitle: 'Profession, contact & verified payout number',
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const Icon(AppIcons.disclosure),
                   onTap: () => Navigator.push<bool>(
                     context,
                     MaterialPageRoute(
@@ -639,10 +639,10 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                   }),
                 ),
                 _SettingsTile(
-                  icon: Iconsax.card,
+                  icon: AppIcons.payoutDestination,
                   title: 'Payout Destinations',
                   subtitle: 'Where your M-Pesa earnings are sent',
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const Icon(AppIcons.disclosure),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -651,10 +651,10 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                   ),
                 ),
                 _SettingsTile(
-                  icon: Iconsax.flash_1,
+                  icon: AppIcons.promote,
                   title: 'Promote Business',
                   subtitle: 'Feature a listing · campaigns, results & payments',
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const Icon(AppIcons.disclosure),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -676,7 +676,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                     fallbackPhone: widget.authUser.phoneNumber,
                   );
                   return _SettingsTile(
-                    icon: Iconsax.profile_circle,
+                    icon: AppIcons.account,
                     title: 'Professional Profile',
                     subtitle: completion.isComplete
                         ? 'Complete'
@@ -687,7 +687,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                       children: [
                         if (!completion.isComplete)
                           CompletionRing(percent: completion.percent, size: 34, stroke: 3.5),
-                        const Icon(Icons.chevron_right),
+                        const Icon(AppIcons.disclosure),
                       ],
                     ),
                     onTap: () => Navigator.push<bool>(
@@ -710,14 +710,14 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                 // provider hireable. Where earnings are SENT is Payout
                 // Destinations, and only that. See payout_authority.dart (§M4).
                 _SettingsTile(
-                  icon: Iconsax.card,
+                  icon: AppIcons.paymentNumber,
                   title: 'Payment Number',
                   // The number is sensitive — masked here; the full value is
                   // only revealed behind the biometric gate in the sheet.
                   subtitle: (profile?.phone?.isNotEmpty == true)
                       ? '${maskPhone(profile!.phone!)} · the number you pay from'
                       : 'M-Pesa number not set',
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const Icon(AppIcons.disclosure),
                   onTap: () => showModalBottomSheet(
                     context: context,
                     isScrollControlled: true,
@@ -767,14 +767,14 @@ class _MyPostsTileState extends State<_MyPostsTile> {
       builder: (context, snap) {
         final count = snap.data;
         return _SettingsTile(
-          icon: Iconsax.document_text,
+          icon: AppIcons.myPosts,
           title: 'My Posts',
           subtitle: count == null
               ? 'Requests, offers & job posts'
               : count == 1
                   ? '1 active post'
                   : '$count active posts',
-          trailing: const Icon(Icons.chevron_right),
+          trailing: const Icon(AppIcons.disclosure),
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -852,7 +852,7 @@ class _LoggedInProfile extends StatelessWidget {
                         ),
                       ),
                       errorWidget: (_, __, ___) => Icon(
-                        Icons.person_outline_rounded,
+                        AppIcons.person,
                         size: 44,
                         color: Colors.white70,
                       ),
@@ -941,7 +941,7 @@ class _GuestProfile extends StatelessWidget {
           ),
           child: Center(
             child: Icon(
-              Iconsax.user,
+              AppIcons.person,
               color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
               size: 44,
             ),
@@ -973,7 +973,7 @@ class _GuestProfile extends StatelessWidget {
           height: 52,
           child: ElevatedButton.icon(
             onPressed: onSignIn,
-            icon: const Icon(Iconsax.login),
+            icon: const Icon(AppIcons.signIn),
             label: const Text('Sign in'),
           ),
         ),
@@ -991,7 +991,7 @@ class _ExternalTrailing extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Icon(
-      Icons.open_in_new_rounded,
+      AppIcons.externalLink,
       size: 18,
       color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
     );
@@ -1069,8 +1069,6 @@ class _SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -1078,19 +1076,7 @@ class _SettingsTile extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: (iconColor ?? AppTheme.primaryAccent).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                icon,
-                color: iconColor ?? (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                size: 20,
-              ),
-            ),
+            IconBadge(icon, color: iconColor),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -1172,7 +1158,7 @@ class _ThemeOptionTile extends StatelessWidget {
                 ),
               ),
               if (selected)
-                const Icon(Icons.check_circle_rounded,
+                const Icon(AppIcons.successFilled,
                     color: AppTheme.primaryAccent, size: 22),
             ],
           ),
@@ -1296,7 +1282,7 @@ class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return _SettingsTile(
-      icon: Iconsax.notification,
+      icon: AppIcons.notifications,
       title: l10n?.t('notifications') ?? 'Notifications',
       subtitle: _osBlocked ? "Blocked in phone settings — tap to fix" : null,
       onTap: _osBlocked ? _nudgeToSystemSettings : null,
@@ -1442,15 +1428,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
         ),
         Row(
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(Iconsax.mobile, color: AppTheme.primaryAccent, size: 20),
-            ),
+            const IconBadge(AppIcons.device, color: AppTheme.primaryAccent),
             const SizedBox(width: 12),
             Text('Payment Number', style: Theme.of(context).textTheme.titleLarge),
           ],
@@ -1496,7 +1474,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
           ),
           child: Row(
             children: [
-              Icon(Iconsax.mobile, size: 20,
+              Icon(AppIcons.device, size: 20,
                   color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
               const SizedBox(width: 12),
               Column(
@@ -1510,7 +1488,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
                 ],
               ),
               const Spacer(),
-              Icon(Iconsax.lock, size: 18,
+              Icon(AppIcons.locked, size: 18,
                   color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
             ],
           ),
@@ -1524,7 +1502,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
             icon: _authenticating
                 ? const SizedBox(width: 18, height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Iconsax.finger_scan, size: 18),
+                : const Icon(AppIcons.biometric, size: 18),
             label: Text(_authenticating ? 'Authenticating…' : 'Change Number'),
           ),
         ),
@@ -1552,7 +1530,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
           ),
           child: Row(
             children: [
-              Icon(Iconsax.info_circle, size: 18, color: AppTheme.primaryAccent),
+              Icon(AppIcons.info, size: 18, color: AppTheme.primaryAccent),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -1574,7 +1552,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
           decoration: InputDecoration(
             labelText: 'M-Pesa Number',
             hintText: '254XXXXXXXXX',
-            prefixIcon: const Icon(Iconsax.mobile),
+            prefixIcon: const Icon(AppIcons.device),
             errorText: _error,
           ),
           onChanged: (_) { if (_error != null) setState(() => _error = null); },
@@ -1641,7 +1619,7 @@ class _PayoutAuthorityNote extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(
-                  isDisclaimer ? Iconsax.warning_2 : Iconsax.info_circle,
+                  isDisclaimer ? AppIcons.warning : AppIcons.info,
                   size: 18,
                   color: accent,
                 ),
@@ -1674,7 +1652,7 @@ class _PayoutAuthorityNote extends StatelessWidget {
                       ),
                     );
                   },
-                  icon: const Icon(Iconsax.wallet_check, size: 16),
+                  icon: const Icon(AppIcons.payoutDestination, size: 16),
                   label: const Text('Open Payout Destinations'),
                 ),
               ),
@@ -1822,7 +1800,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
-                      on ? Icons.location_on_rounded : Icons.location_off_rounded,
+                      on ? AppIcons.location : AppIcons.locationOff,
                       color: headerColor,
                       size: 22,
                     ),
@@ -1863,7 +1841,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _DetailRow(
-                      icon: Icons.place_rounded,
+                      icon: AppIcons.location,
                       label: 'Current location',
                       value: (city != null && city.isNotEmpty)
                           ? city
@@ -1873,7 +1851,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                     ),
                     const SizedBox(height: 10),
                     _DetailRow(
-                      icon: Icons.access_time_rounded,
+                      icon: AppIcons.pending,
                       label: 'Last updated',
                       value: lastUpdated != null
                           ? formatRelativeTime(lastUpdated)
@@ -1915,7 +1893,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white),
                         )
-                      : const Icon(Icons.my_location_rounded, size: 18),
+                      : const Icon(AppIcons.currentLocation, size: 18),
                   label: Text(_refreshing ? 'Updating...' : 'Refresh Location'),
                 ),
               ),
@@ -1942,7 +1920,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: AppTheme.errorRed),
                         )
-                      : const Icon(Icons.location_off_rounded, size: 18),
+                      : const Icon(AppIcons.locationOff, size: 18),
                   label: Text(_disabling ? 'Disabling...' : 'Disable Location'),
                 ),
               ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_icons.dart';
 
 import '../theme/app_theme.dart';
 import 'error_mapper.dart';
@@ -26,7 +27,7 @@ class ActionFeedback {
     _show(
       context,
       message: message,
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.successFilled,
       background: AppTheme.successGreen,
     );
   }
@@ -43,7 +44,7 @@ class ActionFeedback {
     _show(
       context,
       message: ErrorMapper.toMessage(error, context: context_),
-      icon: Icons.error_outline_rounded,
+      icon: AppIcons.error,
       background: AppTheme.errorRed,
       actionLabel: onRetry == null ? null : 'Retry',
       onAction: onRetry,
@@ -65,7 +66,7 @@ class ActionFeedback {
     _show(
       context,
       message: message,
-      icon: Icons.info_outline_rounded,
+      icon: AppIcons.info,
       actionLabel: actionLabel,
       onAction: onAction,
     );

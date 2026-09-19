@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import '../models/filter_selection.dart';
 import '../models/place.dart';
 import '../models/post_model.dart';
@@ -285,7 +285,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                         for (final entry in _history)
                           ActionChip(
                             avatar: Icon(
-                              Iconsax.clock,
+                              AppIcons.pending,
                               size: 15,
                               color: AppTheme.primaryAccent,
                             ),
@@ -363,7 +363,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                             label: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.work_outline,
+                                Icon(AppIcons.profession,
                                     size: 16, color: AppTheme.primaryAccent),
                                 const SizedBox(width: 6),
                                 Text(name),
@@ -385,7 +385,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                Icons.add,
+                                AppIcons.add,
                                 size: 16,
                                 color: AppTheme.primaryAccent,
                               ),
@@ -431,7 +431,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                         const SizedBox(width: 8),
                         IconButton(
                           onPressed: _addCustomCategory,
-                          icon: Icon(Icons.check_circle, color: AppTheme.successGreen),
+                          icon: Icon(AppIcons.successFilled, color: AppTheme.successGreen),
                         ),
                         IconButton(
                           onPressed: () {
@@ -440,7 +440,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                               _customCategoryController.clear();
                             });
                           },
-                          icon: Icon(Icons.cancel, color: AppTheme.errorRed),
+                          icon: Icon(AppIcons.error, color: AppTheme.errorRed),
                         ),
                       ],
                     ),
@@ -508,7 +508,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                         child: Row(
                           children: [
                             Icon(
-                              Iconsax.location,
+                              AppIcons.location,
                               size: 20,
                               color: _selectedCity.isEmpty
                                   ? (isDark
@@ -536,7 +536,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                               ),
                             ),
                             Icon(
-                              Icons.chevron_right_rounded,
+                              AppIcons.disclosure,
                               size: 20,
                               color: isDark
                                   ? AppTheme.darkTextTertiary
@@ -701,7 +701,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                   child: OutlinedButton.icon(
                     // Leaves with NO answer, so the caller does nothing at all.
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Iconsax.close_circle),
+                    icon: const Icon(AppIcons.dismiss),
                     label: const Text('Exit'),
                   ),
                 ),
@@ -710,7 +710,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                   flex: 2,
                   child: ElevatedButton.icon(
                     onPressed: () => Navigator.pop(context, _selection),
-                    icon: const Icon(Iconsax.search_normal),
+                    icon: const Icon(AppIcons.search),
                     label: const Text('Search'),
                   ),
                 ),

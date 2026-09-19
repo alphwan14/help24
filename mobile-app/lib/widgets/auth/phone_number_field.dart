@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_icons.dart';
 
 import '../../theme/app_theme.dart';
 import '../../utils/kenyan_phone.dart';
@@ -212,7 +213,7 @@ class _PhoneNumberFieldState extends State<PhoneNumberField> {
                           ? const Padding(
                               padding: EdgeInsets.only(right: 14),
                               child: Icon(
-                                Icons.check_circle_rounded,
+                                AppIcons.successFilled,
                                 color: AppTheme.successGreen,
                                 size: 22,
                               ),
@@ -237,7 +238,7 @@ class _PhoneNumberFieldState extends State<PhoneNumberField> {
                   key: const ValueKey('error'),
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.error_outline_rounded,
+                    const Icon(AppIcons.error,
                         size: 15, color: AppTheme.errorRed),
                     const SizedBox(width: 6),
                     Expanded(

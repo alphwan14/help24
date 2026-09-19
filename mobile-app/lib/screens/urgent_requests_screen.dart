@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:provider/provider.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
@@ -118,7 +118,7 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
               final Widget state = provider.urgentError != null
                   ? ErrorRetryView(message: provider.urgentError!, onRetry: _load)
                   : const EmptyStateView(
-                      icon: Iconsax.flash_1,
+                      icon: AppIcons.urgent,
                       title: 'No urgent requests nearby',
                       subtitle:
                           "When someone nearby needs urgent help, it'll appear here.",

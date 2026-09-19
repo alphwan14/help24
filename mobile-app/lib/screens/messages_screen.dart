@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' show Geolocator;
 import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:provider/provider.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -165,13 +165,13 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     );
                   }
                   return EmptyStateView(
-                    icon: Iconsax.message,
+                    icon: AppIcons.chat,
                     title: 'No messages yet',
                     subtitle: 'Start a conversation by contacting a poster. Pull to refresh.',
                     actions: [
                       TextButton.icon(
                         onPressed: _refreshConversations,
-                        icon: const Icon(Icons.refresh, size: 20),
+                        icon: const Icon(AppIcons.refresh, size: 20),
                         label: const Text('Refresh'),
                       ),
                     ],
@@ -200,7 +200,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                                     onPressed: () => provider.loadMoreConversations(
                                       context.read<AuthProvider>().currentUserId ?? '',
                                     ),
-                                    icon: const Icon(Iconsax.refresh, size: 18),
+                                    icon: const Icon(AppIcons.refresh, size: 18),
                                     label: const Text('Load more conversations'),
                                   ),
                           ),
@@ -401,7 +401,7 @@ class _ConversationTile extends StatelessWidget {
                             const SizedBox(width: 8),
                             if (ChatLocalPrefs.isMutedSync(conversation.id)) ...[
                               Icon(
-                                Icons.notifications_off_rounded,
+                                AppIcons.mute,
                                 size: 13,
                                 color: isDark
                                     ? AppTheme.darkTextTertiary
@@ -430,8 +430,8 @@ class _ConversationTile extends StatelessWidget {
                             if (pending != null) ...[
                               Icon(
                                 hasFailure
-                                    ? Icons.error_outline_rounded
-                                    : Icons.schedule_rounded,
+                                    ? AppIcons.error
+                                    : AppIcons.messageSending,
                                 size: 13,
                                 color: hasFailure
                                     ? AppTheme.errorRed
@@ -510,7 +510,7 @@ class _ConversationTile extends StatelessWidget {
                           Row(
                             children: [
                               Icon(
-                                Icons.push_pin_rounded,
+                                AppIcons.pinned,
                                 size: 12,
                                 color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                               ),
@@ -1330,7 +1330,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         if (_onlineStatus.isNotEmpty && hasRating)
           Text('  ·  ', style: TextStyle(fontSize: 12, color: tertiary)),
         if (hasRating) ...[
-          const Icon(Icons.star_rounded, size: 13, color: AppTheme.warningOrange),
+          const Icon(AppIcons.reviewFilled, size: 13, color: AppTheme.warningOrange),
           const SizedBox(width: 2),
           Text(
             rep.averageRating.toStringAsFixed(1),
@@ -1841,7 +1841,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
               ),
               _AttachOption(
-                icon: Iconsax.gallery,
+                icon: AppIcons.gallery,
                 color: AppTheme.primaryAccent,
                 title: 'Photo',
                 subtitle: 'From your gallery',
@@ -1851,7 +1851,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 },
               ),
               _AttachOption(
-                icon: Iconsax.document,
+                icon: AppIcons.fileGeneric,
                 color: AppTheme.secondaryAccent,
                 title: 'Document',
                 subtitle: 'PDF, Word or CV',
@@ -1861,7 +1861,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 },
               ),
               _AttachOption(
-                icon: Iconsax.location,
+                icon: AppIcons.location,
                 color: AppTheme.successGreen,
                 title: 'Location',
                 subtitle: 'Share or request location',
@@ -1960,7 +1960,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // 1) They asked "where exactly?" — answering beats everything else.
     if (_hasOpenLocationRequest) {
       return (
-        icon: Iconsax.location,
+        icon: AppIcons.location,
         label: 'Share location',
         onTap: _respondToLocationRequest,
       );
@@ -1970,7 +1970,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // 2) I'm the traveller for this job and the trip hasn't started.
     if (_chatPost != null && _travellerFirst) {
       return (
-        icon: Iconsax.routing_2,
+        icon: AppIcons.route,
         label: 'On my way',
         onTap: _startJourneyFlow,
       );
@@ -1984,7 +1984,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         postId.isNotEmpty &&
         _recentlyArrivedJourney) {
       return (
-        icon: Icons.star_rounded,
+        icon: AppIcons.reviewFilled,
         label: 'Rate ${widget.conversation.userName}',
         onTap: () {
           Navigator.of(context).push(
@@ -2238,7 +2238,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       case JourneyStartResult.permissionRequired:
         JourneyEngine.instance.acknowledgeIdle();
         await _showJourneyBlocked(
-          icon: Iconsax.location_slash,
+          icon: AppIcons.locationOff,
           title: 'Location access is off',
           body: 'Help24 needs your location to share your journey with '
               '${widget.conversation.userName.isEmpty ? 'them' : widget.conversation.userName}. '
@@ -2250,7 +2250,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       case JourneyStartResult.serviceDisabled:
         JourneyEngine.instance.acknowledgeIdle();
         await _showJourneyBlocked(
-          icon: Iconsax.gps_slash,
+          icon: AppIcons.currentLocationOff,
           title: 'Location is turned off',
           body: 'Your device location is switched off, so we can\'t follow your '
               'journey. Turn it on and try again.',
@@ -2261,7 +2261,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       case JourneyStartResult.failed:
         JourneyEngine.instance.acknowledgeIdle();
         await _showJourneyBlocked(
-          icon: Iconsax.warning_2,
+          icon: AppIcons.warning,
           title: "Couldn't start the journey",
           body: 'Something went wrong on our side. Check your connection and '
               'try again — you can also just send a place instead.',
@@ -2710,7 +2710,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           leadingWidth: 48,
           titleSpacing: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
+            icon: const Icon(AppIcons.back),
             tooltip: 'Back',
             onPressed: () => Navigator.of(context).pop(),
           ),
@@ -2748,7 +2748,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         if (_headerRep != null && _trustedTiers.contains(_headerRep!.tier)) ...[
                           const SizedBox(width: 4),
                           Icon(
-                            Icons.verified_rounded,
+                            AppIcons.verifiedProvider,
                             size: 15,
                             color: tierColor(_headerRep!.tier),
                           ),
@@ -2769,7 +2769,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           actions: [
             PopupMenuButton<ChatMenuAction>(
-              icon: const Icon(Icons.more_vert_rounded),
+              icon: const Icon(AppIcons.more),
               tooltip: 'Conversation options',
               position: PopupMenuPosition.under,
               color: isDark ? AppTheme.darkCard : AppTheme.lightSurface,
@@ -2881,7 +2881,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              Iconsax.cloud_cross,
+                              AppIcons.unreachable,
                               size: 52,
                               color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                             ),
@@ -2913,7 +2913,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                 });
                                 _startRealtimeMessages();
                               },
-                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              icon: const Icon(AppIcons.refresh, size: 18),
                               label: const Text('Try again'),
                             ),
                           ],
@@ -2933,7 +2933,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              Iconsax.cloud_cross,
+                              AppIcons.unreachable,
                               size: 52,
                               color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                             ),
@@ -2965,7 +2965,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                 });
                                 unawaited(_resolveExistingChat());
                               },
-                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              icon: const Icon(AppIcons.refresh, size: 18),
                               label: const Text('Try again'),
                             ),
                           ],
@@ -2981,7 +2981,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            Iconsax.message,
+                            AppIcons.chat,
                             size: 52,
                             color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                           ),
@@ -3011,7 +3011,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            Iconsax.message,
+                            AppIcons.chat,
                             size: 52,
                             color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                           ),
@@ -3060,7 +3060,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                   )
                                 : TextButton.icon(
                                     onPressed: _loadOlderMessages,
-                                    icon: const Icon(Iconsax.arrow_up_2, size: 18),
+                                    icon: const Icon(AppIcons.sendMessage, size: 18),
                                     label: const Text('Load older messages'),
                                   ),
                           ),
@@ -3143,7 +3143,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         ],
                       ),
                       child: const Icon(
-                        Icons.keyboard_arrow_down_rounded,
+                        AppIcons.expand,
                         color: Colors.white,
                         size: 22,
                       ),
@@ -3222,7 +3222,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                   onPressed: _showAttachmentOptions,
                                   tooltip: 'Attach',
                                   icon: Icon(
-                                    Icons.add_circle_outline_rounded,
+                                    AppIcons.addAttachment,
                                     size: 26,
                                     color: isDark
                                         ? AppTheme.darkTextSecondary
@@ -3315,7 +3315,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                       ),
                                     )
                                   : Icon(
-                                      Icons.arrow_upward_rounded,
+                                      AppIcons.sendMessage,
                                       color: canSend
                                           ? Colors.white
                                           : (isDark
@@ -3381,7 +3381,7 @@ class _PostContextBanner extends StatelessWidget {
                   borderRadius: BorderRadius.circular(9),
                 ),
                 child: const Icon(
-                  Icons.description_outlined,
+                  AppIcons.fileDocument,
                   size: 16,
                   color: AppTheme.primaryAccent,
                 ),
@@ -3420,7 +3420,7 @@ class _PostContextBanner extends StatelessWidget {
                           color: AppTheme.primaryAccent,
                         ),
                       )
-                    : Icon(Icons.chevron_right_rounded, size: 20, color: tertiary),
+                    : Icon(AppIcons.disclosure, size: 20, color: tertiary),
               ],
             ],
           ),
@@ -3456,15 +3456,7 @@ class _AttachOption extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         child: Row(
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: Icon(icon, size: 21, color: color),
-            ),
+            IconBadge(icon, color: color),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -3486,7 +3478,7 @@ class _AttachOption extends StatelessWidget {
               ),
             ),
             Icon(
-              Icons.chevron_right_rounded,
+              AppIcons.disclosure,
               size: 20,
               color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
             ),
@@ -3610,7 +3602,7 @@ class _MessageBubble extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  Icons.block_rounded,
+                  AppIcons.blockUser,
                   size: 13,
                   color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                 ),
@@ -3803,7 +3795,7 @@ class _MessageBubble extends StatelessWidget {
                               child: const Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.broken_image_outlined, size: 40),
+                                  Icon(AppIcons.imageBroken, size: 40),
                                   SizedBox(height: 6),
                                   Text("Couldn't load", style: TextStyle(fontSize: 12)),
                                 ],
@@ -3837,7 +3829,7 @@ class _MessageBubble extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Iconsax.document,
+                          AppIcons.fileGeneric,
                           size: 28,
                           color: message.isMe ? Colors.white70 : AppTheme.primaryAccent,
                         ),
@@ -3916,7 +3908,7 @@ class _MessageBubble extends StatelessWidget {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.error_outline_rounded,
+                              const Icon(AppIcons.error,
                                   size: 13, color: Colors.white),
                               const SizedBox(width: 3),
                               Text(
@@ -3969,7 +3961,7 @@ class _MessageStatusIcon extends StatelessWidget {
       // like it is on its way. The spinner is kept for a real in-flight send.
       if (status == OutboxStatus.queued) {
         return Icon(
-          Icons.schedule_rounded,
+          AppIcons.messageSending,
           size: 13,
           color: Colors.white.withValues(alpha: 0.75),
           key: const ValueKey('queued'),
@@ -3987,14 +3979,14 @@ class _MessageStatusIcon extends StatelessWidget {
     }
     if (status == 'seen') {
       return const Icon(
-        Icons.done_all_rounded,
+        AppIcons.messageDelivered,
         size: 14,
         color: Colors.lightBlueAccent,
         key: ValueKey('seen'),
       );
     }
     return Icon(
-      Icons.done_rounded,
+      AppIcons.messageSent,
       size: 14,
       color: Colors.white.withValues(alpha: 0.65),
       key: const ValueKey('sent'),
@@ -4458,7 +4450,7 @@ class _ReplyPreviewBar extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(4),
               child: Icon(
-                Icons.close_rounded,
+                AppIcons.close,
                 size: 18,
                 color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
               ),

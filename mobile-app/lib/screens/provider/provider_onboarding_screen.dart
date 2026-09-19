@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../../theme/app_icons.dart';
 
 import '../../models/payout_models.dart';
 import '../../models/user_model.dart';
@@ -187,7 +187,7 @@ class _ProviderOnboardingScreenState extends State<ProviderOnboardingScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(
-                  allDone ? Iconsax.verify : Iconsax.briefcase,
+                  allDone ? AppIcons.verifiedProvider : AppIcons.provider,
                   color: allDone ? AppTheme.successGreen : AppTheme.primaryAccent,
                   size: 32,
                 ),
@@ -219,7 +219,7 @@ class _ProviderOnboardingScreenState extends State<ProviderOnboardingScreen> {
           _StepTile(
             index: 1,
             done: professionDone,
-            icon: Icons.work_outline_rounded,
+            icon: AppIcons.profession,
             title: 'Choose your profession',
             detail: professionDone
                 ? 'Confirmed — clients can see what you do.'
@@ -230,7 +230,7 @@ class _ProviderOnboardingScreenState extends State<ProviderOnboardingScreen> {
           _StepTile(
             index: 2,
             done: phoneDone,
-            icon: Icons.phone_iphone_rounded,
+            icon: AppIcons.call,
             title: 'Add your contact number',
             detail: phoneDone
                 ? 'On file — clients and Help24 can reach you.'
@@ -242,7 +242,7 @@ class _ProviderOnboardingScreenState extends State<ProviderOnboardingScreen> {
           _StepTile(
             index: 3,
             done: payoutDone,
-            icon: Iconsax.card,
+            icon: AppIcons.payoutDestination,
             title: 'Verify your payout number',
             detail: switch (_payoutState) {
               _PayoutStepState.loading => 'Checking…',
@@ -323,7 +323,7 @@ class _StepTile extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  done ? Icons.check_rounded : icon,
+                  done ? AppIcons.check : icon,
                   size: 18,
                   color: done ? AppTheme.successGreen : AppTheme.primaryAccent,
                 ),

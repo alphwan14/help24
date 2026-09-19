@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../../theme/app_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
@@ -163,7 +163,7 @@ class _EmailVerificationBannerState extends State<EmailVerificationBanner> {
           Padding(
             padding: const EdgeInsets.only(top: 2),
             child: Icon(
-              failed ? Icons.error_outline_rounded : Iconsax.sms_notification,
+              failed ? AppIcons.error : AppIcons.email,
               color: accent,
               size: 20,
             ),
@@ -231,7 +231,7 @@ class _EmailVerificationBannerState extends State<EmailVerificationBanner> {
             ),
           ),
           IconButton(
-            icon: Icon(Icons.close, size: 17, color: textSecondary),
+            icon: Icon(AppIcons.close, size: 17, color: textSecondary),
             onPressed: () => setState(() => _dismissed = true),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),

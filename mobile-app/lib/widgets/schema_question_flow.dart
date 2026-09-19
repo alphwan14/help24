@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/category_schema.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 
 /// Smart Posting (SP-2): the guided-conversation renderer.
@@ -139,7 +140,7 @@ class _SchemaQuestionFlowState extends State<SchemaQuestionFlow> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.bolt, size: 16, color: AppTheme.errorRed),
+                Icon(AppIcons.urgent, size: 16, color: AppTheme.errorRed),
                 const SizedBox(width: 6),
                 Text(
                   'Quick post — only the essentials',
@@ -157,7 +158,7 @@ class _SchemaQuestionFlowState extends State<SchemaQuestionFlow> {
                 onTap: _goBack,
                 child: Padding(
                   padding: const EdgeInsets.only(right: 8),
-                  child: Icon(Icons.arrow_back_ios_new, size: 16, color: subColor),
+                  child: Icon(AppIcons.back, size: 16, color: subColor),
                 ),
               ),
             Text(
@@ -394,7 +395,7 @@ class ChoiceTile extends StatelessWidget {
               ),
             ),
             if (selected)
-              const Icon(Icons.check_circle, size: 20, color: AppTheme.primaryAccent),
+              const Icon(AppIcons.successFilled, size: 20, color: AppTheme.primaryAccent),
           ],
         ),
       ),

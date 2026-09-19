@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_icons.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../theme/app_theme.dart';
@@ -72,7 +73,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      Icons.error_outline,
+                      AppIcons.error,
                       size: 48,
                       color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                     ),

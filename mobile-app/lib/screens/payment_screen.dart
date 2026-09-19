@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/remote_config.dart';
 import '../services/mpesa_service.dart';
 import '../services/remote_config_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
@@ -356,7 +357,7 @@ class _PaymentScreenState extends State<PaymentScreen>
           leading: _state.blocksNav
               ? null
               : IconButton(
-                  icon: Icon(Icons.arrow_back_ios_new_rounded,
+                  icon: Icon(AppIcons.back,
                       size: 20, color: textPrimary),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
@@ -411,7 +412,7 @@ class _PaymentScreenState extends State<PaymentScreen>
       case PaymentState.initiating:
         return _StatusView(
           key: const ValueKey('initiating'),
-          icon: Icons.lock_rounded,
+          icon: AppIcons.escrow,
           iconColor: AppTheme.primaryAccent,
           title: 'Initiating secure payment…',
           subtitle: 'Connecting to M-Pesa. Please wait.',
@@ -423,7 +424,7 @@ class _PaymentScreenState extends State<PaymentScreen>
       case PaymentState.stkSent:
         return _StatusView(
           key: const ValueKey('stk_sent'),
-          icon: Icons.send_to_mobile_rounded,
+          icon: AppIcons.stkPrompt,
           iconColor: AppTheme.primaryAccent,
           title: 'STK sent to your phone',
           subtitle: 'A payment prompt is on the way to ${widget.buyerPhone}.',
@@ -445,7 +446,7 @@ class _PaymentScreenState extends State<PaymentScreen>
       case PaymentState.processing:
         return _StatusView(
           key: const ValueKey('processing'),
-          icon: Icons.hourglass_top_rounded,
+          icon: AppIcons.pending,
           iconColor: AppTheme.warningOrange,
           title: 'Confirming payment…',
           subtitle: 'Waiting for M-Pesa confirmation. Do not close this screen.',
@@ -553,7 +554,7 @@ class _IdleView extends StatelessWidget {
                     color: AppTheme.primaryAccent.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.handshake_outlined,
+                  child: const Icon(AppIcons.listing,
                       color: AppTheme.primaryAccent, size: 22),
                 ),
                 const SizedBox(width: 12),
@@ -635,14 +636,14 @@ class _IdleView extends StatelessWidget {
 
           // Info banners
           _InfoBanner(
-            icon: Icons.phone_android_rounded,
+            icon: AppIcons.device,
             color: AppTheme.primaryAccent,
             text: 'An M-Pesa prompt will be sent to your registered number to authorise this payment.',
             textSecondary: textSecondary,
           ),
           const SizedBox(height: 10),
           _InfoBanner(
-            icon: Icons.lock_outline_rounded,
+            icon: AppIcons.locked,
             color: AppTheme.successGreen,
             text: 'Your payment is held securely and only released when the job is completed.',
             textSecondary: textSecondary,
@@ -665,7 +666,7 @@ class _IdleView extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.lock_rounded, size: 18),
+                  const Icon(AppIcons.escrow, size: 18),
                   const SizedBox(width: 8),
                   Text(
                     'Pay ${formatPriceDisplay(total)} Securely',
@@ -788,7 +789,7 @@ class _AwaitingPinView extends StatelessWidget {
                 color: AppTheme.primaryAccent.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.phone_android_rounded,
+              child: const Icon(AppIcons.device,
                   color: AppTheme.primaryAccent, size: 52),
             ),
           ),
@@ -858,7 +859,7 @@ class _SuccessView extends StatelessWidget {
               color: AppTheme.successGreen.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.check_circle_rounded,
+            child: const Icon(AppIcons.successFilled,
                 color: AppTheme.successGreen, size: 56),
           ),
           const SizedBox(height: 28),
@@ -889,7 +890,7 @@ class _SuccessView extends StatelessWidget {
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.lock_rounded,
+                Icon(AppIcons.escrow,
                     size: 15, color: AppTheme.successGreen),
                 SizedBox(width: 8),
                 Text(
@@ -918,7 +919,7 @@ class _SuccessView extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.receipt_long_rounded,
+                  const Icon(AppIcons.receipt,
                       size: 14, color: AppTheme.successGreen),
                   const SizedBox(width: 8),
                   Text(
@@ -999,7 +1000,7 @@ class _FailedView extends StatelessWidget {
               color: AppTheme.errorRed.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.error_outline_rounded,
+            child: const Icon(AppIcons.error,
                 color: AppTheme.errorRed, size: 56),
           ),
           const SizedBox(height: 24),
@@ -1072,7 +1073,7 @@ class _FailedView extends StatelessWidget {
                     icon: testStkLoading
                         ? const SizedBox(width: 12, height: 12,
                             child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.science_outlined, size: 14),
+                        : const Icon(AppIcons.devTestSmall, size: 14),
                     label: const Text('Test KES 1',
                         style: TextStyle(fontSize: 11)),
                   ),
@@ -1086,7 +1087,7 @@ class _FailedView extends StatelessWidget {
                     icon: testStkLoading
                         ? const SizedBox(width: 12, height: 12,
                             child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.paid_outlined, size: 14),
+                        : const Icon(AppIcons.devTestReal, size: 14),
                     label: Text('Test ${formatPriceDisplay(realTotal)}',
                         style: const TextStyle(fontSize: 11)),
                     style: OutlinedButton.styleFrom(
@@ -1148,7 +1149,7 @@ class _ExpiredView extends StatelessWidget {
               color: AppTheme.warningOrange.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.timer_off_rounded,
+            child: const Icon(AppIcons.expired,
                 color: AppTheme.warningOrange, size: 56),
           ),
           const SizedBox(height: 28),
@@ -1269,7 +1270,7 @@ class _DevForceSuccessButton extends StatelessWidget {
         const SizedBox(height: 6),
         ElevatedButton.icon(
           onPressed: onForceSuccess,
-          icon: const Icon(Icons.developer_mode_rounded, size: 14),
+          icon: const Icon(AppIcons.devHarness, size: 14),
           label: const Text('Force Success (DEV)', style: TextStyle(fontSize: 11)),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.deepPurple,
@@ -1317,7 +1318,7 @@ class _BreakdownRow extends StatelessWidget {
               const SizedBox(width: 4),
               Tooltip(
                 message: tooltip!,
-                child: Icon(Icons.info_outline_rounded,
+                child: Icon(AppIcons.info,
                     size: 13, color: textSecondary),
               ),
             ],

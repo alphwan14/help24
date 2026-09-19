@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import '../providers/app_provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../theme/app_theme.dart';
@@ -51,12 +51,12 @@ class _JobsScreenState extends State<JobsScreen> {
               decoration: InputDecoration(
                 hintText: 'Search jobs...',
                 prefixIcon: Icon(
-                  Iconsax.search_normal,
+                  AppIcons.search,
                   color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                 ),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
-                        icon: const Icon(Icons.close, size: 20),
+                        icon: const Icon(AppIcons.close, size: 20),
                         onPressed: () {
                           setState(() {
                             _searchQuery = '';
@@ -148,13 +148,13 @@ class _JobsScreenState extends State<JobsScreen> {
                     );
                   }
                   return EmptyStateView(
-                    icon: Iconsax.briefcase,
+                    icon: AppIcons.jobs,
                     title: 'No jobs available yet',
                     subtitle: 'Check back later for new opportunities. Pull to refresh or try different filters.',
                     actions: [
                       TextButton.icon(
                         onPressed: () => provider.loadJobs(),
-                        icon: const Icon(Icons.refresh, size: 20),
+                        icon: const Icon(AppIcons.refresh, size: 20),
                         label: const Text('Refresh'),
                       ),
                     ],

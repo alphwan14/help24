@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../services/adaptive_poll.dart';
 import '../services/jobs_service.dart';
 import '../services/user_profile_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
@@ -237,7 +238,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
         _showSnack(
           'Add a valid M-Pesa number in Profile → Payment Number.',
           color: AppTheme.warningOrange,
-          icon: Icons.phone_android_rounded,
+          icon: AppIcons.device,
         );
         return;
       }
@@ -396,13 +397,13 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.receipt_long_rounded, size: 15, color: AppTheme.primaryAccent),
+                Icon(AppIcons.receipt, size: 15, color: AppTheme.primaryAccent),
                 const SizedBox(width: 6),
                 Text(
                   'View full job details',
                   style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppTheme.primaryAccent),
                 ),
-                Icon(Icons.chevron_right_rounded, size: 16, color: AppTheme.primaryAccent),
+                Icon(AppIcons.disclosure, size: 16, color: AppTheme.primaryAccent),
               ],
             ),
           ),
@@ -431,7 +432,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     final textTertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
     return Row(
       children: [
-        Icon(Icons.lock_outline_rounded, size: 13, color: textTertiary),
+        Icon(AppIcons.escrow, size: 13, color: textTertiary),
         const SizedBox(width: 5),
         Text(
           'JOB STATUS',
@@ -488,9 +489,9 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.radio_button_unchecked_rounded, color: textSecondary, label: 'Payment not secured yet', isDone: false),
+        _StepRow(icon: AppIcons.unselected, color: textSecondary, label: 'Payment not secured yet', isDone: false),
         const SizedBox(height: 12),
         if (_isClient) ...[
           Text(
@@ -504,7 +505,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
               onPressed: _actionLoading ? null : _securePayment,
               icon: _actionLoading
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.lock_rounded, size: 17),
+                  : const Icon(AppIcons.escrow, size: 17),
               label: Text(_actionLoading ? 'Loading…' : 'Secure Payment'),
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.primaryAccent,
@@ -523,7 +524,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
             ),
             child: Row(
               children: [
-                const Icon(Icons.hourglass_top_rounded, size: 15, color: AppTheme.warningOrange),
+                const Icon(AppIcons.pending, size: 15, color: AppTheme.warningOrange),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -548,11 +549,11 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Payment secured', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Payment secured', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.hourglass_top_rounded, color: AppTheme.warningOrange, label: 'Waiting for provider to complete', isDone: false),
+        _StepRow(icon: AppIcons.pending, color: AppTheme.warningOrange, label: 'Waiting for provider to complete', isDone: false),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(10),
@@ -562,7 +563,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           ),
           child: Row(
             children: [
-              const Icon(Icons.lock_rounded, size: 15, color: AppTheme.successGreen),
+              const Icon(AppIcons.escrow, size: 15, color: AppTheme.successGreen),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -581,7 +582,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
             width: double.infinity,
             child: FilledButton.icon(
               onPressed: _markComplete,
-              icon: const Icon(Icons.task_alt_rounded, size: 17),
+              icon: const Icon(AppIcons.completedWork, size: 17),
               label: const Text('Mark Work Complete'),
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.primaryAccent,
@@ -616,11 +617,11 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Payment secured', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Payment secured', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.warningOrange, label: 'Work marked as completed', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.warningOrange, label: 'Work marked as completed', isDone: true),
         const SizedBox(height: 12),
 
         if (providerNote != null && providerNote.isNotEmpty) ...[
@@ -663,7 +664,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
               Expanded(
                 child: FilledButton.icon(
                   onPressed: _reviewCompletion,
-                  icon: const Icon(Icons.check_rounded, size: 17),
+                  icon: const Icon(AppIcons.check, size: 17),
                   label: const Text('Release Payment'),
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.successGreen,
@@ -677,7 +678,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _reviewCompletion,
-                  icon: const Icon(Icons.flag_outlined, size: 17),
+                  icon: const Icon(AppIcons.report, size: 17),
                   label: const Text('Report Problem'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppTheme.errorRed,
@@ -698,7 +699,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
             ),
             child: Row(
               children: [
-                const Icon(Icons.hourglass_top_rounded, size: 15, color: AppTheme.warningOrange),
+                const Icon(AppIcons.pending, size: 15, color: AppTheme.warningOrange),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -723,13 +724,13 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Payment secured', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Payment secured', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Work completed & approved', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Work completed & approved', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.hourglass_top_rounded, color: AppTheme.warningOrange, label: 'Payout awaiting confirmation', isDone: false),
+        _StepRow(icon: AppIcons.pending, color: AppTheme.warningOrange, label: 'Payout awaiting confirmation', isDone: false),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(10),
@@ -739,7 +740,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           ),
           child: Row(
             children: [
-              const Icon(Icons.hourglass_bottom_rounded, size: 16, color: AppTheme.warningOrange),
+              const Icon(AppIcons.pending, size: 16, color: AppTheme.warningOrange),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -766,13 +767,13 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Provider selected', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Payment secured', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Payment secured', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Work completed & approved', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Work completed & approved', isDone: true),
         const SizedBox(height: 6),
-        _StepRow(icon: Icons.check_circle_rounded, color: AppTheme.successGreen, label: 'Payment released', isDone: true),
+        _StepRow(icon: AppIcons.successFilled, color: AppTheme.successGreen, label: 'Payment released', isDone: true),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(10),
@@ -782,7 +783,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           ),
           child: Row(
             children: [
-              const Icon(Icons.celebration_rounded, size: 16, color: AppTheme.successGreen),
+              const Icon(AppIcons.celebrate, size: 16, color: AppTheme.successGreen),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -809,7 +810,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StepRow(icon: Icons.shield_rounded, color: AppTheme.errorRed, label: 'Dispute in progress', isDone: false),
+        _StepRow(icon: AppIcons.dispute, color: AppTheme.errorRed, label: 'Dispute in progress', isDone: false),
         const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.all(10),
@@ -819,7 +820,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           ),
           child: Row(
             children: [
-              const Icon(Icons.lock_clock_rounded, size: 15, color: AppTheme.errorRed),
+              const Icon(AppIcons.escrow, size: 15, color: AppTheme.errorRed),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -838,7 +839,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     return Row(
       children: [
-        Icon(Icons.info_outline_rounded, size: 15, color: textSecondary),
+        Icon(AppIcons.info, size: 15, color: textSecondary),
         const SizedBox(width: 6),
         Expanded(
           child: Text(

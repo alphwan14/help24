@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import '../models/attribute_display.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
@@ -220,7 +220,7 @@ class PostCard extends StatelessWidget {
                         _SmallTag(
                           label: urgentCountdown!,
                           color: AppTheme.errorRed,
-                          icon: Iconsax.timer_1,
+                          icon: AppIcons.jobInProgress,
                         )
                       else if (post.type == PostType.request)
                         _SmallTag(
@@ -231,7 +231,7 @@ class PostCard extends StatelessWidget {
                         _SmallTag(
                           label: distanceLabel!,
                           color: AppTheme.primaryAccent,
-                          icon: Icons.near_me_outlined,
+                          icon: AppIcons.distance,
                         ),
                       if (timeSignal != null)
                         _SmallTag(
@@ -251,7 +251,7 @@ class PostCard extends StatelessWidget {
                         _SmallTag(
                           label: 'M-Pesa',
                           color: AppTheme.successGreen,
-                          icon: Icons.account_balance_wallet_outlined,
+                          icon: AppIcons.payment,
                         ),
                       // Status badge — visible to all users for non-open lifecycle states
                       if (post.status != 'open' && post.status.isNotEmpty)
@@ -261,7 +261,7 @@ class PostCard extends StatelessWidget {
                         _SmallTag(
                           label: '${post.applications.length} applied',
                           color: AppTheme.primaryAccent,
-                          icon: Icons.people_outline,
+                          icon: AppIcons.applicants,
                         ),
                       // Payment-hold indicator — money is held while the job
                       // is in progress. Everyday language, never "escrow".
@@ -269,7 +269,7 @@ class PostCard extends StatelessWidget {
                         _SmallTag(
                           label: 'Payment Protected',
                           color: AppTheme.warningOrange,
-                          icon: Icons.lock_outline,
+                          icon: AppIcons.escrow,
                         ),
                     ],
                   ),
@@ -315,7 +315,7 @@ class PostCard extends StatelessWidget {
                             Row(
                               children: [
                                 Icon(
-                                  Icons.location_on_outlined,
+                                  AppIcons.location,
                                   size: 13,
                                   color: textSecondary,
                                 ),
@@ -379,7 +379,7 @@ class PostCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Icon(Iconsax.gallery, size: 14, color: textTertiary),
+                        Icon(AppIcons.gallery, size: 14, color: textTertiary),
                         const SizedBox(width: 4),
                         Text(
                           '${post.images.length} photos',
@@ -492,7 +492,7 @@ class PostCard extends StatelessWidget {
     if (url.isEmpty) {
       return Container(
         color: AppTheme.darkCard,
-        child: const Icon(Icons.image_not_supported, color: AppTheme.darkTextTertiary, size: 28),
+        child: const Icon(AppIcons.imageMissing, color: AppTheme.darkTextTertiary, size: 28),
       );
     }
     return CachedNetworkImage(
@@ -504,7 +504,7 @@ class PostCard extends StatelessWidget {
       placeholder: (context, url) => Container(color: AppTheme.darkCard),
       errorWidget: (context, url, error) => Container(
         color: AppTheme.darkCard,
-        child: const Icon(Icons.broken_image_outlined, color: AppTheme.darkTextTertiary, size: 28),
+        child: const Icon(AppIcons.imageBroken, color: AppTheme.darkTextTertiary, size: 28),
       ),
     );
   }
@@ -528,7 +528,7 @@ class _SponsoredTag extends StatelessWidget {
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.star_rounded, size: 12, color: color),
+          Icon(AppIcons.reviewFilled, size: 12, color: color),
           SizedBox(width: 3),
           Text(
             'Sponsored',
@@ -587,13 +587,13 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     String? label;
     Color color = Colors.transparent;
-    IconData iconData = Icons.info_outline;
+    IconData iconData = AppIcons.info;
 
     switch (status) {
       case 'assigned':
         label = 'In Progress';
         color = AppTheme.primaryAccent;
-        iconData = Icons.build_circle_outlined;
+        iconData = AppIcons.jobInProgress;
         break;
       case 'completed':
         // Job accepted, but the provider payout is not settled until escrow is
@@ -601,17 +601,17 @@ class _StatusBadge extends StatelessWidget {
         if (payoutInProgress) {
           label = 'Finalizing';
           color = AppTheme.warningOrange;
-          iconData = Icons.hourglass_top_rounded;
+          iconData = AppIcons.pending;
         } else {
           label = 'Completed';
           color = AppTheme.successGreen;
-          iconData = Icons.check_circle_outline;
+          iconData = AppIcons.success;
         }
         break;
       case 'disputed':
         label = 'Disputed';
         color = AppTheme.errorRed;
-        iconData = Icons.flag_outlined;
+        iconData = AppIcons.report;
         break;
     }
     if (label == null) return const SizedBox.shrink();

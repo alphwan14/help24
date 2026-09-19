@@ -18,7 +18,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 
 import '../services/location_service.dart';
@@ -250,15 +250,8 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
       children: [
         Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppTheme.primaryAccent.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Iconsax.gps, color: AppTheme.primaryAccent, size: 20),
-            ),
+            const IconBadge(AppIcons.currentLocation,
+                color: AppTheme.primaryAccent),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -325,15 +318,8 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
       children: [
         Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppTheme.successGreen.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Iconsax.flag, color: AppTheme.successGreen, size: 20),
-            ),
+            const IconBadge(AppIcons.locationConfirmed,
+                color: AppTheme.successGreen),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -397,7 +383,7 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
         // this app asks for, and the scope answer ("only this chat") belongs
         // next to the button, not buried in a paragraph.
         _ReassuranceRow(
-          icon: Iconsax.location,
+          icon: AppIcons.location,
           text: hasDest
               ? "Your live location is shared while you travel to this job"
               : 'Your live location is shared in this chat',
@@ -405,7 +391,7 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
         ),
         const SizedBox(height: 7),
         _ReassuranceRow(
-          icon: Iconsax.lock_1,
+          icon: AppIcons.locked,
           text: 'Only this chat can see it — stop anytime',
           isDark: isDark,
         ),
@@ -420,7 +406,7 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
               HapticFeedback.mediumImpact();
               Navigator.of(context).pop(true);
             },
-            icon: const Icon(Iconsax.routing_2, size: 20),
+            icon: const Icon(AppIcons.route, size: 20),
             label: const Text('Start journey'),
             style: FilledButton.styleFrom(
               backgroundColor: AppTheme.primaryAccent,

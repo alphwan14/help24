@@ -19,7 +19,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 
 import '../services/location_service.dart';
 import '../services/recent_places_store.dart';
@@ -91,7 +91,7 @@ class _ReservedSearchField extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
             child: Row(
               children: [
-                Icon(Iconsax.search_normal_1, size: 18, color: muted),
+                Icon(AppIcons.search, size: 18, color: muted),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -164,7 +164,7 @@ class _RecentPlacesRow extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Iconsax.clock, size: 14, color: AppTheme.primaryAccent),
+                      const Icon(AppIcons.history, size: 14, color: AppTheme.primaryAccent),
                       const SizedBox(width: 6),
                       ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 160),
@@ -420,7 +420,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                 child: Semantics(
                   label: 'Map pin. Drag the map to position the pin on the exact spot.',
                   child: const Icon(
-                    Icons.location_pin,
+                    AppIcons.location,
                     size: 46,
                     color: AppTheme.errorRed,
                     shadows: [Shadow(color: Colors.black38, blurRadius: 8, offset: Offset(0, 2))],
@@ -536,7 +536,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
               tooltip: 'Recenter on my location',
               backgroundColor: surface,
               foregroundColor: AppTheme.primaryAccent,
-              child: const Icon(Iconsax.gps, size: 20),
+              child: const Icon(AppIcons.currentLocation, size: 20),
             ),
           ),
 
@@ -592,7 +592,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                       maxLength: 60,
                       decoration: InputDecoration(
                         counterText: '',
-                        prefixIcon: const Icon(Iconsax.location, size: 18),
+                        prefixIcon: const Icon(AppIcons.location, size: 18),
                         hintText: 'Label this spot — “Black gate, next to kiosk” (optional)',
                         hintStyle: TextStyle(
                           fontSize: 13.5,
@@ -617,7 +617,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                           HapticFeedback.mediumImpact();
                           _confirm();
                         },
-                        icon: const Icon(Iconsax.send_2, size: 19),
+                        icon: const Icon(AppIcons.send, size: 19),
                         label: Text(widget.confirmLabel),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.primaryAccent,

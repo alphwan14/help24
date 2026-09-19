@@ -7,6 +7,7 @@ import '../models/post_model.dart';
 import '../providers/connectivity_provider.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/notification_store.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/notification_sections.dart';
 import '../widgets/loading_empty_offline.dart';
@@ -103,7 +104,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         backgroundColor: bg,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded,
+          icon: Icon(AppIcons.back,
               color: textPrimary, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
@@ -219,7 +220,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       case NotificationPresentation.empty:
         return const EmptyStateView(
-          icon: Icons.notifications_none_rounded,
+          icon: AppIcons.notifications,
           title: 'Nothing to report',
           subtitle:
               "Applications, payments, job updates and disputes will appear here.",
@@ -242,7 +243,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // A filter with nothing behind it. Says exactly that, rather than
       // implying the whole register is empty.
       return EmptyStateView(
-        icon: Icons.filter_alt_off_rounded,
+        icon: AppIcons.filterEmpty,
         title: 'Nothing in ${_filter?.label ?? 'this category'}',
         subtitle: 'Choose another category to see the rest.',
         actions: [
@@ -760,8 +761,8 @@ class _NotificationTile extends StatelessWidget {
                           ),
                           Icon(
                             expanded
-                                ? Icons.keyboard_arrow_up_rounded
-                                : Icons.keyboard_arrow_down_rounded,
+                                ? AppIcons.collapse
+                                : AppIcons.expand,
                             size: 17,
                             color: AppTheme.primaryAccent,
                           ),

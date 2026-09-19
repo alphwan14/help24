@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 
 import '../services/remote_config_service.dart';
 import '../theme/app_theme.dart';
@@ -38,7 +38,7 @@ class OpsBanners extends StatelessWidget {
         if (config.config.maintenance.shouldShow) {
           banners.add(_OpsBanner(
             key: const ValueKey('maintenance'),
-            icon: Iconsax.warning_2,
+            icon: AppIcons.warning,
             tone: AppTheme.warningOrange,
             message: config.config.maintenance.message,
           ));
@@ -48,7 +48,7 @@ class OpsBanners extends StatelessWidget {
           final minVersion = config.config.minVersion;
           banners.add(_OpsBanner(
             key: const ValueKey('soft-update'),
-            icon: Iconsax.arrow_circle_up,
+            icon: AppIcons.appUpdate,
             tone: AppTheme.primaryAccent,
             message: minVersion.message.trim().isEmpty
                 ? 'A newer version of Help24 is available.'
@@ -64,7 +64,7 @@ class OpsBanners extends StatelessWidget {
         if (announcement != null) {
           banners.add(_OpsBanner(
             key: ValueKey('announcement-${announcement.id}'),
-            icon: Iconsax.info_circle,
+            icon: AppIcons.info,
             tone: AppTheme.secondaryAccent,
             message: announcement.message,
             actionLabel: announcement.url.trim().isEmpty ? null : 'Learn more',
@@ -134,7 +134,7 @@ class _OpsBanner extends StatelessWidget {
               if (onDismiss != null)
                 IconButton(
                   onPressed: onDismiss,
-                  icon: const Icon(Iconsax.close_circle, size: 18),
+                  icon: const Icon(AppIcons.dismiss, size: 18),
                   color: isDark
                       ? AppTheme.darkTextSecondary
                       : AppTheme.lightTextSecondary,
@@ -174,7 +174,7 @@ class HardUpdateScreen extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Iconsax.arrow_circle_up,
+                Icon(AppIcons.appUpdate,
                     size: 56, color: AppTheme.primaryAccent),
                 const SizedBox(height: 24),
                 Text(

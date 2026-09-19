@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
 import 'package:provider/provider.dart';
 import '../models/attribute_display.dart';
 import '../models/post_model.dart';
@@ -16,6 +15,7 @@ import '../services/mpesa_service.dart';
 import '../services/reputation_service.dart';
 import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
@@ -233,8 +233,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                       },
                                       icon: Icon(
                                         saved
-                                            ? Icons.bookmark_rounded
-                                            : Icons.bookmark_add_outlined,
+                                            ? AppIcons.savedActive
+                                            : AppIcons.saved,
                                         size: 15,
                                       ),
                                       label: Text(saved ? 'Saved' : 'Save'),
@@ -284,7 +284,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               SnackBar(
                                 content: const Row(
                                   children: [
-                                    Icon(Icons.check_circle, color: Colors.white, size: 18),
+                                    Icon(AppIcons.successFilled, color: Colors.white, size: 18),
                                     SizedBox(width: 10),
                                     Flexible(
                                         child: Text(
@@ -366,7 +366,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       backgroundColor: surface,
       surfaceTintColor: Colors.transparent,
       leading: _CircleIconButton(
-        icon: Icons.arrow_back_rounded,
+        icon: AppIcons.back,
         isDark: isDark,
         onScrim: hasImages,
         onTap: () => Navigator.pop(context),
@@ -379,8 +379,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               final saved = SavedService.instance.isPostSaved(post.id);
               return _CircleIconButton(
                 icon: saved
-                    ? Icons.bookmark_rounded
-                    : Icons.bookmark_border_rounded,
+                    ? AppIcons.savedActive
+                    : AppIcons.saved,
                 isDark: isDark,
                 onScrim: hasImages,
                 color: saved ? AppTheme.primaryAccent : null,
@@ -404,7 +404,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           ),
         if (isAuthor)
           _CircleIconButton(
-            icon: Icons.delete_outline_rounded,
+            icon: AppIcons.delete,
             isDark: isDark,
             onScrim: hasImages,
             color: AppTheme.errorRed,
@@ -473,15 +473,15 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   List<Widget> _buildDetailsSection(bool isDark) {
     final rows = <(IconData, String, String)>[
-      (Icons.location_on_outlined, 'Location', post.location),
+      (AppIcons.location, 'Location', post.location),
       if (post.type == PostType.job && post.employmentType != null)
-        (Icons.work_outline_rounded, 'Employment', post.employmentType!.displayLabel),
+        (AppIcons.profession, 'Employment', post.employmentType!.displayLabel),
       for (final row in attributeDetailRows(
         schema: CategorySchemaService.instance.schemaFor(post.category.name),
         postType: post.type.name,
         attributes: post.attributes,
       ))
-        (Icons.check_circle_outline_rounded, row.label, row.value),
+        (AppIcons.success, row.label, row.value),
     ];
     if (rows.isEmpty) return const [];
     return [
@@ -567,7 +567,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         width: double.infinity,
         height: 52,
         child: ElevatedButton.icon(
-          icon: const Icon(Icons.rate_review_rounded, size: 20),
+          icon: const Icon(AppIcons.review, size: 20),
           label: const Text('Review Completion'),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppTheme.warningOrange,
@@ -597,7 +597,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         width: double.infinity,
         height: 52,
         child: OutlinedButton.icon(
-          icon: const Icon(Icons.task_alt_rounded, size: 20),
+          icon: const Icon(AppIcons.completedWork, size: 20),
           label: const Text('Mark Job Done'),
           style: OutlinedButton.styleFrom(
             foregroundColor: AppTheme.successGreen,
@@ -633,7 +633,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 20),
+            Icon(AppIcons.successFilled, color: AppTheme.successGreen, size: 20),
             SizedBox(width: 8),
             Text(
               'You already applied',
@@ -698,9 +698,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           ),
           icon: Icon(
             switch (post.type) {
-              PostType.offer => Icons.handshake_outlined,
-              PostType.job => Iconsax.send_2,
-              PostType.request => Iconsax.send_2,
+              PostType.offer => AppIcons.listing,
+              PostType.job => AppIcons.send,
+              PostType.request => AppIcons.send,
             },
             size: 20,
           ),
@@ -765,7 +765,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
-                icon: const Icon(Icons.people_alt_outlined, size: 20),
+                icon: const Icon(AppIcons.applicants, size: 20),
                 label: Text(
                   'Manage $count ${count == 1 ? 'Applicant' : 'Applicants'}',
                   maxLines: 1,
@@ -780,7 +780,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       content = Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.info_outline_rounded,
+          Icon(AppIcons.info,
               size: 16,
               color:
                   isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
@@ -861,7 +861,7 @@ class _ImageCarouselState extends State<_ImageCarousel> {
               ),
               errorWidget: (_, __, ___) => Container(
                 color: AppTheme.darkCard,
-                child: const Icon(Icons.image_not_supported_outlined,
+                child: const Icon(AppIcons.imageMissing,
                     color: AppTheme.darkTextTertiary),
               ),
             ),
@@ -973,7 +973,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                   errorWidget: (_, __, ___) => const Icon(
-                      Icons.image_not_supported_outlined,
+                      AppIcons.imageMissing,
                       color: Colors.white54),
                 ),
               ),
@@ -987,7 +987,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
                 children: [
                   IconButton(
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    icon: const Icon(AppIcons.close, color: Colors.white),
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.black.withValues(alpha: 0.4),
                     ),
@@ -1425,7 +1425,7 @@ class _PaymentProtectionCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.verified_user_rounded,
+          const Icon(AppIcons.verified,
               color: AppTheme.successGreen, size: 22),
           const SizedBox(width: 12),
           Expanded(
@@ -1477,7 +1477,7 @@ class _LifecycleLink extends StatelessWidget {
             builder: (_) => JobLifecycleScreen(postId: post.id, postTitle: post.title),
           ),
         ),
-        icon: const Icon(Icons.timeline_rounded, size: 18),
+        icon: const Icon(AppIcons.history, size: 18),
         label: const Text('Job status & payment'),
         style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(vertical: 13),
@@ -1612,7 +1612,7 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
                   ),
                 );
               },
-              icon: const Icon(Icons.open_in_full_rounded, size: 13),
+              icon: const Icon(AppIcons.expandFull, size: 13),
               label: const Text('Manage'),
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1736,13 +1736,13 @@ class _JobStatusCard extends StatelessWidget {
     final (label, icon, bg, fg) = switch (status.status) {
       'pending_approval' => (
           isAuthor ? 'Awaiting your review' : 'Awaiting client review',
-          Icons.hourglass_top_rounded,
+          AppIcons.pending,
           AppTheme.warningOrange.withValues(alpha: 0.12),
           AppTheme.warningOrange,
         ),
       'approved' => (
           'Job completed — payment released',
-          Icons.check_circle_rounded,
+          AppIcons.successFilled,
           AppTheme.successGreen.withValues(alpha: 0.12),
           AppTheme.successGreen,
         ),
@@ -1751,19 +1751,19 @@ class _JobStatusCard extends StatelessWidget {
       'disputed' => resolved
           ? (
               'Dispute resolved — job completed',
-              Icons.check_circle_rounded,
+              AppIcons.successFilled,
               AppTheme.successGreen.withValues(alpha: 0.12),
               AppTheme.successGreen,
             )
           : (
               'Dispute opened — admin reviewing',
-              Icons.gavel_rounded,
+              AppIcons.dispute,
               AppTheme.errorRed.withValues(alpha: 0.10),
               AppTheme.errorRed,
             ),
       _ => (
           'In progress',
-          Icons.construction_rounded,
+          AppIcons.jobInProgress,
           AppTheme.primaryAccent.withValues(alpha: 0.10),
           AppTheme.primaryAccent,
         ),
@@ -1917,7 +1917,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Row(children: [
-            Icon(Icons.wifi_off_rounded, color: Colors.white, size: 18),
+            Icon(AppIcons.offline, color: Colors.white, size: 18),
             SizedBox(width: 10),
             Flexible(child: Text("You're offline. Connect to proceed.")),
           ]),
@@ -1955,7 +1955,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(children: [
-              Icon(Icons.phone_android_rounded, color: Colors.white, size: 18),
+              Icon(AppIcons.device, color: Colors.white, size: 18),
               SizedBox(width: 10),
               Flexible(
                   child: Text(
@@ -1980,7 +1980,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Row(children: [
-                Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                Icon(AppIcons.warning, color: Colors.white, size: 18),
                 SizedBox(width: 10),
                 Flexible(
                   child: Text(
@@ -2039,7 +2039,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.lock_rounded, color: AppTheme.successGreen, size: 18),
+            Icon(AppIcons.escrow, color: AppTheme.successGreen, size: 18),
             SizedBox(width: 8),
             Text(
               'Payment Secured',
@@ -2075,7 +2075,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
               )
-            : Icon(widget.isOffline ? Icons.wifi_off_rounded : Icons.lock_rounded,
+            : Icon(widget.isOffline ? AppIcons.offline : AppIcons.escrow,
                 size: 18),
         label: Text(
           widget.isOffline ? 'Secure Service (offline)' : 'Secure Service · KES $total',

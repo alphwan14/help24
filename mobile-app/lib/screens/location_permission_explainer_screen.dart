@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/location_provider.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 
 class LocationPermissionExplainerScreen extends StatelessWidget {
@@ -39,16 +40,8 @@ class LocationPermissionExplainerScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
 
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.location_on_rounded,
-                    color: AppTheme.primaryAccent),
-              ),
+              const IconBadge.large(AppIcons.location,
+                  color: AppTheme.primaryAccent),
               const SizedBox(height: 16),
               Text(
                 'See nearby opportunities first',

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -247,14 +247,14 @@ class _AuthScreenState extends State<AuthScreen> {
             IconButton(
               onPressed: _back,
               tooltip: 'Back',
-              icon: Icon(Icons.arrow_back_ios_new, size: 20, color: iconColor),
+              icon: Icon(AppIcons.back, size: 20, color: iconColor),
             ),
           const Spacer(),
           if (showClose)
             IconButton(
               onPressed: () => Navigator.of(context).pop(false),
               tooltip: 'Close',
-              icon: Icon(Icons.close, color: iconColor),
+              icon: Icon(AppIcons.close, color: iconColor),
             ),
         ],
       ),
@@ -508,14 +508,14 @@ class _WelcomeStepState extends State<_WelcomeStep> {
           // to declare whether they are new here; that is the app's job.
           _AuthButton(
             label: 'Continue with email',
-            icon: Iconsax.sms,
+            icon: AppIcons.email,
             onPressed: widget.onEmail,
             primary: true,
           ),
           const SizedBox(height: 12),
           _AuthButton(
             label: 'Continue with phone',
-            icon: Iconsax.call,
+            icon: AppIcons.call,
             onPressed: widget.onPhone,
             primary: false,
           ),
@@ -824,7 +824,7 @@ class _ResendRow extends StatelessWidget {
     return Center(
       child: TextButton.icon(
         onPressed: onResend,
-        icon: const Icon(Iconsax.refresh, size: 18),
+        icon: const Icon(AppIcons.refresh, size: 18),
         label: const Text('Send a new code'),
       ),
     );
@@ -913,7 +913,7 @@ class _EmailIdentifyStepState extends State<_EmailIdentifyStep> {
           _AuthField(
             controller: _controller,
             hint: 'you@example.com',
-            icon: Iconsax.sms,
+            icon: AppIcons.email,
             keyboardType: TextInputType.emailAddress,
             action: TextInputAction.done,
             autofocus: true,
@@ -1050,7 +1050,7 @@ class _EmailPasswordStepState extends State<_EmailPasswordStep> {
           _AuthField(
             controller: _password,
             hint: 'Password',
-            icon: Iconsax.lock,
+            icon: AppIcons.locked,
             obscure: _obscure,
             autofocus: true,
             action: TextInputAction.done,
@@ -1348,7 +1348,7 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
           _AuthField(
             controller: _password,
             hint: 'Create a password',
-            icon: Iconsax.lock,
+            icon: AppIcons.locked,
             obscure: _obscure,
             action: TextInputAction.next,
             autofillHints: const [AutofillHints.newPassword],
@@ -1365,7 +1365,7 @@ class _EmailCreateStepState extends State<_EmailCreateStep> {
           _AuthField(
             controller: _confirm,
             hint: 'Confirm password',
-            icon: Iconsax.lock,
+            icon: AppIcons.locked,
             obscure: _obscureConfirm,
             action: TextInputAction.done,
             autofillHints: const [AutofillHints.newPassword],
@@ -1751,7 +1751,7 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
                     ? const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Iconsax.gallery_tick,
+                          Icon(AppIcons.photoConfirmed,
                               size: 36, color: AppTheme.successGreen),
                           SizedBox(height: 4),
                           Text(
@@ -1762,7 +1762,7 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
                         ],
                       )
                     : Icon(
-                        Iconsax.camera,
+                        AppIcons.camera,
                         size: 36,
                         color: isDark
                             ? AppTheme.darkTextTertiary
@@ -1918,16 +1918,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
             // middle of it. Left, because everything under it is left-aligned.
             Align(
               alignment: Alignment.centerLeft,
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppTheme.successGreen.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.mark_email_read_outlined,
-                    color: AppTheme.successGreen, size: 21),
-              ),
+              child: const IconBadge(AppIcons.emailVerified,
+                  color: AppTheme.successGreen),
             ),
             const SizedBox(height: 16),
             Text(
@@ -1986,7 +1978,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
             _AuthField(
               controller: _emailController,
               hint: 'you@example.com',
-              icon: Iconsax.sms,
+              icon: AppIcons.email,
               keyboardType: TextInputType.emailAddress,
               action: TextInputAction.done,
               autofillHints: const [AutofillHints.email],
@@ -2077,7 +2069,7 @@ class _EmailChip extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            Iconsax.sms,
+            AppIcons.email,
             size: 17,
             color:
                 isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
@@ -2166,7 +2158,7 @@ class _FailureCard extends StatelessWidget {
             children: [
               const Padding(
                 padding: EdgeInsets.only(top: 1),
-                child: Icon(Iconsax.info_circle,
+                child: Icon(AppIcons.info,
                     color: AppTheme.errorRed, size: 19),
               ),
               const SizedBox(width: 10),
@@ -2195,7 +2187,7 @@ class _FailureCard extends StatelessWidget {
                 ),
               ),
               IconButton(
-                icon: Icon(Icons.close, size: 17, color: textPrimary),
+                icon: Icon(AppIcons.close, size: 17, color: textPrimary),
                 onPressed: onDismiss,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -2289,7 +2281,7 @@ class _SmsCostNote extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(
-          Iconsax.shield_tick,
+          AppIcons.verified,
           size: 15,
           color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
         ),
@@ -2377,7 +2369,7 @@ class _ObscureToggle extends StatelessWidget {
       onPressed: onTap,
       tooltip: obscured ? 'Show password' : 'Hide password',
       icon: Icon(
-        obscured ? Iconsax.eye_slash : Iconsax.eye,
+        obscured ? AppIcons.hide : AppIcons.show,
         size: 19,
         color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
       ),

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import '../models/filter_selection.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
@@ -257,7 +257,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       builder: (_, auth, __) {
                         final uid = auth.currentUserId ?? '';
                         final bell = IconButton(
-                          icon: const Icon(Icons.notifications_outlined),
+                          icon: const Icon(AppIcons.notifications),
                           tooltip: 'Notifications',
                           onPressed: () {
                             if (uid.isEmpty) {
@@ -333,7 +333,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.bolt,
+                                const Icon(AppIcons.urgent,
                                     size: 16, color: AppTheme.errorRed),
                                 const SizedBox(width: 4),
                                 const Text(
@@ -407,14 +407,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             ? 'Search requests...'
                             : 'Search offers...',
                     prefixIcon: Icon(
-                      Iconsax.search_normal,
+                      AppIcons.search,
                       color: isDark
                           ? AppTheme.darkTextTertiary
                           : AppTheme.lightTextTertiary,
                     ),
                     suffixIcon: searchText.isNotEmpty
                         ? IconButton(
-                            icon: const Icon(Icons.close, size: 20),
+                            icon: const Icon(AppIcons.close, size: 20),
                             onPressed: () {
                               _searchController.clear();
                               provider.setSearchQuery('');
@@ -531,7 +531,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              Iconsax.filter,
+                              AppIcons.filter,
                               size: 18,
                               color: provider.hasActiveFilters
                                   ? AppTheme.primaryAccent
@@ -652,19 +652,19 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           // result really was zero rows for this exact question.
           FeedPresentation.empty => EmptyStateView(
               key: const ValueKey('feed-empty'),
-              icon: Iconsax.document,
+              icon: AppIcons.empty,
               title: 'No posts found',
               subtitle: 'Try adjusting your filters or search. Pull to refresh.',
               actions: [
                 TextButton.icon(
                   onPressed: _refreshPosts,
-                  icon: const Icon(Icons.refresh, size: 20),
+                  icon: const Icon(AppIcons.refresh, size: 20),
                   label: const Text('Refresh'),
                 ),
                 if (provider.hasActiveFilters)
                   TextButton.icon(
                     onPressed: () => provider.clearFilters(),
-                    icon: const Icon(Iconsax.close_circle, size: 20),
+                    icon: const Icon(AppIcons.dismiss, size: 20),
                     label: const Text('Clear Filters'),
                   ),
               ],

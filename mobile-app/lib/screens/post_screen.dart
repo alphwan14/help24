@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/category_schema.dart';
 import '../models/job_flow.dart';
@@ -450,7 +450,7 @@ class _PostScreenState extends State<PostScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 _ImageSourceOption(
-                  icon: Iconsax.camera,
+                  icon: AppIcons.camera,
                   label: 'Camera',
                   onTap: () {
                     Navigator.pop(context);
@@ -458,7 +458,7 @@ class _PostScreenState extends State<PostScreen> {
                   },
                 ),
                 _ImageSourceOption(
-                  icon: Iconsax.gallery,
+                  icon: AppIcons.gallery,
                   label: 'Gallery',
                   onTap: () {
                     Navigator.pop(context);
@@ -484,7 +484,7 @@ class _PostScreenState extends State<PostScreen> {
         errorBuilder: (context, error, stackTrace) {
           return Container(
             color: Colors.grey[300],
-            child: const Icon(Icons.broken_image, color: Colors.grey),
+            child: const Icon(AppIcons.imageBroken, color: Colors.grey),
           );
         },
       );
@@ -493,7 +493,7 @@ class _PostScreenState extends State<PostScreen> {
     // Fallback placeholder
     return Container(
       color: Colors.grey[300],
-      child: const Icon(Icons.image, color: Colors.grey),
+      child: const Icon(AppIcons.imageMissing, color: Colors.grey),
     );
   }
 
@@ -527,7 +527,7 @@ class _PostScreenState extends State<PostScreen> {
                         ),
                       ),
                       child: Icon(
-                        Icons.arrow_back,
+                        AppIcons.back,
                         color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
                         size: 20,
                       ),
@@ -552,7 +552,7 @@ class _PostScreenState extends State<PostScreen> {
                       ),
                     ),
                     child: Icon(
-                      Icons.close,
+                      AppIcons.close,
                       color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
                       size: 20,
                     ),
@@ -793,7 +793,7 @@ class _PostScreenState extends State<PostScreen> {
     return Column(
       children: [
         _TypeCard(
-          icon: Iconsax.document_text,
+          icon: AppIcons.postRequest,
           title: 'Request a Service',
           description: 'Looking for someone to help you with a task or service',
           isSelected: _selectedType == PostType.request,
@@ -801,7 +801,7 @@ class _PostScreenState extends State<PostScreen> {
         ),
         const SizedBox(height: 12),
         _TypeCard(
-          icon: Iconsax.lamp_charge,
+          icon: AppIcons.listing,
           title: 'Offer a Service',
           description: 'Share your skills and get hired by people who need help',
           isSelected: _selectedType == PostType.offer,
@@ -809,7 +809,7 @@ class _PostScreenState extends State<PostScreen> {
         ),
         const SizedBox(height: 12),
         _TypeCard(
-          icon: Iconsax.briefcase,
+          icon: AppIcons.jobs,
           title: 'Post a Job',
           description: 'Hire someone for a position or project',
           isSelected: _selectedType == PostType.job,
@@ -867,7 +867,7 @@ class _PostScreenState extends State<PostScreen> {
             child: Row(
               children: [
                 Icon(
-                  selection?.isFromDevice == true ? Iconsax.gps : Iconsax.location,
+                  selection?.isFromDevice == true ? AppIcons.currentLocation : AppIcons.location,
                   size: 20,
                   color: hasLocation
                       ? AppTheme.primaryAccent
@@ -902,7 +902,7 @@ class _PostScreenState extends State<PostScreen> {
                   ),
                 ),
                 Icon(
-                  hasLocation ? Icons.edit_rounded : Icons.chevron_right_rounded,
+                  hasLocation ? AppIcons.edit : AppIcons.disclosure,
                   size: hasLocation ? 16 : 20,
                   color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                 ),
@@ -934,7 +934,7 @@ class _PostScreenState extends State<PostScreen> {
           child: Row(
             children: [
               Icon(
-                _pinnedLat != null ? Iconsax.location_tick : Iconsax.location,
+                _pinnedLat != null ? AppIcons.locationConfirmed : AppIcons.location,
                 size: 20,
                 color: _pinnedLat != null ? AppTheme.successGreen : AppTheme.primaryAccent,
               ),
@@ -959,14 +959,14 @@ class _PostScreenState extends State<PostScreen> {
                   }),
                   tooltip: 'Remove pin',
                   icon: Icon(
-                    Icons.close_rounded,
+                    AppIcons.close,
                     size: 18,
                     color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                   ),
                 )
               else
                 Icon(
-                  Icons.chevron_right_rounded,
+                  AppIcons.disclosure,
                   size: 20,
                   color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                 ),
@@ -1056,7 +1056,7 @@ class _PostScreenState extends State<PostScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      Iconsax.gallery_add,
+                      AppIcons.addAttachment,
                       color: AppTheme.primaryAccent,
                       size: 28,
                     ),
@@ -1098,7 +1098,7 @@ class _PostScreenState extends State<PostScreen> {
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
-                        Icons.close,
+                        AppIcons.close,
                         color: Colors.white,
                         size: 14,
                       ),
@@ -1203,7 +1203,7 @@ class _PostScreenState extends State<PostScreen> {
           controller: _categorySearchController,
           decoration: const InputDecoration(
             hintText: 'Search — fundi, cleaner, tutor…',
-            prefixIcon: Icon(Iconsax.search_normal, size: 20),
+            prefixIcon: Icon(AppIcons.search, size: 20),
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -1235,7 +1235,7 @@ class _PostScreenState extends State<PostScreen> {
           ChoiceTile(
             label: customCandidate,
             subtitle: _isOfferFlow ? 'Add as my service' : 'Request this service',
-            icon: Icons.add_circle_outline,
+            icon: AppIcons.add,
             selected: false,
             isDark: isDark,
             onTap: () => _pickCategory(Category.custom(customCandidate)),
@@ -1323,7 +1323,7 @@ class _PostScreenState extends State<PostScreen> {
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
             hintText: '500',
-            prefixIcon: Icon(Iconsax.money),
+            prefixIcon: Icon(AppIcons.price),
             prefixText: 'KES ',
           ),
         ),
@@ -1425,7 +1425,7 @@ class _PostScreenState extends State<PostScreen> {
           ChoiceTile(
             label: when.label,
             subtitle: when.subtitle,
-            icon: when == RequestWhen.rightNow ? Icons.bolt : null,
+            icon: when == RequestWhen.rightNow ? AppIcons.urgent : null,
             selected: _when == when,
             isDark: isDark,
             onTap: () {
@@ -1480,7 +1480,7 @@ class _PostScreenState extends State<PostScreen> {
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
               hintText: '0',
-              prefixIcon: Icon(Iconsax.money),
+              prefixIcon: Icon(AppIcons.price),
               prefixText: 'KES ',
             ),
           ),
@@ -1679,7 +1679,7 @@ class _PostScreenState extends State<PostScreen> {
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
             hintText: '25000',
-            prefixIcon: Icon(Iconsax.money),
+            prefixIcon: Icon(AppIcons.price),
             prefixText: 'KES ',
           ),
         ),
@@ -1840,7 +1840,7 @@ class _PostScreenState extends State<PostScreen> {
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Icon(
-                            _selectedCategory?.icon ?? Icons.category,
+                            _selectedCategory?.icon ?? AppIcons.category,
                             color: AppTheme.primaryAccent,
                           ),
                         ),
@@ -1900,11 +1900,11 @@ class _PostScreenState extends State<PostScreen> {
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         _PreviewChip(
-                          icon: Icons.location_on_outlined,
+                          icon: AppIcons.location,
                           text: location,
                         ),
                         _PreviewChip(
-                          icon: Iconsax.money,
+                          icon: AppIcons.price,
                           text: _isRequestFlow
                               ? (price <= 0
                                   ? 'Budget · Open to offers'
@@ -1915,17 +1915,17 @@ class _PostScreenState extends State<PostScreen> {
                         ),
                         if (_isOfferFlow && _availability != null)
                           _PreviewChip(
-                            icon: Iconsax.clock,
+                            icon: AppIcons.pending,
                             text: _availability!.label,
                           ),
                         if (_isJobFlow && _start != null)
                           _PreviewChip(
-                            icon: Iconsax.calendar,
+                            icon: AppIcons.schedule,
                             text: 'Starts: ${_start!.label}',
                           ),
                         if (_selectedType == PostType.job && _selectedEmploymentType != null)
                           _PreviewChip(
-                            icon: Iconsax.briefcase,
+                            icon: AppIcons.jobs,
                             text: _selectedEmploymentType!.displayLabel,
                           ),
                         // Urgency is a request concept — offers show
@@ -1970,7 +1970,7 @@ class _PostScreenState extends State<PostScreen> {
                         runSpacing: 8,
                         children: [
                           for (final entry in _attributeSummary())
-                            _PreviewChip(icon: Iconsax.tick_circle, text: entry),
+                            _PreviewChip(icon: AppIcons.success, text: entry),
                         ],
                       ),
                     ],
@@ -2265,7 +2265,7 @@ class _PostScreenState extends State<PostScreen> {
           SnackBar(
             content: const Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.white),
+                Icon(AppIcons.successFilled, color: Colors.white),
                 SizedBox(width: 12),
                 Text('Posted successfully!'),
               ],
@@ -2286,7 +2286,7 @@ class _PostScreenState extends State<PostScreen> {
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.error_outline, color: Colors.white),
+                const Icon(AppIcons.error, color: Colors.white),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -2405,7 +2405,7 @@ class _TypeCard extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
-                  Icons.check,
+                  AppIcons.check,
                   color: Colors.white,
                   size: 16,
                 ),

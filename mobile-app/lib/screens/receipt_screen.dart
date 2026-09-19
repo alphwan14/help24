@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 
 import '../models/service_record.dart';
 import '../services/service_records_service.dart';
@@ -114,14 +114,14 @@ class _Unavailable extends StatelessWidget {
       children: [
         SizedBox(height: MediaQuery.of(context).size.height * 0.1),
         EmptyStateView(
-          icon: result.isPending ? Iconsax.clock : Iconsax.receipt_item,
+          icon: result.isPending ? AppIcons.pending : AppIcons.receipt,
           title: result.isPending ? 'Payment still processing' : 'No receipt yet',
           subtitle: result.message,
           actions: [
             if (result.isPending)
               TextButton.icon(
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh, size: 20),
+                icon: const Icon(AppIcons.refresh, size: 20),
                 label: const Text('Check again'),
               ),
           ],
@@ -252,7 +252,7 @@ class _ReceiptDocument extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             Icon(
-                              Iconsax.copy,
+                              AppIcons.copy,
                               size: 15,
                               color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                             ),
@@ -389,7 +389,7 @@ class _ReceiptDocument extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Iconsax.info_circle, size: 16, color: statusColor),
+                      Icon(AppIcons.info, size: 16, color: statusColor),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(

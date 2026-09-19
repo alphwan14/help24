@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post_model.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import 'feed_card_tokens.dart';
 
@@ -48,7 +49,7 @@ class OwnerCta extends StatelessWidget {
 
     if (type == PostType.offer) {
       return _button(
-        icon: Icons.storefront_outlined,
+        icon: AppIcons.listing,
         label: 'My Offer',
         color: null,
       );
@@ -58,34 +59,34 @@ class OwnerCta extends StatelessWidget {
     switch (status) {
       case 'assigned':
         return _button(
-          icon: Icons.build_circle_outlined,
+          icon: AppIcons.jobInProgress,
           label: 'In Progress',
           color: AppTheme.primaryAccent,
         );
       case 'completed':
         return _button(
           icon: payoutInProgress
-              ? Icons.hourglass_top_rounded
-              : Icons.check_circle_outline,
+              ? AppIcons.pending
+              : AppIcons.success,
           label: payoutInProgress ? 'Finalizing' : 'Completed',
           color: payoutInProgress ? AppTheme.warningOrange : AppTheme.successGreen,
         );
       case 'disputed':
         return _button(
-          icon: Icons.flag_outlined,
+          icon: AppIcons.report,
           label: 'Disputed',
           color: AppTheme.errorRed,
         );
       case 'cancelled':
         return _button(
-          icon: Icons.do_not_disturb_on_outlined,
+          icon: AppIcons.retired,
           label: 'Closed',
           color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
         );
       default: // 'open'
         final hasApps = applicationCount > 0;
         return _button(
-          icon: hasApps ? Icons.people_rounded : Icons.people_outline,
+          icon: hasApps ? AppIcons.applicantsActive : AppIcons.applicants,
           label: hasApps ? 'Applications ($applicationCount)' : 'Manage',
           color: hasApps
               ? AppTheme.primaryAccent
@@ -191,7 +192,7 @@ class MarketplaceAvatar extends StatelessWidget {
       color: bg,
       child: Center(
         child: Icon(
-          Icons.person_outline_rounded,
+          AppIcons.person,
           size: size * 0.5,
           color: AppTheme.darkTextTertiary,
         ),
@@ -282,7 +283,7 @@ class LocationChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.location_on_outlined, size: 14, color: fg),
+          Icon(AppIcons.location, size: 14, color: fg),
           const SizedBox(width: 4),
           Text(
             text,

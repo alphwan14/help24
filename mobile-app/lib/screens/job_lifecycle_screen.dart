@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../models/job_lifecycle.dart';
@@ -107,7 +107,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       return ListView(
         children: [
           const SizedBox(height: 120),
-          Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+          Icon(AppIcons.error, size: 48, color: AppTheme.errorRed),
           const SizedBox(height: 12),
           Center(child: Text(_error!, textAlign: TextAlign.center)),
         ],
@@ -181,7 +181,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
             child: Row(
               children: [
-                Icon(Iconsax.receipt_item, size: 19, color: AppTheme.primaryAccent),
+                Icon(AppIcons.receipt, size: 19, color: AppTheme.primaryAccent),
                 const SizedBox(width: 11),
                 const Expanded(
                   child: Text(
@@ -190,7 +190,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
                   ),
                 ),
                 Icon(
-                  Icons.chevron_right,
+                  AppIcons.disclosure,
                   size: 20,
                   color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
                 ),
@@ -213,7 +213,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle, size: 18, color: AppTheme.successGreen),
+            Icon(AppIcons.successFilled, size: 18, color: AppTheme.successGreen),
             const SizedBox(width: 6),
             const Text('Review submitted', style: TextStyle(fontWeight: FontWeight.w600)),
           ],
@@ -227,7 +227,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: _openLeaveReview,
-            icon: const Icon(Icons.star_rounded),
+            icon: const Icon(AppIcons.reviewFilled),
             label: const Text('Leave Review'),
             style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
           ),
@@ -269,12 +269,12 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
   Widget _settlementBanner(LifecycleSettlement s, bool isDark) {
     final color = _settlementColor(s);
     final IconData icon = s.attentionRequired
-        ? Icons.warning_amber_rounded
+        ? AppIcons.warning
         : (s.state == 'released' || s.state == 'refunded')
-            ? Icons.check_circle_rounded
+            ? AppIcons.successFilled
             : (s.state == 'payout_processing' || s.state == 'awaiting_payment')
-                ? Icons.hourglass_top_rounded
-                : Icons.lock_outline_rounded;
+                ? AppIcons.pending
+                : AppIcons.locked;
     final subColor = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     return Container(
       width: double.infinity,
@@ -348,7 +348,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
     final current = _paymentStageIndex(d);
     return _sectionCard(
       isDark,
-      icon: Icons.account_balance_wallet_outlined,
+      icon: AppIcons.payment,
       title: 'Payment',
       pill: special != null ? _pill(special.$1, special.$2) : null,
       child: _StageTrack(stages: stages, currentIndex: current, isDark: isDark),
@@ -362,7 +362,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
     final note = d.completion?.providerNote;
     return _sectionCard(
       isDark,
-      icon: Icons.task_alt_outlined,
+      icon: AppIcons.completedWork,
       title: 'Completion',
       pill: disputed ? _pill('Disputed', AppTheme.errorRed) : null,
       child: Column(
@@ -385,7 +385,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
     final decision = dispute.finalDecision;
     return _sectionCard(
       isDark,
-      icon: Icons.gavel_outlined,
+      icon: AppIcons.dispute,
       title: 'Dispute',
       pill: _pill(stage, stageColor),
       child: Column(
@@ -419,7 +419,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: () => _openDisputeThread(dispute, d.post.title),
-              icon: const Icon(Icons.forum_outlined, size: 18),
+              icon: const Icon(AppIcons.chat, size: 18),
               label: Text(_isResolved(dispute.status) ? 'View dispute conversation' : 'Open dispute conversation'),
             ),
           ),
@@ -438,7 +438,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
     if (d.timeline.isEmpty) return const SizedBox.shrink();
     return _sectionCard(
       isDark,
-      icon: Icons.history,
+      icon: AppIcons.history,
       title: 'Timeline',
       child: Column(
         children: [
@@ -507,7 +507,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       width: double.infinity,
       child: ElevatedButton.icon(
         onPressed: () => _openReview(d),
-        icon: const Icon(Icons.rate_review_outlined),
+        icon: const Icon(AppIcons.review),
         label: const Text('Review completion'),
         style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
       ),
@@ -636,7 +636,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
         children: [
           Row(
             children: [
-              Icon(releasePending ? Icons.hourglass_top_rounded : Icons.verified_outlined, size: 18, color: accent),
+              Icon(releasePending ? AppIcons.pending : AppIcons.verified, size: 18, color: accent),
               const SizedBox(width: 8),
               const Text('Outcome', style: TextStyle(fontWeight: FontWeight.w700)),
             ],
@@ -818,7 +818,7 @@ class _StageTrack extends StatelessWidget {
           const SizedBox(height: 6),
           Row(
             children: [
-              Icon(Icons.warning_amber_rounded, size: 16, color: AppTheme.errorRed),
+              Icon(AppIcons.warning, size: 16, color: AppTheme.errorRed),
               const SizedBox(width: 6),
               Text(branchLabel!, style: TextStyle(fontSize: 13, color: AppTheme.errorRed, fontWeight: FontWeight.w600)),
             ],
@@ -841,10 +841,10 @@ class _StageTrack extends StatelessWidget {
             ? AppTheme.primaryAccent
             : muted.withValues(alpha: 0.5);
     final IconData icon = done
-        ? Icons.check_circle
+        ? AppIcons.successFilled
         : active
-            ? Icons.radio_button_checked
-            : Icons.radio_button_unchecked;
+            ? AppIcons.currentStep
+            : AppIcons.unselected;
     return Padding(
       padding: EdgeInsets.only(bottom: isLast ? 0 : 8),
       child: Row(

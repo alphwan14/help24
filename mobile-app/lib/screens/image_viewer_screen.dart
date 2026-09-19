@@ -13,6 +13,7 @@
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../theme/app_icons.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import '../theme/system_bars.dart';
 
@@ -146,7 +147,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.broken_image_outlined, size: 56, color: Colors.white54),
+            Icon(AppIcons.imageBroken, size: 56, color: Colors.white54),
             SizedBox(height: 12),
             Text("Couldn't load this image",
                 style: TextStyle(color: Colors.white70, fontSize: 14)),

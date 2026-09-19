@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/jobs_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 
@@ -72,7 +73,7 @@ class _MarkCompleteScreenState extends State<MarkCompleteScreen> {
         backgroundColor: bg,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded, color: textPrimary, size: 20),
+          icon: Icon(AppIcons.back, color: textPrimary, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
@@ -143,7 +144,7 @@ class _Form extends StatelessWidget {
                         color: AppTheme.primaryAccent.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(Icons.check_circle_outline_rounded,
+                      child: Icon(AppIcons.completedWork,
                           color: AppTheme.primaryAccent, size: 24),
                     ),
                     const SizedBox(width: 12),
@@ -176,7 +177,7 @@ class _Form extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline_rounded,
+                      Icon(AppIcons.info,
                           color: AppTheme.primaryAccent, size: 16),
                       const SizedBox(width: 8),
                       Expanded(
@@ -227,7 +228,7 @@ class _Form extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline_rounded,
+                  const Icon(AppIcons.error,
                       color: Colors.red, size: 16),
                   const SizedBox(width: 8),
                   Expanded(
@@ -255,7 +256,7 @@ class _Form extends StatelessWidget {
                       height: 18,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.check_rounded, size: 20),
+                  : const Icon(AppIcons.check, size: 20),
               label: Text(
                 submitting ? 'Submitting…' : 'Mark as Complete',
                 style: const TextStyle(
@@ -290,7 +291,7 @@ class _SuccessView extends StatelessWidget {
                 color: AppTheme.successGreen.withOpacity(0.12),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.check_circle_rounded,
+              child: Icon(AppIcons.successFilled,
                   color: AppTheme.successGreen, size: 56),
             ),
             const SizedBox(height: 24),

@@ -11,6 +11,7 @@ import '../providers/connectivity_provider.dart' show NetworkHealth;
 import '../services/reputation_service.dart';
 import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
@@ -222,7 +223,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                 return IconButton(
                   tooltip: saved ? 'Saved' : 'Save provider',
                   icon: Icon(
-                    saved ? Icons.bookmark_rounded : Icons.bookmark_add_outlined,
+                    saved ? AppIcons.savedActive : AppIcons.saved,
                     color: saved ? AppTheme.primaryAccent : null,
                   ),
                   onPressed: () => AuthGuard.requireAuth(
@@ -310,7 +311,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                     action: 'message this provider',
                     onAuthenticated: _message,
                   ),
-                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                  icon: const Icon(AppIcons.chat, size: 18),
                   label: Text('Message $_name'.length > 28 ? 'Message' : 'Message $_name'),
                 ),
               ),
@@ -440,7 +441,7 @@ class _ReviewsSection extends StatelessWidget {
         title: 'Reviews',
         child: Row(
           children: [
-            Icon(Icons.rate_review_outlined,
+            Icon(AppIcons.review,
                 size: 18, color: Theme.of(context).textTheme.bodySmall?.color),
             const SizedBox(width: 10),
             Expanded(
@@ -509,7 +510,7 @@ class _ReviewTile extends StatelessWidget {
             children: [
               for (var i = 1; i <= 5; i++)
                 Icon(
-                  i <= review.rating ? Icons.star_rounded : Icons.star_outline_rounded,
+                  i <= review.rating ? AppIcons.reviewFilled : AppIcons.review,
                   size: 16,
                   color: AppTheme.warningOrange,
                 ),
@@ -572,7 +573,7 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(offline ? Icons.wifi_off_rounded : Icons.cloud_off_rounded,
+            Icon(offline ? AppIcons.offline : AppIcons.unreachable,
                 size: 44, color: AppTheme.errorRed.withValues(alpha: 0.7)),
             const SizedBox(height: 16),
             Text(message, textAlign: TextAlign.center),

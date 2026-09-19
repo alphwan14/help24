@@ -7,6 +7,7 @@ import '../models/profile_completion.dart';
 import '../providers/app_provider.dart';
 import '../services/profession_registry.dart';
 import '../services/user_profile_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 import '../utils/name_validator.dart';
@@ -130,7 +131,7 @@ class _NameEditorSheetState extends State<_NameEditorSheet> {
           decoration: const InputDecoration(
             labelText: 'Full name',
             hintText: 'e.g. Grace Wanjiku',
-            prefixIcon: Icon(Icons.person_outline_rounded),
+            prefixIcon: Icon(AppIcons.person),
             counterText: '',
           ),
           onChanged: (_) {
@@ -144,7 +145,7 @@ class _NameEditorSheetState extends State<_NameEditorSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(
-                _locked ? Icons.lock_clock_rounded : Icons.info_outline_rounded,
+                _locked ? AppIcons.locked : AppIcons.info,
                 size: 15,
                 color: _locked ? AppTheme.warningOrange : null,
               ),
@@ -320,7 +321,7 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline_rounded,
+                    const Icon(AppIcons.info,
                         size: 18, color: AppTheme.warningOrange),
                     const SizedBox(width: 10),
                     Expanded(
@@ -340,11 +341,11 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
               controller: _search,
               decoration: InputDecoration(
                 hintText: 'Search ${_registry.all.length}+ professions',
-                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                prefixIcon: const Icon(AppIcons.search, size: 20),
                 suffixIcon: _query.isEmpty
                     ? null
                     : IconButton(
-                        icon: const Icon(Icons.close_rounded, size: 18),
+                        icon: const Icon(AppIcons.close, size: 18),
                         tooltip: 'Clear search',
                         onPressed: () {
                           _search.clear();
@@ -449,7 +450,7 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
                                     child: CircularProgressIndicator(strokeWidth: 2),
                                   )
                                 : isSelected
-                                    ? const Icon(Icons.check_circle_rounded,
+                                    ? const Icon(AppIcons.successFilled,
                                         color: AppTheme.primaryAccent)
                                     : null,
                             onTap: _saving != null ? null : () => _select(p),
@@ -553,7 +554,7 @@ class _BioEditorSheetState extends State<_BioEditorSheet> {
         Row(
           children: [
             Icon(
-              meetsBar ? Icons.check_circle_rounded : Icons.circle_outlined,
+              meetsBar ? AppIcons.successFilled : AppIcons.unselected,
               size: 15,
               color: meetsBar ? AppTheme.successGreen : null,
             ),

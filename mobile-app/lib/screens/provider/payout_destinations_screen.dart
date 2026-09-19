@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../../theme/app_icons.dart';
 
 import '../../models/payout_models.dart';
 import '../../services/payout_service.dart';
@@ -226,7 +226,7 @@ class _PayoutDestinationsScreenState extends State<PayoutDestinationsScreen> {
       floatingActionButton: (_destinations?.isNotEmpty ?? false)
           ? FloatingActionButton.extended(
               onPressed: _addDestination,
-              icon: const Icon(Iconsax.add),
+              icon: const Icon(AppIcons.add),
               label: const Text('Add number'),
             )
           : null,
@@ -237,7 +237,7 @@ class _PayoutDestinationsScreenState extends State<PayoutDestinationsScreen> {
     if (_loading) return const LoadingView(message: 'Loading payout numbers…');
     if (_featureUnavailable) {
       return const EmptyStateView(
-        icon: Iconsax.timer_1,
+        icon: AppIcons.pending,
         title: 'Not available yet',
         subtitle:
             'Payout number verification is being rolled out. Check back soon — your earnings are unaffected.',
@@ -252,14 +252,14 @@ class _PayoutDestinationsScreenState extends State<PayoutDestinationsScreen> {
     final destinations = _destinations ?? const <PayoutDestination>[];
     if (destinations.isEmpty) {
       return EmptyStateView(
-        icon: Iconsax.card,
+        icon: AppIcons.payoutDestination,
         title: 'No payout number yet',
         subtitle:
             'Add the M-Pesa number your earnings should be sent to. You will verify it with a code — money only ever goes to a number you have proven.',
         actions: [
           FilledButton.icon(
             onPressed: _addDestination,
-            icon: const Icon(Iconsax.add),
+            icon: const Icon(AppIcons.add),
             label: const Text('Add payout number'),
           ),
         ],
@@ -318,7 +318,7 @@ class _DestinationCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Iconsax.mobile,
+              Icon(AppIcons.device,
                   size: 20,
                   color: retired
                       ? (isDark
@@ -348,7 +348,7 @@ class _DestinationCard extends StatelessWidget {
             const SizedBox(height: 8),
             Row(
               children: [
-                const Icon(Iconsax.star_1, size: 14, color: AppTheme.primaryAccent),
+                const Icon(AppIcons.defaultChoiceSet, size: 14, color: AppTheme.primaryAccent),
                 const SizedBox(width: 6),
                 Text(
                   'Default — new jobs pay out here',
@@ -369,14 +369,14 @@ class _DestinationCard extends StatelessWidget {
                 if (destination.status == PayoutDestinationStatus.pending)
                   TextButton.icon(
                     onPressed: onVerify,
-                    icon: const Icon(Iconsax.shield_tick, size: 16),
+                    icon: const Icon(AppIcons.verified, size: 16),
                     label: const Text('Verify now'),
                   ),
                 if (destination.status == PayoutDestinationStatus.active &&
                     !destination.isDefault)
                   TextButton.icon(
                     onPressed: onSetDefault,
-                    icon: const Icon(Iconsax.star_1, size: 16),
+                    icon: const Icon(AppIcons.defaultChoice, size: 16),
                     label: const Text('Make default'),
                   ),
                 const Spacer(),
@@ -405,10 +405,10 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (color, icon) = switch (destination.status) {
-      PayoutDestinationStatus.active => (AppTheme.successGreen, Iconsax.shield_tick),
-      PayoutDestinationStatus.pending => (AppTheme.warningOrange, Iconsax.timer_1),
-      PayoutDestinationStatus.retired => (AppTheme.errorRed, Iconsax.slash),
-      PayoutDestinationStatus.unknown => (AppTheme.warningOrange, Iconsax.info_circle),
+      PayoutDestinationStatus.active => (AppTheme.successGreen, AppIcons.verified),
+      PayoutDestinationStatus.pending => (AppTheme.warningOrange, AppIcons.pending),
+      PayoutDestinationStatus.retired => (AppTheme.errorRed, AppIcons.retired),
+      PayoutDestinationStatus.unknown => (AppTheme.warningOrange, AppIcons.info),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

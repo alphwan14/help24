@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../../theme/app_icons.dart';
 
 import '../../models/payout_models.dart';
 import '../../services/payout_service.dart';
@@ -224,7 +224,7 @@ class _PayoutOtpScreenState extends State<PayoutOtpScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Icon(
-                _phase == _OtpPhase.success ? Iconsax.tick_circle : Iconsax.mobile,
+                _phase == _OtpPhase.success ? AppIcons.success : AppIcons.device,
                 size: 48,
                 color: _phase == _OtpPhase.success
                     ? AppTheme.successGreen
@@ -267,7 +267,7 @@ class _PayoutOtpScreenState extends State<PayoutOtpScreen> {
       case _OtpPhase.expired:
         return _terminalState(
           isDark,
-          icon: Iconsax.timer_1,
+          icon: AppIcons.pending,
           color: AppTheme.warningOrange,
           title: 'This code has expired',
           detail: 'Codes are valid for 5 minutes. Ask for a new one to continue.',
@@ -275,7 +275,7 @@ class _PayoutOtpScreenState extends State<PayoutOtpScreen> {
       case _OtpPhase.locked:
         return _terminalState(
           isDark,
-          icon: Iconsax.lock,
+          icon: AppIcons.locked,
           color: AppTheme.errorRed,
           title: 'Too many incorrect attempts',
           detail:
@@ -387,7 +387,7 @@ class _PayoutOtpScreenState extends State<PayoutOtpScreen> {
                 height: 16,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Icon(Iconsax.refresh, size: 18),
+            : const Icon(AppIcons.refresh, size: 18),
         label: const Text('Send a new code'),
       ),
     );

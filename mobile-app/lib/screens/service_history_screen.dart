@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 
 import '../models/service_record.dart';
 import '../services/service_records_service.dart';
@@ -147,7 +147,7 @@ class _HistoryTabState extends State<_HistoryTab> with AutomaticKeepAliveClientM
           children: [
             SizedBox(height: MediaQuery.of(context).size.height * 0.12),
             EmptyStateView(
-              icon: widget.role == 'client' ? Iconsax.receipt_item : Iconsax.briefcase,
+              icon: widget.role == 'client' ? AppIcons.serviceHistory : AppIcons.jobs,
               title: widget.role == 'client'
                   ? 'No services yet'
                   : 'No work yet',
@@ -159,7 +159,7 @@ class _HistoryTabState extends State<_HistoryTab> with AutomaticKeepAliveClientM
                   // Back to Discover — the tab shell is the root of the stack,
                   // so popping to it is the useful action from here.
                   onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
-                  icon: const Icon(Iconsax.discover, size: 20),
+                  icon: const Icon(AppIcons.discover, size: 20),
                   label: const Text('Browse Discover'),
                 ),
               ],
@@ -243,15 +243,7 @@ class _SummaryHeader extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppTheme.successGreen.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Iconsax.tick_circle, color: AppTheme.successGreen, size: 22),
-          ),
+          const IconBadge(AppIcons.success, color: AppTheme.successGreen),
         ],
       ),
     );
@@ -350,7 +342,7 @@ class _ServiceRecordCard extends StatelessWidget {
                   Row(
                     children: [
                       Icon(
-                        record.isClient ? Iconsax.user_tick : Iconsax.profile_circle,
+                        record.isClient ? AppIcons.provider : AppIcons.account,
                         size: 13,
                         color: tertiary,
                       ),
@@ -441,7 +433,7 @@ class _ServiceRecordCard extends StatelessWidget {
                           minimumSize: const Size(0, 32),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
-                        icon: const Icon(Iconsax.receipt_item, size: 15),
+                        icon: const Icon(AppIcons.receipt, size: 15),
                         label: const Text('Receipt', style: TextStyle(fontSize: 12.5)),
                       ),
                   ],

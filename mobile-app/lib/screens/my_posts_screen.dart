@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 
 import '../models/post_model.dart';
 import '../services/user_profile_service.dart';
@@ -79,7 +79,7 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.cloud_off_rounded,
+                  Icon(AppIcons.unreachable,
                       size: 40,
                       color: Theme.of(context).brightness == Brightness.dark
                           ? AppTheme.darkTextTertiary
@@ -89,7 +89,7 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
                   const SizedBox(height: 12),
                   TextButton.icon(
                     onPressed: _refresh,
-                    icon: const Icon(Icons.refresh, size: 18),
+                    icon: const Icon(AppIcons.refresh, size: 18),
                     label: const Text('Retry'),
                   ),
                 ],
@@ -102,7 +102,7 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
           // an empty list.
           if (posts.isEmpty) {
             return const EmptyStateView(
-              icon: Iconsax.document_text,
+              icon: AppIcons.myPosts,
               title: 'No posts yet',
               subtitle:
                   'Your requests, offers and job posts will appear here so you can manage them.',
@@ -180,14 +180,14 @@ class _SearchField extends StatelessWidget {
           hintText: 'Search by title or profession',
           isDense: true,
           prefixIcon: Icon(
-            Iconsax.search_normal,
+            AppIcons.search,
             size: 18,
             color:
                 isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
           ),
           suffixIcon: hasQuery
               ? IconButton(
-                  icon: const Icon(Icons.close_rounded, size: 18),
+                  icon: const Icon(AppIcons.close, size: 18),
                   tooltip: 'Clear search',
                   onPressed: onClear,
                 )
@@ -211,7 +211,7 @@ class _NoMatches extends StatelessWidget {
         isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
     return Column(
       children: [
-        Icon(Iconsax.search_normal, size: 34, color: tertiary),
+        Icon(AppIcons.search, size: 34, color: tertiary),
         const SizedBox(height: 14),
         Text(
           'No posts match "$query"',
@@ -227,7 +227,7 @@ class _NoMatches extends StatelessWidget {
         const SizedBox(height: 14),
         TextButton.icon(
           onPressed: onClear,
-          icon: const Icon(Icons.close_rounded, size: 18),
+          icon: const Icon(AppIcons.close, size: 18),
           label: const Text('Clear search'),
         ),
       ],

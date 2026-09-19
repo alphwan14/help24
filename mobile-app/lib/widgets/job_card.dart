@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
@@ -202,7 +202,7 @@ class JobCard extends StatelessWidget {
                             Row(
                               children: [
                                 Icon(
-                                  Icons.location_on_outlined,
+                                  AppIcons.location,
                                   size: 13,
                                   color: textSecondary,
                                 ),
@@ -261,7 +261,7 @@ class JobCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Icon(Iconsax.gallery, size: 14, color: textTertiary),
+                        Icon(AppIcons.gallery, size: 14, color: textTertiary),
                         const SizedBox(width: 4),
                         Text(
                           '${job.images.length} photos',
@@ -343,7 +343,7 @@ class JobCard extends StatelessWidget {
     if (url.isEmpty) {
       return Container(
         color: AppTheme.darkCard,
-        child: const Icon(Icons.image_not_supported, color: AppTheme.darkTextTertiary, size: 28),
+        child: const Icon(AppIcons.imageMissing, color: AppTheme.darkTextTertiary, size: 28),
       );
     }
     return CachedNetworkImage(
@@ -355,7 +355,7 @@ class JobCard extends StatelessWidget {
       ),
       errorWidget: (context, url, error) => Container(
         color: AppTheme.darkCard,
-        child: const Icon(Icons.broken_image_outlined, color: AppTheme.darkTextTertiary, size: 28),
+        child: const Icon(AppIcons.imageBroken, color: AppTheme.darkTextTertiary, size: 28),
       ),
     );
   }

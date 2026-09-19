@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../../theme/app_icons.dart';
 import '../../models/post_model.dart';
 import '../../models/promotion_models.dart';
 import '../../models/remote_config.dart';
@@ -244,7 +244,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Iconsax.shop, size: 44, color: AppTheme.primaryAccent),
+              const Icon(AppIcons.listing, size: 44, color: AppTheme.primaryAccent),
               const SizedBox(height: 14),
               Text('No service listings yet',
                   style: Theme.of(context).textTheme.titleMedium),
@@ -281,8 +281,8 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w600)),
             subtitle: Text('${post.category.name} · ${post.location}'),
             trailing: selected
-                ? const Icon(Icons.check_circle, color: AppTheme.primaryAccent)
-                : const Icon(Icons.radio_button_unchecked),
+                ? const Icon(AppIcons.successFilled, color: AppTheme.primaryAccent)
+                : const Icon(AppIcons.unselected),
             onTap: () => setState(() {
               _selectedPost = post;
               _step = 1;
@@ -361,7 +361,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.check_circle, size: 56, color: AppTheme.successGreen),
+              const Icon(AppIcons.successFilled, size: 56, color: AppTheme.successGreen),
               const SizedBox(height: 16),
               Text(
                 _campaignStatus == 'active' ? 'Your promotion is live!' : 'Payment received',
@@ -439,7 +439,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline, color: AppTheme.errorRed),
+                  const Icon(AppIcons.error, color: AppTheme.errorRed),
                   const SizedBox(width: 12),
                   Expanded(child: Text(_payMessage)),
                 ],
@@ -449,7 +449,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
         const SizedBox(height: 16),
         FilledButton.icon(
           onPressed: _payBusy ? null : _payNow,
-          icon: const Icon(Iconsax.card, size: 18),
+          icon: const Icon(AppIcons.payment, size: 18),
           label: Text(_phase == _PayPhase.failed ? 'Try again' : 'Pay with M-Pesa'),
           style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
         ),
@@ -514,7 +514,7 @@ class _RetryView extends StatelessWidget {
             const SizedBox(height: 12),
             TextButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(AppIcons.refresh),
               label: const Text('Retry'),
             ),
           ],

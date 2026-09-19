@@ -21,7 +21,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 
 import '../models/place.dart';
 import '../services/current_location_service.dart';
@@ -234,7 +234,7 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
           _LocationTile(
             title: r.label,
             subtitle: r.isFromDevice ? 'Used recently · from your location' : 'Used recently',
-            icon: Iconsax.clock,
+            icon: AppIcons.history,
             isDark: isDark,
             selected: widget.current?.label == r.label,
             onTap: () => _pick(r),
@@ -246,7 +246,7 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
           _LocationTile(
             title: p.storageLabel,
             subtitle: _distanceSubtitle(p),
-            icon: Iconsax.gps,
+            icon: AppIcons.currentLocation,
             isDark: isDark,
             selected: widget.current?.placeId == p.id,
             onTap: () => _pick(_registry.selectionFor(p)),
@@ -311,9 +311,9 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
   }
 
   IconData _iconFor(Place p) => switch (p.kind) {
-        PlaceKind.city => Iconsax.building_4,
-        PlaceKind.area => Iconsax.map_1,
-        PlaceKind.town => Iconsax.location,
+        PlaceKind.city => AppIcons.placeCity,
+        PlaceKind.area => AppIcons.placeArea,
+        PlaceKind.town => AppIcons.placeTown,
       };
 }
 
@@ -407,13 +407,13 @@ class _SearchField extends StatelessWidget {
         textInputAction: TextInputAction.search,
         decoration: InputDecoration(
           hintText: 'Search city, town or estate',
-          prefixIcon: const Icon(Iconsax.search_normal_1, size: 18),
+          prefixIcon: const Icon(AppIcons.search, size: 18),
           suffixIcon: ValueListenableBuilder<TextEditingValue>(
             valueListenable: controller,
             builder: (context, value, _) => value.text.isEmpty
                 ? const SizedBox.shrink()
                 : IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 18),
+                    icon: const Icon(AppIcons.close, size: 18),
                     tooltip: 'Clear search',
                     onPressed: onClear,
                   ),
@@ -478,7 +478,7 @@ class _CurrentLocationTile extends StatelessWidget {
                               color: AppTheme.primaryAccent,
                             ),
                           )
-                        : const Icon(Iconsax.gps, size: 20, color: AppTheme.primaryAccent),
+                        : const Icon(AppIcons.currentLocation, size: 20, color: AppTheme.primaryAccent),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -514,7 +514,7 @@ class _CurrentLocationTile extends StatelessWidget {
                     ),
                   ),
                   if (!busy)
-                    const Icon(Icons.chevron_right_rounded,
+                    const Icon(AppIcons.disclosure,
                         size: 20, color: AppTheme.primaryAccent),
                 ],
               ),
@@ -551,7 +551,7 @@ class _InlineNotice extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.info_outline_rounded,
+            const Icon(AppIcons.info,
                 size: 17, color: AppTheme.warningOrange),
             const SizedBox(width: 10),
             Expanded(
@@ -675,7 +675,7 @@ class _LocationTile extends StatelessWidget {
               ),
             ),
             if (selected)
-              const Icon(Icons.check_circle_rounded,
+              const Icon(AppIcons.successFilled,
                   size: 18, color: AppTheme.primaryAccent),
           ],
         ),
@@ -741,7 +741,7 @@ class _EmptyResults extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Iconsax.search_normal_1,
+              Icon(AppIcons.search,
                   size: 32,
                   color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
               const SizedBox(height: 14),

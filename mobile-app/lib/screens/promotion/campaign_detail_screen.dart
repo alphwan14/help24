@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:iconsax/iconsax.dart';
+import '../../theme/app_icons.dart';
 import '../../models/promotion_models.dart';
 import '../../services/promotion_service.dart';
 import '../../theme/app_theme.dart';
@@ -101,7 +101,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                       textAlign: TextAlign.center, maxLines: 3),
                   TextButton.icon(
                     onPressed: _reload,
-                    icon: const Icon(Icons.refresh),
+                    icon: const Icon(AppIcons.refresh),
                     label: const Text('Retry'),
                   ),
                 ],
@@ -133,18 +133,18 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             _HeaderChip(
-                              icon: Iconsax.box,
+                              icon: AppIcons.campaignBudget,
                               label: '${c.packageName} · KES ${c.priceKes}',
                             ),
                             if (c.startsAt != null && c.endsAt != null)
                               _HeaderChip(
-                                icon: Iconsax.calendar_1,
+                                icon: AppIcons.schedule,
                                 label:
                                     '${_date(c.startsAt!)} – ${_date(c.endsAt!)}',
                               ),
                             if (c.status == CampaignStatus.active)
                               _HeaderChip(
-                                icon: Iconsax.timer_1,
+                                icon: AppIcons.pending,
                                 label:
                                     '${c.daysRemaining} day${c.daysRemaining == 1 ? '' : 's'} left',
                               ),
@@ -189,19 +189,19 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                   crossAxisSpacing: 10,
                   childAspectRatio: 1.15,
                   children: [
-                    _MetricTile(label: 'Views', value: '${a.impressions}', icon: Iconsax.eye),
-                    _MetricTile(label: 'Clicks', value: '${a.clicks}', icon: Iconsax.mouse),
+                    _MetricTile(label: 'Views', value: '${a.impressions}', icon: AppIcons.impressions),
+                    _MetricTile(label: 'Clicks', value: '${a.clicks}', icon: AppIcons.taps),
                     _MetricTile(
                       label: 'CTR',
                       value: a.impressions > 0
                           ? '${(a.ctr * 100).toStringAsFixed(1)}%'
                           : '—',
-                      icon: Iconsax.percentage_square,
+                      icon: AppIcons.rate,
                     ),
                     _MetricTile(
-                        label: 'Profile views', value: '${a.profileViews}', icon: Iconsax.user),
-                    _MetricTile(label: 'Phone taps', value: '${a.phoneTaps}', icon: Iconsax.call),
-                    _MetricTile(label: 'Messages', value: '${a.messages}', icon: Iconsax.message),
+                        label: 'Profile views', value: '${a.profileViews}', icon: AppIcons.person),
+                    _MetricTile(label: 'Phone taps', value: '${a.phoneTaps}', icon: AppIcons.call),
+                    _MetricTile(label: 'Messages', value: '${a.messages}', icon: AppIcons.chat),
                   ],
                 ),
                 const SizedBox(height: 8),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_icons.dart';
 
 /// The user's theme choice: Device Default, Light or Dark.
 ///
@@ -10,9 +11,9 @@ import 'package:flutter/material.dart';
 /// the framework's own type and every existing `Theme.of(context).brightness`
 /// read across the app keeps working untouched.
 enum ThemePreference {
-  system('system', 'Device Default', 'Match your device settings', Icons.brightness_auto_rounded),
-  light('light', 'Light', 'Always light', Icons.light_mode_rounded),
-  dark('dark', 'Dark', 'Always dark', Icons.dark_mode_rounded);
+  system('system', 'Device Default', 'Match your device settings', AppIcons.themeSystem),
+  light('light', 'Light', 'Always light', AppIcons.themeLight),
+  dark('dark', 'Dark', 'Always dark', AppIcons.themeDark);
 
   const ThemePreference(this.storageKey, this.label, this.description, this.icon);
 

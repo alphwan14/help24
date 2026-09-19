@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../models/post_model.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/report_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/time_utils.dart';
 import 'job_status_card.dart';
@@ -37,42 +38,42 @@ List<PopupMenuEntry<ChatMenuAction>> buildChatMenuItems({
     if (hasPost) ...[
       _menuItem(
         ChatMenuAction.viewPost,
-        icon: Icons.description_outlined,
+        icon: AppIcons.fileDocument,
         label: 'View post',
         isDark: isDark,
       ),
       _menuItem(
         ChatMenuAction.jobStatus,
-        icon: Icons.receipt_long_rounded,
+        icon: AppIcons.receipt,
         label: 'Job status',
         isDark: isDark,
       ),
     ],
     _menuItem(
       ChatMenuAction.search,
-      icon: Icons.search_rounded,
+      icon: AppIcons.search,
       label: 'Search conversation',
       isDark: isDark,
     ),
     _menuItem(
       ChatMenuAction.mute,
       icon: isMuted
-          ? Icons.notifications_active_outlined
-          : Icons.notifications_off_outlined,
+          ? AppIcons.unmute
+          : AppIcons.mute,
       label: isMuted ? 'Unmute notifications' : 'Mute notifications',
       isDark: isDark,
     ),
     PopupMenuDivider(height: 9, color: divider),
     _menuItem(
       ChatMenuAction.clear,
-      icon: Icons.cleaning_services_outlined,
+      icon: AppIcons.clearChat,
       label: 'Clear conversation',
       isDark: isDark,
       color: AppTheme.errorRed,
     ),
     _menuItem(
       ChatMenuAction.report,
-      icon: Icons.flag_outlined,
+      icon: AppIcons.report,
       label: 'Report user',
       isDark: isDark,
       color: AppTheme.errorRed,
@@ -171,7 +172,7 @@ class JobStatusSheet extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
-                      Icons.receipt_long_rounded,
+                      AppIcons.receipt,
                       size: 20,
                       color: AppTheme.primaryAccent,
                     ),
@@ -199,7 +200,7 @@ class JobStatusSheet extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 22),
+                    icon: const Icon(AppIcons.close, size: 22),
                     tooltip: 'Close',
                     onPressed: () => Navigator.of(context).pop(),
                   ),
@@ -236,7 +237,7 @@ class _EmptyJobState extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(32, 36, 32, 28),
       child: Column(
         children: [
-          Icon(Icons.hourglass_empty_rounded, size: 40, color: tertiary),
+          Icon(AppIcons.pending, size: 40, color: tertiary),
           const SizedBox(height: 14),
           Text(
             'No active job yet',
@@ -397,13 +398,13 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
                 decoration: InputDecoration(
                   hintText: 'Search this conversation…',
                   hintStyle: TextStyle(color: tertiary, fontSize: 15),
-                  prefixIcon: Icon(Icons.search_rounded, size: 21, color: tertiary),
+                  prefixIcon: Icon(AppIcons.search, size: 21, color: tertiary),
                   suffixIcon: ValueListenableBuilder<TextEditingValue>(
                     valueListenable: _controller,
                     builder: (_, value, __) => value.text.isEmpty
                         ? const SizedBox.shrink()
                         : IconButton(
-                            icon: Icon(Icons.close_rounded, size: 19, color: tertiary),
+                            icon: Icon(AppIcons.close, size: 19, color: tertiary),
                             onPressed: () {
                               _controller.clear();
                               _onQueryChanged('');
@@ -449,7 +450,7 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
     }
     if (_lastQuery.isEmpty) {
       return _hint(
-        icon: Icons.manage_search_rounded,
+        icon: AppIcons.search,
         title: 'Search messages',
         subtitle: 'Find prices, addresses or anything said in this conversation.',
         tertiary: tertiary,
@@ -457,7 +458,7 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
     }
     if (_results.isEmpty) {
       return _hint(
-        icon: Icons.search_off_rounded,
+        icon: AppIcons.searchNoResults,
         title: 'No messages found',
         subtitle: 'Nothing in this conversation matches "$_lastQuery".',
         tertiary: tertiary,
@@ -838,7 +839,7 @@ class _ReportUserSheetState extends State<ReportUserSheet> {
           child: Row(
             children: [
               Icon(
-                selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                selected ? AppIcons.currentStep : AppIcons.unselected,
                 size: 19,
                 color: selected ? AppTheme.primaryAccent : secondary,
               ),
@@ -991,10 +992,10 @@ class _MessageContextMenu extends StatelessWidget {
                 width: menuWidth,
                 children: [
                   if (onReply != null)
-                    _actionRow(context, Icons.reply_rounded, 'Reply', onReply!,
+                    _actionRow(context, AppIcons.reply, 'Reply', onReply!,
                         isDark: isDark),
                   if (onCopy != null)
-                    _actionRow(context, Icons.content_copy_rounded, 'Copy', onCopy!,
+                    _actionRow(context, AppIcons.copy, 'Copy', onCopy!,
                         isDark: isDark),
                   if ((onReply != null || onCopy != null) &&
                       (onDeleteForMe != null || onDeleteForEveryone != null || onReport != null))
@@ -1004,15 +1005,15 @@ class _MessageContextMenu extends StatelessWidget {
                       color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                     ),
                   if (onDeleteForMe != null)
-                    _actionRow(context, Icons.delete_outline_rounded, 'Delete for me',
+                    _actionRow(context, AppIcons.delete, 'Delete for me',
                         onDeleteForMe!,
                         isDark: isDark, color: AppTheme.errorRed),
                   if (onDeleteForEveryone != null)
-                    _actionRow(context, Icons.delete_forever_rounded, 'Delete for everyone',
+                    _actionRow(context, AppIcons.delete, 'Delete for everyone',
                         onDeleteForEveryone!,
                         isDark: isDark, color: AppTheme.errorRed),
                   if (onReport != null)
-                    _actionRow(context, Icons.flag_outlined, 'Report', onReport!,
+                    _actionRow(context, AppIcons.report, 'Report', onReport!,
                         isDark: isDark, color: AppTheme.warningOrange),
                 ],
               ),
@@ -1135,7 +1136,7 @@ class _BubblePreview extends StatelessWidget {
             width: 200,
             height: 150,
             color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-            child: const Icon(Icons.broken_image_outlined, size: 40),
+            child: const Icon(AppIcons.imageBroken, size: 40),
           ),
         ),
       );
@@ -1143,7 +1144,7 @@ class _BubblePreview extends StatelessWidget {
       content = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.description_rounded, size: 22, color: mine ? Colors.white70 : AppTheme.primaryAccent),
+          Icon(AppIcons.fileDocument, size: 22, color: mine ? Colors.white70 : AppTheme.primaryAccent),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
@@ -1159,7 +1160,7 @@ class _BubblePreview extends StatelessWidget {
       content = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.location_on_rounded, size: 20, color: mine ? Colors.white70 : AppTheme.primaryAccent),
+          Icon(AppIcons.location, size: 20, color: mine ? Colors.white70 : AppTheme.primaryAccent),
           const SizedBox(width: 6),
           Text(
             message.isLiveLocation ? 'Live location' : 'Location',

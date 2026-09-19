@@ -16,7 +16,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
-import 'package:iconsax/iconsax.dart';
+import '../theme/app_icons.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../theme/app_theme.dart';
@@ -117,7 +117,7 @@ class _ImageComposerScreenState extends State<ImageComposerScreen> {
           IconButton(
             tooltip: 'Remove this photo',
             onPressed: _removeCurrent,
-            icon: const Icon(Iconsax.trash),
+            icon: const Icon(AppIcons.delete),
           ),
         ],
       ),
@@ -187,7 +187,7 @@ class _ImageComposerScreenState extends State<ImageComposerScreen> {
                   IconButton(
                     tooltip: 'Add another photo',
                     onPressed: _addMore,
-                    icon: const Icon(Iconsax.add_circle, color: Colors.white, size: 28),
+                    icon: const Icon(AppIcons.addAttachment, color: Colors.white, size: 28),
                   ),
                   Expanded(
                     child: TextField(
@@ -225,7 +225,7 @@ class _ImageComposerScreenState extends State<ImageComposerScreen> {
                         padding: EdgeInsets.zero,
                         shape: const CircleBorder(),
                       ),
-                      child: const Icon(Icons.arrow_upward_rounded,
+                      child: const Icon(AppIcons.sendMessage,
                           color: Colors.white, size: 24),
                     ),
                   ),

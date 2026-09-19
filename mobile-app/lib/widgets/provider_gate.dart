@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../screens/professional_profile_screen.dart';
 import '../services/profession_registry.dart';
 import '../services/user_profile_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 import 'profile_widgets.dart';
@@ -34,14 +35,14 @@ enum ProviderRequirement {
   profession(
     'Choose your profession',
     'Clients need to know what you do before they can hire you.',
-    Icons.work_outline_rounded,
+    AppIcons.profession,
   ),
   phone(
     'Add your contact M-Pesa number',
     // NOT a payout claim (§M4). This number makes you hireable and is the
     // number you pay from; where earnings are SENT is Payout Destinations.
     'Clients need a way to reach you before they can select you.',
-    Icons.phone_iphone_rounded,
+    AppIcons.call,
   );
 
   const ProviderRequirement(this.title, this.detail, this.icon);
@@ -217,7 +218,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.lock_outline_rounded, size: 16),
+                const Icon(AppIcons.locked, size: 16),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -272,7 +273,7 @@ class _RequirementRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(
-          satisfied ? Icons.check_circle_rounded : requirement.icon,
+          satisfied ? AppIcons.successFilled : requirement.icon,
           size: 22,
           color: satisfied ? AppTheme.successGreen : AppTheme.warningOrange,
         ),

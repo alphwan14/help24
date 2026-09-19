@@ -7,6 +7,7 @@ import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/profession_registry.dart';
 import '../services/user_profile_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 import '../utils/phone_utils.dart';
@@ -151,7 +152,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                 // Back to Account → Payment Number, the one place it changes.
                 Navigator.of(context).pop(_changed);
               },
-              icon: const Icon(Icons.arrow_back_rounded, size: 18),
+              icon: const Icon(AppIcons.back, size: 18),
               label: const Text('Change in Account'),
             ),
           ),
@@ -189,7 +190,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
           title: const Text('Professional Profile'),
           centerTitle: true,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+            icon: const Icon(AppIcons.back, size: 20),
             onPressed: () => Navigator.of(context).pop(_changed),
           ),
         ),
@@ -220,14 +221,14 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                       title: ProfileSection.personal.title,
                       children: [
                         ProfileFieldRow(
-                          icon: Icons.person_outline_rounded,
+                          icon: AppIcons.person,
                           label: 'Full name',
                           value: profile?.name,
                           emptyHint: 'Add your name',
                           onTap: () => _openEditorForKey('name'),
                         ),
                         ProfileFieldRow(
-                          icon: Icons.mail_outline_rounded,
+                          icon: AppIcons.email,
                           label: 'Email',
                           value: email,
                           emptyHint: 'Not set',
@@ -236,7 +237,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                           onTap: null,
                         ),
                         ProfileFieldRow(
-                          icon: Icons.phone_iphone_rounded,
+                          icon: AppIcons.call,
                           label: 'Phone number',
                           // Masked here exactly as it is on the Account tile —
                           // the full value is only revealed behind the
@@ -249,7 +250,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                           onTap: _explainPhoneIsManagedInAccount,
                         ),
                         ProfileFieldRow(
-                          icon: Icons.verified_outlined,
+                          icon: AppIcons.verified,
                           label: 'Member since',
                           value: _memberSince(profile),
                           emptyHint: '—',
@@ -265,7 +266,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                       caption: 'What clients see when deciding who to hire.',
                       children: [
                         ProfileFieldRow(
-                          icon: Icons.work_outline_rounded,
+                          icon: AppIcons.profession,
                           label: 'Profession',
                           value: professionLabel.isEmpty ? null : professionLabel,
                           emptyHint: 'Choose your profession',
@@ -276,7 +277,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                           onTap: () => _openEditorForKey('profession'),
                         ),
                         ProfileFieldRow(
-                          icon: Icons.notes_rounded,
+                          icon: AppIcons.notes,
                           label: 'About you',
                           value: profile?.bio,
                           emptyHint: 'Add a short intro',
@@ -407,7 +408,7 @@ class _Header extends StatelessWidget {
                       width: 2,
                     ),
                   ),
-                  child: const Icon(Icons.camera_alt_rounded,
+                  child: const Icon(AppIcons.camera,
                       color: Colors.white, size: 14),
                 ),
               ),

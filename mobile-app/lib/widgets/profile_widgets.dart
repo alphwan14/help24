@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/profession.dart';
 import '../models/profile_completion.dart';
 import '../services/profession_registry.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 
 // =============================================================================
@@ -62,7 +63,7 @@ class ProfessionChip extends StatelessWidget {
             // its own inherits its category's rather than falling to the
             // generic briefcase.
             resolved == null
-                ? Icons.work_outline
+                ? AppIcons.profession
                 : ProfessionRegistry.instance.iconFor(resolved),
             size: fontSize + 2,
             color: AppTheme.primaryAccent,
@@ -264,12 +265,12 @@ class CompletionChecklistRow extends StatelessWidget {
 
     final Widget leading;
     if (soon) {
-      leading = Icon(Icons.lock_clock_rounded, size: 20, color: tertiary);
+      leading = Icon(AppIcons.locked, size: 20, color: tertiary);
     } else if (state.complete) {
-      leading = const Icon(Icons.check_circle_rounded,
+      leading = const Icon(AppIcons.successFilled,
           size: 20, color: AppTheme.successGreen);
     } else {
-      leading = Icon(Icons.circle_outlined, size: 20, color: muted);
+      leading = Icon(AppIcons.unselected, size: 20, color: muted);
     }
 
     return InkWell(
@@ -310,7 +311,7 @@ class CompletionChecklistRow extends StatelessWidget {
               ),
             ),
             if (onTap != null && !state.complete)
-              Icon(Icons.chevron_right, size: 20, color: muted),
+              Icon(AppIcons.disclosure, size: 20, color: muted),
           ],
         ),
       ),
@@ -449,8 +450,8 @@ class ProfileFieldRow extends StatelessWidget {
                           children: [
                             Icon(
                               needsAttention
-                                  ? Icons.error_outline_rounded
-                                  : Icons.lock_outline_rounded,
+                                  ? AppIcons.error
+                                  : AppIcons.locked,
                               size: 13,
                               color: needsAttention ? AppTheme.warningOrange : tertiary,
                             ),
@@ -476,7 +477,7 @@ class ProfileFieldRow extends StatelessWidget {
                   const SizedBox(width: 8),
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
-                    child: Icon(Icons.chevron_right, size: 20, color: muted),
+                    child: Icon(AppIcons.disclosure, size: 20, color: muted),
                   ),
                 ],
               ],
@@ -572,7 +573,7 @@ class InlineErrorBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline_rounded, color: AppTheme.errorRed, size: 18),
+          const Icon(AppIcons.error, color: AppTheme.errorRed, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

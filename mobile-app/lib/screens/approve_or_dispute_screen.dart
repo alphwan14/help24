@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/job_lifecycle.dart';
 import '../services/jobs_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
@@ -190,7 +191,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                     color: Colors.red.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.flag_rounded, color: Colors.red, size: 20),
+                  child: const Icon(AppIcons.report, color: Colors.red, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Text('Open a Dispute',
@@ -242,7 +243,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
-                icon: const Icon(Icons.flag_rounded, size: 18),
+                icon: const Icon(AppIcons.report, size: 18),
                 label: const Text('Submit Dispute',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
               ),
@@ -267,7 +268,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
         backgroundColor: bg,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded, color: textPrimary, size: 20),
+          icon: Icon(AppIcons.back, color: textPrimary, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text('Review Completion',
@@ -313,7 +314,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline_rounded, color: AppTheme.errorRed, size: 48),
+              Icon(AppIcons.error, color: AppTheme.errorRed, size: 48),
               const SizedBox(height: 12),
               Text('Unable to load approval details',
                   textAlign: TextAlign.center,
@@ -322,7 +323,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
               const SizedBox(height: 16),
               ElevatedButton.icon(
                 onPressed: _loadDetails,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
+                icon: const Icon(AppIcons.refresh, size: 18),
                 label: const Text('Retry'),
               ),
             ],
@@ -333,7 +334,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
 
     if (_state == _DecisionState.approved) {
       return _OutcomeView(
-        icon: Icons.check_circle_rounded,
+        icon: AppIcons.successFilled,
         iconColor: AppTheme.successGreen,
         title: 'Payment Released!',
         subtitle:
@@ -357,7 +358,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
 
     if (_state == _DecisionState.disputed) {
       return _OutcomeView(
-        icon: Icons.shield_rounded,
+        icon: AppIcons.verified,
         iconColor: AppTheme.warningOrange,
         title: 'Dispute Submitted',
         subtitle:
@@ -392,7 +393,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                         color: AppTheme.primaryAccent.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(Icons.work_outline_rounded,
+                      child: Icon(AppIcons.profession,
                           color: AppTheme.primaryAccent, size: 22),
                     ),
                     const SizedBox(width: 12),
@@ -449,7 +450,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.lock_outline_rounded,
+                Icon(AppIcons.escrow,
                     color: AppTheme.primaryAccent, size: 16),
                 const SizedBox(width: 8),
                 Expanded(
@@ -473,7 +474,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(children: [
-                const Icon(Icons.error_outline_rounded,
+                const Icon(AppIcons.error,
                     color: Colors.red, size: 16),
                 const SizedBox(width: 8),
                 Expanded(
@@ -503,7 +504,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                       height: 18,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.check_rounded, size: 22),
+                  : const Icon(AppIcons.check, size: 22),
               label: Text(
                 _state == _DecisionState.approving
                     ? 'Releasing Payment…'
@@ -532,7 +533,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                       height: 18,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.red))
-                  : const Icon(Icons.flag_outlined, size: 20, color: Colors.red),
+                  : const Icon(AppIcons.report, size: 20, color: Colors.red),
               label: Text(
                 _state == _DecisionState.disputing
                     ? 'Submitting Dispute…'

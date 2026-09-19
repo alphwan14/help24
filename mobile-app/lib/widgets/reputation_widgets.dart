@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/provider_reputation.dart';
 import '../providers/connectivity_provider.dart';
 import '../services/reputation_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 
 // =============================================================================
@@ -53,7 +54,7 @@ class TierBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.verified_rounded, size: fontSize + 2, color: c),
+          Icon(AppIcons.verifiedProvider, size: fontSize + 2, color: c),
           const SizedBox(width: 4),
           Text(label, style: TextStyle(color: c, fontSize: fontSize, fontWeight: FontWeight.w700)),
         ],
@@ -129,7 +130,7 @@ class _ReputationCompactState extends State<ReputationCompact> {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.star_rounded, size: 14, color: AppTheme.warningOrange),
+            Icon(AppIcons.reviewFilled, size: 14, color: AppTheme.warningOrange),
             const SizedBox(width: 2),
             Text(rep.averageRating.toStringAsFixed(1),
                 style: TextStyle(color: muted, fontSize: 12, fontWeight: FontWeight.w700)),
@@ -212,7 +213,7 @@ class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
             // for new and established providers alike.
             TierBadge(tier: rep.tier, label: rep.tierLabel),
             _pill(
-              icon: Icons.task_alt_rounded,
+              icon: AppIcons.completedWork,
               iconColor: AppTheme.successGreen,
               text: '${rep.completedJobs} ${rep.completedJobs == 1 ? 'Job' : 'Jobs'} Completed',
               muted: muted,
@@ -222,7 +223,7 @@ class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
             // never alters the status badge above.
             if (rep.hasReviews)
               _pill(
-                icon: Icons.star_rounded,
+                icon: AppIcons.reviewFilled,
                 iconColor: AppTheme.warningOrange,
                 text: '${rep.averageRating.toStringAsFixed(1)} · ${rep.totalReviews} '
                     '${rep.totalReviews == 1 ? 'Review' : 'Reviews'}',
@@ -231,7 +232,7 @@ class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
               )
             else
               _pill(
-                icon: Icons.rate_review_outlined,
+                icon: AppIcons.review,
                 iconColor: muted,
                 text: 'No Reviews Yet',
                 muted: muted,
@@ -394,7 +395,7 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
             final offline = snap.data?.outcome == ReputationOutcome.offline;
             return Row(
               children: [
-                Icon(offline ? Icons.wifi_off_rounded : Icons.cloud_off_rounded,
+                Icon(offline ? AppIcons.offline : AppIcons.unreachable,
                     size: 18, color: muted),
                 const SizedBox(width: 8),
                 Expanded(
@@ -417,7 +418,7 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
           if (!hasProviderActivity) {
             return Row(
               children: [
-                Icon(Icons.verified_user_outlined, size: 20, color: tierColor(rep.tier)),
+                Icon(AppIcons.verified, size: 20, color: tierColor(rep.tier)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -458,7 +459,7 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
               if (rep.hasReviews)
                 Row(
                   children: [
-                    Icon(Icons.star_rounded, color: AppTheme.warningOrange, size: 22),
+                    Icon(AppIcons.reviewFilled, color: AppTheme.warningOrange, size: 22),
                     const SizedBox(width: 4),
                     Text(rep.averageRating.toStringAsFixed(1),
                         style: TextStyle(

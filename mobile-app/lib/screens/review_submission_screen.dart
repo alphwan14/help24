@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/review_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 
@@ -103,7 +104,7 @@ class _ReviewSubmissionScreenState extends State<ReviewSubmissionScreen> {
               return IconButton(
                 onPressed: _submitting ? null : () => setState(() => _rating = value),
                 icon: Icon(
-                  filled ? Icons.star_rounded : Icons.star_outline_rounded,
+                  filled ? AppIcons.reviewFilled : AppIcons.review,
                   size: 44,
                   color: filled ? AppTheme.warningOrange : textSecondary.withValues(alpha: 0.5),
                 ),
@@ -160,7 +161,7 @@ class _ReviewSubmissionScreenState extends State<ReviewSubmissionScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 64),
+            Icon(AppIcons.successFilled, color: AppTheme.successGreen, size: 64),
             const SizedBox(height: 16),
             Text('Thanks for your review!',
                 style: TextStyle(color: textPrimary, fontSize: 20, fontWeight: FontWeight.w800)),

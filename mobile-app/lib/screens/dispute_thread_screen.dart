@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/dispute_thread.dart';
 import '../providers/auth_provider.dart';
 import '../services/dispute_service.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_mapper.dart';
 import '../widgets/loading_empty_offline.dart';
@@ -177,7 +178,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
     if (_error != null) {
       return ListView(children: [
         const SizedBox(height: 120),
-        Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+        Icon(AppIcons.error, size: 48, color: AppTheme.errorRed),
         const SizedBox(height: 12),
         Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error!, textAlign: TextAlign.center))),
       ]);
@@ -214,7 +215,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(children: [
-          Icon(Icons.gavel_outlined, size: 20, color: AppTheme.primaryAccent),
+          Icon(AppIcons.dispute, size: 20, color: AppTheme.primaryAccent),
           const SizedBox(width: 8),
           const Expanded(child: Text('Dispute case', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
           _pill(_statusLabel(d.status), _statusColor(d.status)),
@@ -248,7 +249,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(Icons.upload_file_outlined, size: 18, color: AppTheme.warningOrange),
+            Icon(AppIcons.evidenceRequested, size: 18, color: AppTheme.warningOrange),
             const SizedBox(width: 8),
             const Expanded(
               child: Text('Admin has requested additional evidence',
@@ -265,7 +266,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
               onPressed: _uploading ? null : _attachAndUpload,
               icon: _uploading
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.attach_file),
+                  : const Icon(AppIcons.attachment),
               label: Text(_uploading ? 'Uploading…' : 'Upload evidence'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.warningOrange,
@@ -378,7 +379,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.primaryAccent)),
                 const Spacer(),
                 if (e.reviewed)
-                  Icon(Icons.verified, size: 14, color: AppTheme.successGreen),
+                  Icon(AppIcons.verifiedProvider, size: 14, color: AppTheme.successGreen),
               ]),
               const SizedBox(height: 6),
               if (e.isImage)
@@ -409,7 +410,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
 
   Widget _fileChip(ThreadEvidence e, bool isDark) {
     return Row(children: [
-      Icon(e.type == 'document' ? Icons.picture_as_pdf_outlined : Icons.insert_drive_file_outlined,
+      Icon(e.type == 'document' ? AppIcons.fileDocument : AppIcons.fileGeneric,
           size: 20, color: AppTheme.primaryAccent),
       const SizedBox(width: 8),
       Expanded(child: Text(e.fileName ?? 'Attachment', style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis)),
@@ -446,7 +447,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
               onPressed: _uploading ? null : _attachAndUpload,
               icon: _uploading
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.attach_file),
+                  : const Icon(AppIcons.attachment),
               tooltip: 'Attach evidence',
             ),
             Expanded(
@@ -469,7 +470,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
               onPressed: _sending ? null : _send,
               icon: _sending
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.send),
+                  : const Icon(AppIcons.send),
             ),
           ],
         ),
@@ -510,7 +511,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(Icons.verified_outlined, size: 18, color: AppTheme.successGreen),
+            Icon(AppIcons.verified, size: 18, color: AppTheme.successGreen),
             const SizedBox(width: 8),
             const Text('Outcome', style: TextStyle(fontWeight: FontWeight.w700)),
           ]),
