@@ -36,6 +36,7 @@ import 'promotion/promote_business_screen.dart';
 import 'provider/payout_destinations_screen.dart';
 import 'provider/provider_onboarding_screen.dart';
 import 'saved_screen.dart';
+import 'service_history_screen.dart';
 import 'location_permission_explainer_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -593,6 +594,22 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => SavedScreen(userId: widget.uid),
+                    ),
+                  ),
+                ),
+                // Service History sits beside My Posts and Saved because it is
+                // the same kind of thing: a record of what this person has done
+                // on Help24. It covers both sides of the deal — services bought
+                // and work done — so it is one entry, not two.
+                _SettingsTile(
+                  icon: Iconsax.receipt_item,
+                  title: 'Service History',
+                  subtitle: 'Completed services, work & receipts',
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ServiceHistoryScreen(uid: widget.uid),
                     ),
                   ),
                 ),

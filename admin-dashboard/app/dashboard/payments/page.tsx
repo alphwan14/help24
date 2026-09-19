@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { fmtKes } from "@/lib/post-display";
 import { ArchivedBadge } from "@/components/PostStatusBadge";
 
 type TxRow = {
@@ -13,6 +14,9 @@ type TxRow = {
   mpesa_receipt: string | null;
   created_at: string;
   posts: { title: string | null; archived_at: string | null } | null;
+  // One receipt per transaction (UNIQUE on transaction_id), so this embed is
+  // an array of at most one. Absent until a participant first opens it.
+  payment_receipts: { receipt_number: string }[] | null;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -23,9 +27,12 @@ const STATUS_COLORS: Record<string, string> = {
   released: "bg-gray-100 text-gray-600",
 };
 
-function fmtKES(n: number) {
-  return `KES ${(n / 100).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`;
-}
+// Money is stored in WHOLE KES, not cents: mpesa.service.ts writes
+// Math.round(Number(post.price)) and fee.ts rejects anything under 100 as
+// "at least 100 KES". The local helper here divided by 100, rendering a
+// KES 500 payment as "KES 5.00" on every payments page. Use the one shared
+// formatter instead of a sixth private copy.
+const fmtKES = fmtKes;
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
@@ -35,7 +42,9 @@ async function getTransactions() {
   const db = createServiceClient();
   const { data } = await db
     .from("transactions")
-    .select("id, post_id, buyer_user_id, amount, fee, total_paid, status, mpesa_receipt, created_at, posts(title, archived_at)")
+    .select(
+      "id, post_id, buyer_user_id, amount, fee, total_paid, status, mpesa_receipt, created_at, posts(title, archived_at), payment_receipts(receipt_number)",
+    )
     .order("created_at", { ascending: false })
     .limit(200);
   return (data ?? []) as unknown as TxRow[];
@@ -52,14 +61,25 @@ export default async function PaymentsPage() {
     {
       key: "id",
       label: "Transaction",
-      render: (r: TxRow) => (
-        <div>
-          <p className="font-mono text-xs text-gray-900">{r.id.slice(0, 12)}…</p>
-          {r.mpesa_receipt && (
-            <p className="text-xs text-gray-400">{r.mpesa_receipt}</p>
-          )}
-        </div>
-      ),
+      // THREE different identifiers live in this cell and users quote all of
+      // them to support, so each is labelled. The Help24 receipt number is what
+      // a customer reads off their receipt screen; the M-Pesa code is what
+      // Safaricom sent them. Presenting them unlabelled invites an agent to
+      // search for one in the other's system.
+      render: (r: TxRow) => {
+        const receiptNumber = r.payment_receipts?.[0]?.receipt_number;
+        return (
+          <div className="space-y-0.5">
+            <p className="font-mono text-xs text-gray-900">{r.id.slice(0, 12)}…</p>
+            {receiptNumber && (
+              <p className="font-mono text-xs text-brand-600">{receiptNumber}</p>
+            )}
+            {r.mpesa_receipt && (
+              <p className="text-xs text-gray-400">M-Pesa: {r.mpesa_receipt}</p>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: "post_id",

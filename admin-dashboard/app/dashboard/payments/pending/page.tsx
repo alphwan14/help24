@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { fmtKes } from "@/lib/post-display";
 
 type TxRow = {
   id: string;
@@ -13,9 +14,12 @@ type TxRow = {
   posts: { title: string | null } | null;
 };
 
-function fmtKES(n: number) {
-  return `KES ${(n / 100).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`;
-}
+// Money is stored in WHOLE KES, not cents: mpesa.service.ts writes
+// Math.round(Number(post.price)) and fee.ts rejects anything under 100 as
+// "at least 100 KES". The local helper here divided by 100, rendering a
+// KES 500 payment as "KES 5.00" on every payments page. Use the one shared
+// formatter instead of a sixth private copy.
+const fmtKES = fmtKes;
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });

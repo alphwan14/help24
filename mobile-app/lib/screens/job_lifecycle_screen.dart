@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:iconsax/iconsax.dart';
 import 'package:provider/provider.dart';
 
 import '../models/job_lifecycle.dart';
@@ -12,6 +13,7 @@ import '../utils/time_utils.dart';
 import '../utils/format_utils.dart';
 import 'approve_or_dispute_screen.dart';
 import 'dispute_thread_screen.dart';
+import 'receipt_screen.dart';
 import 'review_submission_screen.dart';
 
 /// Job Lifecycle Detail — the single, unified surface for a job's progress:
@@ -122,6 +124,10 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
           const SizedBox(height: 12),
         ],
         _paymentSection(d, isDark),
+        if (_receiptAvailable(d)) ...[
+          const SizedBox(height: 12),
+          _receiptAction(isDark),
+        ],
         const SizedBox(height: 12),
         _completionSection(d, isDark),
         const SizedBox(height: 12),
@@ -136,6 +142,63 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
         ],
         _reviewProviderSection(d),
       ],
+    );
+  }
+
+  // ── Help24 receipt ─────────────────────────────────────────────────────────
+
+  /// A receipt exists only once money has actually moved. These are the same
+  /// transaction statuses the backend will issue against, so the button is not
+  /// offered where opening it would only produce an explanation.
+  static const _receiptableTxStatuses = {'paid', 'payout_pending', 'released', 'disputed', 'refunded'};
+
+  bool _receiptAvailable(JobLifecycle d) {
+    final status = d.payment?.status;
+    return status != null && _receiptableTxStatuses.contains(status);
+  }
+
+  Widget _receiptAction(bool isDark) {
+    final uid = context.read<AuthProvider>().currentUserId;
+    if (uid == null || uid.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ReceiptScreen(postId: widget.postId, uid: uid),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            child: Row(
+              children: [
+                Icon(Iconsax.receipt_item, size: 19, color: AppTheme.primaryAccent),
+                const SizedBox(width: 11),
+                const Expanded(
+                  child: Text(
+                    'View Help24 receipt',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 

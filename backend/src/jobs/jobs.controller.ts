@@ -1,6 +1,7 @@
 import { Body, Controller, Get, GoneException, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { IsString, IsUUID } from 'class-validator';
 import { JobsService } from './jobs.service';
+import { ServiceRecordsService } from './service-records.service';
 import { MarkCompleteDto } from './dto/mark-complete.dto';
 import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
@@ -17,7 +18,10 @@ class NotifyApplicationDto {
 
 @Controller('jobs')
 export class JobsController {
-  constructor(private readonly jobs: JobsService) {}
+  constructor(
+    private readonly jobs: JobsService,
+    private readonly serviceRecords: ServiceRecordsService,
+  ) {}
 
   /** Called by mobile app after a provider submits an application — notifies the post author. */
   @Post('notify-application')
@@ -109,6 +113,47 @@ export class JobsController {
   @Auth('query.user_id')
   getLifecycle(@Param('postId') postId: string, @Query('user_id') userId: string) {
     return this.jobs.getLifecycle(postId, userId);
+  }
+
+  /**
+   * Service Records — the caller's job history from one side of the deal.
+   * ?role=client is "My Services" (jobs they paid for); ?role=provider is
+   * "My Work" (jobs they were selected for). Read-only; writes nothing.
+   *
+   * Declared ahead of the ':postId/...' routes purely for readability — it is a
+   * single-segment path and cannot be captured by the two-segment ones.
+   */
+  @Get('history')
+  @RateLimit('jobs:read')
+  // Same binding as the lifecycle route: the history names counterparties and
+  // amounts, so the caller must BE the user whose history is served, not merely
+  // be signed in and willing to type someone else's id.
+  @Auth('query.user_id')
+  getHistory(
+    @Query('user_id') userId: string,
+    @Query('role') role: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.serviceRecords.listHistory(userId, role as 'client' | 'provider', {
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  /**
+   * The Help24 platform receipt for a job. Issued lazily and idempotently the
+   * first time it is asked for, and only once the payment has actually moved
+   * money — a pending or failed payment gets a reason, not a receipt number.
+   */
+  @Get(':postId/receipt')
+  @RateLimit('jobs:read')
+  // A receipt names both parties, the amount and (for the payer) the M-Pesa
+  // reference. The service re-checks participation; this binding is what makes
+  // the user_id it checks trustworthy.
+  @Auth('query.user_id')
+  getReceipt(@Param('postId') postId: string, @Query('user_id') userId: string) {
+    return this.serviceRecords.getReceipt(postId, userId);
   }
 
   /**
