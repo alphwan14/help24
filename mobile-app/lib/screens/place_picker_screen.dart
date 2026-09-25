@@ -24,6 +24,7 @@ import '../theme/app_icons.dart';
 import '../services/location_service.dart';
 import '../services/recent_places_store.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../widgets/location_experience.dart';
 
 class PlacePickerScreen extends StatefulWidget {
@@ -72,11 +73,11 @@ class _ReservedSearchField extends StatelessWidget {
       label: 'Search places, coming soon',
       child: Material(
         color: fill,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.mdAll,
         elevation: 2,
         shadowColor: Colors.black26,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: AppRadius.mdAll,
           onTap: () {
             // Honest: no API, no fake results — just set expectations.
             ScaffoldMessenger.of(context)
@@ -103,7 +104,7 @@ class _ReservedSearchField extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryAccent.withValues(alpha: isDark ? 0.20 : 0.12),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: AppRadius.smAll,
                   ),
                   child: const Text(
                     'Soon',
@@ -153,11 +154,11 @@ class _RecentPlacesRow extends StatelessWidget {
             final text = p.label.isEmpty ? 'Pinned spot' : p.label;
             return Material(
               color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: AppRadius.pillAll,
               elevation: 1.5,
               shadowColor: Colors.black26,
               child: InkWell(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: AppRadius.pillAll,
                 onTap: () => onSelect(p),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -206,9 +207,9 @@ class _SuggestionChip extends StatelessWidget {
     // padding-from-top is what pushed the text down and clipped the lower half.
     return Material(
       color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: AppRadius.lgAll,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -445,7 +446,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.88),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: AppRadius.lgAll,
                       boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
                     ),
                     child: Text(
@@ -491,7 +492,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                             decoration: BoxDecoration(
                               color: surface.withValues(alpha: 0.96),
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: AppRadius.pillAll,
                               boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8)],
                             ),
                             child: Row(
@@ -548,7 +549,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
             child: Container(
               decoration: BoxDecoration(
                 color: surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: AppRadius.sheetTop,
                 boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 12)],
               ),
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -602,7 +603,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                         fillColor: isDark ? AppTheme.darkCard : AppTheme.lightCard,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: AppRadius.mdAll,
                           borderSide: BorderSide.none,
                         ),
                       ),
@@ -623,7 +624,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                           backgroundColor: AppTheme.primaryAccent,
                           foregroundColor: Colors.white,
                           textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
                         ),
                       ),
                     ),

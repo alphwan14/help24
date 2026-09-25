@@ -13,6 +13,7 @@ import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../models/provider_reputation.dart';
+import '../widgets/primitives.dart';
 import '../widgets/reputation_widgets.dart';
 import '../services/location_service.dart';
 import '../services/reputation_service.dart';
@@ -29,6 +30,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/time_utils.dart';
 import '../services/adaptive_poll.dart';
 import '../widgets/loading_empty_offline.dart';
@@ -285,16 +287,23 @@ class _ConversationTile extends StatelessWidget {
     }
   }
 
-  Widget _avatarPlaceholder(String initial) {
+  // A PLACEHOLDER IS NOT A BRAND MOMENT.
+  //
+  // This was a solid accent-filled circle, so a conversation list where two
+  // people have no photo showed two large saturated discs — the loudest thing
+  // on a screen whose content is words. The accent marks selection; an avatar
+  // we do not have is the absence of information.
+  Widget _avatarPlaceholder(BuildContext context, String initial) {
+    final c = AppColors.of(context);
     return CircleAvatar(
       radius: 26,
-      backgroundColor: AppTheme.primaryAccent,
+      backgroundColor: c.surfaceSunken,
       child: Text(
         initial,
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: c.contentSecondary,
           fontSize: 18,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -360,7 +369,7 @@ class _ConversationTile extends StatelessWidget {
                     child: avatarUrl.isNotEmpty
                         ? CircleAvatar(
                             radius: 26,
-                            backgroundColor: AppTheme.primaryAccent,
+                            backgroundColor: AppColors.of(context).surfaceSunken,
                             child: ClipOval(
                               // Never a visible load: cached images paint the
                               // same frame (zero fade), uncached ones sit on
@@ -373,12 +382,12 @@ class _ConversationTile extends StatelessWidget {
                                 fadeInDuration: Duration.zero,
                                 fadeOutDuration: Duration.zero,
                                 placeholderFadeInDuration: Duration.zero,
-                                placeholder: (_, __) => _avatarPlaceholder(initial),
-                                errorWidget: (_, __, ___) => _avatarPlaceholder(initial),
+                                placeholder: (_, __) => _avatarPlaceholder(context, initial),
+                                errorWidget: (_, __, ___) => _avatarPlaceholder(context, initial),
                               ),
                             ),
                           )
-                        : _avatarPlaceholder(initial),
+                        : _avatarPlaceholder(context, initial),
                   ),
                   const SizedBox(width: 14),
                   // Content
@@ -413,7 +422,12 @@ class _ConversationTile extends StatelessWidget {
                               _formatTime(previewTime),
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 fontSize: 12,
-                                color: showUnread ? AppTheme.primaryAccent : null,
+                                // Weight, not hue. The row already carries a
+                                // red count; colouring the timestamp as well
+                                // says "unread" twice, in a third colour.
+                                color: showUnread
+                                    ? AppColors.of(context).contentPrimary
+                                    : null,
                                 fontWeight:
                                     showUnread ? FontWeight.w600 : FontWeight.normal,
                               ),
@@ -488,8 +502,12 @@ class _ConversationTile extends StatelessWidget {
                                 constraints: const BoxConstraints(minWidth: 20),
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.primaryAccent,
-                                  borderRadius: BorderRadius.circular(10),
+                                  // The SAME red the bottom bar's badge uses.
+                                  // An unread count rendered gold here and red
+                                  // there is one concept in two colours, on two
+                                  // surfaces a user sees at the same time.
+                                  color: AppColors.of(context).criticalFill,
+                                  borderRadius: AppRadius.pillAll,
                                 ),
                                 child: Text(
                                   conversation.unreadCount.toString(),
@@ -1820,7 +1838,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       context: context,
       backgroundColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: AppRadius.sheetTop,
       ),
       builder: (context) => SafeArea(
         child: Padding(
@@ -2531,7 +2549,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: isDark ? AppTheme.darkCard : AppTheme.lightSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.lgAll),
         title: const Text(
           'Clear conversation?',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
@@ -2750,7 +2768,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           Icon(
                             AppIcons.verifiedProvider,
                             size: 15,
-                            color: tierColor(_headerRep!.tier),
+                            color: tierColor(context, _headerRep!.tier),
                           ),
                         ],
                       ],
@@ -2776,7 +2794,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               elevation: 8,
               shadowColor: Colors.black.withValues(alpha: 0.3),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: AppRadius.lgAll,
                 side: BorderSide(
                   color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                   width: 0.5,
@@ -3204,7 +3222,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           ),
                           decoration: BoxDecoration(
                             color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                            borderRadius: BorderRadius.circular(26),
+                            borderRadius: AppRadius.pillAll,
                             border: Border.all(
                               color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                               width: 0.5,
@@ -3378,7 +3396,7 @@ class _PostContextBanner extends StatelessWidget {
                 height: 30,
                 decoration: BoxDecoration(
                   color: AppTheme.primaryAccent.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(9),
+                  borderRadius: AppRadius.smAll,
                 ),
                 child: const Icon(
                   AppIcons.fileDocument,
@@ -3451,7 +3469,7 @@ class _AttachOption extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: AppRadius.mdAll,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         child: Row(
@@ -3549,30 +3567,13 @@ class _MessageBubble extends StatelessWidget {
     this.onRetry,
   });
 
-  // Computes bubble corner radii based on message position within a sender group.
-  // The "tail" (flat corner, r=4) appears only on the last message of a group,
-  // pointing toward the avatar side. Mid-group messages use a tighter inner radius (r=6).
-  BorderRadius _buildBorderRadius() {
-    const r = Radius.circular(18);
-    const tail = Radius.circular(4);
-    const inner = Radius.circular(6);
-
-    if (message.isMe) {
-      return BorderRadius.only(
-        topLeft: r,
-        topRight: isFirstInGroup ? r : inner,
-        bottomLeft: r,
-        bottomRight: isLastInGroup ? tail : inner,
+  // The geometry lives in chat_ui.dart, next to the preview that renders the
+  // same bubble — they had already drifted apart by 2 px on the tail corner.
+  BorderRadius _buildBorderRadius() => chatBubbleRadius(
+        mine: message.isMe,
+        isFirstInGroup: isFirstInGroup,
+        isLastInGroup: isLastInGroup,
       );
-    } else {
-      return BorderRadius.only(
-        topLeft: isFirstInGroup ? r : inner,
-        topRight: r,
-        bottomLeft: isLastInGroup ? tail : inner,
-        bottomRight: r,
-      );
-    }
-  }
 
   /// Message-bubble stamp. Delegates to the canonical formatter so the time is
   /// rendered in the device's zone and 12h/24h convention — reading
@@ -3592,7 +3593,7 @@ class _MessageBubble extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: isDark ? AppTheme.darkCard.withValues(alpha: 0.6) : AppTheme.lightCard,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: AppRadius.lgAll,
               border: Border.all(
                 color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                 width: 0.5,
@@ -3655,7 +3656,7 @@ class _MessageBubble extends StatelessWidget {
               child: isLastInGroup
                   ? CircleAvatar(
                       radius: 14,
-                      backgroundColor: AppTheme.primaryAccent,
+                      backgroundColor: AppColors.of(context).surfaceSunken,
                       backgroundImage: senderAvatar.isNotEmpty
                           ? CachedNetworkImageProvider(senderAvatar)
                           : null,
@@ -3716,7 +3717,7 @@ class _MessageBubble extends StatelessWidget {
                             : (isDark
                                 ? AppTheme.darkSurface.withValues(alpha: 0.8)
                                 : AppTheme.lightBorder.withValues(alpha: 0.5)),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: AppRadius.smAll,
                         border: Border(
                           left: BorderSide(
                             color: message.isMe
@@ -3772,7 +3773,7 @@ class _MessageBubble extends StatelessWidget {
                         // lifts into the viewer instead of cutting to it.
                         tag: 'chat_image_${message.id}',
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: AppRadius.mdAll,
                           child: CachedNetworkImage(
                             imageUrl: message.attachmentUrl!,
                             width: 220,
@@ -4033,7 +4034,7 @@ class _HeaderAvatar extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 19,
-            backgroundColor: AppTheme.primaryAccent,
+            backgroundColor: AppColors.of(context).surfaceSunken,
             backgroundImage:
                 avatarUrl.isNotEmpty ? CachedNetworkImageProvider(avatarUrl) : null,
             child: avatarUrl.isEmpty
@@ -4117,7 +4118,7 @@ class _DateDivider extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
                 color: labelBg,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: AppRadius.mdAll,
                 border: Border.all(color: dividerColor, width: 0.5),
               ),
               child: Text(
@@ -4326,7 +4327,7 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
               bottom: MediaQuery.of(context).padding.bottom + 24,
               child: Material(
                 elevation: 4,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: AppRadius.mdAll,
                 color: isDark ? AppTheme.darkCard : Colors.white,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -4415,7 +4416,7 @@ class _ReplyPreviewBar extends StatelessWidget {
             height: 36,
             decoration: BoxDecoration(
               color: accentColor,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: AppRadius.pillAll,
             ),
           ),
           const SizedBox(width: 10),

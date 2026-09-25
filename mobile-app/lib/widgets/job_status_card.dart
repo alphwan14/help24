@@ -8,6 +8,7 @@ import '../services/jobs_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
 import '../utils/phone_utils.dart';
@@ -312,7 +313,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
       ]),
       backgroundColor: color,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
       duration: const Duration(seconds: 4),
     ));
   }
@@ -350,7 +351,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(
           color: _borderColor(isDark),
           width: 1.2,
@@ -391,7 +392,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => JobLifecycleScreen(postId: widget.postId)),
           ),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: AppRadius.smAll,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: Row(
@@ -511,7 +512,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
                 backgroundColor: AppTheme.primaryAccent,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
               ),
             ),
           ),
@@ -520,7 +521,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: AppTheme.warningOrange.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: AppRadius.smAll,
             ),
             child: Row(
               children: [
@@ -559,7 +560,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: AppTheme.successGreen.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: AppRadius.smAll,
           ),
           child: Row(
             children: [
@@ -588,7 +589,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
                 backgroundColor: AppTheme.primaryAccent,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
               ),
             ),
           ),
@@ -628,8 +629,8 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: isDark ? AppTheme.darkBorder.withValues(alpha: 0.5) : const Color(0xFFF3F4F6),
-              borderRadius: BorderRadius.circular(8),
+              color: isDark ? AppTheme.darkBorder.withValues(alpha: 0.5) : AppColors.of(context).surfaceSunken,
+              borderRadius: AppRadius.smAll,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -670,7 +671,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
                     backgroundColor: AppTheme.successGreen,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
                   ),
                 ),
               ),
@@ -684,7 +685,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
                     foregroundColor: AppTheme.errorRed,
                     side: const BorderSide(color: AppTheme.errorRed, width: 1),
                     padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
                   ),
                 ),
               ),
@@ -695,7 +696,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: AppTheme.warningOrange.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: AppRadius.smAll,
             ),
             child: Row(
               children: [
@@ -736,7 +737,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: AppTheme.warningOrange.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: AppRadius.smAll,
           ),
           child: Row(
             children: [
@@ -779,7 +780,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: AppTheme.successGreen.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: AppRadius.smAll,
           ),
           child: Row(
             children: [
@@ -816,7 +817,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: AppTheme.errorRed.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: AppRadius.smAll,
           ),
           child: Row(
             children: [

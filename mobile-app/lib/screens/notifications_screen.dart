@@ -9,6 +9,7 @@ import '../services/chat_service_supabase.dart';
 import '../services/notification_store.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/notification_sections.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
@@ -183,14 +184,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       color: active
           ? AppTheme.primaryAccent.withValues(alpha: 0.12)
           : Colors.transparent,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: AppRadius.pillAll,
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: AppRadius.pillAll,
             border: Border.all(
                 color: active ? AppTheme.primaryAccent : border),
           ),
@@ -691,7 +692,7 @@ class _NotificationTile extends StatelessWidget {
                 padding: EdgeInsets.all(dense ? 7 : 9),
                 decoration: BoxDecoration(
                   color: tone.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: AppRadius.mdAll,
                 ),
                 child: Icon(kind.icon, color: tone, size: dense ? 16 : 19),
               ),

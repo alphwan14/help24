@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:help24/theme/app_theme.dart';
+import 'package:help24/theme/tokens.dart';
 import 'package:help24/theme/system_bars.dart';
 
 /// THE SYSTEM BARS HAVE ONE OWNER, AND IT NEVER LEAVES A FIELD NULL.
@@ -88,36 +89,44 @@ void main() {
     });
 
     test('the bar colour tracks the surface the app actually paints', () {
-      // The bottom bar is the app's surface colour (CustomBottomNav) and the
-      // status bar sits over the scaffold field. If these drift from the theme
-      // a seam appears at the top or bottom of every screen.
+      // The bottom bar is what CustomBottomNav paints and the status bar sits
+      // over the scaffold field. If either drifts from the style SystemBars
+      // declares, a seam appears along the top or bottom of every screen.
       //
-      // Asserted against the SOURCE rather than a built ThemeData: constructing
-      // one calls GoogleFonts.poppinsTextTheme(), which fetches Poppins over
-      // the network and throws in a unit test (the font is not bundled). The
-      // guarantee is the same — the two halves above already pin SystemBars to
-      // AppTheme's constants, and this pins the themes to those same constants.
-      final src = File('lib/theme/app_theme.dart').readAsStringSync();
-      expect(src, contains('scaffoldBackgroundColor: lightBackground'));
-      expect(src, contains('scaffoldBackgroundColor: darkBackground'));
+      // ASSERTED AGAINST THE BUILT THEME, not the source text. It used to be a
+      // regex over app_theme.dart because constructing a ThemeData called
+      // GoogleFonts.poppinsTextTheme(), which fetched Poppins over the network
+      // and threw in a unit test. The typeface is bundled now, so the real
+      // object is reachable — and a source regex could only ever pin the
+      // SPELLING of a colour, which is exactly what let the seam below through:
+      // a refactor that moved the bar to a differently-named token kept every
+      // constant intact and still broke the contract.
+      for (final (theme, bars, colors) in [
+        (AppTheme.lightTheme, SystemBars.light, AppColors.light),
+        (AppTheme.darkTheme, SystemBars.dark, AppColors.dark),
+      ]) {
+        expect(theme.scaffoldBackgroundColor, bars.statusBarColor,
+            reason: 'the status bar sits over the scaffold field');
+        expect(colors.navSurface, bars.systemNavigationBarColor,
+            reason: 'AppColors.navSurface IS the system navigation bar colour '
+                '— that is the whole reason the token exists');
+        expect(theme.bottomNavigationBarTheme.backgroundColor,
+            bars.systemNavigationBarColor,
+            reason: 'the bottom bar must meet the navigation bar exactly');
+      }
       expect(SystemBars.light.statusBarColor, AppTheme.lightBackground);
       expect(SystemBars.dark.statusBarColor, AppTheme.darkBackground);
-
-      // ...and the bottom-nav surface the navigation bar has to meet.
-      for (final block in _themeBlocks(src)) {
-        final expected = block.key == 'light' ? 'lightSurface' : 'darkSurface';
-        expect(
-          RegExp('bottomNavigationBarTheme: const '
-                  r'BottomNavigationBarThemeData\(\s*'
-                  'backgroundColor: $expected')
-              .hasMatch(block.value),
-          isTrue,
-          reason: '${block.key} theme must seat its bottom bar on $expected, '
-              'which is what SystemBars paints the navigation bar',
-        );
-      }
       expect(SystemBars.light.systemNavigationBarColor, AppTheme.lightSurface);
       expect(SystemBars.dark.systemNavigationBarColor, AppTheme.darkSurface);
+    });
+
+    test('CustomBottomNav paints navSurface, never surface', () {
+      // The seam this file exists to prevent came back for exactly this
+      // reason: `surface` and the system navigation bar agree in light and
+      // differ by one step in dark, so a bar painted with `surface` looks
+      // correct in the theme it was checked in.
+      final src = File('lib/widgets/custom_bottom_nav.dart').readAsStringSync();
+      expect(src, contains('color: c.navSurface'));
     });
   });
 
@@ -134,19 +143,23 @@ void main() {
     // to the brand-dark window background — the original bug in a new hat. The
     // theme pins it to the same style the root declares.
     test('both themes pin appBarTheme.systemOverlayStyle', () {
-      // Source-asserted for the same reason as above: building a ThemeData
-      // pulls Poppins over the network.
-      final src = File('lib/theme/app_theme.dart').readAsStringSync();
-      for (final block in _themeBlocks(src)) {
+      // Asserted on the built theme now that the typeface is bundled. The old
+      // regex required the literal `const AppBarTheme(systemOverlayStyle: ...)`
+      // spelling, so it failed the moment the two themes were built from one
+      // function — while the guarantee it describes was still intact.
+      for (final (theme, bars, name) in [
+        (AppTheme.lightTheme, SystemBars.light, 'light'),
+        (AppTheme.darkTheme, SystemBars.dark, 'dark'),
+      ]) {
         expect(
-          RegExp(r'appBarTheme: const AppBarTheme\(\s*systemOverlayStyle: '
-                  'SystemBars.${block.key},')
-              .hasMatch(block.value),
-          isTrue,
-          reason: 'the ${block.key} AppBar must declare the same bars as the '
-              'root owner, or the 26 screens that build one disagree with the '
-              'rest of the app',
+          theme.appBarTheme.systemOverlayStyle,
+          bars,
+          reason: 'the $name AppBar must declare the same bars as the root '
+              'owner, or the 26 screens that build one disagree with the rest '
+              'of the app',
         );
+        expect(theme.appBarTheme.backgroundColor, bars.statusBarColor,
+            reason: 'an AppBar sits directly under the status bar');
       }
     });
   });
@@ -204,18 +217,8 @@ void main() {
   });
 }
 
-/// The source of one theme getter from `app_theme.dart`, keyed 'light'/'dark'.
-///
-/// Read from source because constructing a [ThemeData] calls
-/// `GoogleFonts.poppinsTextTheme()`, which fetches Poppins over the network and
-/// throws under `flutter_test` — the font is not bundled in assets.
-List<MapEntry<String, String>> _themeBlocks(String src) {
-  final members = RegExp(r'^  static ', multiLine: true);
-  return ['light', 'dark'].map((name) {
-    final start = src.indexOf('get ${name}Theme');
-    expect(start, isNot(-1), reason: 'AppTheme.${name}Theme not found');
-    final next = members.firstMatch(src.substring(start));
-    final end = next == null ? src.length : start + next.end;
-    return MapEntry(name, src.substring(start, end));
-  }).toList();
-}
+// `_themeBlocks` lived here: a source-scraping helper that existed because
+// building a ThemeData used to call `GoogleFonts.poppinsTextTheme()`, which
+// fetched a font over the network and threw under flutter_test. Inter is
+// bundled in assets now, so neither the problem nor the workaround survives —
+// and the tests above stopped calling it when the palette moved to tokens.

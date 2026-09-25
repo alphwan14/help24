@@ -194,6 +194,19 @@ void main() {
       );
     });
 
+    test('hours and minutes above an hour', () {
+      // The real post that prompted this: a four-hour urgent window used to
+      // render as '237 min left'.
+      expect(
+        formatUrgentCountdown(const Duration(hours: 3, minutes: 57)),
+        '3h 57m left',
+      );
+      expect(formatUrgentCountdown(const Duration(hours: 4)), '4h left');
+      expect(formatUrgentCountdown(const Duration(minutes: 60)), '1h left');
+      // The boundary stays on the minutes branch.
+      expect(formatUrgentCountdown(const Duration(minutes: 59)), '59 min left');
+    });
+
     test('seconds below a minute', () {
       expect(formatUrgentCountdown(const Duration(seconds: 40)), '40s left');
       expect(formatUrgentCountdown(const Duration(seconds: 1)), '1s left');

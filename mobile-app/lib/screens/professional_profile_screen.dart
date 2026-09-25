@@ -9,6 +9,7 @@ import '../services/profession_registry.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../utils/phone_utils.dart';
 import '../widgets/profile_editors.dart';
@@ -123,7 +124,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
         content: Text(message),
         behavior: SnackBarBehavior.floating,
         backgroundColor: isError ? AppTheme.errorRed : AppTheme.successGreen,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
       ),
     );
   }
@@ -469,7 +470,7 @@ class _CompletionCardState extends State<_CompletionCard> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(
           color: completion.isComplete
               ? AppTheme.successGreen.withValues(alpha: 0.4)
@@ -557,7 +558,7 @@ class _ComingSoonCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: (isDark ? AppTheme.darkCard : AppTheme.lightCard)
             .withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(
           color: (isDark ? AppTheme.darkBorder : AppTheme.lightBorder)
               .withValues(alpha: 0.7),
@@ -583,7 +584,7 @@ class _ComingSoonCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: (isDark ? AppTheme.darkBorder : AppTheme.lightBorder)
                         .withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: AppRadius.pillAll,
                   ),
                   child: Text(
                     spec.label,

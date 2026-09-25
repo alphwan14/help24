@@ -21,9 +21,9 @@ class MessageMemoScope implements SessionScoped {
 ///
 /// PUBLIC vs USER-OWNED
 /// --------------------
-/// `posts` and `jobs` are the public marketplace — identical for every account,
-/// so they stay device-global and survive a session change (a cold feed on
-/// every sign-in would cost real UX and protect nothing).
+/// `posts` is the public marketplace — identical for every account, so it
+/// stays device-global and survives a session change (a cold feed on every
+/// sign-in would cost real UX and protect nothing).
 ///
 /// Conversations, message threads and the outbox are USER-OWNED and are keyed
 /// by uid via [SessionKeys]. They previously shared one device-global key each,
@@ -32,7 +32,8 @@ class MessageMemoScope implements SessionScoped {
 /// written as A — the isolation is structural, not a filter applied afterwards.
 class _Keys {
   static const String posts = 'help24_cache_posts';
-  static const String jobs = 'help24_cache_jobs';
+  // 'help24_cache_jobs' was here, holding the parallel jobs corpus. Removed
+  // with the corpus — see the note where saveJobs/loadJobs used to be.
 }
 
 /// Saves and loads posts/jobs for offline use. When offline and cache exists, UI shows cached data.
@@ -110,31 +111,11 @@ class CacheService {
     }
   }
 
-  static Future<void> saveJobs(List<JobModel> jobs) async {
-    try {
-      final prefs = await _instance;
-      final list = jobs.map((j) => j.toCacheMap()).toList();
-      final json = jsonEncode(list);
-      await prefs.setString(_Keys.jobs, json);
-    } catch (e) {
-      // Non-critical; ignore
-    }
-  }
-
-  static Future<List<JobModel>> loadJobs() async {
-    try {
-      final prefs = await _instance;
-      final json = prefs.getString(_Keys.jobs);
-      if (json == null || json.isEmpty) return [];
-      final list = jsonDecode(json) as List<dynamic>?;
-      if (list == null || list.isEmpty) return [];
-      return list
-          .map((e) => JobModel.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-    } catch (e) {
-      return [];
-    }
-  }
+  // The jobs cache lived here. It served AppProvider's parallel `_jobs` corpus,
+  // whose only reader was the Jobs TAB — now a scope pill in Discover, served
+  // by the posts cache like every other scope. Installs that ran an older build
+  // still hold a 'help24_cache_jobs' value; nothing reads it, and it is dropped
+  // whenever the OS clears app data. Not worth a migration to delete.
 
   // ---------- Conversations (offline messages list) ----------
 

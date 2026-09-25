@@ -6,7 +6,7 @@ import 'package:help24/utils/feature_errors.dart';
 /// THE BUG THIS LOCKS DOWN
 /// -----------------------
 /// `AppProvider` held ONE `String? _error` that five features wrote and four
-/// read: the Discover feed, the Jobs tab, post/job creation, post deletion and
+/// read: the Discover feed, urgent requests, post/job creation, post deletion and
 /// chat creation. A single slot with many owners fails in two directions, and
 /// Help24 had both:
 ///
@@ -16,7 +16,7 @@ import 'package:help24/utils/feature_errors.dart';
 ///     reloads the feed. Wrong feature, wrong message, wrong remedy.
 ///
 ///   * ERASURE — every loader cleared the slot on entry. `loadPosts` and
-///     `loadJobs` run concurrently under one `Future.wait`, so whichever
+///     `loadUrgentPosts` run concurrently under one `Future.wait`, so whichever
 ///     started second wiped the other's error before anything rendered it. And
 ///     any feed reload destroyed the message from a failed post creation before
 ///     `PostScreen` could read it, which is why a failed post could surface as
@@ -33,7 +33,7 @@ void main() {
 
       // Discover renders. It must see nothing.
       expect(errors[AppFeature.discover], isNull);
-      expect(errors[AppFeature.jobs], isNull);
+      expect(errors[AppFeature.urgent], isNull);
       expect(errors[AppFeature.messages], isNull);
       expect(errors[AppFeature.posting], 'Could not save. Please try again.');
     });
@@ -44,7 +44,7 @@ void main() {
       errors.set(AppFeature.messages, "Couldn't load your chats.");
 
       expect(errors[AppFeature.discover], isNull);
-      expect(errors[AppFeature.jobs], isNull);
+      expect(errors[AppFeature.urgent], isNull);
     });
 
     test('every feature can fail at once, each with its own message', () {
@@ -67,12 +67,12 @@ void main() {
 
       // Discover's fetch fails...
       errors.set(AppFeature.discover, 'Feed unavailable.');
-      // ...while the Jobs load starts and clears ITS slot, as loaders do.
+      // ...while the urgent load starts and clears ITS slot, as loaders do.
       // These two genuinely run concurrently under one Future.wait.
-      errors.clear(AppFeature.jobs);
+      errors.clear(AppFeature.urgent);
 
       expect(errors[AppFeature.discover], 'Feed unavailable.',
-          reason: "Jobs starting must not erase Discover's failure");
+          reason: "Urgent starting must not erase Discover's failure");
     });
 
     test('a feed reload cannot wipe a posting failure mid-flight', () {
@@ -127,13 +127,13 @@ void main() {
     test('null and empty both mean healthy', () {
       final errors = FeatureErrors();
 
-      errors.set(AppFeature.jobs, '');
-      expect(errors[AppFeature.jobs], isNull);
-      expect(errors.has(AppFeature.jobs), isFalse);
+      errors.set(AppFeature.urgent, '');
+      expect(errors[AppFeature.urgent], isNull);
+      expect(errors.has(AppFeature.urgent), isFalse);
 
-      errors.set(AppFeature.jobs, 'real');
-      errors.set(AppFeature.jobs, null);
-      expect(errors.has(AppFeature.jobs), isFalse);
+      errors.set(AppFeature.urgent, 'real');
+      errors.set(AppFeature.urgent, null);
+      expect(errors.has(AppFeature.urgent), isFalse);
     });
 
     test('a later failure replaces the earlier one for that feature', () {
@@ -169,9 +169,14 @@ void main() {
       // screens are absent ON PURPOSE — they already hold their own local
       // _error and were never part of the shared slot. Adding them here would
       // centralise state that is correctly local.
+      //
+      // `jobs` was removed rather than left as a spare slot. It belonged to the
+      // Jobs TAB, which is a scope pill inside Discover now, so its failures
+      // are Discover's — and a slot nothing sets is a slot the next person
+      // wires something unrelated into.
       expect(
         AppFeature.values.map((f) => f.name).toSet(),
-        {'discover', 'jobs', 'urgent', 'messages', 'posting'},
+        {'discover', 'urgent', 'messages', 'posting'},
       );
     });
   });

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 
 /// A standalone filter chip — Discover's All / Requests / Offers and Jobs'
 /// All / Full-time / Part-time / Contract / Remote.
@@ -12,6 +12,13 @@ import '../theme/app_theme.dart';
 ///
 /// Each pill is INDEPENDENT: its own surface, its own boundary, real space
 /// between it and its neighbours. It is not a segment of a shared track.
+///
+/// ── Selection is the brand moment ───────────────────────────────────────
+/// The selected pill is the one place on Discover where the accent is spent,
+/// and it is spent properly: brand gold `#E8A33D` with ink on top, 8.43:1.
+/// It used to be an accent fill under WHITE text, which measured 4.53:1 with
+/// indigo and would have measured 2.16:1 the moment the accent became gold —
+/// the label colour was the thing that had to change, not the accent.
 class FilterPill extends StatelessWidget {
   const FilterPill({
     super.key,
@@ -26,36 +33,17 @@ class FilterPill extends StatelessWidget {
 
   /// Sharp capsule. At this height the ends round fully without the stadium
   /// look of a 999 radius, which is what keeps the edge reading as crisp.
-  static const double _radius = 24;
-  static const double _height = 42;
-  static const EdgeInsets _padding = EdgeInsets.symmetric(horizontal: 18);
-  static const Duration _transition = Duration(milliseconds: 200);
+  static const double _radius = 22;
+  static const double _height = 40;
+  static const EdgeInsets _padding = EdgeInsets.symmetric(horizontal: 16);
 
   /// Horizontal gap between adjacent pills. Exposed so both bars space them
   /// identically instead of each picking a number.
-  static const double gap = 10;
+  static const double gap = AppSpace.sm;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Every unselected chip carries its OWN surface, one step lighter than the
-    // page behind it, plus a slightly lighter hairline so the pill boundary is
-    // definite rather than dissolving into the background.
-    final inactiveBg =
-        isDark ? const Color(0xFF242428) : const Color(0xFFEFF0F3);
-    final inactiveBorder =
-        isDark ? const Color(0xFF3A3A42) : const Color(0xFFDCDEE3);
-    final inactiveText =
-        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-
-    // Derived from the text theme, not built from a bare TextStyle.
-    // AnimatedDefaultTextStyle REPLACES the inherited style rather than merging
-    // it, so a from-scratch TextStyle silently dropped Poppins and fell back to
-    // the platform font — which is what made these labels look softer than the
-    // rest of the screen.
-    final baseStyle =
-        Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
+    final c = AppColors.of(context);
 
     return Semantics(
       button: true,
@@ -65,28 +53,32 @@ class FilterPill extends StatelessWidget {
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
-          duration: _transition,
-          curve: Curves.easeInOut,
+          duration: AppMotion.state,
+          curve: AppMotion.enter,
           height: _height,
           padding: _padding,
           decoration: BoxDecoration(
-            color: isActive ? AppTheme.primaryAccent : inactiveBg,
+            color: isActive ? c.accentFill : c.surfaceSunken,
             borderRadius: BorderRadius.circular(_radius),
             // The selected chip needs no outline — its fill already separates
             // it. No shadow either: a glow spreads the accent colour into the
             // background and blurs the edge.
-            border:
-                isActive ? null : Border.all(color: inactiveBorder, width: 1),
+            border: isActive ? null : Border.all(color: c.borderHairline),
           ),
           alignment: Alignment.center,
           child: AnimatedDefaultTextStyle(
-            duration: _transition,
-            curve: Curves.easeInOut,
-            style: baseStyle.copyWith(
-              color: isActive ? Colors.white : inactiveText,
+            duration: AppMotion.state,
+            curve: AppMotion.enter,
+            // Built from the role, not from a bare TextStyle:
+            // AnimatedDefaultTextStyle REPLACES the inherited style rather than
+            // merging it, so a from-scratch TextStyle silently dropped the app
+            // font and fell back to the platform one — which is what made these
+            // labels look softer than the rest of the screen.
+            style: AppTypeScale.label.copyWith(
+              fontFamily: AppTypeScale.family,
               fontSize: 14,
+              color: isActive ? c.contentOnAccent : c.contentSecondary,
               fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-              letterSpacing: 0.1,
             ),
             child: Text(label),
           ),

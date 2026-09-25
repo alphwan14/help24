@@ -10,6 +10,7 @@ import '../services/interaction_tracker.dart';
 import '../services/post_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 import '../utils/post_ownership.dart';
@@ -134,16 +135,18 @@ Future<bool> confirmAndDeletePost(BuildContext context, PostModel post) async {
   if (confirmed != true || !context.mounted) return false;
   final appProvider = context.read<AppProvider>();
   final currentUserId = context.read<AuthProvider>().currentUserId;
-  final success = await appProvider.deletePost(post.id, currentUserId);
+  final success = await appProvider.deletePost(
+    post.id,
+    currentUserId,
+    authorUserId: post.authorUserId,
+  );
   if (!context.mounted) return success;
   if (success) {
-    // Job posts live in their own list (the Jobs tab reads `jobs`, not
-    // `posts`), so reloading only posts left a deleted job on screen. Deleting
-    // now happens on the shared detail screen for every type, so this has to
-    // refresh whichever list the listing came from.
-    await (post.type == PostType.job
-        ? appProvider.loadJobs()
-        : appProvider.loadPosts());
+    // ONE list now. Job posts used to live in a second corpus that only the
+    // Jobs tab read, so a deleted job stayed on screen unless this refreshed
+    // that corpus instead. Jobs are a SCOPE over the same feed since the tab
+    // became a pill in Discover, so the one reload covers every type.
+    await appProvider.loadPosts();
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -156,7 +159,7 @@ Future<bool> confirmAndDeletePost(BuildContext context, PostModel post) async {
           ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: AppTheme.successGreen,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
         ),
       );
     }
@@ -166,7 +169,7 @@ Future<bool> confirmAndDeletePost(BuildContext context, PostModel post) async {
         content: Text(appProvider.postingError ?? 'Failed to delete post'),
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppTheme.errorRed,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
       ),
     );
   }

@@ -14,7 +14,7 @@
 ///     feature, wrong message, wrong remedy.
 ///
 ///   * ERASURE — every loader clears the slot as it starts. `loadPosts` and
-///     `loadJobs` run concurrently under one `Future.wait`, so whichever starts
+///     `loadUrgentPosts` run concurrently under one `Future.wait`, so whichever starts
 ///     second wipes the other's freshly-set error before anything renders it.
 ///     Worse, a feed reload triggered anywhere would destroy the message from a
 ///     failed post creation microseconds before `PostScreen` read it — which is
@@ -37,8 +37,6 @@ enum AppFeature {
   /// The Discover feed (`loadPosts`).
   discover,
 
-  /// The Jobs tab (`loadJobs`).
-  jobs,
 
   /// Urgent requests (`loadUrgentPosts`) — its own surface with its own Retry.
   urgent,

@@ -9,8 +9,10 @@ import 'package:flutter/services.dart';
 import '../models/post_model.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/report_service.dart';
+import 'primitives.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/time_utils.dart';
 import 'job_status_card.dart';
 
@@ -152,7 +154,7 @@ class JobStatusSheet extends StatelessWidget {
       constraints: BoxConstraints(maxHeight: maxH),
       decoration: BoxDecoration(
         color: surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: AppRadius.sheetTop,
       ),
       child: SafeArea(
         top: false,
@@ -169,7 +171,7 @@ class JobStatusSheet extends StatelessWidget {
                     height: 38,
                     decoration: BoxDecoration(
                       color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: AppRadius.mdAll,
                     ),
                     child: const Icon(
                       AppIcons.receipt,
@@ -256,26 +258,9 @@ class _EmptyJobState extends StatelessWidget {
   }
 }
 
-/// Shared drag handle for all chat sheets.
-class SheetHandle extends StatelessWidget {
-  const SheetHandle({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Container(
-        width: 36,
-        height: 4,
-        margin: const EdgeInsets.only(top: 10, bottom: 6),
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-          borderRadius: BorderRadius.circular(2),
-        ),
-      ),
-    );
-  }
-}
+// The chat sheets' drag handle used to be defined here, and four surfaces
+// imported it from a file about chat. It is `SheetHandle` in primitives.dart
+// now — the same widget the other fourteen sheets were hand-rolling.
 
 // ── Conversation search ──────────────────────────────────────────────────────
 
@@ -382,7 +367,7 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
         height: height,
         decoration: BoxDecoration(
           color: surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: AppRadius.sheetTop,
         ),
         child: Column(
           children: [
@@ -416,15 +401,15 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
                   fillColor: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: AppRadius.mdAll,
                     borderSide: BorderSide.none,
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: AppRadius.mdAll,
                     borderSide: BorderSide(color: border, width: 0.5),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: AppRadius.mdAll,
                     borderSide: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
                   ),
                 ),
@@ -723,7 +708,7 @@ class _ReportUserSheetState extends State<ReportUserSheet> {
       child: Container(
         decoration: BoxDecoration(
           color: surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: AppRadius.sheetTop,
         ),
         child: SafeArea(
           top: false,
@@ -768,15 +753,15 @@ class _ReportUserSheetState extends State<ReportUserSheet> {
                     fillColor: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
                     contentPadding: const EdgeInsets.all(14),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: AppRadius.mdAll,
                       borderSide: BorderSide.none,
                     ),
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: AppRadius.mdAll,
                       borderSide: BorderSide(color: border, width: 0.5),
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: AppRadius.mdAll,
                       borderSide: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
                     ),
                   ),
@@ -791,7 +776,7 @@ class _ReportUserSheetState extends State<ReportUserSheet> {
                       backgroundColor: AppTheme.errorRed,
                       disabledBackgroundColor: AppTheme.errorRed.withValues(alpha: 0.35),
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
                     ),
                     child: _submitting
                         ? const SizedBox(
@@ -822,7 +807,7 @@ class _ReportUserSheetState extends State<ReportUserSheet> {
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
         onTap: () => setState(() => _selected = r),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.mdAll,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
@@ -830,7 +815,7 @@ class _ReportUserSheetState extends State<ReportUserSheet> {
             color: selected
                 ? AppTheme.primaryAccent.withValues(alpha: isDark ? 0.14 : 0.08)
                 : (isDark ? AppTheme.darkCard : AppTheme.lightBackground),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: AppRadius.mdAll,
             border: Border.all(
               color: selected ? AppTheme.primaryAccent : border,
               width: selected ? 1.2 : 0.5,
@@ -1079,7 +1064,7 @@ class _ActionsCard extends StatelessWidget {
       width: width,
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightSurface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(
           color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
           width: 0.5,
@@ -1094,7 +1079,7 @@ class _ActionsCard extends StatelessWidget {
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         clipBehavior: Clip.antiAlias,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1126,7 +1111,7 @@ class _BubblePreview extends StatelessWidget {
     Widget content;
     if (message.isImage && (message.attachmentUrl?.isNotEmpty ?? false)) {
       content = ClipRRect(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         child: CachedNetworkImage(
           imageUrl: message.attachmentUrl!,
           width: 200,
@@ -1184,12 +1169,7 @@ class _BubblePreview extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(18),
-          topRight: const Radius.circular(18),
-          bottomLeft: Radius.circular(mine ? 18 : 6),
-          bottomRight: Radius.circular(mine ? 6 : 18),
-        ),
+        borderRadius: chatBubbleRadius(mine: mine),
         border: mine
             ? null
             : Border.all(
@@ -1207,4 +1187,53 @@ class _BubblePreview extends StatelessWidget {
       child: content,
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUBBLE GEOMETRY
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The flat corner that marks the LAST bubble in a run, pointing at the sender.
+///
+/// Deliberately below [AppRadius.sm]: it is not a rounding choice, it is the
+/// tail — the thing that says "this run ends here". The app radius scale covers
+/// surfaces; a component is allowed an internal geometry the scale does not
+/// name, as long as it is named HERE and not re-guessed per call site.
+const double _kBubbleTail = 4;
+
+/// The corner radii of one chat bubble, given where it sits in a sender run.
+///
+/// ── Why this is a function ──────────────────────────────────────────────
+/// It was written twice: once in `messages_screen` for the real bubble and
+/// once in [_BubblePreview] for the preview OF that bubble. The two had
+/// already drifted — the preview closed its run with a 6 px corner where the
+/// real thing used 4 — so the screen that exists to show you what a message
+/// looks like was showing you something slightly else.
+///
+/// Outer corners are [AppRadius.lg] and mid-run corners [AppRadius.sm], so
+/// the bubble sits on the same scale as every other surface. Only the tail is
+/// its own value.
+BorderRadius chatBubbleRadius({
+  required bool mine,
+  bool isFirstInGroup = true,
+  bool isLastInGroup = true,
+}) {
+  const outer = Radius.circular(AppRadius.lg);
+  const inner = Radius.circular(AppRadius.sm);
+  const tail = Radius.circular(_kBubbleTail);
+
+  if (mine) {
+    return BorderRadius.only(
+      topLeft: outer,
+      topRight: isFirstInGroup ? outer : inner,
+      bottomLeft: outer,
+      bottomRight: isLastInGroup ? tail : inner,
+    );
+  }
+  return BorderRadius.only(
+    topLeft: isFirstInGroup ? outer : inner,
+    topRight: outer,
+    bottomLeft: isLastInGroup ? tail : inner,
+    bottomRight: outer,
+  );
 }

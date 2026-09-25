@@ -170,6 +170,16 @@ void main() {
       expect(FilterHistoryService.keyFor(a), 'filter_history_v1_$a');
     });
 
+    test('the guest bucket can never collide with a real account', () {
+      const guest = 'filter_history_v1_guest';
+      expect(FilterHistoryService.keyFor(''), guest);
+      expect(FilterHistoryService.keyFor('   '), guest);
+      // 'guest' is not a Firebase uid shape (28 chars, mixed case), so no
+      // account can land on the anonymous bucket.
+      expect(FilterHistoryService.keyFor('nlAJnbHFktNTYEGPPPrBE1zu0RB2'),
+          isNot(guest));
+    });
+
     test('sign-out empties the in-memory list', () {
       final service = FilterHistoryService.instance;
       service.clearForSignOut();
@@ -177,12 +187,13 @@ void main() {
       expect(service.isEmpty, isTrue);
     });
 
-    test('a signed-out session records nothing', () async {
+    test('nothing is recorded before a bucket has been loaded', () async {
+      // The window between sign-out and the viewer being re-resolved: the
+      // outgoing account's last filter must not fall into the guest bucket.
       final service = FilterHistoryService.instance;
       service.clearForSignOut();
       await service.record(const FilterSelection(categories: {'Plumbing'}));
-      expect(service.entries, isEmpty,
-          reason: 'with no account there is no key to write under');
+      expect(service.entries, isEmpty);
     });
   });
 
@@ -225,11 +236,68 @@ void main() {
       expect(body.contains('_selectedUrgency = null'), isTrue);
     });
 
-    test('history is loaded for whoever the viewer turns out to be', () {
+    test('the vocabulary accumulates and is not read off the filtered page', () {
+      // Caught on the S20+: with a Plumbing filter applied, `_posts` IS the
+      // Plumbing page, so a vocabulary computed from it collapsed to the
+      // categories the user had already chosen and "cleaning" no longer had
+      // "Cleaning" to resolve onto.
       final src = read('lib/providers/app_provider.dart');
-      final start = src.indexOf('void setViewer(');
-      final body = src.substring(start, start + 3000);
-      expect(body.contains('FilterHistoryService.instance.load('), isTrue);
+      expect(src.contains('final Set<String> _seenCategoryNames = {}'), isTrue);
+      final start = src.indexOf('Set<String> get knownCategoryNames');
+      final body = src.substring(start, start + 700);
+      expect(body.contains('_seenCategoryNames'), isTrue);
+      expect(body.contains('for (final p in _posts)'), isFalse);
+      expect(body.contains('for (final j in _jobs)'), isFalse);
+      // Fed from every page that arrives, not just the one on screen.
+      //
+      // This used to require three feeders, the second being the parallel
+      // `_jobs` corpus. That corpus is gone — it was a whole second feed whose
+      // only reader was the Jobs tab, which is a scope pill in Discover now —
+      // so the jobs page reaches the vocabulary through `_warmOtherScopes`
+      // instead, alongside requests and offers. Two call sites, three warmed
+      // scopes: strictly more of the marketplace than before.
+      expect(RegExp(r'_rememberCategoryNames\(').allMatches(src).length,
+          greaterThanOrEqualTo(2));
+      final warmStart = src.indexOf('Future<void> _warmOtherScopes()');
+      expect(
+        src.substring(warmStart, src.indexOf('\n  }', warmStart)),
+        contains('_rememberCategoryNames('),
+        reason: 'the warmed scopes are the vocabulary\'s second source now',
+      );
+    });
+
+    test('history is loaded on demand, not only on a sign-in transition', () {
+      // The auth listener only fires when the uid CHANGES, so a signed-out cold
+      // start never announced a viewer and Recent never appeared — for exactly
+      // the sessions that browse most.
+      final provider = read('lib/providers/app_provider.dart');
+      expect(provider.contains('Future<void> ensureFilterHistoryLoaded()'), isTrue);
+      final setViewerStart = provider.indexOf('void setViewer(');
+      expect(
+        provider
+            .substring(setViewerStart, setViewerStart + 3000)
+            .contains('ensureFilterHistoryLoaded()'),
+        isTrue,
+      );
+
+      final sheet = read('lib/widgets/filter_bottom_sheet.dart');
+      expect(sheet.contains('provider.ensureFilterHistoryLoaded()'), isTrue,
+          reason: 'the sheet must be able to load its own Recent row');
+    });
+
+    test('history is loaded before an entry is recorded onto it', () {
+      // Recording onto an unloaded list would replace stored history with a
+      // single entry instead of prepending to it.
+      final src = read('lib/providers/app_provider.dart');
+      final start = src.indexOf('Future<bool> applyFilterSelection');
+      final body = src.substring(start, start + 2200);
+      final loadAt = body.indexOf('ensureFilterHistoryLoaded()');
+      final recordAt = body.indexOf('FilterHistoryService.instance.record(selection)');
+      expect(loadAt, greaterThan(-1));
+      expect(recordAt, greaterThan(loadAt),
+          reason: 'record must be chained onto the load, not raced with it');
+      expect(body.contains('.then((_) => FilterHistoryService.instance.record'),
+          isTrue);
     });
   });
 }

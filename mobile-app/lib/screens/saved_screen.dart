@@ -5,6 +5,7 @@ import '../models/post_model.dart';
 import '../services/saved_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_flows.dart';
 import '../widgets/reputation_widgets.dart';
@@ -17,7 +18,15 @@ enum _SavedFilter { all, requests, offers, jobs, providers }
 class SavedScreen extends StatefulWidget {
   final String userId;
 
-  const SavedScreen({super.key, required this.userId});
+  /// Render the BODY only — the Activity tab supplies its own chrome.
+  /// See [MyPostsScreen.embedded].
+  final bool embedded;
+
+  const SavedScreen({
+    super.key,
+    required this.userId,
+    this.embedded = false,
+  });
 
   @override
   State<SavedScreen> createState() => _SavedScreenState();
@@ -100,6 +109,18 @@ class _SavedScreenState extends State<SavedScreen> {
     final bg = isDark ? AppTheme.darkBackground : AppTheme.lightBackground;
     final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
 
+    final body = ReconnectListener(
+      onReconnect: _load,
+      child: Column(
+        children: [
+          _buildFilterChips(isDark),
+          const SizedBox(height: 4),
+          Expanded(child: _buildBody(isDark)),
+        ],
+      ),
+    );
+    if (widget.embedded) return body;
+
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
@@ -115,16 +136,7 @@ class _SavedScreenState extends State<SavedScreen> {
               color: textPrimary, fontWeight: FontWeight.w700, fontSize: 18),
         ),
       ),
-      body: ReconnectListener(
-        onReconnect: _load,
-        child: Column(
-          children: [
-            _buildFilterChips(isDark),
-            const SizedBox(height: 4),
-            Expanded(child: _buildBody(isDark)),
-          ],
-        ),
-      ),
+      body: body,
     );
   }
 
@@ -224,7 +236,7 @@ class _SavedScreenState extends State<SavedScreen> {
       onRefresh: _load,
       color: AppTheme.primaryAccent,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        padding: const EdgeInsets.fromLTRB(AppSpace.gutter, AppSpace.sm, AppSpace.gutter, AppSpace.fabClearance),
         children: [
           for (final post in posts) ...[
             _SavedPostRow(
@@ -290,14 +302,14 @@ class _SavedPostRow extends StatelessWidget {
 
     return Material(
       color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: AppRadius.lgAll,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.lgAll,
         onTap: onOpen,
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: AppRadius.lgAll,
             border: Border.all(
                 color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
           ),
@@ -305,7 +317,7 @@ class _SavedPostRow extends StatelessWidget {
             children: [
               // Thumbnail: first image, else category icon tile.
               ClipRRect(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: AppRadius.mdAll,
                 child: SizedBox(
                   width: 48,
                   height: 48,
@@ -342,7 +354,7 @@ class _SavedPostRow extends StatelessWidget {
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: post.typeBadgeColor.withValues(alpha: 0.13),
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: AppRadius.smAll,
                           ),
                           child: Text(
                             post.typeDisplayLabel,
@@ -416,7 +428,7 @@ class _SavedProviderRow extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(
             color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
       ),

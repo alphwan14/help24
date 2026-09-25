@@ -17,6 +17,7 @@ import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
@@ -294,7 +295,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                 backgroundColor: AppTheme.successGreen,
                                 behavior: SnackBarBehavior.floating,
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10)),
+                                    borderRadius: AppRadius.mdAll),
                               ),
                             );
                           },
@@ -491,7 +492,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       Container(
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.lgAll,
           border: Border.all(
               color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
         ),
@@ -501,7 +502,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               if (i > 0)
                 Divider(
                   height: 1,
-                  indent: 60,
+                  indent: 46,
                   color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                 ),
               _DetailTile(
@@ -574,7 +575,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             foregroundColor: Colors.white,
             elevation: 0,
             shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
           ),
           onPressed: () {
             Navigator.push(
@@ -603,7 +604,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             foregroundColor: AppTheme.successGreen,
             side: const BorderSide(color: AppTheme.successGreen),
             shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
           ),
           onPressed: () {
             Navigator.push(
@@ -627,7 +628,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         height: 52,
         decoration: BoxDecoration(
           color: AppTheme.successGreen.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: AppRadius.mdAll,
           border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.45)),
         ),
         child: const Row(
@@ -654,7 +655,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: AppTheme.primaryAccent.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: AppRadius.mdAll,
         ),
         child: Text(
           // Same sentence the feed shows when it declines to navigate here, so
@@ -694,7 +695,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             elevation: 0,
             textStyle: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700),
             shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
           ),
           icon: Icon(
             switch (post.type) {
@@ -763,7 +764,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   textStyle: const TextStyle(
                       fontSize: 15.5, fontWeight: FontWeight.w700),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
+                      borderRadius: AppRadius.mdAll),
                 ),
                 icon: const Icon(AppIcons.applicants, size: 20),
                 label: Text(
@@ -903,7 +904,7 @@ class _ImageCarouselState extends State<_ImageCarousel> {
                       color: i == _page
                           ? Colors.white
                           : Colors.white.withValues(alpha: 0.55),
-                      borderRadius: BorderRadius.circular(3),
+                      borderRadius: AppRadius.pillAll,
                     ),
                   ),
               ],
@@ -916,7 +917,7 @@ class _ImageCarouselState extends State<_ImageCarousel> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: AppRadius.pillAll,
               ),
               child: Text(
                 '${_page + 1}/${widget.images.length}',
@@ -999,7 +1000,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
                           horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: AppRadius.pillAll,
                       ),
                       child: Text(
                         '${_page + 1} / ${widget.images.length}',
@@ -1069,22 +1070,26 @@ class _TypeBadge extends StatelessWidget {
 
   const _TypeBadge({required this.label, required this.color});
 
+  /// TYPOGRAPHIC, NOT CHROMATIC.
+  ///
+  /// This was a solid fill in Material 2014's `#2196F3` / `#4CAF50` /
+  /// `#9C27B0` — white caps at w800 with 1.1 letter-spacing, which made the
+  /// least informative element on the screen the loudest. The card below the
+  /// title already says what kind of listing this is, and so does the verb on
+  /// the action bar ("Offer Service" / "Enquire" / "Apply").
+  ///
+  /// `color` is still accepted so callers are unchanged, and deliberately
+  /// ignored: the badge no longer encodes type in hue.
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        label.toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 1.1,
-        ),
+    final c = AppColors.of(context);
+    return Text(
+      label.toUpperCase(),
+      style: AppTypeScale.meta.copyWith(
+        fontFamily: AppTypeScale.family,
+        color: c.contentTertiary,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.8,
       ),
     );
   }
@@ -1103,7 +1108,7 @@ class _MetaChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: AppRadius.smAll,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1154,14 +1159,31 @@ class _PriceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final secondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final c = AppColors.of(context);
+    // A PRICE IS NOT A SUCCESS.
+    //
+    // This was a green-tinted, green-bordered box with a 21px w800 green
+    // number — the most decorated element on the screen, in the colour the
+    // app uses for "completed" and "paid out", spent on a figure that is
+    // simply a fact. Worse, "Open to offers" — the ABSENCE of a budget —
+    // rendered in exactly the same celebratory green.
+    //
+    // Green now means settled. A price is ink, on the same surface as
+    // everything else, at a size that makes it the first thing read.
+    final value = detailMoneyValue(
+      type: post.type,
+      price: post.price,
+      pricingType: post.pricingType,
+    );
+    final isPlaceholder = value == 'Open to offers';
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpace.lg, vertical: AppSpace.lg),
       decoration: BoxDecoration(
-        color: AppTheme.successGreen.withValues(alpha: isDark ? 0.08 : 0.06),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.25)),
+        color: c.surface,
+        borderRadius: AppRadius.lgAll,
+        border: Border.all(color: c.borderHairline),
       ),
       child: Row(
         children: [
@@ -1171,20 +1193,22 @@ class _PriceCard extends StatelessWidget {
               children: [
                 Text(
                   detailMoneyLabel(post.type),
-                  style: TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w500, color: secondary),
+                  style: AppTypeScale.meta.copyWith(
+                    fontFamily: AppTypeScale.family,
+                    color: c.contentTertiary,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  detailMoneyValue(
-                    type: post.type,
-                    price: post.price,
-                    pricingType: post.pricingType,
-                  ),
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.successGreen,
+                  value,
+                  style: AppTypeScale.mono.copyWith(
+                    fontFamily: AppTypeScale.family,
+                    fontSize: isPlaceholder ? 18 : 22,
+                    fontWeight:
+                        isPlaceholder ? FontWeight.w500 : FontWeight.w600,
+                    color: isPlaceholder
+                        ? c.contentSecondary
+                        : c.contentPrimary,
                   ),
                 ),
               ],
@@ -1219,60 +1243,77 @@ class _AuthorCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border:
             Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
       ),
-      child: Row(
+      // THE TRUST BLOCK SITS UNDER THE NAME, ACROSS THE FULL CARD.
+      //
+      // This is the screen where a stranger decides to let another stranger
+      // into their home, and it used to carry a name, an avatar and a single
+      // compact line — which renders as *nothing at all* for a provider with
+      // no reviews. The facts the platform already computes were not on it.
+      //
+      // `ReputationTrustBlock` was written for exactly this job and was
+      // rendered by NOTHING in the entire app. It states the tier, the
+      // completed-job count and the review count as separate concepts, so "new
+      // provider" reads as new rather than as bad. It wraps, so it needs the
+      // card's full width rather than the narrow column beside the avatar.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: AppTheme.primaryAccent.withValues(alpha: 0.15),
-            backgroundImage:
-                post.authorAvatar.isNotEmpty ? NetworkImage(post.authorAvatar) : null,
-            child: post.authorAvatar.isEmpty
-                ? Text(
-                    post.authorName.isNotEmpty
-                        ? post.authorName[0].toUpperCase()
-                        : '?',
-                    style: const TextStyle(
-                      color: AppTheme.primaryAccent,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 17,
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: AppColors.of(context).surfaceSunken,
+                backgroundImage: post.authorAvatar.isNotEmpty
+                    ? NetworkImage(post.authorAvatar)
+                    : null,
+                child: post.authorAvatar.isEmpty
+                    ? Text(
+                        post.authorName.isNotEmpty
+                            ? post.authorName[0].toUpperCase()
+                            : '?',
+                        style: TextStyle(
+                          color: AppColors.of(context).contentSecondary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 17,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      roleLabel,
+                      style: TextStyle(fontSize: 11.5, color: tertiary),
                     ),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  roleLabel,
-                  style: TextStyle(fontSize: 11.5, color: tertiary),
+                    const SizedBox(height: 2),
+                    Text(
+                      post.authorName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 17,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  post.authorName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: textPrimary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                // Backend-sourced provider trust (no fake rating).
-                ReputationCompact(providerId: post.authorUserId),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 10),
+                trailing!,
               ],
-            ),
+            ],
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: 10),
-            trailing!,
-          ],
+          const SizedBox(height: 12),
+          ReputationTrustBlock(providerId: post.authorUserId),
         ],
       ),
     );
@@ -1362,15 +1403,10 @@ class _DetailTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: AppTheme.primaryAccent.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 17, color: AppTheme.primaryAccent),
-          ),
+          // A plain glyph. It used to be a tinted rounded square, and every
+          // row in the card got the same tint — so the squares differentiated
+          // nothing and cost 46 px of row width each.
+          Icon(icon, size: 18, color: AppColors.of(context).contentTertiary),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -1419,7 +1455,7 @@ class _PaymentProtectionCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.successGreen.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.30)),
       ),
       child: Row(
@@ -1481,7 +1517,7 @@ class _LifecycleLink extends StatelessWidget {
         label: const Text('Job status & payment'),
         style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(vertical: 13),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
         ),
       ),
     );
@@ -1586,7 +1622,7 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
                 color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: AppRadius.pillAll,
               ),
               child: Text(
                 '${widget.post.applications.length}',
@@ -1699,7 +1735,7 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
                         backgroundColor: AppTheme.errorRed,
                         behavior: SnackBarBehavior.floating,
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
+                            borderRadius: AppRadius.mdAll),
                       ),
                     );
                   }
@@ -1773,7 +1809,7 @@ class _JobStatusCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(color: fg.withValues(alpha: 0.30)),
       ),
       child: Row(
@@ -1812,7 +1848,7 @@ class _ApplicantCardSkeleton extends StatelessWidget {
     Widget bar(double w, double h) => Container(
           width: w,
           height: h,
-          decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(20)),
+          decoration: BoxDecoration(color: base, borderRadius: AppRadius.pillAll),
         );
 
     return SkeletonPulse(
@@ -1821,7 +1857,7 @@ class _ApplicantCardSkeleton extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.lgAll,
           border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
         ),
         child: Column(
@@ -1923,7 +1959,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
           ]),
           backgroundColor: AppTheme.warningOrange,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
         ),
       );
       return;
@@ -1963,7 +1999,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
             ]),
             backgroundColor: AppTheme.warningOrange,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
             duration: const Duration(seconds: 4),
           ),
         );
@@ -1991,7 +2027,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
               ]),
               backgroundColor: AppTheme.warningOrange,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
               duration: const Duration(seconds: 5),
             ),
           );
@@ -2033,7 +2069,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: AppTheme.successGreen.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppRadius.mdAll,
           border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.4)),
         ),
         child: const Row(
@@ -2066,7 +2102,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
               : AppTheme.successGreen,
           foregroundColor: Colors.white,
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
         ),
         onPressed: _checking ? null : _handleTap,
         icon: _checking

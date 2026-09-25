@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_icons.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import 'error_mapper.dart';
 
 /// Every user action ends in a visible outcome — success or a stated reason.
@@ -129,7 +130,7 @@ class ActionFeedback {
           ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: background,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
           duration: const Duration(seconds: 4),
           // MUST be explicit. Flutter defaults `persist` to `action != null`
           // (SnackBar: `persist = persist ?? action != null`), so simply

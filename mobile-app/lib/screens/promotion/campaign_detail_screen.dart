@@ -3,6 +3,7 @@ import '../../theme/app_icons.dart';
 import '../../models/promotion_models.dart';
 import '../../services/promotion_service.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/tokens.dart';
 import '../../utils/error_mapper.dart';
 
 /// Campaign analytics + lifecycle actions. Answers one question:
@@ -321,7 +322,7 @@ class _StatusPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(
@@ -400,7 +401,7 @@ class _PlacementRow extends StatelessWidget {
           SizedBox(width: 110, child: Text(label, style: Theme.of(context).textTheme.bodySmall)),
           Expanded(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: AppRadius.pillAll,
               child: LinearProgressIndicator(
                 value: fraction,
                 minHeight: 6,
@@ -450,7 +451,7 @@ class _DailyTrend extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: AppTheme.primaryAccent.withValues(alpha: 0.75),
                           borderRadius:
-                              const BorderRadius.vertical(top: Radius.circular(3)),
+                              AppRadius.pillAll,
                         ),
                       ),
                       const SizedBox(height: 4),

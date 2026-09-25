@@ -3,8 +3,10 @@ import '../models/job_lifecycle.dart';
 import '../services/jobs_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
+import '../widgets/primitives.dart';
 import 'review_submission_screen.dart';
 
 enum _DecisionState { idle, approving, disputing, approved, disputed, error }
@@ -154,7 +156,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
   void _showDisputeSheet() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final card = isDark ? AppTheme.darkCard : Colors.white;
-    final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
+    final textPrimary = AppColors.of(context).contentPrimary;
     final textSecondary = isDark ? Colors.white54 : Colors.black54;
 
     showModalBottomSheet(
@@ -162,7 +164,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
       isScrollControlled: true,
       backgroundColor: card,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: AppRadius.sheetTop,
       ),
       builder: (_) => Padding(
         padding: EdgeInsets.only(
@@ -173,25 +175,18 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 40, height: 4,
-                decoration: BoxDecoration(
-                  color: textSecondary.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
+            const SheetHandle(margin: EdgeInsets.zero),
             const SizedBox(height: 20),
             Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10),
+                    color: AppColors.of(context).criticalSubtle,
+                    borderRadius: AppRadius.mdAll,
                   ),
-                  child: const Icon(AppIcons.report, color: Colors.red, size: 20),
+                  child: Icon(AppIcons.report,
+                      color: AppColors.of(context).criticalText, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Text('Open a Dispute',
@@ -220,9 +215,9 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                 filled: true,
                 fillColor: isDark
                     ? Colors.white.withOpacity(0.06)
-                    : Colors.grey.shade100,
+                    : AppColors.of(context).surfaceSunken,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: AppRadius.mdAll,
                   borderSide: BorderSide.none,
                 ),
                 contentPadding: const EdgeInsets.all(14),
@@ -239,9 +234,9 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                   _dispute();
                 },
                 style: FilledButton.styleFrom(
-                  backgroundColor: Colors.red,
+                  backgroundColor: AppColors.of(context).criticalFill,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
+                      borderRadius: AppRadius.mdAll),
                 ),
                 icon: const Icon(AppIcons.report, size: 18),
                 label: const Text('Submit Dispute',
@@ -259,7 +254,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? AppTheme.darkBackground : AppTheme.lightBackground;
     final card = isDark ? AppTheme.darkCard : Colors.white;
-    final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
+    final textPrimary = AppColors.of(context).contentPrimary;
     final textSecondary = isDark ? Colors.white54 : Colors.black54;
 
     return Scaffold(
@@ -381,7 +376,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-                color: card, borderRadius: BorderRadius.circular(16)),
+                color: card, borderRadius: AppRadius.lgAll),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -391,7 +386,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: AppTheme.primaryAccent.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: AppRadius.mdAll,
                       ),
                       child: Icon(AppIcons.profession,
                           color: AppTheme.primaryAccent, size: 22),
@@ -445,7 +440,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: AppTheme.primaryAccent.withOpacity(0.07),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppRadius.mdAll,
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -470,17 +465,18 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+                color: AppColors.of(context).criticalSubtle,
+                borderRadius: AppRadius.mdAll,
               ),
               child: Row(children: [
-                const Icon(AppIcons.error,
-                    color: Colors.red, size: 16),
+                Icon(AppIcons.error,
+                    color: AppColors.of(context).criticalText, size: 16),
                 const SizedBox(width: 8),
                 Expanded(
                     child: Text(_errorMessage!,
-                        style: const TextStyle(
-                            color: Colors.red, fontSize: 13))),
+                        style: TextStyle(
+                            color: AppColors.of(context).criticalText,
+                            fontSize: 13))),
               ]),
             ),
           ],
@@ -496,7 +492,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.successGreen,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
+                    borderRadius: AppRadius.mdAll),
               ),
               icon: _state == _DecisionState.approving
                   ? const SizedBox(
@@ -523,23 +519,26 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
             child: OutlinedButton.icon(
               onPressed: isInFlight ? null : _showDisputeSheet,
               style: OutlinedButton.styleFrom(
-                side: BorderSide(color: Colors.red.withOpacity(0.6)),
+                side: BorderSide(
+                    color: AppColors.of(context).criticalFill.withValues(alpha: 0.6)),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
+                    borderRadius: AppRadius.mdAll),
               ),
               icon: _state == _DecisionState.disputing
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.red))
-                  : const Icon(AppIcons.report, size: 20, color: Colors.red),
+                          strokeWidth: 2,
+                          color: AppColors.of(context).criticalText))
+                  : Icon(AppIcons.report,
+                      size: 20, color: AppColors.of(context).criticalText),
               label: Text(
                 _state == _DecisionState.disputing
                     ? 'Submitting Dispute…'
                     : 'Open Dispute',
-                style: const TextStyle(
-                    color: Colors.red,
+                style: TextStyle(
+                    color: AppColors.of(context).criticalText,
                     fontWeight: FontWeight.w600,
                     fontSize: 15),
               ),
@@ -613,7 +612,7 @@ class _OutcomeView extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   backgroundColor: iconColor,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
+                      borderRadius: AppRadius.mdAll),
                 ),
                 child: Text(buttonLabel,
                     style: const TextStyle(

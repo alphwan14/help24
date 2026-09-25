@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/auth_screen.dart';
+import '../theme/tokens.dart';
 import '../utils/action_feedback.dart';
 import '../utils/precise_route.dart';
 
@@ -150,7 +151,7 @@ class AuthGuard {
               decoration: BoxDecoration(
                 color: Theme.of(sheetContext).scaffoldBackgroundColor,
                 borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(28)),
+                    AppRadius.sheetTop,
               ),
               child: AuthScreen(
                 action: action,

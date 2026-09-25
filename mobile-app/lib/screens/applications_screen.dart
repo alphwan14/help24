@@ -9,6 +9,7 @@ import '../services/post_service.dart';
 import '../services/reputation_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../widgets/applicant_card.dart';
 import '../widgets/loading_empty_offline.dart';
@@ -16,6 +17,11 @@ import 'messages_screen.dart';
 
 /// Dedicated screen for a post owner to view and manage applications.
 /// Only the post author should navigate here.
+///
+/// THIS IS THE OWNER'S SIDE. The applicant's side — the listings *I* applied
+/// to, and what came of each — is `MyApplicationsScreen`, on the Activity tab.
+/// Two screens over one table, named a word apart; check which one you want
+/// before importing either.
 class ApplicationsScreen extends StatefulWidget {
   final String postId;
   final String postTitle;
@@ -184,7 +190,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
           ]),
           backgroundColor: AppTheme.successGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -207,7 +213,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
           ]),
           backgroundColor: AppTheme.errorRed,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
         ),
       );
     }
@@ -398,7 +404,7 @@ class _ReputationOfflineBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: AppTheme.warningOrange.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         border: Border.all(color: AppTheme.warningOrange.withValues(alpha: 0.3)),
       ),
       child: Row(

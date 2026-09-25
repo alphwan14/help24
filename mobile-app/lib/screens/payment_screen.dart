@@ -6,6 +6,7 @@ import '../services/mpesa_service.dart';
 import '../services/remote_config_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
 
@@ -543,7 +544,7 @@ class _IdleView extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: cardBg,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: AppRadius.lgAll,
               border: Border.all(color: borderColor),
             ),
             child: Row(
@@ -552,7 +553,7 @@ class _IdleView extends StatelessWidget {
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: AppRadius.mdAll,
                   ),
                   child: const Icon(AppIcons.listing,
                       color: AppTheme.primaryAccent, size: 22),
@@ -587,7 +588,7 @@ class _IdleView extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: cardBg,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: AppRadius.lgAll,
               border: Border.all(color: borderColor),
             ),
             child: Column(
@@ -661,7 +662,7 @@ class _IdleView extends StatelessWidget {
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                    borderRadius: AppRadius.mdAll),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -883,7 +884,7 @@ class _SuccessView extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
               color: AppTheme.successGreen.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: AppRadius.mdAll,
               border: Border.all(
                   color: AppTheme.successGreen.withValues(alpha: 0.3)),
             ),
@@ -912,7 +913,7 @@ class _SuccessView extends StatelessWidget {
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
                 color: AppTheme.successGreen.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: AppRadius.mdAll,
                 border: Border.all(
                     color: AppTheme.successGreen.withValues(alpha: 0.2)),
               ),
@@ -945,7 +946,7 @@ class _SuccessView extends StatelessWidget {
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                    borderRadius: AppRadius.mdAll),
               ),
               child: const Text('Done',
                   style:
@@ -1027,7 +1028,7 @@ class _FailedView extends StatelessWidget {
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                    borderRadius: AppRadius.mdAll),
               ),
               child: const Text('Try Again',
                   style:
@@ -1105,7 +1106,7 @@ class _FailedView extends StatelessWidget {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: cardBg,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: AppRadius.mdAll,
                 ),
                 child: SelectableText(
                   testStkResult.toString(),
@@ -1175,7 +1176,7 @@ class _ExpiredView extends StatelessWidget {
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                    borderRadius: AppRadius.mdAll),
               ),
               child: const Text('Try Again',
                   style:
@@ -1215,7 +1216,7 @@ class _InfoBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         border: Border.all(color: color.withValues(alpha: 0.22)),
       ),
       child: Row(
@@ -1259,7 +1260,7 @@ class _DevForceSuccessButton extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: Colors.black87,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: AppRadius.smAll,
             ),
             child: Text(
               'CKO: ${checkoutRequestId!.length > 20 ? '${checkoutRequestId!.substring(0, 20)}…' : checkoutRequestId!}',
@@ -1276,7 +1277,7 @@ class _DevForceSuccessButton extends StatelessWidget {
             backgroundColor: Colors.deepPurple,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(borderRadius: AppRadius.smAll),
           ),
         ),
       ],

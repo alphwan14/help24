@@ -13,10 +13,12 @@ import '../services/auth_service.dart';
 import '../services/email_verification_cooldown.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/auth_error_mapper.dart';
 import '../utils/external_links.dart';
 import '../utils/kenyan_phone.dart';
 import '../utils/name_validator.dart';
+import '../widgets/primitives.dart';
 import '../widgets/auth/otp_input.dart';
 import '../widgets/auth/phone_number_field.dart';
 import '../widgets/google_logo.dart';
@@ -484,7 +486,7 @@ class _WelcomeStepState extends State<_WelcomeStep> {
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
                   color: AppTheme.primaryAccent.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: AppRadius.mdAll,
                 ),
                 child: Text(
                   'Continue to ${widget.action}',
@@ -1612,7 +1614,7 @@ class _PasswordStrengthBar extends StatelessWidget {
                 color: i < score
                     ? colors[score]
                     : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: AppRadius.pillAll,
               ),
             ),
           ),
@@ -1739,7 +1741,7 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
                 height: 100,
                 decoration: BoxDecoration(
                   color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                  borderRadius: BorderRadius.circular(50),
+                  borderRadius: AppRadius.pillAll,
                   border: Border.all(
                     color: _pickedFile != null
                         ? AppTheme.successGreen
@@ -1890,22 +1892,13 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
           24, 16, 24, MediaQuery.of(context).viewInsets.bottom + 24),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: AppRadius.sheetTop,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
+          const SheetHandle(margin: EdgeInsets.zero),
           const SizedBox(height: 24),
           if (_sent) ...[
             // A state marker, not a trophy. The 52px green envelope this
@@ -2060,8 +2053,8 @@ class _EmailChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
       decoration: BoxDecoration(
-        color: isDark ? AppTheme.darkCard : const Color(0xFFF1F3F6),
-        borderRadius: BorderRadius.circular(12),
+        color: isDark ? AppTheme.darkCard : AppColors.of(context).surfaceSunken,
+        borderRadius: AppRadius.mdAll,
         border: Border.all(
           color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
         ),
@@ -2147,7 +2140,7 @@ class _FailureCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
       decoration: BoxDecoration(
         color: AppTheme.errorRed.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         border: Border.all(color: AppTheme.errorRed.withValues(alpha: 0.28)),
       ),
       child: Column(
@@ -2397,14 +2390,14 @@ class _AuthButton extends StatelessWidget {
       color: primary
           ? AppTheme.primaryAccent
           : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: AppRadius.mdAll,
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.mdAll,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 17),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: AppRadius.mdAll,
             border: primary
                 ? null
                 : Border.all(
@@ -2514,16 +2507,16 @@ class _AuthField extends StatelessWidget {
             const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         counterText: '',
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppRadius.mdAll,
           borderSide: BorderSide(
             color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
           ),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppRadius.mdAll,
           borderSide: const BorderSide(color: AppTheme.primaryAccent, width: 1.6),
         ),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        border: OutlineInputBorder(borderRadius: AppRadius.mdAll),
       ),
     );
   }
@@ -2555,7 +2548,7 @@ class _PrimaryButton extends StatelessWidget {
               AppTheme.primaryAccent.withValues(alpha: 0.35),
           disabledForegroundColor: Colors.white.withValues(alpha: 0.75),
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
         ),
         child: loading
             ? const SizedBox(
@@ -2628,15 +2621,15 @@ class _GoogleSignInButton extends StatelessWidget {
       height: 52,
       child: Material(
         color: surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         child: InkWell(
           onTap: loading ? null : onPressed,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppRadius.mdAll,
           splashColor: Colors.black.withValues(alpha: 0.04),
           highlightColor: Colors.black.withValues(alpha: 0.02),
           child: Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppRadius.mdAll,
               border: Border.all(color: border),
             ),
             alignment: Alignment.center,

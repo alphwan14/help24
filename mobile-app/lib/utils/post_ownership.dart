@@ -96,3 +96,96 @@ String listingNoun(PostType type) => switch (type) {
       PostType.offer => 'service',
       PostType.job => 'job',
     };
+
+/// What became of an application the VIEWER sent.
+///
+/// The counterpart to [ListingCta]: that answers "what may I do with this
+/// listing", this answers "what happened to the response I already sent".
+///
+/// Derived entirely from the LISTING (`status` + `selected_provider_id`),
+/// because the `applications` row carries no outcome of its own — it records
+/// that you applied, when, and for how much, and nothing about the decision.
+/// Deriving it here rather than adding a column keeps one source of truth: the
+/// post's lifecycle already decides this, and a second copy could disagree
+/// with the screen the owner is looking at.
+enum ApplicationOutcome {
+  /// Still open, nobody chosen. The only state the applicant can still win.
+  pending,
+
+  /// The viewer was chosen and the work is under way.
+  hired,
+
+  /// The viewer was chosen and the work is finished.
+  completed,
+
+  /// The viewer was chosen and the job is in dispute.
+  disputed,
+
+  /// Someone else was chosen. Said plainly, once — see the note below.
+  notSelected,
+
+  /// The listing left 'open' without naming this viewer: cancelled, or an
+  /// assignment we cannot attribute. Never reported as a rejection, because we
+  /// do not know that it was one.
+  closed,
+}
+
+/// The one derivation, shared by the applied list and anything added later.
+///
+/// [selectedProviderUserId] is the post's chosen provider (null while open).
+/// Empty ids never match, for the same reason they never match in
+/// [isListingOwner]: a legacy row with an empty `selected_provider_id` must not
+/// read as "you were hired" to a signed-out viewer.
+ApplicationOutcome applicationOutcomeFor({
+  required String status,
+  required String? selectedProviderUserId,
+  required String viewerUserId,
+}) {
+  final selected = selectedProviderUserId ?? '';
+  final viewer = viewerUserId;
+  final chosenIsViewer =
+      selected.isNotEmpty && viewer.isNotEmpty && selected == viewer;
+
+  if (chosenIsViewer) {
+    return switch (status) {
+      'completed' => ApplicationOutcome.completed,
+      'disputed' => ApplicationOutcome.disputed,
+      _ => ApplicationOutcome.hired,
+    };
+  }
+
+  // Still taking responses — and nobody has been chosen, or we cannot tell.
+  if (status.isEmpty || status == 'open') return ApplicationOutcome.pending;
+
+  // Someone else was named. This is the only case we are entitled to call a
+  // rejection, and only because the post itself names a different provider.
+  if (selected.isNotEmpty) return ApplicationOutcome.notSelected;
+
+  return ApplicationOutcome.closed;
+}
+
+/// Short label for an outcome. Kept beside the derivation so a new state can
+/// never ship without one.
+String applicationOutcomeLabel(ApplicationOutcome outcome) => switch (outcome) {
+      ApplicationOutcome.pending => 'Awaiting decision',
+      ApplicationOutcome.hired => 'You were hired',
+      ApplicationOutcome.completed => 'Completed',
+      ApplicationOutcome.disputed => 'In dispute',
+      ApplicationOutcome.notSelected => 'Not selected',
+      ApplicationOutcome.closed => 'Closed',
+    };
+
+/// Whether an outcome is still live work the applicant should act on.
+///
+/// Drives ordering on the applied list: a decision you can still influence, or
+/// a job you are actually doing, outranks a closed one however recent.
+bool applicationOutcomeIsLive(ApplicationOutcome outcome) => switch (outcome) {
+      ApplicationOutcome.pending ||
+      ApplicationOutcome.hired ||
+      ApplicationOutcome.disputed =>
+        true,
+      ApplicationOutcome.completed ||
+      ApplicationOutcome.notSelected ||
+      ApplicationOutcome.closed =>
+        false,
+    };

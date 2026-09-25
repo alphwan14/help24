@@ -7,6 +7,7 @@ import '../providers/auth_provider.dart';
 import '../services/jobs_service.dart';
 import '../services/review_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
@@ -164,13 +165,13 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
     return Container(
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppRadius.mdAll,
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -281,7 +282,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Row(
@@ -628,7 +629,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: accent.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.mdAll,
         border: Border.all(color: accent.withValues(alpha: 0.4)),
       ),
       child: Column(
@@ -694,7 +695,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(
           color: (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary).withValues(alpha: 0.15),
         ),
@@ -708,7 +709,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
       ),
       child: Text(
         label,
@@ -723,7 +724,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: (isDark ? AppTheme.darkBackground : AppTheme.lightBackground),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.mdAll,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import 'error_mapper.dart';
 
 /// Opens a Help24 web address (Help Centre, Privacy, Terms, Support) in an
@@ -32,7 +33,7 @@ Future<void> openHelp24Url(BuildContext context, String url) async {
         content: Text(ErrorMapper.toMessage(e, context: ErrorContext.generic)),
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppTheme.errorRed,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
       ),
     );
   }

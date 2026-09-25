@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import '../models/profession.dart';
 import '../models/profile_completion.dart';
 import '../services/profession_registry.dart';
+import 'primitives.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 
 // =============================================================================
 // Shared profile presentation.
@@ -53,7 +55,7 @@ class ProfessionChip extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: AppTheme.primaryAccent.withValues(alpha: isDark ? 0.16 : 0.10),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -275,7 +277,7 @@ class CompletionChecklistRow extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: AppRadius.mdAll,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
         child: Row(
@@ -361,7 +363,7 @@ class ProfileSectionCard extends StatelessWidget {
         Container(
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: AppRadius.lgAll,
             border: Border.all(
               color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
             ),
@@ -520,7 +522,7 @@ class ProfileEditorSheet extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: AppRadius.sheetTop,
         ),
         padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
         child: SafeArea(
@@ -529,17 +531,7 @@ class ProfileEditorSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
+              const SheetHandle(margin: EdgeInsets.only(bottom: 20)),
               Text(title, style: Theme.of(context).textTheme.titleLarge),
               if (subtitle != null) ...[
                 const SizedBox(height: 6),
@@ -568,7 +560,7 @@ class InlineErrorBanner extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: AppTheme.errorRed.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

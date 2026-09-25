@@ -43,14 +43,30 @@ bool isUrgentWindowOpen(PostModel post, DateTime now) {
 List<PostModel> openUrgentPosts(List<PostModel> posts, DateTime now) =>
     posts.where((p) => isUrgentWindowOpen(p, now)).toList();
 
-/// Countdown label for an urgent card: "42 min left", "8 min left", "40s left".
+/// Countdown label for an urgent card: "3h 57m left", "42 min left", "40s left".
 ///
-/// Minutes above a minute, seconds below it, and never a number that implies
-/// more precision than the reader can act on. Null when there is no window to
-/// count down — the card then shows its ordinary urgency tag instead.
+/// Units track what the reader can act on, which is the whole point of showing
+/// a countdown rather than a static "Urgent" tag. Seconds below a minute,
+/// minutes below an hour, hours and minutes above it.
+///
+/// THE HOURS BRANCH EXISTS BECAUSE OF A REAL POST. An urgent request with a
+/// four-hour window rendered as "237 min left" on the S20+ — a number nobody
+/// converts in their head, from a function whose own contract says it must
+/// "never [show] a number that implies more precision than the reader can act
+/// on". 237 minutes is precision without meaning.
+///
+/// Null when there is no window to count down — the card then shows its
+/// ordinary urgency tag instead.
 String? formatUrgentCountdown(Duration? remaining) {
   if (remaining == null) return null;
   if (remaining <= Duration.zero) return 'Expired';
+  if (remaining.inHours >= 1) {
+    final minutes = remaining.inMinutes % 60;
+    // A whole number of hours says so rather than trailing a redundant "0m".
+    return minutes == 0
+        ? '${remaining.inHours}h left'
+        : '${remaining.inHours}h ${minutes}m left';
+  }
   if (remaining.inMinutes >= 1) return '${remaining.inMinutes} min left';
   return '${remaining.inSeconds}s left';
 }

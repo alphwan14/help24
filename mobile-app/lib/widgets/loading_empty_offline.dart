@@ -5,6 +5,7 @@ import '../theme/app_icons.dart';
 import 'package:provider/provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 
 /// Consistent loading view (spinner + message). Use when data is being fetched.
 class LoadingView extends StatelessWidget {
@@ -14,7 +15,6 @@ class LoadingView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -33,7 +33,7 @@ class LoadingView extends StatelessWidget {
               message!,
               style: TextStyle(
                 fontSize: 14,
-                color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                color: AppColors.of(context).contentSecondary,
               ),
             ),
           ],
@@ -60,7 +60,6 @@ class EmptyStateView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -71,20 +70,23 @@ class EmptyStateView extends StatelessWidget {
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                borderRadius: BorderRadius.circular(20),
+                // surfaceSunken, not surface: a white box on warm paper is
+                // 1.05:1 and simply is not there. The empty state's own art
+                // was invisible on the screen it was meant to fill.
+                color: AppColors.of(context).surfaceSunken,
+                borderRadius: AppRadius.lgAll,
               ),
               child: Icon(
                 icon,
                 size: 36,
-                color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                color: AppColors.of(context).contentTertiary,
               ),
             ),
             const SizedBox(height: 20),
             Text(
               title,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                    color: AppColors.of(context).contentSecondary,
                   ),
               textAlign: TextAlign.center,
             ),
@@ -92,7 +94,7 @@ class EmptyStateView extends StatelessWidget {
             Text(
               subtitle,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                    color: AppColors.of(context).contentTertiary,
                   ),
               textAlign: TextAlign.center,
             ),
@@ -131,7 +133,6 @@ class ErrorRetryView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -141,13 +142,13 @@ class ErrorRetryView extends StatelessWidget {
             Icon(
               icon,
               size: 56,
-              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+              color: AppColors.of(context).contentTertiary,
             ),
             const SizedBox(height: 18),
             Text(
               "We couldn't load this",
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                    color: AppColors.of(context).contentSecondary,
                   ),
               textAlign: TextAlign.center,
             ),
@@ -155,7 +156,7 @@ class ErrorRetryView extends StatelessWidget {
             Text(
               message,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                    color: AppColors.of(context).contentTertiary,
                   ),
               textAlign: TextAlign.center,
             ),
@@ -228,7 +229,6 @@ class OfflineEmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -238,13 +238,13 @@ class OfflineEmptyView extends StatelessWidget {
             Icon(
               AppIcons.offline,
               size: 64,
-              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+              color: AppColors.of(context).contentTertiary,
             ),
             const SizedBox(height: 20),
             Text(
               message ?? 'No internet connection',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                    color: AppColors.of(context).contentSecondary,
                   ),
               textAlign: TextAlign.center,
             ),
@@ -252,7 +252,7 @@ class OfflineEmptyView extends StatelessWidget {
             Text(
               'Connect to load content.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                    color: AppColors.of(context).contentTertiary,
                   ),
               textAlign: TextAlign.center,
             ),
@@ -383,8 +383,8 @@ class FeedSkeletonList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final cardColor = AppColors.of(context).surface;
+    final borderColor = AppColors.of(context).borderHairline;
     final lineColor = isDark
         ? AppTheme.darkTextTertiary.withValues(alpha: 0.18)
         : AppTheme.lightTextTertiary.withValues(alpha: 0.18);
@@ -398,7 +398,7 @@ class FeedSkeletonList extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: cardColor,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.lgAll,
           border: Border.all(color: borderColor),
         ),
         child: Column(
@@ -434,7 +434,7 @@ class FeedSkeletonList extends StatelessWidget {
                   height: 34,
                   decoration: BoxDecoration(
                     color: lineColor,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: AppRadius.mdAll,
                   ),
                 ),
               ],
@@ -451,7 +451,7 @@ class FeedSkeletonList extends StatelessWidget {
       height: height,
       decoration: BoxDecoration(
         color: color,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: AppRadius.smAll,
       ),
     );
   }
@@ -493,7 +493,7 @@ class ConversationSkeletonList extends StatelessWidget {
                     width: 120,
                     decoration: BoxDecoration(
                       color: lineColor,
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: AppRadius.pillAll,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -501,7 +501,7 @@ class ConversationSkeletonList extends StatelessWidget {
                     height: 11,
                     decoration: BoxDecoration(
                       color: lineColor,
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: AppRadius.pillAll,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -510,7 +510,7 @@ class ConversationSkeletonList extends StatelessWidget {
                     width: 160,
                     decoration: BoxDecoration(
                       color: lineColor,
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: AppRadius.pillAll,
                     ),
                   ),
                 ],
@@ -525,7 +525,7 @@ class ConversationSkeletonList extends StatelessWidget {
                   width: 36,
                   decoration: BoxDecoration(
                     color: lineColor,
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: AppRadius.pillAll,
                   ),
                 ),
               ],

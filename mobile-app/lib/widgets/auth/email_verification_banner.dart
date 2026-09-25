@@ -8,6 +8,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/email_verification_cooldown.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/tokens.dart';
 import '../../utils/auth_error_mapper.dart';
 
 /// Prompts a signed-in user to confirm their email address.
@@ -154,7 +155,7 @@ class _EmailVerificationBannerState extends State<EmailVerificationBanner> {
       padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
       decoration: BoxDecoration(
         color: accent.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(color: accent.withValues(alpha: 0.28)),
       ),
       child: Row(

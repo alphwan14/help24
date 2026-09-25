@@ -229,12 +229,26 @@ void main() {
       }
     });
 
-    test('job cards no longer show the identical Medium badge', () {
-      final src = read('lib/widgets/job_card.dart');
+    test('listing cards no longer show the identical Medium badge', () {
+      // Reads listing_card.dart, not job_card.dart: `PostCard` and `JobCard`
+      // were two renderings of one concept and are now both four-line
+      // delegates to `ListingCard`, which is where a listing is actually drawn.
+      // The guarantee is unchanged — complexity is gone, employment type took
+      // its place — it just has one home now instead of two.
+      final src = read('lib/widgets/listing_card.dart');
       expect(src.contains('difficultyText'), isFalse);
-      expect(src.contains('_difficultyColor'), isFalse);
-      expect(src.contains('label: job.type'), isTrue,
+      expect(src.contains('difficultyColor'), isFalse);
+      expect(src.contains('employmentType'), isTrue,
           reason: 'employment type replaces it — see the diagnosis');
+
+      // And the delegates really are delegates, so there is no second place
+      // for a badge to come back in.
+      for (final path in const [
+        'lib/widgets/job_card.dart',
+        'lib/widgets/post_card.dart',
+      ]) {
+        expect(read(path).contains('difficulty'), isFalse);
+      }
     });
   });
 

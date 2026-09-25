@@ -3,7 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post_model.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
-import 'feed_card_tokens.dart';
+import '../theme/tokens.dart';
 
 /// Spacing constants for card layout (8–12px system).
 const double kCardPadding = 12;
@@ -45,7 +45,7 @@ class OwnerCta extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = AppColors.of(context);
 
     if (type == PostType.offer) {
       return _button(
@@ -61,7 +61,7 @@ class OwnerCta extends StatelessWidget {
         return _button(
           icon: AppIcons.jobInProgress,
           label: 'In Progress',
-          color: AppTheme.primaryAccent,
+          color: c.contentPrimary,
         );
       case 'completed':
         return _button(
@@ -69,43 +69,60 @@ class OwnerCta extends StatelessWidget {
               ? AppIcons.pending
               : AppIcons.success,
           label: payoutInProgress ? 'Finalizing' : 'Completed',
-          color: payoutInProgress ? AppTheme.warningOrange : AppTheme.successGreen,
+          color: payoutInProgress ? c.cautionText : c.positiveText,
         );
       case 'disputed':
         return _button(
           icon: AppIcons.report,
           label: 'Disputed',
-          color: AppTheme.errorRed,
+          color: c.criticalText,
         );
       case 'cancelled':
         return _button(
           icon: AppIcons.retired,
           label: 'Closed',
-          color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+          color: c.contentTertiary,
         );
       default: // 'open'
         final hasApps = applicationCount > 0;
         return _button(
           icon: hasApps ? AppIcons.applicantsActive : AppIcons.applicants,
           label: hasApps ? 'Applications ($applicationCount)' : 'Manage',
-          color: hasApps
-              ? AppTheme.primaryAccent
-              : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+          color: hasApps ? c.contentPrimary : c.contentSecondary,
         );
     }
   }
 
   /// Outlined on purpose: "this is mine" must not look like "do something".
+  ///
+  /// ── Two corrections, both made after seeing it on a device ────────────
+  /// It inherited `OutlinedButtonThemeData`, which the token layer gave a
+  /// 48 px minimum and 24 px side padding so that a STANDALONE secondary
+  /// action meets the touch-target floor. Inside a feed card that produced a
+  /// slab tall enough to wrap "Applications (2)" onto two lines. It states its
+  /// own size now.
+  ///
+  /// And it no longer takes the accent. The label already says whose listing
+  /// this is; colouring it as well made the owner's card the loudest thing in
+  /// a feed of other people's work — which is the opposite of what an
+  /// "outlined on purpose" button is for. Colour is kept only where it carries
+  /// a STATE the owner has to act on (disputed, finalizing).
   Widget _button({required IconData icon, required String label, required Color? color}) {
     return OutlinedButton.icon(
       onPressed: onTap,
-      icon: Icon(icon, size: 15),
-      label: Text(label),
+      icon: Icon(icon, size: 14),
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
       style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        minimumSize: const Size(0, FeedCardTokens.buttonMinHeight),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpace.md),
+        minimumSize: const Size(0, 40),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
         foregroundColor: color,
+        textStyle: AppTypeScale.label.copyWith(
+          fontFamily: AppTypeScale.family,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -126,8 +143,9 @@ class MarketplaceAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final placeholderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final c = AppColors.of(context);
+    final placeholderColor = c.surfaceSunken;
+    final initialsColor = c.contentSecondary;
 
     if (imageUrl != null && imageUrl!.isNotEmpty) {
       return ClipOval(
@@ -143,8 +161,9 @@ class MarketplaceAvatar extends StatelessWidget {
             fadeInDuration: Duration.zero,
             fadeOutDuration: Duration.zero,
             placeholderFadeInDuration: Duration.zero,
-            placeholder: (_, __) => _placeholder(placeholderColor),
-            errorWidget: (_, __, ___) => _brokenImagePlaceholder(placeholderColor),
+            placeholder: (_, __) => _placeholder(placeholderColor, initialsColor),
+            errorWidget: (_, __, ___) =>
+                _brokenImagePlaceholder(placeholderColor, initialsColor),
           ),
         ),
       );
@@ -161,7 +180,7 @@ class MarketplaceAvatar extends StatelessWidget {
         child: Text(
           displayName.isNotEmpty ? displayName.substring(0, 1).toUpperCase() : '?',
           style: TextStyle(
-            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+            color: initialsColor,
             fontSize: size * 0.4,
             fontWeight: FontWeight.w600,
           ),
@@ -170,14 +189,17 @@ class MarketplaceAvatar extends StatelessWidget {
     );
   }
 
-  Widget _placeholder(Color bg) {
+  // These two used to hard-code `AppTheme.darkTextTertiary` for the glyph in
+  // BOTH themes, so a cold avatar in light mode drew a dark-theme grey on a
+  // light surface. The colours are passed in from the resolved palette now.
+  Widget _placeholder(Color bg, Color fg) {
     return Container(
       color: bg,
       child: Center(
         child: Text(
           displayName.isNotEmpty ? displayName.substring(0, 1).toUpperCase() : '?',
           style: TextStyle(
-            color: AppTheme.darkTextTertiary,
+            color: fg,
             fontSize: size * 0.4,
             fontWeight: FontWeight.w600,
           ),
@@ -187,14 +209,14 @@ class MarketplaceAvatar extends StatelessWidget {
   }
 
   /// When image URL exists but load fails: show icon, not initials (per spec).
-  Widget _brokenImagePlaceholder(Color bg) {
+  Widget _brokenImagePlaceholder(Color bg, Color fg) {
     return Container(
       color: bg,
       child: Center(
         child: Icon(
           AppIcons.person,
           size: size * 0.5,
-          color: AppTheme.darkTextTertiary,
+          color: fg,
         ),
       ),
     );
@@ -215,7 +237,7 @@ class UrgencyChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -242,16 +264,18 @@ class UrgencyChip extends StatelessWidget {
     );
   }
 
-  (Color, String) get _style {
-    switch (urgency) {
-      case Urgency.urgent:
-        return (const Color(0xFFE53935), 'Urgent');
-      case Urgency.soon:
-        return (const Color(0xFFFF9800), 'Soon');
-      case Urgency.flexible:
-        return (const Color(0xFF4CAF50), 'Flexible');
-    }
-  }
+  // THE THIRD COPY OF THE URGENCY PALETTE, now deleted.
+  //
+  // E53935 / FF9800 / 4CAF50 lived here, in PostModel.urgencyColor AND in
+  // JobModel.urgencyColor — three hand-maintained copies of one idea, none of
+  // which matched AppTheme's error / warning / success. That is how a card
+  // came to show a "Soon" tag in FF9800 beside a "Payment Protected" tag in
+  // F59E0B: two ambers, two pixels apart, on one card.
+  (Color, String) get _style => switch (urgency) {
+        Urgency.urgent => (AppTheme.errorRed, 'Urgent'),
+        Urgency.soon => (AppTheme.warningOrange, 'Soon'),
+        Urgency.flexible => (AppTheme.successGreen, 'Flexible'),
+      };
 }
 
 /// Location chip: "📍 City" (Kenyan cities).
@@ -278,7 +302,7 @@ class LocationChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

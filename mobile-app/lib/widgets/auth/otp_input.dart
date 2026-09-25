@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/app_theme.dart';
+import '../../theme/tokens.dart';
 
 /// Six-box verification code entry.
 ///
@@ -197,7 +198,7 @@ class OtpInputState extends State<OtpInput> with SingleTickerProviderStateMixin 
           height: 60,
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: AppRadius.mdAll,
             border: Border.all(
               color: borderColor,
               width: (isNext || widget.hasError) ? 1.8 : 1,
@@ -228,7 +229,7 @@ class OtpInputState extends State<OtpInput> with SingleTickerProviderStateMixin 
                         height: 24,
                         decoration: BoxDecoration(
                           color: AppTheme.primaryAccent,
-                          borderRadius: BorderRadius.circular(1),
+                          borderRadius: AppRadius.pillAll,
                         ),
                       )
                     : const SizedBox.shrink(),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'primitives.dart';
 import '../theme/app_icons.dart';
 import '../models/filter_selection.dart';
 import '../models/place.dart';
@@ -10,6 +11,7 @@ import '../providers/app_provider.dart';
 import '../providers/location_provider.dart';
 import '../services/filter_history_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import 'location_picker.dart';
 
 /// The filter sheet.
@@ -201,21 +203,12 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     return Container(
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: AppRadius.sheetTop,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle
-          Container(
-            margin: const EdgeInsets.only(top: 12),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
+          const SheetHandle(margin: EdgeInsets.only(top: AppSpace.md, bottom: 0)),
           // Header
           Padding(
             padding: const EdgeInsets.all(20),
@@ -298,7 +291,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                             // itself.
                             onPressed: () => _restore(entry),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: AppRadius.pillAll,
                               side: BorderSide(
                                 color: AppTheme.primaryAccent.withValues(alpha: 0.4),
                               ),
@@ -351,7 +344,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                           selectedColor: AppTheme.primaryAccent.withValues(alpha: 0.2),
                           checkmarkColor: AppTheme.primaryAccent,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: AppRadius.pillAll,
                           ),
                         );
                       }),
@@ -375,7 +368,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                                 AppTheme.primaryAccent.withValues(alpha: 0.2),
                             checkmarkColor: AppTheme.primaryAccent,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: AppRadius.pillAll,
                             ),
                           )),
                       // Add custom category chip
@@ -402,7 +395,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                             });
                           },
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: AppRadius.pillAll,
                             side: BorderSide(color: AppTheme.primaryAccent),
                           ),
                         ),
@@ -464,7 +457,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                                 label: Text(name, style: const TextStyle(fontSize: 13)),
                                 onPressed: () => _addCustomCategory(name),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20),
+                                  borderRadius: AppRadius.pillAll,
                                   side: BorderSide(
                                     color: isDark
                                         ? AppTheme.darkBorder
@@ -493,12 +486,12 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                     label: 'Filter location: $_locationLabel. Tap to change.',
                     child: InkWell(
                       onTap: _chooseLocation,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: AppRadius.mdAll,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                         decoration: BoxDecoration(
                           color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: AppRadius.mdAll,
                           border: Border.all(
                             color: _selectedCity.isEmpty
                                 ? (isDark ? AppTheme.darkBorder : AppTheme.lightBorder)
@@ -577,7 +570,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                           }),
                           selectedColor: AppTheme.primaryAccent.withValues(alpha: 0.2),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: AppRadius.pillAll,
                           ),
                         ),
                     ],
@@ -626,7 +619,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                                 color: isSelected
                                     ? color.withValues(alpha: 0.2)
                                     : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: AppRadius.mdAll,
                                 border: Border.all(
                                   color: isSelected
                                       ? color

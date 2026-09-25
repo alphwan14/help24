@@ -22,11 +22,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'primitives.dart';
 import '../theme/app_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/post_model.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/time_utils.dart';
 
 /// Result of the Place Picker: a pin plus the user's own name for it.
@@ -87,7 +89,7 @@ class LocationIntents {
       context: context,
       backgroundColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: AppRadius.sheetTop,
       ),
       builder: (sheetContext) => SafeArea(
         child: Padding(
@@ -96,7 +98,7 @@ class LocationIntents {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const _SheetGrabber(),
+              const SheetHandle(),
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
                 child: Text(
@@ -137,7 +139,7 @@ class _IntentRow extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: AppRadius.mdAll,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
@@ -179,25 +181,8 @@ class _IntentRow extends StatelessWidget {
   }
 }
 
-class _SheetGrabber extends StatelessWidget {
-  const _SheetGrabber();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Container(
-        width: 36,
-        height: 4,
-        margin: const EdgeInsets.only(top: 10, bottom: 4),
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-          borderRadius: BorderRadius.circular(2),
-        ),
-      ),
-    );
-  }
-}
+// _SheetGrabber was a third name for the drag handle, next to chat_ui's
+// SheetHandle and fourteen inline copies. It is the primitive now.
 
 // ── Map thumbnail ────────────────────────────────────────────────────────────
 
@@ -370,7 +355,7 @@ class PlaceCard extends StatelessWidget {
           GestureDetector(
             onTap: onTap,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppRadius.mdAll,
               child: SizedBox(
                 width: 240,
                 height: 124,
@@ -580,7 +565,7 @@ class JourneyCard extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
           decoration: BoxDecoration(
             color: AppTheme.successGreen.withValues(alpha: onAccent ? 0.20 : 0.10),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: AppRadius.mdAll,
             border: Border.all(
               color: AppTheme.successGreen.withValues(alpha: onAccent ? 0.45 : 0.30),
               width: 1,
@@ -718,7 +703,7 @@ class JourneyCard extends StatelessWidget {
           GestureDetector(
             onTap: onTap,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppRadius.mdAll,
               child: SizedBox(
                 width: 240,
                 height: 124,
@@ -993,9 +978,9 @@ class ContextActionBar extends StatelessWidget {
           label: label,
           child: Material(
             color: AppTheme.primaryAccent.withValues(alpha: isDark ? 0.16 : 0.10),
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: AppRadius.pillAll,
             child: InkWell(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: AppRadius.pillAll,
               onTap: onTap,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -1074,7 +1059,7 @@ class JourneyStatusStrip extends StatelessWidget {
                   height: 28,
                   decoration: BoxDecoration(
                     color: accent.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: AppRadius.smAll,
                   ),
                   child: Icon(
                     arrived ? AppIcons.check : AppIcons.route,

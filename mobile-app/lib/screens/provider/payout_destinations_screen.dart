@@ -4,6 +4,7 @@ import '../../theme/app_icons.dart';
 import '../../models/payout_models.dart';
 import '../../services/payout_service.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/tokens.dart';
 import '../../utils/action_feedback.dart';
 import '../../utils/error_mapper.dart';
 import '../../utils/phone_utils.dart';
@@ -305,7 +306,7 @@ class _DestinationCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(
           color: destination.isDefault
               ? AppTheme.primaryAccent
@@ -414,7 +415,7 @@ class _StatusChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: AppRadius.smAll,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

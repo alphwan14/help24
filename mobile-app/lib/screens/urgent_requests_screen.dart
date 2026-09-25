@@ -8,6 +8,7 @@ import '../providers/app_provider.dart';
 import '../providers/location_provider.dart';
 import '../utils/post_ownership.dart';
 import '../utils/proximity.dart';
+import '../services/urgent_seen_store.dart';
 import '../utils/urgent_window.dart';
 import '../widgets/auth_guard.dart';
 import '../widgets/loading_empty_offline.dart';
@@ -107,6 +108,20 @@ class _UrgentRequestsScreenState extends State<UrgentRequestsScreen> {
             // query last ran: a request whose hour ran out mid-session leaves
             // the list here rather than sitting on it still labelled URGENT.
             final posts = openUrgentPosts(provider.urgentPosts, _now);
+
+            // Seeing the LIST is what counts as having seen them — not
+            // opening each post. A provider who reads the list and decides
+            // none of them are theirs has seen them, and badging them again
+            // tomorrow would be the same failure one step later.
+            //
+            // Scheduled off the frame, because this notifies listeners and
+            // Discover's chip is one of them: calling it during build would
+            // mutate a widget that is already building.
+            if (posts.isNotEmpty) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                UrgentSeenStore.instance.markSeen(posts.map((p) => p.id));
+              });
+            }
 
             if (provider.isLoadingUrgentPosts && posts.isEmpty) {
               return const FeedSkeletonList();

@@ -25,18 +25,17 @@ import '../services/user_profile_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/time_utils.dart';
+import '../widgets/primitives.dart';
 import '../widgets/auth/email_verification_banner.dart';
 import '../widgets/auth_guard.dart';
 import '../widgets/profile_widgets.dart';
 import '../widgets/reputation_widgets.dart';
 import 'professional_profile_screen.dart';
-import 'my_posts_screen.dart';
 import 'promotion/promote_business_screen.dart';
 import 'provider/payout_destinations_screen.dart';
 import 'provider/provider_onboarding_screen.dart';
-import 'saved_screen.dart';
-import 'service_history_screen.dart';
 import 'location_permission_explainer_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -69,7 +68,6 @@ class ProfileScreen extends StatelessWidget {
                           _SettingsTile(
                             icon: AppIcons.account,
                             title: 'Professional Profile',
-                            subtitle: 'Sign in to build your profile',
                             trailing: const Icon(AppIcons.disclosure),
                             onTap: () => _showAuthModalForEditProfile(context),
                           ),
@@ -104,7 +102,7 @@ class ProfileScreen extends StatelessWidget {
                     return _SettingsTile(
                       icon: preference.icon,
                       title: AppLocalizations.of(context)?.t('theme') ?? 'Theme',
-                      subtitle: preference.label,
+                      value: preference.label,
                       trailing: const Icon(AppIcons.disclosure),
                       onTap: () => _showThemeSheet(context, provider),
                     );
@@ -116,7 +114,6 @@ class ProfileScreen extends StatelessWidget {
                       return _SettingsTile(
                         icon: AppIcons.notifications,
                         title: AppLocalizations.of(context)?.t('notifications') ?? 'Notifications',
-                        subtitle: AppLocalizations.of(context)?.t('sign_in') ?? 'Sign in',
                         trailing: const Icon(AppIcons.disclosure),
                         onTap: () => _navigateToAuth(context),
                       );
@@ -131,33 +128,39 @@ class ProfileScreen extends StatelessWidget {
                       return _SettingsTile(
                         icon: AppIcons.location,
                         title: 'Location Access',
-                        subtitle: 'Sign in',
                         trailing: const Icon(AppIcons.disclosure),
                         onTap: () => _navigateToAuth(context),
                       );
                     }
                     final uid = auth.currentUserId ?? '';
+                    // STATE, NOT INSTRUCTIONS. Every branch used to append what
+                    // to do about it — "tap to turn on", "enable in settings",
+                    // "Turn on location in device settings" — which is both
+                    // longer than the column and redundant: the row is
+                    // tappable, and the screen it opens says what to do. The
+                    // distinction between "we cannot ask again" (Denied) and
+                    // "we have not asked" (Off) is kept, because they lead
+                    // somewhere different.
                     String subtitle;
                     if (!location.isGranted) {
-                      subtitle = location.isPermanentlyDenied
-                          ? 'Denied · enable in settings'
-                          : 'Not enabled';
+                      subtitle =
+                          location.isPermanentlyDenied ? 'Denied' : 'Off';
                     } else if (!location.serviceEnabled) {
                       // Permission granted but the OS location toggle is off —
-                      // mirror that immediately instead of claiming "Enabled".
-                      subtitle = 'Turn on location in device settings';
+                      // mirror that immediately instead of claiming "On".
+                      subtitle = 'Off in settings';
                     } else if (location.isLocationOn) {
                       subtitle = location.city == null || location.city!.isEmpty
-                          ? 'Enabled'
-                          : 'Enabled · ${location.city}';
+                          ? 'On'
+                          : 'On · ${location.city}';
                     } else {
                       // OS is fine, but the user disabled location in-app.
-                      subtitle = 'Off · tap to turn on';
+                      subtitle = 'Off';
                     }
                     return _SettingsTile(
                       icon: AppIcons.location,
                       title: 'Location Access',
-                      subtitle: subtitle,
+                      value: subtitle,
                       trailing: const Icon(AppIcons.disclosure),
                       onTap: () async {
                         final locationProvider = context.read<LocationProvider>();
@@ -194,30 +197,38 @@ class ProfileScreen extends StatelessWidget {
                     );
                   },
                 ),
-                Consumer<AuthProvider>(
-                  builder: (context, auth, _) {
-                    final localeProvider = context.watch<LocaleProvider>();
-                    final langLabel = localeProvider.languageCode == 'sw'
-                        ? (AppLocalizations.of(context)?.t('language_swahili') ?? 'Kiswahili')
-                        : (AppLocalizations.of(context)?.t('language_english') ?? 'English');
-                    if (!auth.isLoggedIn) {
+                // LANGUAGE — shown only when there is more than one language
+                // the app can actually be used in.
+                //
+                // There is one. The row opened a sheet whose only selectable
+                // option was the one already selected, and whose other option
+                // carried a padlock and a "coming soon" dialog: a setting that
+                // cannot be set, costing a tap to find that out. The honest
+                // version of "Kiswahili is not ready" is not offering it.
+                //
+                // `LocaleProvider._deliverable` is the switch, and its doc
+                // records the coverage that has to exist first — 39 keys today,
+                // every call site inside this one file. Restore this row in the
+                // same change that adds 'sw' to it.
+                if (LocaleProvider.offersAChoice)
+                  Consumer<AuthProvider>(
+                    builder: (context, auth, _) {
+                      final localeProvider = context.watch<LocaleProvider>();
+                      final langLabel = localeProvider.languageCode == 'sw'
+                          ? (AppLocalizations.of(context)?.t('language_swahili') ?? 'Kiswahili')
+                          : (AppLocalizations.of(context)?.t('language_english') ?? 'English');
                       return _SettingsTile(
                         icon: AppIcons.language,
                         title: AppLocalizations.of(context)?.t('language') ?? 'Language',
-                        subtitle: langLabel,
+                        value: langLabel,
                         trailing: const Icon(AppIcons.disclosure),
-                        onTap: () => _navigateToAuth(context),
+                        onTap: auth.isLoggedIn
+                            ? () => _showLanguageSheet(
+                                context, auth.currentUserId!, localeProvider)
+                            : () => _navigateToAuth(context),
                       );
-                    }
-                    return _SettingsTile(
-                      icon: AppIcons.language,
-                      title: AppLocalizations.of(context)?.t('language') ?? 'Language',
-                      subtitle: langLabel,
-                      trailing: const Icon(AppIcons.disclosure),
-                      onTap: () => _showLanguageSheet(context, auth.currentUserId!, localeProvider),
-                    );
-                  },
-                ),
+                    },
+                  ),
               ],
             ),
 
@@ -260,7 +271,7 @@ class ProfileScreen extends StatelessWidget {
                     width: double.infinity,
                     decoration: BoxDecoration(
                       color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: AppRadius.lgAll,
                       border: Border.all(
                         color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                       ),
@@ -278,7 +289,7 @@ class ProfileScreen extends StatelessWidget {
                     width: double.infinity,
                     decoration: BoxDecoration(
                       color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: AppRadius.lgAll,
                       border: Border.all(
                         color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                       ),
@@ -377,7 +388,7 @@ class ProfileScreen extends StatelessWidget {
         return Container(
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: AppRadius.sheetTop,
           ),
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
           child: SafeArea(
@@ -386,17 +397,7 @@ class ProfileScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(
-                      color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
+                const SheetHandle(margin: EdgeInsets.only(bottom: 20)),
                 Padding(
                   padding: const EdgeInsets.only(left: 4, bottom: 8),
                   child: Text('Theme', style: Theme.of(sheetContext).textTheme.titleLarge),
@@ -580,41 +581,18 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
           children: [
             _LoggedInProfile(profile: profile, authUser: widget.authUser),
 
-            // ── My Activity ─────────────────────────────────────────────
-            _SettingsSection(
-              title: 'My Activity',
-              children: [
-                _MyPostsTile(uid: widget.uid),
-                _SettingsTile(
-                  icon: AppIcons.saved,
-                  title: 'Saved',
-                  subtitle: 'Your shortlist of posts & providers',
-                  trailing: const Icon(AppIcons.disclosure),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => SavedScreen(userId: widget.uid),
-                    ),
-                  ),
-                ),
-                // Service History sits beside My Posts and Saved because it is
-                // the same kind of thing: a record of what this person has done
-                // on Help24. It covers both sides of the deal — services bought
-                // and work done — so it is one entry, not two.
-                _SettingsTile(
-                  icon: AppIcons.serviceHistory,
-                  title: 'Service History',
-                  subtitle: 'Completed services, work & receipts',
-                  trailing: const Icon(AppIcons.disclosure),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ServiceHistoryScreen(uid: widget.uid),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            // ── "My Activity" USED TO BE HERE, AND IS NOT ANY MORE ──────
+            //
+            // My Posts, Saved and Service History were three rows in this
+            // screen. They are the Activity TAB now — the first two as its two
+            // scopes, the third as its header action — so leaving them here
+            // would be a second path to the same three places, one tap deeper,
+            // in a screen that is supposed to be about the account.
+            //
+            // This is what makes Activity a RELOCATION rather than an
+            // addition: Profile got shorter by exactly what the new tab
+            // absorbed.
+            //
             // ── Business (Promote Business) ─────────────────────────────
             _SettingsSection(
               title: 'Business',
@@ -622,7 +600,6 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                 _SettingsTile(
                   icon: AppIcons.provider,
                   title: 'Become a Provider',
-                  subtitle: 'Profession, contact & verified payout number',
                   trailing: const Icon(AppIcons.disclosure),
                   onTap: () => Navigator.push<bool>(
                     context,
@@ -641,7 +618,6 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                 _SettingsTile(
                   icon: AppIcons.payoutDestination,
                   title: 'Payout Destinations',
-                  subtitle: 'Where your M-Pesa earnings are sent',
                   trailing: const Icon(AppIcons.disclosure),
                   onTap: () => Navigator.push(
                     context,
@@ -653,7 +629,6 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                 _SettingsTile(
                   icon: AppIcons.promote,
                   title: 'Promote Business',
-                  subtitle: 'Feature a listing · campaigns, results & payments',
                   trailing: const Icon(AppIcons.disclosure),
                   onTap: () => Navigator.push(
                     context,
@@ -678,10 +653,12 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                   return _SettingsTile(
                     icon: AppIcons.account,
                     title: 'Professional Profile',
-                    subtitle: completion.isComplete
-                        ? 'Complete'
-                        : '${completion.percent}% complete'
-                            '${completion.nextStep != null ? ' · next: ${completion.nextStep!.label.toLowerCase()}' : ''}',
+                    // The ring IS the value. Showing a percentage ring, a
+                    // next-step label and a chevron put three things in a
+                    // column sized for one, and they crowded each other on
+                    // device. Progress is the glanceable fact; what is missing
+                    // is on the screen this opens.
+                    value: completion.isComplete ? 'Complete' : null,
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -714,9 +691,9 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                   title: 'Payment Number',
                   // The number is sensitive — masked here; the full value is
                   // only revealed behind the biometric gate in the sheet.
-                  subtitle: (profile?.phone?.isNotEmpty == true)
-                      ? '${maskPhone(profile!.phone!)} · the number you pay from'
-                      : 'M-Pesa number not set',
+                  value: (profile?.phone?.isNotEmpty == true)
+                      ? maskPhone(profile!.phone!)
+                      : 'Not set',
                   trailing: const Icon(AppIcons.disclosure),
                   onTap: () => showModalBottomSheet(
                     context: context,
@@ -737,61 +714,9 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
   }
 }
 
-/// "My Posts" activity tile: live server-side count, opens the management
-/// list. The count future is cached in State (the parent stream emits every
-/// 15s) and refreshed when returning from the My Posts screen.
-class _MyPostsTile extends StatefulWidget {
-  final String uid;
-
-  const _MyPostsTile({required this.uid});
-
-  @override
-  State<_MyPostsTile> createState() => _MyPostsTileState();
-}
-
-class _MyPostsTileState extends State<_MyPostsTile> {
-  late Future<int> _count = UserProfileService.getAuthoredPostsCount(widget.uid);
-
-  @override
-  void didUpdateWidget(covariant _MyPostsTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.uid != widget.uid) {
-      _count = UserProfileService.getAuthoredPostsCount(widget.uid);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<int>(
-      future: _count,
-      builder: (context, snap) {
-        final count = snap.data;
-        return _SettingsTile(
-          icon: AppIcons.myPosts,
-          title: 'My Posts',
-          subtitle: count == null
-              ? 'Requests, offers & job posts'
-              : count == 1
-                  ? '1 active post'
-                  : '$count active posts',
-          trailing: const Icon(AppIcons.disclosure),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => MyPostsScreen(userId: widget.uid),
-            ),
-          ).then((_) {
-            if (mounted) {
-              setState(() {
-                _count = UserProfileService.getAuthoredPostsCount(widget.uid);
-              });
-            }
-          }),
-        );
-      },
-    );
-  }
-}
+// _MyPostsTile removed with the "My Activity" section above. It fetched its
+// own live post count on a screen that no longer lists posts; the Activity tab
+// shows the posts themselves.
 
 /// Profile identity hero for logged in users (users row, auth fallback).
 class _LoggedInProfile extends StatelessWidget {
@@ -813,32 +738,24 @@ class _LoggedInProfile extends StatelessWidget {
 
     return Column(
       children: [
-        // Profile Avatar — image only when profile_image/photoUrl is set, else initials
+        // A PHOTO OF A PERSON NEEDS NO DECORATION.
+        //
+        // This was a two-stop gradient with a coloured drop shadow behind it —
+        // the most "generated" element in the app, and it glowed indigo behind
+        // a real photograph. The ring is now a hairline, and initials sit on a
+        // neutral surface.
         Container(
           width: 100,
           height: 100,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppTheme.primaryAccent,
-                AppTheme.secondaryAccent,
-              ],
-            ),
-            borderRadius: BorderRadius.circular(50),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primaryAccent.withValues(alpha: 0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
+            color: AppColors.of(context).surfaceSunken,
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.of(context).borderHairline),
           ),
           child: Center(
             child: avatarUrl.isNotEmpty
                 ? ClipRRect(
-                    borderRadius: BorderRadius.circular(50),
+                    borderRadius: AppRadius.pillAll,
                     child: CachedNetworkImage(
                       imageUrl: avatarUrl,
                       width: 100,
@@ -860,10 +777,10 @@ class _LoggedInProfile extends StatelessWidget {
                   )
                 : Text(
                     initials,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 36,
-                      fontWeight: FontWeight.bold,
+                    style: TextStyle(
+                      color: AppColors.of(context).contentSecondary,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
           ),
@@ -933,7 +850,7 @@ class _GuestProfile extends StatelessWidget {
           height: 100,
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(50),
+            borderRadius: AppRadius.pillAll,
             border: Border.all(
               color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
               width: 2,
@@ -1004,54 +921,47 @@ class _SettingsSection extends StatelessWidget {
 
   const _SettingsSection({required this.title, required this.children});
 
-  /// The gap ABOVE a section heading, owned here rather than typed between
-  /// call sites.
-  ///
-  /// It used to be a `SizedBox(height: 16)` written out before each section —
-  /// and the one before "Support" was missing, so that heading sat hard
-  /// against the Preferences card while every other heading had air above it.
-  /// One section out of rhythm reads as a rendering fault rather than as a
-  /// design, which is exactly what it was. Owning the spacing means the next
-  /// section added cannot be the one that forgets it.
-  static const double _gapAbove = 16;
-
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    // SectionHeader owns the gap above AND below, which is what [_gapAbove]
+    // was invented for here. AppRowGroup owns the surface, the hairline and
+    // the dividers between rows.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, top: _gapAbove, bottom: 12),
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-            ),
-          ),
-          child: Column(
-            children: children,
-          ),
-        ),
+        SectionHeader(title),
+        AppRowGroup(children: children),
       ],
     );
   }
 }
 
+/// A row in a Profile group.
+///
+/// ── There is no `subtitle` any more. There is a `value`. ────────────────
+/// The parameter was renamed deliberately, so the type system is what stops a
+/// description coming back. A `subtitle` invites an explanation of where the
+/// row goes, and NINE shipped in a row on this screen:
+///
+///   Become a Provider  / "Profession, contact & verified payout number"
+///   Payout Destinations/ "Where your M-Pesa earnings are sent"
+///   Saved              / "Your shortlist of posts & providers"
+///   Service History    / "Completed services, work & receipts"
+///   Promote Business   / "Feature a listing · campaigns, results & payments"
+///   Notifications      / "Sign in"      ← which is what tapping it does
+///   Location Access    / "Sign in"
+///   Professional Profile / "Sign in to build your profile"
+///
+/// A `value` is right-aligned and can only carry STATE the user cannot
+/// otherwise see: `14 active`, `Device Default`, `English`, `Off`. If a row has
+/// no state worth showing it shows nothing, and the destination explains itself
+/// the moment it opens — which it can, because it is a whole screen.
 class _SettingsTile extends StatelessWidget {
   final IconData icon;
   final String title;
-  final String? subtitle;
+
+  /// Current state. Never a description of the destination.
+  final String? value;
   final Widget? trailing;
   final VoidCallback? onTap;
   final Color? iconColor;
@@ -1060,7 +970,7 @@ class _SettingsTile extends StatelessWidget {
   const _SettingsTile({
     required this.icon,
     required this.title,
-    this.subtitle,
+    this.value,
     this.trailing,
     this.onTap,
     this.iconColor,
@@ -1069,37 +979,13 @@ class _SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return AppRow(
+      icon: icon,
+      title: title,
+      value: value,
+      trailing: trailing,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            IconBadge(icon, color: iconColor),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: titleColor,
-                    ),
-                  ),
-                  if (subtitle != null)
-                    Text(
-                      subtitle!,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                ],
-              ),
-            ),
-            if (trailing != null) trailing!,
-          ],
-        ),
-      ),
+      tone: titleColor ?? iconColor,
     );
   }
 }
@@ -1124,14 +1010,14 @@ class _ThemeOptionTile extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.lgAll,
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: selected
                 ? AppTheme.primaryAccent.withValues(alpha: 0.08)
                 : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: AppRadius.lgAll,
             border: Border.all(
               color: selected ? AppTheme.primaryAccent.withValues(alpha: 0.45) : border,
               width: selected ? 1.5 : 1,
@@ -1284,7 +1170,7 @@ class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
     return _SettingsTile(
       icon: AppIcons.notifications,
       title: l10n?.t('notifications') ?? 'Notifications',
-      subtitle: _osBlocked ? "Blocked in phone settings — tap to fix" : null,
+      value: _osBlocked ? "Blocked in phone settings — tap to fix" : null,
       onTap: _osBlocked ? _nudgeToSystemSettings : null,
       trailing: Switch.adaptive(
         value: _toggle.displayed && !_osBlocked,
@@ -1400,7 +1286,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
             content: const Text('M-Pesa number saved.'),
             backgroundColor: AppTheme.successGreen,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
           ),
         );
       }
@@ -1415,17 +1301,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Center(
-          child: Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.only(bottom: 20),
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-        ),
+        const SheetHandle(margin: EdgeInsets.only(bottom: 20)),
         Row(
           children: [
             const IconBadge(AppIcons.device, color: AppTheme.primaryAccent),
@@ -1445,7 +1321,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: AppRadius.sheetTop,
         ),
         padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
         child: _unlocked ? _buildEditForm(context, isDark) : _buildLockedView(context, isDark),
@@ -1469,7 +1345,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: AppRadius.mdAll,
             border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
           ),
           child: Row(
@@ -1525,7 +1401,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: AppTheme.primaryAccent.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: AppRadius.mdAll,
             border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.2)),
           ),
           child: Row(
@@ -1609,7 +1485,7 @@ class _PayoutAuthorityNote extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: accent.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppRadius.mdAll,
           border: Border.all(color: accent.withValues(alpha: 0.2)),
         ),
         child: Column(
@@ -1764,7 +1640,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
         return Container(
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: AppRadius.sheetTop,
           ),
           padding: EdgeInsets.fromLTRB(
             24,
@@ -1776,17 +1652,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: borderColor,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
+              const SheetHandle(margin: EdgeInsets.zero),
               const SizedBox(height: 20),
 
               // Header row
@@ -1797,7 +1663,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                     height: 44,
                     decoration: BoxDecoration(
                       color: headerColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: AppRadius.mdAll,
                     ),
                     child: Icon(
                       on ? AppIcons.location : AppIcons.locationOff,
@@ -1834,7 +1700,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: AppRadius.mdAll,
                   border: Border.all(color: borderColor),
                 ),
                 child: Column(

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/app_firebase.dart';
@@ -58,6 +59,19 @@ String? _activeChatId;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Inter is bundled rather than fetched (see pubspec.yaml), and the SIL Open
+  // Font License requires the notice to travel with every copy of the font —
+  // including the copy inside a shipped APK, not just the one in the repo.
+  // Registering it here puts it on the app's own licences page beside every
+  // package licence Flutter collects automatically.
+  //
+  // Lazy by contract: LicenseRegistry only drains these streams when something
+  // actually asks for the licence list, so this costs nothing at launch.
+  LicenseRegistry.addLicense(() async* {
+    final ofl = await rootBundle.loadString('assets/fonts/OFL.txt');
+    yield LicenseEntryWithLineBreaks(const ['Inter'], ofl);
+  });
 
   // Initialize Supabase with the custom HTTP client so Firebase-exchanged JWTs
   // are injected into every PostgREST request — this gives the `authenticated`

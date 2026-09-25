@@ -33,13 +33,27 @@ class FilterHistoryService {
   static final FilterHistoryService instance = FilterHistoryService._();
 
   /// Visible for tests: the exact key an account's history lives under.
-  static String keyFor(String userId) => 'filter_history_v1_${userId.trim()}';
+  ///
+  /// Signed-out browsing gets its own `_guest` bucket rather than nothing.
+  /// Discover is fully usable without an account — that is the product — so
+  /// filters are too, and a filter you cannot get back is a filter you rebuild
+  /// chip by chip every launch. `_guest` is a key no Firebase uid can collide
+  /// with, so a signed-in account still never sees it and it never sees them.
+  static String keyFor(String userId) {
+    final uid = userId.trim();
+    return 'filter_history_v1_${uid.isEmpty ? 'guest' : uid}';
+  }
 
   /// Deliberately small. This is "the searches you keep coming back to", not a
   /// log — a list long enough to scroll is a list nobody reads.
   static const int maxEntries = 8;
 
+  /// The account whose history is loaded. Empty means the signed-out guest
+  /// bucket, which is a real bucket — see [keyFor]. `_ready` is what says
+  /// whether anything has been loaded at all, so the two questions cannot be
+  /// confused the way they were when '' meant both "guest" and "nothing".
   String _userId = '';
+  bool _ready = false;
   List<FilterSelection> _entries = const [];
   bool _loaded = false;
 
@@ -60,7 +74,7 @@ class FilterHistoryService {
     _userId = uid;
     _entries = const [];
     _loaded = true;
-    if (uid.isEmpty) return;
+    _ready = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(keyFor(uid));
@@ -71,6 +85,8 @@ class FilterHistoryService {
       _entries = decode(raw);
     } catch (e) {
       debugPrint('[FILTER_HISTORY] read failed: $e');
+    } finally {
+      debugPrint('[FILTER_HISTORY] loaded ${_entries.length} for ${keyFor(uid)}');
     }
   }
 
@@ -79,7 +95,11 @@ class FilterHistoryService {
   /// An empty selection is not a filter — "show me everything" is the absence
   /// of one, and saving it would put a meaningless row at the top of the list.
   Future<void> record(FilterSelection selection) async {
-    if (_userId.isEmpty || selection.isEmpty) return;
+    if (!_ready || selection.isEmpty) {
+      debugPrint('[FILTER_HISTORY] not recorded (ready=$_ready '
+          'empty=${selection.isEmpty})');
+      return;
+    }
     final signature = selection.signature;
     final next = <FilterSelection>[
       selection,
@@ -93,9 +113,8 @@ class FilterHistoryService {
 
   /// Forget everything this account has searched for.
   Future<void> clear() async {
-    if (_entries.isEmpty && _userId.isEmpty) return;
     _entries = const [];
-    if (_userId.isEmpty) return;
+    if (!_ready) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(keyFor(_userId));
@@ -116,6 +135,9 @@ class FilterHistoryService {
     _entries = const [];
     _userId = '';
     _loaded = false;
+    // Not ready until the next load() — so nothing is written into the guest
+    // bucket in the window between sign-out and the viewer being re-resolved.
+    _ready = false;
   }
 
   Future<void> _persist() async {

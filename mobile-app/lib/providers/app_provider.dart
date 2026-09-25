@@ -31,13 +31,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   ThemePreference _themePreference = ThemePreference.system;
   List<PostModel> _posts = [];
   List<PostModel> _urgentPosts = [];
-  List<JobModel> _jobs = [];
   List<Conversation> _conversations = [];
   StreamSubscription<List<Conversation>>? _conversationStreamSubscription;
   
   // Loading states
   bool _isLoadingPosts = false;
-  bool _isLoadingJobs = false;
   bool _isLoadingUrgentPosts = false;
   bool _isLoadingConversations = false;
   bool _isPosting = false;
@@ -46,7 +44,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   ///
   /// This replaces a single shared `String? _error` that five features wrote and
   /// four read, which both leaked one feature's failure into another's UI and
-  /// erased failures before they could be shown (loadPosts and loadJobs run
+  /// erased failures before they could be shown (loadPosts and loadUrgentPosts run
   /// concurrently and each cleared the slot on entry).
   final FeatureErrors _errors = FeatureErrors();
   
@@ -109,10 +107,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// existing list and keeps its scroll position.
   int _feedGeneration = 0;
 
-  /// Whether the Jobs tab has ever completed a load. Same distinction Discover
-  /// draws with [FeedPresentation]: until a request has actually answered, an
-  /// empty list means "not yet", not "there are no jobs".
-  bool _jobsResolved = false;
 
   /// Whether Discover is the visible tab. A rebuild that arrives while the user
   /// is somewhere else can simply be installed — there is nothing on screen to
@@ -167,15 +161,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// this is a convenience cache, not a store of record.
   static const int _rememberedQueries = 6;
 
-  /// Identity of the last jobs query, so the Jobs tab stops re-fetching (and
-  /// re-ordering) for changes that cannot affect its ranking.
-  FeedIdentity? _jobsIdentity;
 
   /// Monotonic request ids. Typing "electrician" used to fire eleven full feed
   /// queries with nothing sequencing them, so a slow early response could land
   /// after a fast later one and overwrite it (audit §3.7).
   int _postsRequestSeq = 0;
-  int _jobsRequestSeq = 0;
   Timer? _searchDebounce;
 
   /// Long enough to swallow a burst of typing, short enough that the feed
@@ -196,12 +186,18 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   ThemeMode get themeMode => _themePreference.themeMode;
   /// Whether the current user has already applied / sent an offer on [postId].
   bool hasAppliedTo(String postId) => _appliedPostIds.contains(postId);
+
+  /// How many listings the current user has responded to.
+  ///
+  /// Exists so the Activity tab's "Applied" list can be re-keyed the moment
+  /// [markApplied] fires: the tabs live in an IndexedStack and therefore keep
+  /// their state, so a provider who applied and then walked straight to
+  /// Activity would otherwise be shown a list fetched before they applied.
+  int get appliedCount => _appliedPostIds.length;
   List<PostModel> get posts => _posts;
-  List<JobModel> get jobs => _jobs;
   List<PostModel> get urgentPosts => _urgentPosts;
   List<Conversation> get conversations => _conversations;
   bool get isLoadingPosts => _isLoadingPosts;
-  bool get isLoadingJobs => _isLoadingJobs;
   bool get isLoadingUrgentPosts => _isLoadingUrgentPosts;
   bool get isLoadingConversations => _isLoadingConversations;
   bool get isPosting => _isPosting;
@@ -211,8 +207,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// the posting screen alike, so each of them could render another's failure.
   String? get discoverError => _errors[AppFeature.discover];
 
-  /// Why the Jobs tab failed to load, or null.
-  String? get jobsError => _errors[AppFeature.jobs];
 
   /// Why the last create/archive failed, or null.
   String? get postingError => _errors[AppFeature.posting];
@@ -326,8 +320,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         .answersSameQuestionAs(_identityFor(_scopeForFilter, _currentFilters));
   }
 
-  /// Whether the Jobs tab's empty list is an answer or an absence of one.
-  bool get hasResolvedJobs => _jobsResolved;
 
   /// True when the ranking on screen came from the recommendation engine rather
   /// than the chronological fallback.
@@ -504,7 +496,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _pending = null;
     _snapshotsByQuery.clear();
     _readerEngaged = false;
-    _jobsIdentity = null;
     InteractionTracker.instance.setUser(null);
     // The filters themselves are dropped: a search someone else assembled must
     // not still be narrowing Discover for whoever signs in next. Their stored
@@ -595,8 +586,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // still has a viewer to wait for.
       if (_viewerResolved) {
         unawaited(loadPosts(reason: FeedInvalidation.explicit));
-        unawaited(loadJobs(force: true));
-      } else {
+        } else {
         _armViewerGrace();
       }
       return;
@@ -643,7 +633,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     // The launch feed is what it is going to be. Hand over.
     LaunchSequence.markFeedFinal();
     notifyListeners();
-    unawaited(loadJobs(force: true));
     unawaited(_warmOtherScopes());
   }
 
@@ -721,7 +710,17 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// Silent and best-effort: two requests, no UI, no errors, nothing installed.
   Future<void> _warmOtherScopes() async {
     if (!_isDefaultQuery) return;
-    for (final scope in const [FeedScope.requests, FeedScope.offers]) {
+    // Jobs is warmed here now rather than fetched into a corpus of its own.
+    // The launch used to issue a whole second jobs feed — plus a jobs read in
+    // StartupPrefetch — whose only reader was the Jobs TAB, and that tab became
+    // a scope pill in Discover. So the request was being made on every cold
+    // start and every refresh, and its answer was thrown away. Same work, same
+    // count, pointed at the pill that actually exists.
+    for (final scope in const [
+      FeedScope.requests,
+      FeedScope.offers,
+      FeedScope.jobs,
+    ]) {
       final identity = _identityFor(scope, const PostFilters());
       if (_snapshotsByQuery.containsKey(identity.queryKey)) continue;
       try {
@@ -738,6 +737,12 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         if (!identity.answersSameQuestionAs(_identityFor(scope, const PostFilters()))) {
           continue;
         }
+        // The filter sheet's vocabulary is fed from every page that arrives,
+        // not just the one on screen. It used to be fed by the jobs corpus as
+        // its second source; warming the scopes replaces that with three, so a
+        // typed profession resolves against the whole marketplace rather than
+        // against whichever page the user is currently looking at.
+        _rememberCategoryNames(result.items.map((p) => p.category.name));
         _remember(FeedSnapshot.fromResult(
           result,
           identity: identity,
@@ -756,7 +761,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       if (_viewerResolved) return;
       _viewerResolved = true;
       unawaited(loadPosts(reason: FeedInvalidation.explicit));
-      unawaited(loadJobs());
     });
   }
 
@@ -791,10 +795,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     unawaited(CacheService.savePosts(_posts));
   }
 
-  void _cacheJobsIfDefault() {
-    if (!_isUnfilteredQuery || _jobs.isEmpty) return;
-    unawaited(CacheService.saveJobs(_jobs));
-  }
 
   /// Put the last known feed on screen while the live one is computed.
   ///
@@ -833,16 +833,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     await _precacheFirstScreen(cached);
     notifyListeners();
 
-    // Same contract for Jobs — the tab opens on content instead of skeletons.
-    // `_jobsResolved` stays false: this is a placeholder, so an empty Jobs list
-    // still reads as "not yet", never as "no jobs exist".
-    if (_jobs.isEmpty) {
-      final cachedJobs = await CacheService.loadJobs();
-      if (cachedJobs.isNotEmpty && _jobs.isEmpty) {
-        _jobs = cachedJobs;
-        notifyListeners();
-      }
-    }
   }
 
   /// Refresh all data.
@@ -857,7 +847,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   }) async {
     await Future.wait([
       loadPosts(reason: reason),
-      loadJobs(force: true),
       loadUrgentPosts(force: true),
     ]);
   }
@@ -1327,86 +1316,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// filters). See utils/feed_scope.dart.
   FeedScope get _scopeForFilter => FeedScope.fromDiscoverFilter(_selectedFilter);
 
-  /// Load jobs from Supabase.
-  /// When offline: keeps cached _jobs, does not clear or show endless loading.
-  ///
-  /// [force] bypasses the identity gate for an explicit refresh. Without the
-  /// gate, Jobs re-fetched and re-ordered for every GPS jitter update that
-  /// reached [setViewer] — the same instability Discover had, on a tab nobody
-  /// thought to look at.
-  Future<void> loadJobs({bool force = false}) async {
-    final identity = _identityFor(FeedScope.jobs, _currentFilters);
-    if (!force &&
-        _jobs.isNotEmpty &&
-        _jobsIdentity != null &&
-        _jobsIdentity!.invalidationFrom(identity).isNone) {
-      return;
-    }
-    _jobsIdentity = identity;
-
-    final seq = ++_jobsRequestSeq;
-    // Only spin when there is nothing to look at. Cached jobs hydrated at
-    // startup count as something: a refresh underneath them must not replace the
-    // tab with skeletons.
-    _isLoadingJobs = _jobs.isEmpty;
-    _errors.clear(AppFeature.jobs);
-    notifyListeners();
-
-    try {
-      // Splash-time prefetch (see loadPosts for the contract).
-      final prefetch = StartupPrefetch.takeJobs();
-      if (prefetch != null && !hasActiveFilters && _searchQuery.isEmpty) {
-        final prefetched = await prefetch;
-        if (prefetched != null) {
-          _jobs = prefetched;
-          _jobsResolved = true;
-          _cacheJobsIfDefault();
-          return;
-        }
-      }
-
-      final results = await Connectivity().checkConnectivity();
-      final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
-      if (offline) {
-        final cached = await CacheService.loadJobs();
-        if (cached.isNotEmpty) {
-          _jobs = cached;
-        }
-        _isLoadingJobs = false;
-        notifyListeners();
-        return;
-      }
-
-      final filters = _currentFilters;
-      // Jobs run through the SAME engine as Discover (scope=jobs). The tab
-      // used to be a second, weaker copy of the feed query — same table,
-      // narrower search, no ranking (audit §3.11). An electrician now sees
-      // electrical jobs first here for the same reason they do in Discover.
-      final result = await FeedService.fetchJobsFeed(
-        userId: _viewerUserId,
-        latitude: _viewerLatitude,
-        longitude: _viewerLongitude,
-        filters: filters,
-      );
-      if (seq != _jobsRequestSeq) return;
-
-      _jobs = result.items;
-      _jobsResolved = true;
-      _rememberCategoryNames(_jobs.map((j) => j.categoryName));
-      _cacheJobsIfDefault();
-    } catch (e) {
-      if (seq != _jobsRequestSeq) return;
-      _errors.set(AppFeature.jobs, ErrorMapper.toMessage(e, context: ErrorContext.loadFeed));
-      debugPrint('[AppProvider] loadJobs failed: $e');
-    } finally {
-      if (seq == _jobsRequestSeq) {
-        _warmAvatarUrls(_jobs.map((j) => j.authorAvatarUrl));
-        _isLoadingJobs = false;
-        notifyListeners();
-      }
-    }
-  }
-
   /// How many urgent requests one load fetches.
   ///
   /// ONE size for every caller. The Discover header used the default (5) and
@@ -1624,15 +1533,10 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         onImageUploadProgress: onImageUploadProgress,
       );
 
-      // Same contract as createPost above.
-      final existing = _jobs.indexWhere((j) => j.id == createdJob.id);
-      if (existing != -1) {
-        _jobs[existing] = createdJob;
-      } else {
-        _jobs.insert(0, createdJob);
-      }
+      // A created job reaches the feed through the next load, like every
+      // other listing: the parallel `_jobs` list it used to be spliced into
+      // was read by exactly one screen, and that screen is gone.
       _warmAvatarUrls([createdJob.authorAvatarUrl]);
-      _cacheJobsIfDefault();
       notifyListeners();
       return createdJob;
     } catch (e) {
@@ -1651,20 +1555,30 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     notifyListeners();
   }
 
-  /// Add job to local list (for optimistic updates)
-  void addJob(JobModel job) {
-    _jobs.insert(0, job);
-    notifyListeners();
-  }
 
-  /// Delete a post or job. Only the author can delete. Removes from posts and jobs lists.
-  Future<bool> deletePost(String postId, String? currentUserId) async {
+  /// Delete (archive) a listing. Only the author may.
+  ///
+  /// [authorUserId] is the listing's author as the CALLER already knows it —
+  /// every delete starts from a listing that is on screen, so the caller is
+  /// holding the row. It used to be looked up in the in-memory feeds instead,
+  /// which made the check depend on whether the listing happened to be in a
+  /// cached list: a job opened from My Posts is not in `_posts`, so the lookup
+  /// fell through to the parallel `_jobs` corpus, and the delete worked only
+  /// because that corpus was loaded on every launch. With the corpus gone the
+  /// lookup would have failed silently and the button would have done nothing.
+  ///
+  /// This is a UX guard, not the enforcement: `JobsService.archivePost` is
+  /// policy-enforced server-side and is what actually decides.
+  Future<bool> deletePost(
+    String postId,
+    String? currentUserId, {
+    String? authorUserId,
+  }) async {
     if (currentUserId == null || currentUserId.isEmpty) return false;
-    String? authorId;
-    if (_posts.any((p) => p.id == postId)) {
-      authorId = _posts.firstWhere((p) => p.id == postId).authorUserId;
-    } else if (_jobs.any((j) => j.id == postId)) {
-      authorId = _jobs.firstWhere((j) => j.id == postId).authorUserId;
+    var authorId = authorUserId;
+    if (authorId == null || authorId.isEmpty) {
+      final match = _posts.where((p) => p.id == postId);
+      authorId = match.isEmpty ? null : match.first.authorUserId;
     }
     if (authorId == null || authorId != currentUserId) return false;
     try {
@@ -1672,9 +1586,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // so reviews, reputation, escrow, disputes and chat history are preserved).
       await JobsService.archivePost(postId: postId, userId: currentUserId);
       _splice((posts) => posts.removeWhere((p) => p.id == postId));
-      _jobs.removeWhere((j) => j.id == postId);
       _cachePostsIfDefault();
-      _cacheJobsIfDefault();
       notifyListeners();
       return true;
     } on JobsException catch (e) {
@@ -1754,19 +1666,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     notifyListeners();
   }
 
-  /// Legacy method for backward compatibility
-  void addApplicationToJob(String jobId, Application application) {
-    final index = _jobs.indexWhere((j) => j.id == jobId);
-    if (index != -1) {
-      final job = _jobs[index];
-      final updatedApplications = [...job.applications, application];
-      _jobs[index] = job.copyWith(
-        applications: updatedApplications,
-        hasApplied: true,
-      );
-      notifyListeners();
-    }
-  }
 
   // ==================== CONVERSATIONS ====================
 
@@ -2470,7 +2369,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         return;
       }
       unawaited(loadPosts(reason: FeedInvalidation.explicit));
-      unawaited(loadJobs(force: true));
       return;
     }
 
@@ -2479,7 +2377,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     // A sign-in/sign-out replaces the feed; a move offers one. loadPosts reads
     // the reason and decides — see _shouldInstall.
     unawaited(loadPosts(reason: reason));
-    unawaited(loadJobs());
   }
 
   /// Re-run the current filters. NOT the apply path — see

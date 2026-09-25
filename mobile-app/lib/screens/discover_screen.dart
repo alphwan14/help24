@@ -8,7 +8,8 @@ import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../providers/location_provider.dart';
-import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
+import '../widgets/primitives.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_card.dart';
 import '../widgets/filter_bottom_sheet.dart';
@@ -22,6 +23,7 @@ import '../services/feed_snapshot.dart';
 import '../services/interaction_tracker.dart';
 import '../services/launch_sequence.dart';
 import '../services/promotion_service.dart';
+import '../services/urgent_seen_store.dart';
 import '../utils/feed_composer.dart';
 import '../utils/post_ownership.dart';
 import '../utils/promotion_tracker.dart';
@@ -91,6 +93,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             userLongitude: location.longitude,
           );
       _loadSponsoredSlots();
+      // The seen set has to be in memory before the first frame that draws a
+      // count, or the chip flashes the full inventory and then corrects
+      // itself — which reads as the number being wrong rather than as it
+      // loading.
+      unawaited(UrgentSeenStore.instance.ensureLoaded());
     });
   }
 
@@ -211,16 +218,17 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     setState(() => _tabIndex = tab);
     final provider = context.read<AppProvider>();
     provider.setSearchQuery('');
-    const filters = ['All', 'Requests', 'Offers'];
+    // 'Jobs' maps to FeedScope.jobs, which the server has always served and
+    // which the standalone Jobs tab used. Discover reaches it through the same
+    // loadPosts path as every other scope — no second corpus.
+    const filters = ['All', 'Requests', 'Offers', 'Jobs'];
     provider.setSelectedFilter(filters[tab]);
     _loadSponsoredSlots();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textSecondary =
-        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final c = AppColors.of(context);
     final searchText = _searchController.text;
 
     return SafeArea(
@@ -240,7 +248,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
           // ── Top bar ──────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+            padding: const EdgeInsets.fromLTRB(AppSpace.gutter, AppSpace.xs, AppSpace.gutter, 0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -304,70 +312,64 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     // every keystroke in the search box, every filter change and
                     // every load transition, and this pill cares about exactly
                     // one number. A plain Consumer rebuilt it for all of them.
-                    Selector<AppProvider, int>(
-                      // Counts only requests whose window is still open. The
-                      // list is loaded once and held, so without this the badge
-                      // kept counting emergencies that had already expired —
-                      // and every caller now loads the same page size, so this
-                      // is a count rather than a page length.
+                    // The count is UNSEEN open emergencies, not all of them.
+                    //
+                    // It used to be the whole open inventory, which is a true
+                    // fact drawn in a shape that means something else: a red
+                    // count says "N things you have not dealt with", so it
+                    // never moving — read the request, come back, still
+                    // `Urgent · 1` — taught the reader to stop looking. That is
+                    // the one thing an emergency surface cannot afford.
+                    //
+                    // Listening to BOTH: the provider for what is open, and the
+                    // seen store for what has been looked at. Either changing
+                    // has to move the number.
+                    ListenableBuilder(
+                      listenable: UrgentSeenStore.instance,
+                      builder: (context, _) => Selector<AppProvider, int>(
+                      // Only requests whose window is still open. The list is
+                      // loaded once and held, so without this the badge kept
+                      // counting emergencies that had already expired.
                       selector: (_, provider) =>
-                          openUrgentPosts(provider.urgentPosts, DateTime.now())
-                              .length,
+                          UrgentSeenStore.instance.unseenCount(
+                        openUrgentPosts(provider.urgentPosts, DateTime.now())
+                            .map((p) => p.id),
+                      ),
                       builder: (_, urgentCount, __) {
-                        return GestureDetector(
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const UrgentRequestsScreen()),
-                          ),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 7),
-                            decoration: BoxDecoration(
-                              color: AppTheme.errorRed.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: AppTheme.errorRed.withValues(alpha: 0.4),
-                              ),
+                        // Emergency entry. It used to be a bordered red pill
+                        // with a bold red label and a filled red counter —
+                        // three reds and a boundary, competing with the screen
+                        // title beside it. It is one chip now, in the critical
+                        // tone every other urgent thing in the app uses, and
+                        // the count rides inside the label rather than on a
+                        // second badge.
+                        //
+                        // Still red, still first thing you see after the title.
+                        // Just not shouting over it.
+                        return Semantics(
+                          button: true,
+                          label: urgentCount > 0
+                              ? 'Urgent requests, $urgentCount new'
+                              : 'Urgent requests',
+                          child: GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const UrgentRequestsScreen()),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(AppIcons.urgent,
-                                    size: 16, color: AppTheme.errorRed),
-                                const SizedBox(width: 4),
-                                const Text(
-                                  'Urgent',
-                                  style: TextStyle(
-                                    color: AppTheme.errorRed,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                if (urgentCount > 0) ...[
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 1),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.errorRed,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Text(
-                                      '$urgentCount',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
+                            behavior: HitTestBehavior.opaque,
+                            child: AppChip(
+                              label: urgentCount > 0
+                                  ? 'Urgent · $urgentCount'
+                                  : 'Urgent',
+                              icon: AppIcons.urgent,
+                              tone: ChipTone.critical,
+                              size: ChipSize.md,
                             ),
                           ),
                         );
                       },
+                      ),
                     ),
                   ],
                 ),
@@ -377,7 +379,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
           // ── Search bar ───────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+            padding: const EdgeInsets.fromLTRB(AppSpace.gutter, AppSpace.md, AppSpace.gutter, 0),
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
                 return TextField(
@@ -400,18 +402,29 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     provider.setSearchQuery(value);
                     _scheduleSlotReload();
                   },
+                  style: AppTypeScale.bodyM.copyWith(
+                    fontFamily: AppTypeScale.family,
+                    color: c.contentPrimary,
+                  ),
                   decoration: InputDecoration(
+                    // "Search all posts..." named the database table, not the
+                    // thing the user wants. Discover is where someone answers
+                    // "what can I get done here", and the field is the first
+                    // place that question can be answered.
                     hintText: _tabIndex == 0
-                        ? 'Search all posts...'
+                        ? 'Search services and requests'
                         : _tabIndex == 1
-                            ? 'Search requests...'
-                            : 'Search offers...',
-                    prefixIcon: Icon(
-                      AppIcons.search,
-                      color: isDark
-                          ? AppTheme.darkTextTertiary
-                          : AppTheme.lightTextTertiary,
-                    ),
+                            ? 'Search requests'
+                            : 'Search services',
+                    // 48, down from ~64. The field was the tallest element on
+                    // the screen and it is not the primary action.
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AppSpace.md, vertical: AppSpace.md + 2),
+                    prefixIcon: Icon(AppIcons.search,
+                        size: 20, color: c.contentTertiary),
+                    prefixIconConstraints: const BoxConstraints(
+                        minWidth: 44, minHeight: 44),
                     suffixIcon: searchText.isNotEmpty
                         ? IconButton(
                             icon: const Icon(AppIcons.close, size: 20),
@@ -428,32 +441,61 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ),
           ),
 
-          // ── Tabs (left) + Filter button (right) in one row ──
+          // ── Scopes (scrolling) + Filters (pinned) ────────────
+          //
+          // Four scopes no longer fit on one line at 384 dp, so the pills
+          // scroll. The filter control sits OUTSIDE that scroll view: a
+          // control that can slide off the screen edge is a control the user
+          // cannot find, and it is the one thing in this row that is not a
+          // scope.
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-            child: Consumer<AppProvider>(
-              builder: (context, provider, _) {
-                return Row(
-                  children: [
-                    FilterPill(
-                      label: 'All',
-                      isActive: _tabIndex == 0,
-                      onTap: () => _switchToTab(0),
+            padding: const EdgeInsets.only(top: AppSpace.md),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpace.gutter),
+                    child: Row(
+                      children: [
+                        FilterPill(
+                          label: 'All',
+                          isActive: _tabIndex == 0,
+                          onTap: () => _switchToTab(0),
+                        ),
+                        const SizedBox(width: FilterPill.gap),
+                        FilterPill(
+                          label: 'Requests',
+                          isActive: _tabIndex == 1,
+                          onTap: () => _switchToTab(1),
+                        ),
+                        const SizedBox(width: FilterPill.gap),
+                        FilterPill(
+                          label: 'Offers',
+                          isActive: _tabIndex == 2,
+                          onTap: () => _switchToTab(2),
+                        ),
+                        const SizedBox(width: FilterPill.gap),
+                        // Jobs, which used to be a tab of its own in the
+                        // bottom bar. It is a scope over the same corpus,
+                        // reached by the same request — so it belongs beside
+                        // the other scopes, not beside Messages and Profile.
+                        FilterPill(
+                          label: 'Jobs',
+                          isActive: _tabIndex == 3,
+                          onTap: () => _switchToTab(3),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: FilterPill.gap),
-                    FilterPill(
-                      label: 'Requests',
-                      isActive: _tabIndex == 1,
-                      onTap: () => _switchToTab(1),
-                    ),
-                    const SizedBox(width: FilterPill.gap),
-                    FilterPill(
-                      label: 'Offers',
-                      isActive: _tabIndex == 2,
-                      onTap: () => _switchToTab(2),
-                    ),
-                    const Spacer(),
-                    GestureDetector(
+                  ),
+                ),
+                const SizedBox(width: AppSpace.sm),
+                Padding(
+                  padding: const EdgeInsets.only(right: AppSpace.gutter),
+                  child: Consumer<AppProvider>(
+                    builder: (context, provider, _) {
+                      return GestureDetector(
                       onTap: () async {
                         // The sheet ANSWERS; it does not apply itself. A null
                         // answer means the user left without searching — Exit,
@@ -510,73 +552,75 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             await provider.applyFilterSelection(selection);
                         if (mounted && changed) _loadSponsoredSlots();
                       },
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: provider.hasActiveFilters
-                              ? AppTheme.primaryAccent.withValues(alpha: 0.12)
-                              : (isDark
-                                  ? AppTheme.darkCard
-                                  : AppTheme.lightCard),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
+                      // Sized and shaped as a FilterPill, because it belongs to
+                      // that row. It used to be a 12-radius square beside three
+                      // 24-radius capsules of a different height, which read as
+                      // a stray control that had wandered in from another
+                      // screen — and it was unlabelled to a screen reader.
+                      child: Semantics(
+                        button: true,
+                        label: provider.hasActiveFilters
+                            ? 'Filters, active'
+                            : 'Filters',
+                        child: Container(
+                          height: 40,
+                          width: 44,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
                             color: provider.hasActiveFilters
-                                ? AppTheme.primaryAccent
-                                : (isDark
-                                    ? AppTheme.darkBorder
-                                    : AppTheme.lightBorder),
+                                ? c.accentFill
+                                : c.surfaceSunken,
+                            borderRadius: AppRadius.pillAll,
+                            border: provider.hasActiveFilters
+                                ? null
+                                : Border.all(color: c.borderHairline),
+                          ),
+                          // Active state is the same brand-gold fill a selected
+                          // pill uses, so "a filter is on" reads as selection
+                          // rather than as a separate decoration with its own
+                          // dot.
+                          child: Icon(
+                            AppIcons.filter,
+                            size: 18,
+                            color: provider.hasActiveFilters
+                                ? c.contentOnAccent
+                                : c.contentSecondary,
                           ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              AppIcons.filter,
-                              size: 18,
-                              color: provider.hasActiveFilters
-                                  ? AppTheme.primaryAccent
-                                  : (isDark
-                                      ? AppTheme.darkTextPrimary
-                                      : AppTheme.lightTextPrimary),
-                            ),
-                            if (provider.hasActiveFilters) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: AppTheme.primaryAccent,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
                       ),
-                    ),
-                  ],
-                );
-              },
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
 
-          const SizedBox(height: 4),
-
-          // ── Context label (only when user has typed something) ─
+          // ── Result count, while searching ────────────────────
+          //
+          // This used to read `Showing all posts for "plumber"` in ITALIC — the
+          // only italic text in the app — and it restated two things already on
+          // screen: the query is in the field above it, and the tab is the
+          // selected pill next to that. A count is the one thing the user
+          // cannot see for themselves, and it is what tells them whether to
+          // refine or to scroll.
           if (searchText.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-              child: Text(
-                'Showing ${_tabIndex == 0 ? 'all posts' : _tabIndex == 1 ? 'requests' : 'offers'} for "$searchText"',
-                style: TextStyle(
-                  color: textSecondary,
-                  fontSize: 12,
-                  fontStyle: FontStyle.italic,
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.gutter, AppSpace.md, AppSpace.gutter, 0),
+              child: Selector<AppProvider, int>(
+                selector: (_, p) => p.filteredPosts.length,
+                builder: (_, count, __) => Text(
+                  count == 1 ? '1 result' : '$count results',
+                  style: AppTypeScale.meta.copyWith(
+                    fontFamily: AppTypeScale.family,
+                    color: c.contentTertiary,
+                  ),
                 ),
               ),
             ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpace.md),
 
           // ── Feed ─────────────────────────────────────────────
           //
@@ -728,7 +772,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       onRefresh: _refreshPosts,
       child: ListView.builder(
         controller: _feedScroll,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.fromLTRB(AppSpace.gutter, 0, AppSpace.gutter,
+            AppSpace.fabClearance),
         itemCount: entries.length,
         itemBuilder: (context, index) {
           final entry = entries[index];

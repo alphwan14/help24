@@ -7,8 +7,10 @@ import '../models/profile_completion.dart';
 import '../providers/app_provider.dart';
 import '../services/profession_registry.dart';
 import '../services/user_profile_service.dart';
+import 'primitives.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../utils/name_validator.dart';
 import 'profile_widgets.dart';
@@ -287,23 +289,13 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
       builder: (context, scrollController) => Container(
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: AppRadius.sheetTop,
         ),
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 18),
-                decoration: BoxDecoration(
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
+            const SheetHandle(margin: EdgeInsets.only(bottom: 18)),
             Text('Your profession', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 6),
             Text(
@@ -317,7 +309,7 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: AppTheme.warningOrange.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: AppRadius.mdAll,
                 ),
                 child: Row(
                   children: [
@@ -427,7 +419,7 @@ class _ProfessionPickerSheetState extends State<_ProfessionPickerSheet> {
                               height: 40,
                               decoration: BoxDecoration(
                                 color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(11),
+                                borderRadius: AppRadius.mdAll,
                               ),
                               child: Icon(_registry.iconFor(p),
                                   size: 20, color: AppTheme.primaryAccent),

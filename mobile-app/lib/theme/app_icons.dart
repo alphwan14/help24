@@ -84,6 +84,13 @@ class AppIcons {
   static const IconData jobs = Iconsax.briefcase;
   static const IconData jobsActive = Iconsax.briefcase5;
 
+  /// The Activity tab: the user's OWN work — what they posted, what they
+  /// saved, what they have done. Shares the briefcase with [jobs] on purpose,
+  /// and only because [jobs] stopped being a destination: a job listing is now
+  /// a scope inside Discover, so nothing else in the navigation claims work.
+  static const IconData activity = Iconsax.briefcase;
+  static const IconData activityActive = Iconsax.briefcase5;
+
   static const IconData messages = Iconsax.message;
   static const IconData messagesActive = Iconsax.message5;
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_icons.dart';
 
 import '../../theme/app_theme.dart';
+import '../../theme/tokens.dart';
 import '../../utils/kenyan_phone.dart';
 
 /// The phone entry control, built to the standard people already expect from
@@ -130,7 +131,7 @@ class _PhoneNumberFieldState extends State<PhoneNumberField> {
             curve: Curves.easeOut,
             decoration: BoxDecoration(
               color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: AppRadius.mdAll,
               border: Border.all(
                 color: borderColor,
                 width: (_focused || hasError || _isComplete) ? 1.6 : 1,

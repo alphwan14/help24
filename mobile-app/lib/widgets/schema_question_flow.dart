@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/category_schema.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 
 /// Smart Posting (SP-2): the guided-conversation renderer.
 ///
@@ -135,7 +136,7 @@ class _SchemaQuestionFlowState extends State<SchemaQuestionFlow> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: AppTheme.errorRed.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: AppRadius.mdAll,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -347,7 +348,7 @@ class ChoiceTile extends StatelessWidget {
           color: selected
               ? AppTheme.primaryAccent.withValues(alpha: 0.15)
               : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: AppRadius.mdAll,
           border: Border.all(
             color: selected
                 ? AppTheme.primaryAccent
@@ -426,7 +427,7 @@ class _ChoiceChip extends StatelessWidget {
           color: selected
               ? AppTheme.primaryAccent.withValues(alpha: 0.15)
               : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: AppRadius.pillAll,
           border: Border.all(
             color: selected
                 ? AppTheme.primaryAccent

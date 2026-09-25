@@ -35,9 +35,10 @@ library;
 /// stay identical — a drift here silently changes what the fallback shows
 /// relative to the engine, which is exactly the bug this enum ends.
 enum FeedScope {
-  /// Discover's "All" tab. Requests and offers — NOT jobs, which have their own
-  /// tab. `null` (no filter) would have been a product change disguised as a
-  /// default.
+  /// Discover's "All" scope. Requests and offers — NOT jobs, which have their
+  /// own scope. `null` (no filter) would have been a product change disguised
+  /// as a default, and that is still true now that Jobs sits in the same row:
+  /// "All" keeps meaning exactly what it meant.
   all('all', ['request', 'offer']),
 
   /// Discover's "Requests" tab.
@@ -46,7 +47,8 @@ enum FeedScope {
   /// Discover's "Offers" tab.
   offers('offers', ['offer']),
 
-  /// The Jobs tab.
+  /// Discover's "Jobs" scope. Was a top-level tab of its own; a job is a
+  /// listing like any other and now lives in the same row as the rest.
   jobs('jobs', ['job']);
 
   const FeedScope(this.wire, this.postTypes);
@@ -62,6 +64,10 @@ enum FeedScope {
   static FeedScope fromDiscoverFilter(String label) => switch (label) {
         'Requests' => FeedScope.requests,
         'Offers' => FeedScope.offers,
+        // Jobs stopped being a top-level tab and became a scope in Discover's
+        // own row. The scope itself is unchanged — the server has always served
+        // `scope=jobs` and this is the same wire value the Jobs tab sent.
+        'Jobs' => FeedScope.jobs,
         _ => FeedScope.all,
       };
 }

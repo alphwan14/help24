@@ -4,6 +4,7 @@ import '../theme/app_icons.dart';
 import '../models/service_record.dart';
 import '../services/service_records_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
@@ -219,7 +220,7 @@ class _SummaryHeader extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
       ),
       child: Row(
@@ -296,13 +297,13 @@ class _ServiceRecordCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.lgAll,
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -393,7 +394,7 @@ class _ServiceRecordCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                       decoration: BoxDecoration(
                         color: color.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: AppRadius.pillAll,
                       ),
                       child: Text(
                         // The label comes from the backend's ONE money state
@@ -408,7 +409,7 @@ class _ServiceRecordCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                         decoration: BoxDecoration(
                           color: tertiary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: AppRadius.pillAll,
                         ),
                         child: Text(
                           'Removed',

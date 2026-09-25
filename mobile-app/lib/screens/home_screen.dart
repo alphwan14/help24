@@ -8,6 +8,8 @@ import '../services/notification_store.dart';
 import '../services/remote_config_service.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../services/user_profile_service.dart';
+import '../theme/app_icons.dart';
+import '../theme/tokens.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../widgets/auth_guard.dart';
 import '../widgets/ops_banners.dart';
@@ -16,7 +18,7 @@ import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/location_provider.dart';
 import 'discover_screen.dart';
-import 'jobs_screen.dart';
+import 'activity_screen.dart';
 import 'post_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
@@ -31,7 +33,16 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
-  bool _showPostScreen = false;
+
+  /// True while the composer route is on top of the shell.
+  ///
+  /// This is NOT the old `_showPostScreen` under a new name. That boolean chose
+  /// what the shell RENDERED; this one only records that something is covering
+  /// it, so Discover can be told it is not being looked at (see
+  /// [_syncDiscoverVisibility]) and a ranking that lands meanwhile is installed
+  /// quietly instead of rearranging a feed nobody can see.
+  bool _composerOpen = false;
+
   String _lastAuthUserId = '';
   bool _locationPromptInFlight = false;
 
@@ -138,28 +149,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Nav index == stack index, 0..3.
+  ///
+  /// It used to not. The centre "Post" slot was a nav index that mapped to no
+  /// tab, so this method translated (`index > 2 ? index - 1 : index`) and
+  /// `_getNavIndex()` translated back. Post is a FAB now — see
+  /// [_openComposer] — and the two index spaces collapsed into one.
   void _onNavTap(int index) {
     if (index == 2) {
-      // Post button - requires authentication
-      AuthGuard.requireAuth(
-        context,
-        action: 'create a post',
-        onAuthenticated: () {
-          setState(() {
-            _showPostScreen = true;
-          });
-        },
-      );
-    } else if (index == 3) {
-      // Messages - requires authentication; reload conversations when opening tab
+      // Messages requires authentication; reload conversations when opening.
       AuthGuard.requireAuth(
         context,
         action: 'view messages',
         onAuthenticated: () {
-          setState(() {
-            _currentIndex = 2; // Messages is index 2 in the stack
-            _showPostScreen = false;
-          });
+          setState(() => _currentIndex = 2);
           final uid = context.read<AuthProvider>().currentUserId ?? '';
           if (uid.isNotEmpty) {
             context.read<AppProvider>().loadConversations(uid);
@@ -167,12 +170,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         },
       );
     } else {
-      setState(() {
-        _currentIndex = index > 2 ? index - 1 : index;
-        _showPostScreen = false;
-      });
+      // Activity is deliberately NOT gated: it offers sign-in inline on an
+      // empty state, which is gentler than a modal in front of a tab the user
+      // has merely touched.
+      setState(() => _currentIndex = index);
     }
     _syncDiscoverVisibility();
+  }
+
+  /// Open the composer as a ROUTE.
+  ///
+  /// It used to be a body swap behind a boolean — see [PostScreen] for what that
+  /// cost. Pushing it means the composer owns its own back behaviour, and the
+  /// shell stops carrying a `_showPostScreen` term in its FAB, its bottom bar
+  /// and its `PopScope`.
+  ///
+  /// The result decides where the person lands. `true` means they posted, so
+  /// they go to Discover to see it arrive; anything else means they left without
+  /// posting, and they return to the tab they came from — which the body swap
+  /// could not do, because it always dropped them on Discover.
+  void _openComposer() {
+    AuthGuard.requireAuth(
+      context,
+      action: 'create a post',
+      onAuthenticated: () async {
+        setState(() => _composerOpen = true);
+        _syncDiscoverVisibility();
+        final posted = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(builder: (_) => const PostScreen()),
+        );
+        if (!mounted) return;
+        setState(() {
+          _composerOpen = false;
+          if (posted == true) _currentIndex = 0;
+        });
+        _syncDiscoverVisibility();
+      },
+    );
   }
 
   /// Tell AppProvider whether Discover is the tab in front of the user.
@@ -185,7 +219,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     context
         .read<AppProvider>()
-        .setDiscoverVisible(!_showPostScreen && _currentIndex == 0);
+        .setDiscoverVisible(!_composerOpen && _currentIndex == 0);
   }
 
   /// Refresh the stored position only when it has actually gone stale.
@@ -247,14 +281,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
     }
 
-    // Android back behaves like a "home" gesture: from any tab (Jobs, Messages,
-    // Profile) the first back press returns to Discover; only a second press —
-    // already on Discover — leaves the app. The Post screen keeps its own inner
-    // PopScope (which also lands on Discover), so this one stays out of its way.
+    // Android back behaves like a "home" gesture: from any tab (Activity,
+    // Messages, Profile) the first back press returns to Discover; only a
+    // second press — already on Discover — leaves the app.
+    //
+    // The composer is a route now, so it sits ABOVE this in the navigator and
+    // absorbs its own back presses. This scope no longer has to know it exists.
     return PopScope(
-      canPop: !_showPostScreen && _currentIndex == 0,
+      canPop: _currentIndex == 0,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop || _showPostScreen) return;
+        if (didPop) return;
         setState(() => _currentIndex = 0);
         _syncDiscoverVisibility();
       },
@@ -276,57 +312,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // until someone edits the config.
           const OpsBanners(),
           Expanded(
-            child: _showPostScreen
-                ? PopScope(
-                    canPop: false,
-                    onPopInvokedWithResult: (didPop, _) {
-                      if (!didPop) {
-                        setState(() {
-                          _showPostScreen = false;
-                          _currentIndex = 0;
-                        });
-                        _syncDiscoverVisibility();
-                      }
-                    },
-                    child: PostScreen(
-                      onComplete: () {
-                        setState(() {
-                          _showPostScreen = false;
-                          _currentIndex = 0;
-                        });
-                        _syncDiscoverVisibility();
-                      },
-                    ),
-                  )
-                : IndexedStack(
-                    index: _currentIndex,
-                    children: const [
-                      DiscoverScreen(),
-                      JobsScreen(),
-                      MessagesScreen(),
-                      ProfileScreen(),
-                    ],
-                  ),
+            child: IndexedStack(
+              index: _currentIndex,
+              children: const [
+                DiscoverScreen(),
+                // Was JobsScreen — a filter over the corpus Discover already
+                // serves, holding one listing, while the user's own work had
+                // no home at all.
+                ActivityScreen(),
+                MessagesScreen(),
+                ProfileScreen(),
+              ],
+            ),
           ),
         ],
         ),
       ),
-      bottomNavigationBar: _showPostScreen
-          ? null
-          : CustomBottomNav(
-              currentIndex: _getNavIndex(),
-              onTap: _onNavTap,
-            ),
+      // Posting is an ACTION, not a destination, so it floats over the places
+      // you browse rather than occupying a slot among them. Hidden on Messages
+      // and Profile, where it would have nothing to do with what is on screen.
+      floatingActionButton:
+          _currentIndex > 1 ? null : _PostButton(onTap: _openComposer),
+      bottomNavigationBar: CustomBottomNav(
+        currentIndex: _currentIndex,
+        onTap: _onNavTap,
+      ),
       ),
     );
-  }
-
-  int _getNavIndex() {
-    // Map the actual tab index to the nav index (accounting for center button)
-    if (_currentIndex >= 2) {
-      return _currentIndex + 1;
-    }
-    return _currentIndex;
   }
 
   Future<void> _handleAuthLocationFlow(String uid) async {
@@ -382,6 +394,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       userId: uid,
       latitude: location.latitude,
       longitude: location.longitude,
+    );
+  }
+}
+
+/// The compose button.
+///
+/// An extended FAB rather than an icon-only one: "Post" is the single most
+/// important action in a marketplace whose binding constraint is supply, and a
+/// bare `+` makes a new user guess. It carries the action colour — the only
+/// filled ink control on the screen — so there is never a question which
+/// control is primary.
+class _PostButton extends StatelessWidget {
+  const _PostButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return FloatingActionButton.extended(
+      onPressed: onTap,
+      backgroundColor: c.actionFill,
+      foregroundColor: c.contentOnAction,
+      elevation: 0,
+      highlightElevation: 0,
+      icon: const Icon(AppIcons.compose, size: 20),
+      label: Text(
+        'Post',
+        style: AppTypeScale.label.copyWith(
+          fontFamily: AppTypeScale.family,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: c.contentOnAction,
+        ),
+      ),
     );
   }
 }

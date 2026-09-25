@@ -7,6 +7,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../models/app_notification.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 
 // ── Tuning ───────────────────────────────────────────────────────────────────
 // One place for every number the interaction depends on, so "the swipe feels
@@ -506,34 +507,16 @@ class _NotificationBannerState extends State<_NotificationBanner>
             // screen behind it — a page title, a search field — read straight
             // through the message. In dark mode the same card was #1C1C1E on a
             // #0A0A0A background under a black shadow, which is to say invisible.
-            color: isDark ? const Color(0xFF232327) : Colors.white,
+            color: isDark
+                ? AppColors.of(context).surfaceRaised
+                : AppColors.of(context).surface,
             borderRadius: BorderRadius.circular(_kRadius),
-            border: Border.all(
-              color: isDark ? const Color(0xFF35353B) : const Color(0x14111827),
-            ),
-            // Two shadows, not one: a tight contact shadow so the card has an
-            // edge, and a wide soft one so it reads as floating above the page.
-            boxShadow: isDark
-                ? const [
-                    BoxShadow(
-                        color: Color(0x99000000),
-                        blurRadius: 28,
-                        offset: Offset(0, 12)),
-                    BoxShadow(
-                        color: Color(0x66000000),
-                        blurRadius: 6,
-                        offset: Offset(0, 2)),
-                  ]
-                : const [
-                    BoxShadow(
-                        color: Color(0x1F111827),
-                        blurRadius: 28,
-                        offset: Offset(0, 12)),
-                    BoxShadow(
-                        color: Color(0x0F111827),
-                        blurRadius: 5,
-                        offset: Offset(0, 2)),
-                  ],
+            border: Border.all(color: AppColors.of(context).borderHairline),
+            // The two-shadow stack, and the reason for it, now live in
+            // AppElevation — this banner is the surface that taught us why a
+            // single shadow is not enough.
+            boxShadow: AppElevation.floating(
+                isDark ? Brightness.dark : Brightness.light),
           ),
           padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
           child: Row(
@@ -689,7 +672,7 @@ class _NotificationBannerState extends State<_NotificationBanner>
               decoration: BoxDecoration(
                 color: isDark
                     ? Colors.white.withValues(alpha: 0.07)
-                    : const Color(0x0D111827),
+                    : AppColors.of(context).surfaceSunken,
                 shape: BoxShape.circle,
               ),
               child: Icon(AppIcons.close, size: 15, color: textTertiary),

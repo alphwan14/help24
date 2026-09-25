@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/review_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 
 /// Review submission — star rating (1–5) + optional written feedback.
@@ -127,7 +128,7 @@ class _ReviewSubmissionScreenState extends State<ReviewSubmissionScreen> {
               hintText: 'Add a comment (optional)',
               filled: true,
               fillColor: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              border: OutlineInputBorder(borderRadius: AppRadius.mdAll, borderSide: BorderSide.none),
             ),
           ),
           if (_error != null) ...[

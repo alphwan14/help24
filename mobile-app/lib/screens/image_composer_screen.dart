@@ -20,6 +20,7 @@ import '../theme/app_icons.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 
 /// What the composer hands back: the images to send, in order, plus one
 /// caption. Empty list (or null result) means the user backed out.
@@ -159,7 +160,7 @@ class _ImageComposerScreenState extends State<ImageComposerScreen> {
                       );
                     },
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: AppRadius.smAll,
                       child: Container(
                         width: 58,
                         height: 58,
@@ -168,7 +169,7 @@ class _ImageComposerScreenState extends State<ImageComposerScreen> {
                             color: selected ? AppTheme.primaryAccent : Colors.white24,
                             width: selected ? 2.5 : 1,
                           ),
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: AppRadius.smAll,
                         ),
                         child: Image.file(File(_files[i].path), fit: BoxFit.cover),
                       ),
@@ -206,7 +207,7 @@ class _ImageComposerScreenState extends State<ImageComposerScreen> {
                         contentPadding:
                             const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
+                          borderRadius: AppRadius.pillAll,
                           borderSide: BorderSide.none,
                         ),
                       ),

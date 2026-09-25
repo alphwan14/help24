@@ -69,6 +69,20 @@ void main() {
       expect(FeedScope.fromDiscoverFilter('All'), FeedScope.all);
       expect(FeedScope.fromDiscoverFilter('Requests'), FeedScope.requests);
       expect(FeedScope.fromDiscoverFilter('Offers'), FeedScope.offers);
+      // Jobs stopped being a top-level tab and became a scope in Discover's
+      // own row. The wire value is unchanged — this is the same `scope=jobs`
+      // the standalone Jobs tab sent, so the server side did not move.
+      expect(FeedScope.fromDiscoverFilter('Jobs'), FeedScope.jobs);
+      expect(FeedScope.jobs.wire, 'jobs');
+      expect(FeedScope.jobs.postTypes, ['job']);
+    });
+
+    test('"All" still excludes jobs now that Jobs sits beside it', () {
+      // Folding the Jobs tab into this row must not quietly widen the default.
+      // "All" means requests and offers, exactly as it did when Jobs was a
+      // separate destination.
+      expect(FeedScope.all.postTypes, ['request', 'offer']);
+      expect(FeedScope.all.postTypes, isNot(contains('job')));
     });
 
     test('an unknown label falls back to all, like the server default', () {

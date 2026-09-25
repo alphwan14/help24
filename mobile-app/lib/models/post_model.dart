@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
 import '../services/location_registry.dart';
 import '../utils/time_utils.dart';
 import 'place.dart';
@@ -709,11 +710,11 @@ class PostModel {
   Color get urgencyColor {
     switch (urgency) {
       case Urgency.urgent:
-        return const Color(0xFFE53935);
+        return AppTheme.errorRed;
       case Urgency.soon:
-        return const Color(0xFFFF9800);
+        return AppTheme.warningOrange;
       case Urgency.flexible:
-        return const Color(0xFF4CAF50);
+        return AppTheme.successGreen;
     }
   }
 
@@ -740,22 +741,22 @@ class PostModel {
   /// Badge color for post type.
   Color get typeBadgeColor {
     switch (type) {
-      case PostType.request: return const Color(0xFF2196F3); // blue
-      case PostType.offer: return const Color(0xFF4CAF50);   // green
-      case PostType.job: return const Color(0xFF9C27B0);    // purple
+      case PostType.request: return AppTheme.infoBlue;
+      case PostType.offer: return AppTheme.successGreen;
+      case PostType.job: return AppTheme.primaryAccent;
     }
   }
 
   Color get difficultyColor {
     switch (difficulty) {
       case Difficulty.easy:
-        return const Color(0xFF4CAF50);
+        return AppTheme.successGreen;
       case Difficulty.medium:
-        return const Color(0xFFFF9800);
+        return AppTheme.warningOrange;
       case Difficulty.hard:
-        return const Color(0xFFE53935);
+        return AppTheme.errorRed;
       case Difficulty.any:
-        return const Color(0xFF6B7280);
+        return AppTheme.lightTextTertiary;
     }
   }
 
@@ -912,9 +913,9 @@ class JobModel {
 
   Color get urgencyColor {
     switch (urgency) {
-      case Urgency.urgent: return const Color(0xFFE53935);
-      case Urgency.soon: return const Color(0xFFFF9800);
-      case Urgency.flexible: return const Color(0xFF4CAF50);
+      case Urgency.urgent: return AppTheme.errorRed;
+      case Urgency.soon: return AppTheme.warningOrange;
+      case Urgency.flexible: return AppTheme.successGreen;
     }
   }
 

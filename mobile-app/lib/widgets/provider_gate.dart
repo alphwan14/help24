@@ -8,6 +8,7 @@ import '../services/profession_registry.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import 'profile_widgets.dart';
 
@@ -211,7 +212,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
             margin: const EdgeInsets.only(bottom: 14),
             decoration: BoxDecoration(
               color: (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppRadius.mdAll,
               border: Border.all(
                 color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
               ),

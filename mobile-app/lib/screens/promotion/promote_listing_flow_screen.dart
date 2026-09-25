@@ -8,6 +8,7 @@ import '../../services/post_service.dart';
 import '../../services/promotion_service.dart';
 import '../../services/remote_config_service.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/tokens.dart';
 import '../../utils/error_mapper.dart';
 
 /// The one-minute "Promote Business" flow:
@@ -268,7 +269,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
         return Card(
           margin: const EdgeInsets.only(bottom: 10),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: AppRadius.mdAll,
             side: BorderSide(
               color: selected ? AppTheme.primaryAccent : Colors.transparent,
               width: 1.5,
@@ -306,7 +307,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
           Card(
             margin: const EdgeInsets.only(bottom: 10),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppRadius.mdAll,
               side: BorderSide(
                 color: _selectedPackage?.id == pkg.id
                     ? AppTheme.primaryAccent

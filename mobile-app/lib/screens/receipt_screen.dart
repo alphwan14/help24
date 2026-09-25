@@ -5,6 +5,7 @@ import '../theme/app_icons.dart';
 import '../models/service_record.dart';
 import '../services/service_records_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
@@ -175,7 +176,7 @@ class _ReceiptDocument extends StatelessWidget {
         Container(
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: AppRadius.lgAll,
             border: Border.all(color: border),
           ),
           child: Column(
@@ -194,7 +195,7 @@ class _ReceiptDocument extends StatelessWidget {
                           height: 36,
                           decoration: BoxDecoration(
                             color: AppTheme.primaryAccent,
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: AppRadius.mdAll,
                           ),
                           child: const Center(
                             child: Text(
@@ -237,7 +238,7 @@ class _ReceiptDocument extends StatelessWidget {
                         Clipboard.setData(ClipboardData(text: receipt.receiptNumber));
                         ActionFeedback.success(context, 'Receipt number copied');
                       },
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: AppRadius.smAll,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 2),
                         child: Row(
@@ -274,7 +275,7 @@ class _ReceiptDocument extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
                         decoration: BoxDecoration(
                           color: statusColor.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: AppRadius.pillAll,
                         ),
                         child: Text(
                           _statusLabel(),
@@ -384,7 +385,7 @@ class _ReceiptDocument extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: 0.07),
-                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(AppRadius.lg)),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,

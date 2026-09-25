@@ -6,6 +6,7 @@ import '../../models/user_model.dart';
 import '../../services/payout_service.dart';
 import '../../services/user_profile_service.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/tokens.dart';
 import '../../utils/error_mapper.dart';
 import '../../widgets/loading_empty_offline.dart';
 import '../../widgets/provider_gate.dart';
@@ -181,7 +182,7 @@ class _ProviderOnboardingScreenState extends State<ProviderOnboardingScreen> {
               color: allDone
                   ? AppTheme.successGreen.withValues(alpha: 0.10)
                   : AppTheme.primaryAccent.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: AppRadius.lgAll,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -300,14 +301,14 @@ class _StepTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(
           color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
         ),
       ),
       child: InkWell(
         onTap: actionLabel == null ? null : onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(

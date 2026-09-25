@@ -7,6 +7,8 @@ import '../providers/connectivity_provider.dart';
 import '../services/reputation_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
+import 'primitives.dart';
 
 // =============================================================================
 // Reputation display widgets — backend-sourced trust signals.
@@ -18,47 +20,100 @@ import '../theme/app_theme.dart';
 // downgrade. completed_jobs is always surfaced so experience shows.
 // =============================================================================
 
-Color tierColor(String tier) {
-  switch (tier) {
-    case 'trusted_professional':
-      return const Color(0xFFB45309); // amber-700 (premium)
-    case 'highly_recommended':
-      return AppTheme.successGreen;
-    case 'top_rated':
-      return AppTheme.primaryAccent;
-    case 'rising_provider':
-      return AppTheme.warningOrange;
-    case 'new_provider':
-    default:
-      return const Color(0xFF6B7280); // muted grey
-  }
+/// How far up the ladder a provider is, in the steps EMPHASIS can carry.
+///
+/// ── The problem with five hues ──────────────────────────────────────────
+/// The backend names five rungs — new → rising → top rated → highly
+/// recommended → trusted professional — and the app used to paint each one a
+/// different hue: amber, green, blue, terracotta, grey. Five unrelated colours
+/// say "five unrelated categories", not "five rungs of one ladder". Nothing
+/// about green tells you it outranks blue, so the reader has to learn a key
+/// that is written down nowhere, and most never do.
+///
+/// ── Why not a five-step single-hue ramp ─────────────────────────────────
+/// That was the obvious fix, and it does not survive measurement. Across the
+/// whole amber ramp there is no set of four values that each clear 4.5:1 as
+/// text on warm paper AND on a dark card — the same wall that made
+/// `AppColors` necessary in the first place. A ramp that fails AA on two of
+/// its rungs is not a ramp, it is the old bug in one colour.
+///
+/// ── What this does instead ──────────────────────────────────────────────
+/// Emphasis carries about three steps honestly, so it carries three:
+///
+///   unproven    neutral tint, no tick   — "has not established anything yet"
+///   established accent tint, tick       — "this is a standing worth reading"
+///   top         accent FILL, tick       — the one rung that gets the brand
+///
+/// Monotone, so it reads as a ladder with no key, and the exact rung is still
+/// named in words by [ProviderReputation.tierLabel], which is the part of the
+/// design that was already doing the job properly. Claiming five visual steps
+/// is what produced five hues; three that are actually distinguishable beats
+/// five that are not.
+enum TierStanding {
+  /// new_provider, rising_provider.
+  unproven,
+
+  /// top_rated, highly_recommended.
+  established,
+
+  /// trusted_professional — the single accent moment on the surface.
+  top,
+}
+
+/// Which rung a backend tier key sits on. Unknown keys read as [unproven],
+/// never as a standing the provider has not earned.
+TierStanding tierStanding(String tier) => switch (tier) {
+      'trusted_professional' => TierStanding.top,
+      'highly_recommended' || 'top_rated' => TierStanding.established,
+      _ => TierStanding.unproven,
+    };
+
+/// The colour of a provider tier label drawn as PLAIN TEXT (the chat header,
+/// the compact feed signal). The chip form is [TierBadge].
+///
+/// It takes a context because it used to be a pure function over five
+/// hard-coded values, two of them raw hexes chosen for the light theme alone.
+/// Measured on a dark card, `#B45309` (trusted) was **3.27:1** and `#6B7280`
+/// (new) **3.40:1** — both below AA, on a label whose entire job is to be read.
+Color tierColor(BuildContext context, String tier) {
+  final c = AppColors.of(context);
+  return switch (tierStanding(tier)) {
+    TierStanding.top || TierStanding.established => c.accentText,
+    TierStanding.unproven => c.contentSecondary,
+  };
 }
 
 /// Small tier chip (e.g. "Highly Recommended").
 class TierBadge extends StatelessWidget {
   final String tier;
   final String label;
+
+  /// Retained so existing call sites keep compiling. [AppChip] owns chip
+  /// sizing now — one height per size, across the whole app — so this only
+  /// chooses between the two of them.
   final double fontSize;
-  const TierBadge({super.key, required this.tier, required this.label, this.fontSize = 11});
+
+  const TierBadge({
+    super.key,
+    required this.tier,
+    required this.label,
+    this.fontSize = 11,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final c = tierColor(tier);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: c.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(AppIcons.verifiedProvider, size: fontSize + 2, color: c),
-          const SizedBox(width: 4),
-          Text(label, style: TextStyle(color: c, fontSize: fontSize, fontWeight: FontWeight.w700)),
-        ],
-      ),
+    final standing = tierStanding(tier);
+    return AppChip(
+      label: label,
+      // A tick is a claim about VERIFICATION, so the rung that has not
+      // established anything does not get one. The old badge drew it
+      // unconditionally, which meant a provider who had never taken a job
+      // rendered "New Provider" behind a verified tick — the one place in the
+      // app where the trust signal said the opposite of the truth.
+      icon: standing == TierStanding.unproven ? null : AppIcons.verifiedProvider,
+      tone: standing == TierStanding.unproven ? ChipTone.neutral : ChipTone.accent,
+      solid: standing == TierStanding.top,
+      size: fontSize >= 12 ? ChipSize.md : ChipSize.sm,
     );
   }
 }
@@ -125,7 +180,7 @@ class _ReputationCompactState extends State<ReputationCompact> {
         // "New Provider". A rising_provider with 0 reviews reads "Rising Provider".
         if (!rep.hasReviews) {
           return Text(rep.tierLabel,
-              style: TextStyle(color: tierColor(rep.tier), fontSize: 12, fontWeight: FontWeight.w600));
+              style: TextStyle(color: tierColor(context, rep.tier), fontSize: 12, fontWeight: FontWeight.w600));
         }
         return Row(
           mainAxisSize: MainAxisSize.min,
@@ -140,7 +195,7 @@ class _ReputationCompactState extends State<ReputationCompact> {
                 child: Text(rep.tierLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: tierColor(rep.tier), fontSize: 12, fontWeight: FontWeight.w600)),
+                    style: TextStyle(color: tierColor(context, rep.tier), fontSize: 12, fontWeight: FontWeight.w600)),
               ),
             ],
           ],
@@ -255,7 +310,7 @@ class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: (isDark ? AppTheme.darkBackground : AppTheme.lightBackground),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -274,7 +329,7 @@ class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
           height: 18,
           decoration: BoxDecoration(
             color: muted.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: AppRadius.pillAll,
           ),
         );
     return Wrap(spacing: 8, children: [bar(90), bar(110), bar(80)]);
@@ -377,7 +432,7 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: card,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(color: border),
       ),
       child: FutureBuilder<ReputationResult>(
@@ -418,7 +473,7 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
           if (!hasProviderActivity) {
             return Row(
               children: [
-                Icon(AppIcons.verified, size: 20, color: tierColor(rep.tier)),
+                Icon(AppIcons.verified, size: 20, color: tierColor(context, rep.tier)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -451,7 +506,7 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
               Text(
                 rep.tierLabel,
                 style: TextStyle(
-                    color: tierColor(rep.tier), fontSize: 22, fontWeight: FontWeight.w800),
+                    color: tierColor(context, rep.tier), fontSize: 22, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
               // ── Reviews — a SEPARATE concept. Absence shows "No Reviews Yet"
@@ -477,10 +532,27 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
                 spacing: 20,
                 runSpacing: 14,
                 children: [
+                  // COUNTS are always honest. A provider who has finished three
+                  // jobs has finished three jobs.
                   _metric('${rep.completedJobs}', 'Jobs Completed', textPrimary, muted),
-                  _metric('${rep.completionPercent}%', 'Completion Rate', textPrimary, muted),
-                  _metric('${rep.disputePercent}%', 'Dispute Rate', textPrimary, muted),
-                  _metric('${rep.openDisputes}', 'Open Disputes', textPrimary, muted),
+                  // PERCENTAGES need a sample, and are withheld without one.
+                  // See [_percentagesAreMeaningful].
+                  if (_percentagesAreMeaningful(rep)) ...[
+                    _metric('${rep.completionPercent}%', 'Completion Rate',
+                        textPrimary, muted),
+                    // Only when there is something to report. A "0% Dispute
+                    // Rate" is a claim nobody earned by not being complained
+                    // about yet, and it took a slot from a metric that meant
+                    // something.
+                    if (rep.disputePercent > 0)
+                      _metric('${rep.disputePercent}%', 'Dispute Rate',
+                          textPrimary, muted),
+                  ],
+                  // A LIVE dispute is material at any sample size, so it is not
+                  // gated — but "0 Open Disputes" is not news, and printing it
+                  // beside a dispute RATE was two metrics for one idea.
+                  if (rep.openDisputes > 0)
+                    _metric('${rep.openDisputes}', 'Open Disputes', textPrimary, muted),
                   if (rep.memberSinceYear != null)
                     _metric(rep.memberSinceYear!, 'Member Since', textPrimary, muted),
                 ],
@@ -491,6 +563,37 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
       ),
     );
   }
+
+  /// How many completed jobs a provider needs before a PERCENTAGE about them
+  /// is worth printing.
+  ///
+  /// ── The bug this fixes ──────────────────────────────────────────────────
+  /// A public profile rendered `44% Dispute Rate` in the same size and weight
+  /// as `Jobs Completed`. The number was arithmetically correct and
+  /// informationally worthless: at these volumes it was 4 of 9. One unhappy
+  /// client on a provider with two jobs reads **50% Dispute Rate** — a figure
+  /// that will follow them for as long as it takes to dilute, on a marketplace
+  /// where, as of this writing, there is no provider with enough completed work
+  /// to dilute anything.
+  ///
+  /// The same trap runs the other way: 1 job finished out of 1 prints
+  /// `100% Completion Rate`, which is a five-star claim earned by a single
+  /// transaction. Both directions are the same mistake — a ratio presented as a
+  /// rate without the denominator that would let anyone judge it.
+  ///
+  /// So the rule is: **counts always, percentages only with a sample.** Below
+  /// the threshold the profile shows what is known (jobs completed, member
+  /// since, any live dispute) and makes no claims it cannot support. Nothing is
+  /// hidden that a client can act on — an OPEN dispute is shown at any volume,
+  /// because that one is a fact about right now rather than a rate.
+  ///
+  /// Five is a product choice, not a statistical one; at five, one dispute
+  /// reads 20%, which is at least directionally honest. Raise it if the
+  /// marketplace grows into it.
+  static const int _percentageMinimumSample = 5;
+
+  static bool _percentagesAreMeaningful(ProviderReputation rep) =>
+      rep.completedJobs >= _percentageMinimumSample;
 
   Widget _metric(String value, String label, Color primary, Color muted) {
     return Column(

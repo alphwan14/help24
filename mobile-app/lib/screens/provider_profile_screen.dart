@@ -13,6 +13,7 @@ import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 import '../utils/time_utils.dart';
@@ -407,7 +408,7 @@ class _Section extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: AppRadius.lgAll,
             border: Border.all(
               color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
             ),
@@ -500,7 +501,7 @@ class _ReviewTile extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
       ),
       child: Column(
@@ -531,7 +532,7 @@ class _ReviewTile extends StatelessWidget {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: AppTheme.primaryAccent.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: AppRadius.mdAll,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

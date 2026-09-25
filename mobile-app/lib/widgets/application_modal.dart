@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'primitives.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 
@@ -131,7 +133,7 @@ class _ApplicationModalState extends State<ApplicationModal> {
     return Container(
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: AppRadius.sheetTop,
       ),
       child: SingleChildScrollView(
         child: Padding(
@@ -145,17 +147,7 @@ class _ApplicationModalState extends State<ApplicationModal> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
+              const SheetHandle(margin: EdgeInsets.zero),
               const SizedBox(height: 24),
 
               // Header
@@ -217,7 +209,7 @@ class _ApplicationModalState extends State<ApplicationModal> {
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     color: AppTheme.errorRed.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: AppRadius.mdAll,
                     border: Border.all(
                       color: AppTheme.errorRed.withValues(alpha: 0.35),
                     ),

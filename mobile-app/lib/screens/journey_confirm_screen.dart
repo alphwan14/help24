@@ -24,6 +24,7 @@ import 'package:permission_handler/permission_handler.dart' as ph;
 import '../services/location_service.dart';
 import '../services/place_name_cache.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 
 class JourneyConfirmScreen extends StatefulWidget {
   /// The job location from the post; null when the post has no coordinates —
@@ -220,7 +221,7 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
             child: Container(
               decoration: BoxDecoration(
                 color: surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: AppRadius.sheetTop,
                 boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 12)],
               ),
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
@@ -278,7 +279,7 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
                     backgroundColor: AppTheme.primaryAccent,
                     foregroundColor: Colors.white,
                     textStyle: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
                   ),
                   child: _requesting
                       ? const SizedBox(
@@ -412,7 +413,7 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
               backgroundColor: AppTheme.primaryAccent,
               foregroundColor: Colors.white,
               textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
             ),
           ),
         ),

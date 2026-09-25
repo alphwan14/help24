@@ -4,6 +4,7 @@ import '../theme/app_icons.dart';
 import '../models/post_model.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_card.dart';
 import '../widgets/post_flows.dart';
@@ -30,7 +31,19 @@ import '../widgets/post_flows.dart';
 class MyPostsScreen extends StatefulWidget {
   final String userId;
 
-  const MyPostsScreen({super.key, required this.userId});
+  /// Render the BODY only, with no Scaffold and no AppBar.
+  ///
+  /// The Activity tab hosts this screen inside its own chrome. Without this
+  /// the tab would stack a second app bar under its own header — the classic
+  /// symptom of a screen being reused as a tab without anyone deciding who
+  /// owns the title.
+  final bool embedded;
+
+  const MyPostsScreen({
+    super.key,
+    required this.userId,
+    this.embedded = false,
+  });
 
   @override
   State<MyPostsScreen> createState() => _MyPostsScreenState();
@@ -66,9 +79,16 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final body = _body(context);
+    if (widget.embedded) return body;
     return Scaffold(
       appBar: AppBar(title: const Text('My Posts')),
-      body: FutureBuilder<List<PostModel>>(
+      body: body,
+    );
+  }
+
+  Widget _body(BuildContext context) {
+    return FutureBuilder<List<PostModel>>(
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
@@ -134,7 +154,7 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
                           ],
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                          padding: const EdgeInsets.fromLTRB(AppSpace.gutter, AppSpace.xs, AppSpace.gutter, AppSpace.fabClearance),
                           itemCount: visible.length,
                           itemBuilder: (context, i) {
                             final post = visible[i];
@@ -149,7 +169,6 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
             ],
           );
         },
-      ),
     );
   }
 }

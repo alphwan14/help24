@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/jobs_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 
 /// Provider screen: mark a job as complete and optionally leave a note.
@@ -64,7 +65,7 @@ class _MarkCompleteScreenState extends State<MarkCompleteScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? AppTheme.darkBackground : AppTheme.lightBackground;
     final card = isDark ? AppTheme.darkCard : Colors.white;
-    final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
+    final textPrimary = AppColors.of(context).contentPrimary;
     final textSecondary = isDark ? Colors.white54 : Colors.black54;
 
     return Scaffold(
@@ -131,7 +132,7 @@ class _Form extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: card,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: AppRadius.lgAll,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -142,7 +143,7 @@ class _Form extends StatelessWidget {
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: AppTheme.primaryAccent.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: AppRadius.mdAll,
                       ),
                       child: Icon(AppIcons.completedWork,
                           color: AppTheme.primaryAccent, size: 24),
@@ -172,7 +173,7 @@ class _Form extends StatelessWidget {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryAccent.withOpacity(0.07),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: AppRadius.mdAll,
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,7 +202,7 @@ class _Form extends StatelessWidget {
           Container(
             decoration: BoxDecoration(
               color: card,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: AppRadius.mdAll,
             ),
             child: TextField(
               controller: noteController,
@@ -223,17 +224,19 @@ class _Form extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+                color: AppColors.of(context).criticalSubtle,
+                borderRadius: AppRadius.mdAll,
               ),
               child: Row(
                 children: [
-                  const Icon(AppIcons.error,
-                      color: Colors.red, size: 16),
+                  Icon(AppIcons.error,
+                      color: AppColors.of(context).criticalText, size: 16),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(error!,
-                        style: const TextStyle(color: Colors.red, fontSize: 13)),
+                        style: TextStyle(
+                            color: AppColors.of(context).criticalText,
+                            fontSize: 13)),
                   ),
                 ],
               ),
@@ -248,7 +251,7 @@ class _Form extends StatelessWidget {
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.successGreen,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
+                    borderRadius: AppRadius.mdAll),
               ),
               icon: submitting
                   ? const SizedBox(
@@ -317,7 +320,7 @@ class _SuccessView extends StatelessWidget {
                 onPressed: () => Navigator.pop(context, true),
                 style: OutlinedButton.styleFrom(
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
+                      borderRadius: AppRadius.mdAll),
                 ),
                 child: Text('Back to Job',
                     style: TextStyle(

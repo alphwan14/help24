@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../providers/location_provider.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
+import '../widgets/primitives.dart';
 
 class LocationPermissionExplainerScreen extends StatelessWidget {
   final String userId;
@@ -17,7 +19,7 @@ class LocationPermissionExplainerScreen extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: AppRadius.sheetTop,
       ),
       padding: EdgeInsets.fromLTRB(
           24, 20, 24, MediaQuery.of(context).viewInsets.bottom + 32),
@@ -27,17 +29,7 @@ class LocationPermissionExplainerScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
+              const SheetHandle(margin: EdgeInsets.zero),
               const SizedBox(height: 20),
 
               const IconBadge.large(AppIcons.location,
@@ -65,7 +57,7 @@ class LocationPermissionExplainerScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: AppRadius.mdAll,
                     color: AppTheme.warningOrange.withValues(alpha: 0.15),
                   ),
                   child: const Text(

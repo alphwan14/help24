@@ -7,6 +7,7 @@ import '../providers/auth_provider.dart';
 import '../services/dispute_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
@@ -242,7 +243,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.warningOrange.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         border: Border.all(color: AppTheme.warningOrange.withValues(alpha: 0.4)),
       ),
       child: Column(
@@ -304,7 +305,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: (isReq ? AppTheme.warningOrange : AppTheme.primaryAccent).withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: AppRadius.mdAll,
           ),
           child: Column(
             children: [
@@ -339,7 +340,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: AppRadius.lgAll,
             border: mine ? null : Border.all(color: (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary).withValues(alpha: 0.15)),
           ),
           child: Column(
@@ -368,7 +369,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: AppRadius.lgAll,
             border: Border.all(color: (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary).withValues(alpha: 0.15)),
           ),
           child: Column(
@@ -384,7 +385,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
               const SizedBox(height: 6),
               if (e.isImage)
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: AppRadius.mdAll,
                   child: Image.network(
                     e.fileUrl!,
                     height: 150,
@@ -458,7 +459,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   hintText: 'Message support…',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                  border: OutlineInputBorder(borderRadius: AppRadius.pillAll, borderSide: BorderSide.none),
                   filled: true,
                   fillColor: (isDark ? AppTheme.darkBackground : AppTheme.lightBackground),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -504,7 +505,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppTheme.successGreen.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.mdAll,
         border: Border.all(color: AppTheme.successGreen.withValues(alpha: 0.4)),
       ),
       child: Column(
@@ -546,7 +547,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(color: (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary).withValues(alpha: 0.15)),
       ),
       child: child,
@@ -556,7 +557,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
   Widget _pill(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: AppRadius.pillAll),
       child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
     );
   }
@@ -567,7 +568,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkBackground : AppTheme.lightBackground,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.mdAll,
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary)),

@@ -178,38 +178,6 @@ class FeedService {
 
   // ── Jobs ───────────────────────────────────────────────────────────────────
 
-  /// One ranked page of job posts.
-  ///
-  /// The Jobs tab has always been a second, weaker copy of the feed query
-  /// (audit §3.11): same table, narrower search, no ranking. It now runs
-  /// through the same engine with `scope=jobs`, so an electrician sees
-  /// electrical jobs first here for the same reason they do in Discover.
-  static Future<FeedResult<JobModel>> fetchJobsFeed({
-    String? userId,
-    double? latitude,
-    double? longitude,
-    PostFilters? filters,
-    int page = 0,
-    int? pageSize,
-  }) {
-    return _fetch<JobModel>(
-      userId: userId,
-      latitude: latitude,
-      longitude: longitude,
-      scope: FeedScope.jobs,
-      filters: filters,
-      page: page,
-      pageSize: pageSize,
-      parse: JobModel.fromJson,
-      idOf: (job) => job.id,
-      // Scoped like Discover's fallback. `fetchJobs` fixes the type itself, but
-      // the browsing STATUS rule has to be passed in or the fallback shows
-      // filled roles the ranked path excludes.
-      fallback: () async =>
-          PostService.fetchJobs(filters: _forScope(filters, FeedScope.jobs)),
-    );
-  }
-
   // ── shared request / parse / degrade ───────────────────────────────────────
 
   static Future<FeedResult<T>> _fetch<T>({

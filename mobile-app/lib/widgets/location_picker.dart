@@ -21,6 +21,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
+import 'primitives.dart';
 import '../theme/app_icons.dart';
 
 import '../models/place.dart';
@@ -28,6 +29,7 @@ import '../services/current_location_service.dart';
 import '../services/location_registry.dart';
 import '../services/recent_locations_store.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 
 /// Opens the picker. Resolves to the chosen location, or null if dismissed.
 ///
@@ -170,7 +172,7 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
       builder: (context, scrollController) => Container(
         decoration: BoxDecoration(
           color: surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: AppRadius.sheetTop,
         ),
         child: Column(
           children: [
@@ -324,17 +326,8 @@ class _Grabber extends StatelessWidget {
   const _Grabber({required this.isDark});
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Container(
-          width: 40,
-          height: 4,
-          margin: const EdgeInsets.only(top: 10, bottom: 8),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-      );
+  Widget build(BuildContext context) =>
+      const SheetHandle();
 }
 
 class _Header extends StatelessWidget {
@@ -423,7 +416,7 @@ class _SearchField extends StatelessWidget {
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: AppRadius.mdAll,
             borderSide: BorderSide.none,
           ),
         ),
@@ -455,9 +448,9 @@ class _CurrentLocationTile extends StatelessWidget {
         label: 'Use my current location',
         child: Material(
           color: AppTheme.primaryAccent.withValues(alpha: isDark ? 0.16 : 0.10),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.lgAll,
           child: InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: AppRadius.lgAll,
             onTap: busy ? null : onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -468,7 +461,7 @@ class _CurrentLocationTile extends StatelessWidget {
                     height: 40,
                     decoration: BoxDecoration(
                       color: AppTheme.primaryAccent.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: AppRadius.mdAll,
                     ),
                     child: busy
                         ? const Padding(
@@ -547,7 +540,7 @@ class _InlineNotice extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
         decoration: BoxDecoration(
           color: AppTheme.warningOrange.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppRadius.mdAll,
         ),
         child: Row(
           children: [

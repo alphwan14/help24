@@ -51,7 +51,6 @@ class StartupPrefetch {
   static const Duration _viewerWait = Duration(milliseconds: 1500);
 
   static Future<List<PostModel>?>? _posts;
-  static Future<List<JobModel>?>? _jobs;
   static Future<List<PostModel>?>? _urgent;
   static Future<StartupFeed?>? _feed;
 
@@ -74,16 +73,19 @@ class StartupPrefetch {
         'posts',
         () => PostService.fetchPosts(
             filters: const PostFilters().forScope(FeedScope.all)));
-    _jobs = _guard(
-        'jobs',
-        () => PostService.fetchJobs(
-            filters: const PostFilters().forScope(FeedScope.jobs)));
     // Same page size AppProvider uses, so consuming the prefetch cannot produce
     // a shorter urgent list — and therefore a different badge count — than a
     // live load of the same data.
     _urgent = _guard('urgent',
         () => PostService.fetchUrgentPosts(limit: AppProvider.urgentPageSize));
-    // The launch ranking. Deliberately started AFTER the three reads above so it
+    // There is no JOBS read here any more, and that is the point. It used to be
+    // one of four launch requests, and its only consumer was a second in-memory
+    // corpus that exactly one screen rendered — a screen that became a scope
+    // pill in Discover. So every cold start paid a round trip, on the critical
+    // path, to fill a list nothing drew. Jobs is warmed with the other scopes
+    // now, after the feed is already on screen.
+    //
+    // The launch ranking. Deliberately started AFTER the reads above so it
     // never queues behind its own fallback, and deliberately handed `_posts` as
     // that fallback so a backend too cold to rank still costs one round trip.
     _feed = _guard('feed', _rankForLaunch);
@@ -149,12 +151,6 @@ class StartupPrefetch {
     return f;
   }
 
-  static Future<List<JobModel>?>? takeJobs() {
-    final f = _jobs;
-    _jobs = null;
-    return f;
-  }
-
   static Future<List<PostModel>?>? takeUrgentPosts() {
     final f = _urgent;
     _urgent = null;
@@ -184,7 +180,6 @@ class StartupPrefetch {
   @visibleForTesting
   static void resetForTest() {
     _posts = null;
-    _jobs = null;
     _urgent = null;
     _feed = null;
     _viewer = null;

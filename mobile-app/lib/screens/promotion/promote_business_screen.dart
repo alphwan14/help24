@@ -3,6 +3,7 @@ import '../../theme/app_icons.dart';
 import '../../models/promotion_models.dart';
 import '../../services/promotion_service.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/tokens.dart';
 import '../../utils/time_utils.dart';
 import 'campaign_detail_screen.dart';
 import 'promote_listing_flow_screen.dart';
@@ -284,7 +285,7 @@ class CampaignStatusChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(

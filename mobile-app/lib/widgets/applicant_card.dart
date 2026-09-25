@@ -8,6 +8,7 @@ import '../screens/provider_profile_screen.dart';
 import '../services/reputation_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
 import 'profile_widgets.dart';
@@ -101,7 +102,7 @@ class ApplicantCard extends StatelessWidget {
         color: isSelected
             ? AppTheme.successGreen.withValues(alpha: 0.06)
             : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(
           color: isSelected
               ? AppTheme.successGreen.withValues(alpha: 0.4)
@@ -166,7 +167,7 @@ class ApplicantCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: AppTheme.primaryAccent.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: AppRadius.pillAll,
                     ),
                     child: Text(
                       formatPriceDisplay(application.proposedPrice),
@@ -203,7 +204,7 @@ class ApplicantCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(
                   color: AppTheme.successGreen.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: AppRadius.smAll,
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
@@ -473,7 +474,7 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkBackground : AppTheme.lightBackground,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -492,7 +493,7 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
         height: 20,
         decoration: BoxDecoration(
           color: muted.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: AppRadius.pillAll,
         ),
       );
 }

@@ -102,3 +102,35 @@ flutter:
     # complete, searchable and offline-capable on a fresh install, before any
     # migration is applied. See lib/services/reference_registry.dart.
     - assets/data/
+
+    # The typeface licence, shipped INSIDE the binary — see `fonts:` below.
+    # Deliberately the one file and not `assets/fonts/`, which would bundle
+    # the four .ttf a second time and add ~1.7 MB for nothing.
+    - assets/fonts/OFL.txt
+
+  # THE TYPEFACE IS BUNDLED, NOT FETCHED.
+  #
+  # The theme used to call `GoogleFonts.poppinsTextTheme()` with no `fonts:`
+  # section here and no .ttf in the repo — which means google_fonts fetched
+  # Poppins over the NETWORK on first launch and cached it to disk. Until that
+  # download landed the app rendered in Roboto and then swapped, so a cold
+  # install on a slow connection showed a visible font swap on the first screen
+  # a new user ever sees. Four weights on disk costs ~1.7 MB and removes the
+  # request entirely.
+  #
+  # Inter is under the SIL Open Font License, which permits bundling in a
+  # larger work and REQUIRES that every copy carry the notice. assets/fonts/
+  # OFL.txt therefore ships in the binary (see `assets:` above) and is
+  # registered with Flutter's LicenseRegistry in main.dart, so it appears on
+  # the app's own licences page rather than only in the repository.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700

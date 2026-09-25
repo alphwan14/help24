@@ -18,8 +18,10 @@ import '../services/category_schema_service.dart';
 import '../services/location_registry.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
+import '../widgets/primitives.dart';
 import '../widgets/location_experience.dart';
 import '../widgets/location_picker.dart';
 import '../widgets/schema_question_flow.dart';
@@ -35,10 +37,41 @@ class SelectedImage {
   SelectedImage({required this.file, this.bytes, required this.name});
 }
 
+/// THE COMPOSER. A route, not a body swap.
+///
+/// ── What it used to be ──────────────────────────────────────────────────
+/// `HomeScreen` held a `bool _showPostScreen` and rendered this instead of the
+/// tab stack. It worked, but it was the only screen in the app that was not a
+/// route, and it cost three things:
+///
+///   * **Back meant "abandon".** The shell wrapped it in a `PopScope` that
+///     dropped the whole composer on the first back press — from any step. The
+///     header shows a back ARROW on every step after the first, so the visible
+///     control went back one step and the system control threw the form away.
+///     A half-finished post with photos attached, gone, no confirmation.
+///   * **No back stack of its own**, so nothing inside could push and return.
+///   * Every piece of shell chrome — the FAB, the bottom bar, the outer
+///     `PopScope`'s `canPop` — carried a `_showPostScreen` term, because the
+///     shell had to keep pretending this screen was not on top of it.
+///
+/// ── What it is now ──────────────────────────────────────────────────────
+/// A pushed route that owns its own back behaviour:
+///
+///   * **System back mirrors the visible back arrow** — one step at a time,
+///     leaving only from the first step, where nothing has been filled in yet.
+///     No confirmation dialog is needed because nothing is discarded.
+///   * **The ✕ still closes**, immediately and deliberately. `Navigator.pop`
+///     is imperative and is not intercepted by [PopScope], which is exactly the
+///     distinction wanted: ✕ means "I am done here", back means "back".
+///
+/// ── The result it pops with ─────────────────────────────────────────────
+/// `true` when a listing was actually created, nothing when the person left
+/// without posting. The caller uses that to decide where they land: after a
+/// successful post they go to Discover to watch it arrive; after a cancel they
+/// return to whatever they were doing, which the body swap could not do because
+/// it had no idea what that was.
 class PostScreen extends StatefulWidget {
-  final VoidCallback onComplete;
-
-  const PostScreen({super.key, required this.onComplete});
+  const PostScreen({super.key});
 
   @override
   State<PostScreen> createState() => _PostScreenState();
@@ -427,19 +460,12 @@ class _PostScreenState extends State<PostScreen> {
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: AppRadius.sheetTop,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+            const SheetHandle(margin: EdgeInsets.zero),
             const SizedBox(height: 24),
             Text(
               'Add Images',
@@ -483,8 +509,9 @@ class _PostScreenState extends State<PostScreen> {
         fit: fit,
         errorBuilder: (context, error, stackTrace) {
           return Container(
-            color: Colors.grey[300],
-            child: const Icon(AppIcons.imageBroken, color: Colors.grey),
+            color: AppColors.of(context).surfaceSunken,
+            child: Icon(AppIcons.imageBroken,
+                color: AppColors.of(context).contentTertiary),
           );
         },
       );
@@ -492,8 +519,9 @@ class _PostScreenState extends State<PostScreen> {
     
     // Fallback placeholder
     return Container(
-      color: Colors.grey[300],
-      child: const Icon(AppIcons.imageMissing, color: Colors.grey),
+      color: AppColors.of(context).surfaceSunken,
+      child: Icon(AppIcons.imageMissing,
+          color: AppColors.of(context).contentTertiary),
     );
   }
 
@@ -501,8 +529,26 @@ class _PostScreenState extends State<PostScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return SafeArea(
-      top: false,
+    // System back walks the steps, exactly as the header's back arrow does, and
+    // only leaves from the first one. As a body swap, back abandoned the whole
+    // form from any step — see the class doc.
+    return PopScope(
+      canPop: _currentStep == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _currentStep == 0) return;
+        setState(() => _currentStep--);
+      },
+      // The Scaffold and the TOP inset are this screen's own now.
+      //
+      // As a body swap it had neither and needed neither: it rendered inside
+      // HomeScreen's Scaffold, which painted the background, and inside
+      // HomeScreen's SafeArea, which had already taken the status bar — hence
+      // the `top: false` that used to be here. Pushed as a route it sits on
+      // nothing, and both omissions showed instantly on the device: the
+      // composer opened on a BLACK page with its title clipped under the
+      // status bar.
+      child: Scaffold(
+        body: SafeArea(
       child: Column(
         children: [
           // Header
@@ -521,7 +567,7 @@ class _PostScreenState extends State<PostScreen> {
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: AppRadius.mdAll,
                         border: Border.all(
                           color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                         ),
@@ -541,12 +587,15 @@ class _PostScreenState extends State<PostScreen> {
                   ),
                 ),
                 GestureDetector(
-                  onTap: widget.onComplete,
+                  // Imperative pop: NOT intercepted by the PopScope above, which
+                  // is the distinction wanted — the cross means "I am done
+                  // here", the back gesture means "back one step".
+                  onTap: () => Navigator.of(context).pop(),
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: AppRadius.mdAll,
                       border: Border.all(
                         color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                       ),
@@ -575,7 +624,7 @@ class _PostScreenState extends State<PostScreen> {
                       color: index <= _currentStep
                           ? AppTheme.primaryAccent
                           : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-                      borderRadius: BorderRadius.circular(2),
+                      borderRadius: AppRadius.pillAll,
                     ),
                   ),
                 );
@@ -609,6 +658,8 @@ class _PostScreenState extends State<PostScreen> {
             ),
           ),
         ],
+      ),
+        ),
       ),
     );
   }
@@ -852,12 +903,12 @@ class _PostScreenState extends State<PostScreen> {
         label: hasLocation ? 'Location: ${selection!.label}. Tap to change.' : 'Choose a location',
         child: InkWell(
           onTap: _chooseLocation,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppRadius.mdAll,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
               color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppRadius.mdAll,
               border: Border.all(
                 color: hasLocation
                     ? AppTheme.primaryAccent.withValues(alpha: 0.5)
@@ -919,12 +970,12 @@ class _PostScreenState extends State<PostScreen> {
       const SizedBox(height: 12),
       InkWell(
         onTap: _pickExactSpot,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: AppRadius.mdAll,
             border: Border.all(
               color: _pinnedLat != null
                   ? AppTheme.successGreen.withValues(alpha: 0.6)
@@ -1045,7 +1096,7 @@ class _PostScreenState extends State<PostScreen> {
                 margin: const EdgeInsets.only(right: 12),
                 decoration: BoxDecoration(
                   color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: AppRadius.lgAll,
                   border: Border.all(
                     color: AppTheme.primaryAccent,
                     width: 2,
@@ -1081,7 +1132,7 @@ class _PostScreenState extends State<PostScreen> {
                   height: 100,
                   margin: const EdgeInsets.only(right: 12),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: AppRadius.lgAll,
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: _buildImagePreview(entry.value),
@@ -1372,7 +1423,7 @@ class _PostScreenState extends State<PostScreen> {
           color: selected
               ? AppTheme.primaryAccent.withValues(alpha: 0.15)
               : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: AppRadius.pillAll,
           border: Border.all(
             color: selected
                 ? AppTheme.primaryAccent
@@ -1755,7 +1806,7 @@ class _PostScreenState extends State<PostScreen> {
         Container(
           decoration: BoxDecoration(
             color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: AppRadius.pillAll,
             border: Border.all(
               color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
             ),
@@ -1766,7 +1817,7 @@ class _PostScreenState extends State<PostScreen> {
               // Images preview (only if images exist)
               if (_selectedImages.isNotEmpty)
                 ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  borderRadius: AppRadius.sheetTop,
                   child: SizedBox(
                     height: 160,
                     width: double.infinity,
@@ -1837,7 +1888,7 @@ class _PostScreenState extends State<PostScreen> {
                           height: 48,
                           decoration: BoxDecoration(
                             color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: AppRadius.mdAll,
                           ),
                           child: Icon(
                             _selectedCategory?.icon ?? AppIcons.category,
@@ -1855,7 +1906,7 @@ class _PostScreenState extends State<PostScreen> {
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                     decoration: BoxDecoration(
                                       color: _getTypeBadgeColor().withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(8),
+                                      borderRadius: AppRadius.smAll,
                                     ),
                                     child: Text(
                                       _getTypeDisplayLabel(),
@@ -1935,7 +1986,7 @@ class _PostScreenState extends State<PostScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
                               color: _getUrgencyColor().withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: AppRadius.pillAll,
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -2101,14 +2152,17 @@ class _PostScreenState extends State<PostScreen> {
     }
   }
 
+  // The second copy of the type-badge palette. PostModel.typeBadgeColor is
+  // the first, and it now routes through the theme — so the composer preview
+  // and the card it previews agree again.
   Color _getTypeBadgeColor() {
     switch (_selectedType) {
       case PostType.request:
-        return const Color(0xFF2196F3);
+        return AppTheme.infoBlue;
       case PostType.offer:
-        return const Color(0xFF4CAF50);
+        return AppTheme.successGreen;
       case PostType.job:
-        return const Color(0xFF9C27B0);
+        return AppTheme.primaryAccent;
       default:
         return AppTheme.primaryAccent;
     }
@@ -2273,12 +2327,14 @@ class _PostScreenState extends State<PostScreen> {
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppTheme.successGreen,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppRadius.mdAll,
             ),
           ),
         );
 
-        widget.onComplete();
+        // true = a listing was created. The caller sends the author to Discover
+        // on this result, so they see their post arrive in the feed.
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       if (mounted) {
@@ -2298,7 +2354,7 @@ class _PostScreenState extends State<PostScreen> {
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppTheme.errorRed,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppRadius.mdAll,
             ),
             action: SnackBarAction(
               label: 'Retry',
@@ -2350,7 +2406,7 @@ class _TypeCard extends StatelessWidget {
           color: isSelected
               ? AppTheme.primaryAccent.withValues(alpha: 0.1)
               : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: AppRadius.lgAll,
           border: Border.all(
             color: isSelected
                 ? AppTheme.primaryAccent
@@ -2367,7 +2423,7 @@ class _TypeCard extends StatelessWidget {
                 color: isSelected
                     ? AppTheme.primaryAccent.withValues(alpha: 0.2)
                     : (isDark ? AppTheme.darkSurface : AppTheme.lightBackground),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: AppRadius.mdAll,
               ),
               child: Icon(
                 icon,
@@ -2434,7 +2490,7 @@ class _PreviewChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkSurface : AppTheme.lightBackground,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.pillAll,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2479,7 +2535,7 @@ class _ImageSourceOption extends StatelessWidget {
             height: 64,
             decoration: BoxDecoration(
               color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: AppRadius.lgAll,
             ),
             child: Icon(
               icon,
