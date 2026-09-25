@@ -56,11 +56,11 @@ export default async function MarketplaceAllPage() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
         <MetricCard label="Total Requests"  value={fmt(kpis.totalRequests)} />
-        <MetricCard label="Open Requests"   value={fmt(kpis.openRequests)}  accent="blue" sub="No provider yet" />
-        <MetricCard label="Total Offers"    value={fmt(kpis.totalOffers)}   accent="purple" />
-        <MetricCard label="Hiring Posts"    value={fmt(kpis.totalHiring)}   accent="blue" sub="Recruitment" />
-        <MetricCard label="Active Jobs"     value={fmt(kpis.activeJobs)}    accent="yellow" sub="Provider assigned" />
-        <MetricCard label="Completed Jobs"  value={fmt(kpis.completedJobs)} accent="green" />
+        <MetricCard label="Open Requests"   value={fmt(kpis.openRequests)} sub="No provider yet" />
+        <MetricCard label="Total Offers"    value={fmt(kpis.totalOffers)} />
+        <MetricCard label="Hiring Posts"    value={fmt(kpis.totalHiring)} sub="Recruitment" />
+        <MetricCard label="Active Jobs"     value={fmt(kpis.activeJobs)} sub="Provider assigned" />
+        <MetricCard label="Completed Jobs"  value={fmt(kpis.completedJobs)} />
       </div>
 
       <div className="card p-5">

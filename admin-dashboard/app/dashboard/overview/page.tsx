@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { createServiceClient } from "@/lib/supabase-server";
 import MetricCard from "@/components/MetricCard";
 import { UserGrowthChart } from "@/components/charts/UserGrowthChart";
@@ -24,25 +25,20 @@ function groupByDay<T extends { created_at: string }>(rows: T[]): Record<string,
   return out;
 }
 
-async function getData() {
+/**
+ * The twelve-query path, kept ONLY as a fallback.
+ *
+ * Migration 113 adds `admin_overview`, which returns all of this in one round
+ * trip. This remains so that deploying the code and applying the migration can
+ * happen in either order without an outage — if the function is not there yet,
+ * the page still renders. Delete it once 113 is live everywhere.
+ */
+async function getDataViaTwelveQueries() {
   const db = createServiceClient();
   const since30 = new Date(Date.now() - 30 * 86400_000).toISOString();
   const since7  = new Date(Date.now() -  7 * 86400_000).toISOString();
 
-  const [
-    { count: totalUsers },
-    { count: activeUsers7d },
-    { count: totalRequests },
-    { count: totalOffers },
-    { count: activeJobs },
-    { count: completedJobs },
-    { count: totalTx },
-    escrowRes,
-    userRows,
-    postRows,
-    txRows,
-    locRows,
-  ] = await Promise.all([
+  const results = await Promise.all([
     db.from("users").select("*", { count: "exact", head: true }),
     db.from("users").select("*", { count: "exact", head: true }).gte("last_login", since7),
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "request"),
@@ -57,6 +53,36 @@ async function getData() {
     db.from("transactions").select("created_at, total_paid, status").order("created_at", { ascending: false }).limit(200),
     db.from("posts").select("location").not("location", "is", null).limit(500),
   ]);
+
+  // THE SUPABASE CLIENT RETURNS ERRORS; IT DOES NOT THROW THEM.
+  //
+  // Every one of these was destructured straight to `{ count }` and then
+  // coalesced with `?? 0`, so a query that failed produced a confident ZERO.
+  // The page returned 200 and the dashboard reported, for example, no pending
+  // escrow — which on a payments console is worse than an error, because an
+  // error gets investigated and a zero gets believed.
+  const failures = results.filter((r) => r.error);
+  if (failures.length > 0) {
+    throw new Error(
+      `${failures.length} of ${results.length} overview queries failed: ` +
+        failures.map((f) => f.error?.message ?? "unknown").join("; "),
+    );
+  }
+
+  const [
+    { count: totalUsers },
+    { count: activeUsers7d },
+    { count: totalRequests },
+    { count: totalOffers },
+    { count: activeJobs },
+    { count: completedJobs },
+    { count: totalTx },
+    escrowRes,
+    userRows,
+    postRows,
+    txRows,
+    locRows,
+  ] = results;
 
   const pendingEscrow = (escrowRes.data ?? []).reduce(
     (s: number, r: { amount: number }) => s + (r.amount ?? 0), 0
@@ -146,8 +172,87 @@ function ChartHeader({ title, sub }: { title: string; sub?: string }) {
 /* ═══════════════════════════════════════════════════════════
    PAGE
 ═══════════════════════════════════════════════════════════ */
+type Overview = Awaited<ReturnType<typeof getDataViaTwelveQueries>>;
+
+/**
+ * The overview data, in ONE round trip, cached.
+ *
+ * ── Why one call ────────────────────────────────────────────────────────────
+ * This page used to issue twelve PostgREST requests per load. Measured from
+ * Nairobi against this project, a request that never reaches Postgres costs
+ * 161–602 ms and a real query costs 343–512 ms — the same number. The database
+ * is not the cost; the ROUND TRIP is, and the page was buying twelve of them.
+ *
+ * ── Why it is cached ────────────────────────────────────────────────────────
+ * Nothing was cached, so every navigation re-ran all twelve. These are
+ * platform-wide counts on an operations console: "43 requests" does not need to
+ * be true to the millisecond, and a minute of staleness is invisible next to
+ * the seconds it was costing.
+ *
+ * `unstable_cache` rather than a route-level `revalidate` because the PAGE is
+ * per-admin — it reads the session — while the DATA is global. Caching the
+ * route would cache somebody's session along with the numbers.
+ *
+ * ── Why there is still a fallback ───────────────────────────────────────────
+ * `admin_overview` arrives in migration 113. Until that is applied everywhere,
+ * a missing function must not blank the dashboard, so the old path stays until
+ * the migration is live.
+ */
+const loadOverview = unstable_cache(
+  async (): Promise<Overview> => {
+    const db = createServiceClient();
+    const { data, error } = await db.rpc("admin_overview", { p_cities: KENYA_CITIES });
+
+    if (!error && data) return data as Overview;
+
+    console.warn(
+      "[overview] admin_overview unavailable, falling back to 12 queries:",
+      error?.message,
+    );
+    return getDataViaTwelveQueries();
+  },
+  ["admin-overview"],
+  { revalidate: 60, tags: ["admin-overview"] },
+);
+
 export default async function OverviewGeneralPage() {
-  const { kpis, userGrowth, postActivity, paymentStatus, geoPoints, totalLocs } = await getData();
+  let overview: Overview | null = null;
+  let failure: string | null = null;
+
+  try {
+    overview = await loadOverview();
+  } catch (e) {
+    // A page that returns 200 with its numbers quietly missing is worse than
+    // one that says it could not read them. This is a payments console.
+    failure = e instanceof Error ? e.message : String(e);
+  }
+
+  if (!overview) {
+    return (
+      <div className="space-y-6">
+        <div className="page-header">
+          <h1>Overview</h1>
+          <p>Platform health at a glance</p>
+        </div>
+        <div className="card p-6 border-critical-300 bg-critical-50">
+          <p className="text-sm font-semibold text-critical-700">
+            Could not load platform figures
+          </p>
+          <p className="text-xs text-critical-600 mt-1.5 leading-relaxed">
+            The database did not answer. Nothing is shown below rather than
+            numbers that may be wrong — reload to try again.
+          </p>
+          {failure && (
+            <p className="text-[11px] font-mono text-critical-600/80 mt-3 break-all">
+              {failure}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const { kpis, userGrowth, postActivity, paymentStatus, geoPoints, totalLocs } = overview;
 
   return (
     <div className="space-y-6 lg:space-y-8">
@@ -159,13 +264,13 @@ export default async function OverviewGeneralPage() {
           <MetricCard
             label="Total Users"
             value={fmtNum(kpis.totalUsers)}
-            accent="blue"
+
             icon="users"
           />
           <MetricCard
             label="Active (7-day)"
             value={fmtNum(kpis.activeUsers7d)}
-            accent="green"
+
             icon="active"
             sub="Logged in recently"
           />
@@ -177,7 +282,7 @@ export default async function OverviewGeneralPage() {
           <MetricCard
             label="Offers"
             value={fmtNum(kpis.totalOffers)}
-            accent="purple"
+
             icon="offers"
           />
         </div>
@@ -190,14 +295,14 @@ export default async function OverviewGeneralPage() {
           <MetricCard
             label="Active Jobs"
             value={fmtNum(kpis.activeJobs)}
-            accent="yellow"
+
             icon="jobs"
             sub="Provider assigned"
           />
           <MetricCard
             label="Completed Jobs"
             value={fmtNum(kpis.completedJobs)}
-            accent="green"
+
             icon="jobs"
           />
           <MetricCard
@@ -208,14 +313,14 @@ export default async function OverviewGeneralPage() {
           <MetricCard
             label="Pending Escrow"
             value={fmtKES(kpis.pendingEscrow)}
-            accent="yellow"
+
             icon="escrow"
             sub="Locked funds"
           />
           <MetricCard
             label="Total Revenue"
             value={fmtKES(kpis.totalRevenue)}
-            accent="green"
+
             icon="revenue"
           />
         </div>

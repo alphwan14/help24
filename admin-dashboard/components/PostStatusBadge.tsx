@@ -16,7 +16,7 @@ export function isArchived(archivedAt: string | null | undefined): boolean {
 export function ArchivedBadge({ withSubtitle = false }: { withSubtitle?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2">
-      <span className="badge bg-gray-900 text-white font-bold tracking-wide">ARCHIVED</span>
+      <span className="badge bg-gray-900 text-on-action font-bold tracking-wide">ARCHIVED</span>
       {withSubtitle && <span className="text-xs text-gray-400">Removed from feed</span>}
     </span>
   );

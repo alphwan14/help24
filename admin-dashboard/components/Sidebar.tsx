@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import { useState, useEffect } from "react";
 import { clearArbitrationToken } from "@/lib/admin-actions";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import type { ArbitrationIdentity } from "@/lib/arbitration-client";
 import type { AdminRole } from "@/lib/api";
 
@@ -29,9 +30,9 @@ const ROLE_LABELS: Record<AdminRole, string> = {
 };
 
 const ROLE_BADGE: Record<AdminRole, string> = {
-  super_admin:   "bg-indigo-900/60 text-indigo-300 border border-indigo-800/50",
-  senior_admin:  "bg-blue-900/60 text-blue-300 border border-blue-800/50",
-  support_agent: "bg-gray-800 text-gray-400 border border-gray-700/50",
+  super_admin:   "bg-rail-800 text-rail-accent border border-rail-700",
+  senior_admin:  "bg-rail-800 text-rail-info border border-rail-700",
+  support_agent: "bg-rail-800 text-rail-400 border border-rail-700/50",
 };
 
 /* ─── Navigation tree ──────────────────────────────────── */
@@ -138,26 +139,26 @@ function DebugPanel({
     <div className="mb-1">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="text-[10px] text-gray-700 hover:text-gray-500 px-3 py-1 w-full text-left transition-colors"
+        className="text-[10px] text-rail-700 hover:text-rail-500 px-3 py-1 w-full text-left transition-colors"
       >
         {open ? "▾" : "▸"} Auth debug
       </button>
       {open && (
-        <div className="mx-3 mb-1 p-2 rounded bg-gray-900 border border-gray-800/80 text-[10px] font-mono text-gray-500 space-y-0.5">
+        <div className="mx-3 mb-1 p-2 rounded bg-rail-900 border border-rail-800/80 text-[10px] font-mono text-rail-500 space-y-0.5">
           <div>
-            <span className="text-gray-700">session: </span>
+            <span className="text-rail-700">session: </span>
             {supabaseEmail ?? "none"}
           </div>
           <div>
-            <span className="text-gray-700">arbiter: </span>
+            <span className="text-rail-700">arbiter: </span>
             {arbitration.connected ? (arbitration.email ?? "—") : "—"}
           </div>
           <div>
-            <span className="text-gray-700">role:    </span>
+            <span className="text-rail-700">role:    </span>
             {arbitration.connected ? (arbitration.role ?? "—") : "—"}
           </div>
           <div>
-            <span className="text-gray-700">status:  </span>
+            <span className="text-rail-700">status:  </span>
             {arbitration.connected ? "connected" : "disconnected"}
           </div>
         </div>
@@ -179,13 +180,13 @@ function IdentityCard({
   return (
     <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
       {/* Avatar */}
-      <div className="w-7 h-7 rounded-full bg-gray-800 ring-1 ring-white/[0.08] flex items-center justify-center text-[11px] font-semibold text-gray-300 shrink-0 select-none">
+      <div className="w-7 h-7 rounded-full bg-rail-800 ring-1 ring-white/[0.08] flex items-center justify-center text-[11px] font-semibold text-rail-300 shrink-0 select-none">
         {initial}
       </div>
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="text-[11.5px] text-gray-300 truncate leading-tight font-medium">
+        <p className="text-[11.5px] text-rail-300 truncate leading-tight font-medium">
           {supabaseEmail ?? "…"}
         </p>
 
@@ -197,14 +198,14 @@ function IdentityCard({
               >
                 {ROLE_LABELS[arbitration.role]}
               </span>
-              <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+              <span className="flex items-center gap-1 text-[10px] text-rail-positive font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-rail-positive shrink-0" />
                 Connected
               </span>
             </div>
           ) : (
-            <span className="flex items-center gap-1 text-[10px] text-gray-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-gray-700 shrink-0" />
+            <span className="flex items-center gap-1 text-[10px] text-rail-600">
+              <span className="w-1.5 h-1.5 rounded-full bg-rail-700 shrink-0" />
               No arbitration access
             </span>
           )}
@@ -261,7 +262,7 @@ function NavTree({
             <p className="text-white font-semibold text-[13.5px] leading-none tracking-tight">
               Help24
             </p>
-            <p className="text-[10px] text-gray-500 mt-[3px] tracking-widest uppercase font-medium">
+            <p className="text-[10px] text-rail-500 mt-[3px] tracking-widest uppercase font-medium">
               Operations
             </p>
           </div>
@@ -284,7 +285,7 @@ function NavTree({
                   "min-h-[40px]",
                   isActive
                     ? "text-white bg-white/[0.09]"
-                    : "text-gray-400 hover:text-gray-200 hover:bg-white/[0.05]",
+                    : "text-rail-400 hover:text-rail-200 hover:bg-white/[0.05]",
                 ].join(" ")}
               >
                 {isActive && (
@@ -293,13 +294,13 @@ function NavTree({
                 <item.icon
                   className={[
                     "w-[15px] h-[15px] shrink-0 transition-colors",
-                    isActive ? "text-brand-400" : "text-gray-500",
+                    isActive ? "text-brand-400" : "text-rail-500",
                   ].join(" ")}
                 />
                 <span className="flex-1 text-left">{item.label}</span>
                 <ChevronDownIcon
                   className={[
-                    "w-[11px] h-[11px] shrink-0 text-gray-600 transition-transform duration-200",
+                    "w-[11px] h-[11px] shrink-0 text-rail-600 transition-transform duration-200",
                     isOpen ? "rotate-180" : "",
                   ].join(" ")}
                 />
@@ -327,13 +328,13 @@ function NavTree({
                           "min-h-[34px]",
                           isCurrent
                             ? "text-white font-medium bg-white/[0.08]"
-                            : "text-gray-500 hover:text-gray-200 hover:bg-white/[0.04]",
+                            : "text-rail-500 hover:text-rail-200 hover:bg-white/[0.04]",
                         ].join(" ")}
                       >
                         <span
                           className={[
                             "w-[5px] h-[5px] rounded-full shrink-0 transition-colors",
-                            isCurrent ? "bg-brand-400" : "bg-gray-700",
+                            isCurrent ? "bg-brand-400" : "bg-rail-700",
                           ].join(" ")}
                         />
                         {child.label}
@@ -350,6 +351,14 @@ function NavTree({
       {/* Identity + sign-out footer — kept compact so the primary nav above
           keeps maximum vertical space and rarely needs scrolling. */}
       <div className="shrink-0 px-2.5 pt-2 pb-2 border-t border-white/[0.06] space-y-0.5">
+        {/* Appearance lives at the bottom of the rail, beside sign-out: it is
+            a preference, not navigation, and it belongs with the other things
+            that are about YOU rather than about the data. */}
+        <div className="flex items-center justify-between px-2.5 py-1.5">
+          <span className="text-[12px] font-medium text-rail-500">Appearance</span>
+          <ThemeToggle />
+        </div>
+
         <IdentityCard supabaseEmail={supabaseEmail} arbitration={arbitration} />
 
         {isDev && (
@@ -359,7 +368,7 @@ function NavTree({
         <button
           onClick={onSignOut}
           disabled={signingOut}
-          className="flex items-center gap-2.5 px-2.5 py-1.5 w-full rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-200 hover:bg-white/[0.05] transition-colors disabled:opacity-40 min-h-[34px]"
+          className="flex items-center gap-2.5 px-2.5 py-1.5 w-full rounded-lg text-[12px] font-medium text-rail-500 hover:text-rail-200 hover:bg-white/[0.05] transition-colors disabled:opacity-40 min-h-[34px]"
         >
           <LogOutIcon className="w-[15px] h-[15px] shrink-0" />
           {signingOut ? "Signing out…" : "Sign out"}
@@ -445,18 +454,18 @@ export default function Sidebar({
       {/* ══════════════════════════════════════════
           DESKTOP SIDEBAR — always in layout flow
       ══════════════════════════════════════════ */}
-      <nav className="hidden lg:flex lg:flex-col lg:w-[240px] lg:h-screen lg:shrink-0 bg-gray-950 border-r border-white/[0.06] overflow-hidden">
+      <nav className="hidden lg:flex lg:flex-col lg:w-[240px] lg:h-screen lg:shrink-0 bg-rail-950 border-r border-white/[0.06] overflow-hidden">
         <NavTree {...sharedProps} />
       </nav>
 
       {/* ══════════════════════════════════════════
           MOBILE TOP BAR — fixed, below lg hidden
       ══════════════════════════════════════════ */}
-      <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-gray-950 border-b border-white/[0.06] flex items-center gap-3 px-4 shrink-0">
+      <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-rail-950 border-b border-white/[0.06] flex items-center gap-3 px-4 shrink-0">
         <button
           onClick={() => setMobileOpen(true)}
           aria-label="Open navigation"
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.12] transition-colors"
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-rail-400 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.12] transition-colors"
         >
           <HamburgerIcon className="w-5 h-5" />
         </button>
@@ -473,7 +482,7 @@ export default function Sidebar({
           <span className="text-white font-semibold text-[13.5px] tracking-tight">
             Help24
           </span>
-          <span className="text-gray-600 text-[10px] tracking-widest uppercase font-medium hidden sm:inline">
+          <span className="text-rail-600 text-[10px] tracking-widest uppercase font-medium hidden sm:inline">
             Operations
           </span>
         </div>
@@ -502,7 +511,7 @@ export default function Sidebar({
         className={[
           "lg:hidden fixed inset-y-0 left-0 z-50",
           "w-[272px] flex flex-col",
-          "bg-gray-950 border-r border-white/[0.06] overflow-hidden",
+          "bg-rail-950 border-r border-white/[0.06] overflow-hidden",
           "transition-transform duration-300 ease-out",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
         ].join(" ")}
@@ -511,7 +520,7 @@ export default function Sidebar({
         <button
           onClick={() => setMobileOpen(false)}
           aria-label="Close navigation"
-          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-white hover:bg-white/[0.08] transition-colors"
+          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-lg text-rail-500 hover:text-white hover:bg-white/[0.08] transition-colors"
         >
           <XIcon className="w-4 h-4" />
         </button>

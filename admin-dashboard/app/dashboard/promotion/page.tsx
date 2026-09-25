@@ -124,7 +124,7 @@ export default async function PromotionCampaignsPage({ searchParams }: PageProps
       <div className="flex flex-wrap items-center gap-2">
         <Link
           href="/dashboard/promotion"
-          className={`badge ${!active ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}
+          className={`badge ${!active ? "bg-gray-900 text-on-action" : "bg-gray-100 text-gray-600"}`}
         >
           All
         </Link>
@@ -132,7 +132,7 @@ export default async function PromotionCampaignsPage({ searchParams }: PageProps
           <Link
             key={f}
             href={`/dashboard/promotion?status=${f}`}
-            className={`badge ${active === f ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}
+            className={`badge ${active === f ? "bg-gray-900 text-on-action" : "bg-gray-100 text-gray-600"}`}
           >
             {f.replace(/_/g, " ")}
           </Link>

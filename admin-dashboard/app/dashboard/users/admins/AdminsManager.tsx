@@ -169,7 +169,7 @@ export default function AdminsManager({
           <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
             <p className="text-xs font-semibold text-amber-800 mb-1">Invite link — share it securely</p>
             <div className="flex gap-2">
-              <code className="flex-1 text-xs bg-white border border-amber-200 rounded p-2 font-mono break-all">
+              <code className="flex-1 text-xs bg-surface border border-amber-200 rounded p-2 font-mono break-all">
                 {inviteLink}
               </code>
               <button
@@ -178,7 +178,7 @@ export default function AdminsManager({
                   navigator.clipboard.writeText(inviteLink);
                   setCopied(true);
                 }}
-                className="shrink-0 text-xs font-semibold px-3 rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+                className="shrink-0 text-xs font-semibold px-3 rounded-lg bg-caution-100 text-caution-700 border border-caution-300 hover:bg-caution-200"
               >
                 {copied ? "Copied" : "Copy"}
               </button>

@@ -59,6 +59,27 @@ function fmtDate(iso: string | null) {
   });
 }
 
+/**
+ * A count in a table cell.
+ *
+ * Zero is rendered muted and un-adorned: the point of the column is to let a
+ * reader find the rows that have activity, and wrapping every nought in a
+ * tinted pill buries them.
+ */
+function Count({ n }: { n: number }) {
+  return (
+    <span
+      className={
+        n > 0
+          ? "tabular-nums font-medium text-gray-900"
+          : "tabular-nums text-gray-400"
+      }
+    >
+      {n}
+    </span>
+  );
+}
+
 export default async function UsersPage() {
   const [{ rows: users, error: usersError }, postCounts, sessionUser, reps] = await Promise.all([
     getUsers(),
@@ -101,16 +122,16 @@ export default async function UsersPage() {
     {
       key: "requests",
       label: "Requests",
-      render: (r: EnrichedUser) => (
-        <span className="badge bg-blue-50 text-blue-700">{r.requests}</span>
-      ),
+      // A badge is for something worth noticing, and a zero is not. Eighteen
+      // rows of tinted pills each containing "0" is thirty-six pieces of
+      // chrome carrying no information; the count reads better as a figure,
+      // and a real one then stands out on its own.
+      render: (r: EnrichedUser) => <Count n={r.requests} />,
     },
     {
       key: "offers",
       label: "Offers",
-      render: (r: EnrichedUser) => (
-        <span className="badge bg-purple-50 text-purple-700">{r.offers}</span>
-      ),
+      render: (r: EnrichedUser) => <Count n={r.offers} />,
     },
     {
       key: "completed_jobs",
@@ -122,8 +143,11 @@ export default async function UsersPage() {
       label: "Rating",
       render: (r: EnrichedUser) => {
         const label = ratingLabel(repMap.get(r.id));
+        // "New" was amber-adjacent and repeated on every row — a colour that
+        // said "look here" about the one value every row shared. It is muted
+        // now, so a real rating is the thing that catches the eye.
         return label ? (
-          <span className="text-amber-600 font-medium">{label}</span>
+          <span className="text-gray-900 font-medium tabular-nums">{label}</span>
         ) : (
           <span className="text-gray-400 text-xs">New</span>
         );

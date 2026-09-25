@@ -9,6 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { CHART } from "@/lib/tokens";
 
 interface TxRow {
   created_at: string;
@@ -35,19 +36,19 @@ export function RecentTransactionsChart({ data }: { data: TxRow[] }) {
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-        <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} />
+        <XAxis dataKey="date" tick={{ fontSize: 11, fill: CHART.labelMuted }} tickLine={false} />
         <YAxis
-          tick={{ fontSize: 11, fill: "#9ca3af" }}
+          tick={{ fontSize: 11, fill: CHART.labelMuted }}
           tickLine={false}
           axisLine={false}
           tickFormatter={(v) => `${v}`}
         />
         <Tooltip
           formatter={(v: number) => [`KES ${v}`, "Volume"]}
-          contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
+          contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ` }}
         />
-        <Bar dataKey="total" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="total" fill={CHART.series[0]} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

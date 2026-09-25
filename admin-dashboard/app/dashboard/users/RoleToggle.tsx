@@ -73,10 +73,23 @@ export function RoleToggle({ userId, userEmail, initialRole, currentUserEmail }:
         <button
           onClick={handleToggle}
           disabled={loading}
-          className={`text-xs font-medium px-2.5 py-1 rounded-md border transition-colors disabled:opacity-40 ${
+          /*
+           * A QUIET TEXT ACTION, NOT A BUTTON ON EVERY ROW.
+           *
+           * This was a bordered button rendered once per user, so a table of
+           * eighteen people carried eighteen identical outlined controls down
+           * its right edge — the loudest column on the page, for an action
+           * almost no row will ever take. It also gave PROMOTE TO ADMIN the
+           * same visual weight as reading a phone number.
+           *
+           * The action is unchanged and still one click; it simply stops
+           * competing with the data. Removing admin keeps the critical tone,
+           * because that one is worth hesitating over.
+           */
+          className={`text-xs font-medium px-1.5 py-1 rounded transition-colors disabled:opacity-40 ${
             isAdmin
-              ? "border-red-200 text-red-600 hover:bg-red-50"
-              : "border-brand-300 text-brand-600 hover:bg-brand-50"
+              ? "text-critical-600 hover:bg-critical-50"
+              : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
           }`}
         >
           {loading ? "…" : isAdmin ? "Remove Admin" : "Make Admin"}
@@ -88,8 +101,8 @@ export function RoleToggle({ userId, userEmail, initialRole, currentUserEmail }:
         <div
           className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2 animate-fade-in ${
             toast.type === "success"
-              ? "bg-green-600 text-white"
-              : "bg-red-600 text-white"
+              ? "bg-positive-100 text-positive-700 border border-positive-300"
+              : "bg-critical-100 text-critical-700 border border-critical-300"
           }`}
         >
           <span>{toast.type === "success" ? "✓" : "✕"}</span>

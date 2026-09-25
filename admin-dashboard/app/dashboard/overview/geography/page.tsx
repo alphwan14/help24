@@ -1,5 +1,4 @@
 import { createServiceClient } from "@/lib/supabase-server";
-import { GeographyChart } from "@/components/charts/GeographyChart";
 
 const CITIES = ["Nairobi", "Mombasa", "Kisumu", "Nakuru", "Eldoret", "Thika", "Malindi", "Nyeri"];
 
@@ -57,37 +56,47 @@ export default async function GeographyPage() {
 
   return (
     <div className="space-y-6">
-      {/* Summary cards */}
+      {/*
+        Three figures, one ink colour.
+
+        These were black, indigo and green — three hues for three counts of the
+        same kind of thing. The green one was "Users with location", which
+        currently reads 0: an ABSENCE rendered in the colour that means a good
+        outcome. Colour here was decoration, and decoration that occasionally
+        lies.
+      */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="card p-4 text-center">
-          <p className="text-2xl font-bold text-gray-900">{total.toLocaleString("en-KE")}</p>
-          <p className="text-xs text-gray-500 mt-1">Location data points</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-2xl font-bold text-indigo-600">{postCount.toLocaleString("en-KE")}</p>
-          <p className="text-xs text-gray-500 mt-1">Posts with location</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-2xl font-bold text-emerald-600">{userCount.toLocaleString("en-KE")}</p>
-          <p className="text-xs text-gray-500 mt-1">Users with location</p>
-        </div>
+        {[
+          { value: total, label: "Location data points" },
+          { value: postCount, label: "Posts with location" },
+          { value: userCount, label: "Users with location" },
+        ].map((s) => (
+          <div key={s.label} className="card p-4 text-center">
+            <p className="text-2xl font-semibold text-gray-900 tabular-nums">
+              {s.value.toLocaleString("en-KE")}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">{s.label}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Chart */}
-      <div className="card p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Usage by City</h3>
-        <p className="text-xs text-gray-400 mb-4">Combined post + user location data</p>
-        {geoPoints.length > 0 ? (
-          <GeographyChart data={geoPoints} />
-        ) : (
-          <p className="text-gray-400 text-sm py-8 text-center">No location data yet</p>
-        )}
-      </div>
-
-      {/* Breakdown table */}
-      {geoPoints.length > 0 && (
+      {/*
+        ONE VIEW OF THIS DATA, NOT TWO.
+    
+        This page used to render the same six cities twice, stacked: a
+        horizontal bar chart headed "Usage by City", and immediately beneath it
+        this list — the same rows, the same order, the same bar lengths. The
+        second one simply also carried the count and the percentage.
+    
+        A reader scrolling past two identical rankings has to stop and work out
+        whether they differ, which is work for no answer. The list won because
+        it says MORE in less height: Mombasa 34 (64%) is the fact; a bar whose
+        length you must compare against an axis is a slower route to it.
+      */}
+      {geoPoints.length > 0 ? (
         <div className="card p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">City Breakdown</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Usage by city</h3>
+          <p className="text-xs text-gray-400 mb-4">Combined post + user location data</p>
           <div className="space-y-3">
             {geoPoints.map((g) => (
               <div key={g.city} className="flex items-center gap-3">
@@ -104,6 +113,11 @@ export default async function GeographyPage() {
               </div>
             ))}
           </div>
+        </div>
+      ) : (
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Usage by city</h3>
+          <p className="text-gray-400 text-sm py-8 text-center">No location data yet</p>
         </div>
       )}
     </div>

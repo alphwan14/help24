@@ -124,15 +124,15 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-900 to-brand-700 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-rail-950 to-rail-900 p-4">
       <div className="w-full max-w-sm">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/10 mb-4">
-            <span className="text-2xl font-bold text-white">H</span>
+            <span className="text-2xl font-bold text-rail-50">H</span>
           </div>
-          <h1 className="text-2xl font-bold text-white">Help24 Admin</h1>
-          <p className="text-brand-200 text-sm mt-1">
+          <h1 className="text-2xl font-bold text-rail-50">Help24 Admin</h1>
+          <p className="text-rail-200 text-sm mt-1">
             {resetMode ? "Reset your password" : "Sign in to the operations console"}
           </p>
         </div>
@@ -234,7 +234,7 @@ function LoginForm() {
           </form>
         </div>
 
-        <p className="text-center text-brand-200/80 text-xs mt-5 leading-relaxed">
+        <p className="text-center text-rail-200/80 text-xs mt-5 leading-relaxed">
           Admins are invited by system administrators.
           <br />
           There is no public sign-up.

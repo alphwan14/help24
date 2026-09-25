@@ -1,0 +1,147 @@
+{
+  "GENERATED": "Do not edit. Source: mobile-app/lib/theme/tokens.dart. Regenerate: cd mobile-app && flutter test test/design_tokens_export_test.dart --dart-define=update_tokens=true",
+  "color": {
+    "light": {
+      "page": "#FAF9F7",
+      "surface": "#FFFFFF",
+      "surfaceSunken": "#F4F2EE",
+      "surfaceRaised": "#F7F5F1",
+      "navSurface": "#FFFFFF",
+      "contentPrimary": "#12161A",
+      "contentSecondary": "#585F66",
+      "contentTertiary": "#686F77",
+      "borderHairline": "#E3E0D9",
+      "borderStrong": "#928D83",
+      "actionFill": "#12161A",
+      "contentOnAction": "#FFFFFF",
+      "accentFill": "#E8A33D",
+      "accentText": "#96620A",
+      "accentSubtle": "#FDF3E2",
+      "contentOnAccent": "#12161A",
+      "positiveText": "#0B7A4B",
+      "positiveFill": "#12A365",
+      "positiveSubtle": "#E8F6EF",
+      "cautionText": "#A8541A",
+      "cautionFill": "#C96A22",
+      "cautionSubtle": "#FBEFE6",
+      "criticalText": "#C22B22",
+      "criticalFill": "#D13A2F",
+      "criticalSubtle": "#FCECEA",
+      "infoText": "#1F5FBF",
+      "infoFill": "#2E70D0",
+      "infoSubtle": "#EAF1FC",
+      "neutralSubtle": "#F4F2EE"
+    },
+    "dark": {
+      "page": "#0E1114",
+      "surface": "#1B2024",
+      "surfaceSunken": "#15191D",
+      "surfaceRaised": "#232930",
+      "navSurface": "#15191D",
+      "contentPrimary": "#F2F4F6",
+      "contentSecondary": "#A8B0B8",
+      "contentTertiary": "#868E96",
+      "borderHairline": "#2A3035",
+      "borderStrong": "#6E767E",
+      "actionFill": "#F2F4F6",
+      "contentOnAction": "#0E1114",
+      "accentFill": "#E8A33D",
+      "accentText": "#E8A33D",
+      "accentSubtle": "#332713",
+      "contentOnAccent": "#12161A",
+      "positiveText": "#3DD68C",
+      "positiveFill": "#12A365",
+      "positiveSubtle": "#10291F",
+      "cautionText": "#F0A46A",
+      "cautionFill": "#C96A22",
+      "cautionSubtle": "#31260F",
+      "criticalText": "#FF6B60",
+      "criticalFill": "#D13A2F",
+      "criticalSubtle": "#331C19",
+      "infoText": "#7FB0FF",
+      "infoFill": "#2E70D0",
+      "infoSubtle": "#17243A",
+      "neutralSubtle": "#232930"
+    }
+  },
+  "radius": {
+    "sm": 8.0,
+    "md": 12.0,
+    "lg": 16.0,
+    "sheet": 24.0,
+    "pill": 999.0
+  },
+  "space": {
+    "xs": 4.0,
+    "sm": 8.0,
+    "md": 12.0,
+    "lg": 16.0,
+    "xl": 24.0,
+    "xxl": 32.0,
+    "xxxl": 48.0,
+    "gutter": 16.0,
+    "section": 24.0
+  },
+  "type": {
+    "family": "Inter",
+    "displayS": {
+      "fontSize": 28.0,
+      "lineHeight": 40,
+      "fontWeight": 600,
+      "letterSpacing": -0.4
+    },
+    "headingL": {
+      "fontSize": 22.0,
+      "lineHeight": 32,
+      "fontWeight": 600,
+      "letterSpacing": -0.2
+    },
+    "headingM": {
+      "fontSize": 18.0,
+      "lineHeight": 28,
+      "fontWeight": 600,
+      "letterSpacing": -0.1
+    },
+    "headingS": {
+      "fontSize": 16.0,
+      "lineHeight": 24,
+      "fontWeight": 600
+    },
+    "bodyL": {
+      "fontSize": 16.0,
+      "lineHeight": 24,
+      "fontWeight": 400
+    },
+    "bodyM": {
+      "fontSize": 14.0,
+      "lineHeight": 20,
+      "fontWeight": 400
+    },
+    "bodyS": {
+      "fontSize": 13.0,
+      "lineHeight": 20,
+      "fontWeight": 400
+    },
+    "label": {
+      "fontSize": 13.0,
+      "lineHeight": 16,
+      "fontWeight": 500
+    },
+    "meta": {
+      "fontSize": 12.0,
+      "lineHeight": 16,
+      "fontWeight": 400
+    },
+    "mono": {
+      "fontSize": 14.0,
+      "lineHeight": 20,
+      "fontWeight": 500,
+      "tabularFigures": true
+    }
+  },
+  "motion": {
+    "state": 120,
+    "transition": 200,
+    "sheet": 280
+  }
+}

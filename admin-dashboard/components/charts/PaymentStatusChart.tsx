@@ -1,18 +1,21 @@
 "use client";
 
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { CHART } from "@/lib/tokens";
 
 export interface StatusSlice { name: string; value: number }
 
 const STATUS_COLORS: Record<string, string> = {
-  paid:            "#10b981",
-  released:        "#059669",
-  pending:         "#f59e0b",
-  payout_pending:  "#3b82f6",
-  failed:          "#ef4444",
+  // Help24 STATUS roles, not series hues. The method reserves status colour:
+  // it always means the same thing and is never spent on "series 4".
+  paid:            CHART.status.positive,
+  released:        CHART.status.positiveStrong,
+  pending:         CHART.status.caution,
+  payout_pending:  CHART.status.info,
+  failed:          CHART.status.critical,
 };
 
-const FALLBACK = "#94a3b8";
+const FALLBACK = CHART.status.neutral;
 
 function StatusLabel({ name }: { name: string }) {
   return <span className="capitalize">{name.replace(/_/g, " ")}</span>;
@@ -60,7 +63,7 @@ export function PaymentStatusChart({ data }: { data: StatusSlice[] }) {
           contentStyle={{
             fontSize: 12,
             borderRadius: 8,
-            border: "1px solid #e2e8f0",
+            border: `1px solid `,
             boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.07)",
           }}
         />

@@ -6,44 +6,39 @@ interface MetricCardProps {
   label: string;
   value: string | number;
   sub?: string;
-  accent?: "default" | "green" | "yellow" | "blue" | "purple" | "red";
+  /** Neutral unless the STATE is the point. See TONE. */
+  accent?: keyof typeof TONE;
   icon?: MetricIconVariant;
   trend?: string;
   trendUp?: boolean;
 }
 
-const accentConfig = {
-  default: {
-    topBar: "bg-gray-200",
-    ring:   "bg-gray-50 border-gray-150",
-    icon:   "text-gray-400",
-  },
-  blue: {
-    topBar: "bg-blue-400",
-    ring:   "bg-blue-50 border-blue-100",
-    icon:   "text-blue-500",
-  },
-  green: {
-    topBar: "bg-emerald-400",
-    ring:   "bg-emerald-50 border-emerald-100",
-    icon:   "text-emerald-500",
-  },
-  yellow: {
-    topBar: "bg-amber-400",
-    ring:   "bg-amber-50 border-amber-100",
-    icon:   "text-amber-500",
-  },
-  purple: {
-    topBar: "bg-purple-400",
-    ring:   "bg-purple-50 border-purple-100",
-    icon:   "text-purple-500",
-  },
-  red: {
-    topBar: "bg-red-400",
-    ring:   "bg-red-50 border-red-100",
-    icon:   "text-red-500",
-  },
-};
+/**
+ * ACCENT IS A STATE, NOT A DECORATION.
+ *
+ * This used to paint a 2px coloured bar across the top of every tile and tint
+ * the icon square to match, with the colour chosen per call site — blue here,
+ * purple there, green somewhere else. Nine tiles on the overview page meant
+ * nine colours, and none of them encoded anything: "Offers" was purple because
+ * it was the fourth tile, and the geography page rendered "0 Users with
+ * location" in GREEN, which says an absence is a good outcome.
+ *
+ * Colour that means nothing is worse than no colour, because it spends the
+ * reader's attention and teaches them the palette is noise. The app reserves
+ * the accent for a single moment per surface; a KPI row is exactly the surface
+ * where that rule earns its keep.
+ *
+ * So the default is NEUTRAL, and a tile only takes a tone when the tone is the
+ * point — money at risk, something failing, something needing attention.
+ */
+const TONE = {
+  default:  "text-gray-400",
+  positive: "text-positive-600",
+  caution:  "text-caution-600",
+  critical: "text-critical-600",
+  info:     "text-info-600",
+  accent:   "text-accent-600",
+} as const;
 
 export default function MetricCard({
   label,
@@ -54,45 +49,39 @@ export default function MetricCard({
   trend,
   trendUp,
 }: MetricCardProps) {
-  const colors = accentConfig[accent];
   return (
-    <div className="relative bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden">
-      {/* Colored top accent */}
-      <div className={`absolute top-0 inset-x-0 h-[2px] ${colors.topBar}`} />
-
-      <div className="pt-5 pb-4 px-5">
-        <div className="flex items-start justify-between gap-3">
-          {/* Text */}
-          <div className="min-w-0 flex-1">
-            <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-widest leading-none">
-              {label}
-            </p>
-            <p className="text-[1.55rem] font-bold text-gray-900 mt-2 leading-none tabular-nums tracking-tight">
-              {value}
-            </p>
-            <div className="flex items-center gap-1.5 mt-2 min-h-[16px]">
-              {trend && (
-                <span
-                  className={`text-[11px] font-semibold ${
-                    trendUp ? "text-emerald-600" : "text-red-500"
-                  }`}
-                >
-                  {trend}
-                </span>
-              )}
-              {sub && (
-                <span className="text-[11px] text-gray-400 leading-none">{sub}</span>
-              )}
-            </div>
-          </div>
-
-          {/* Icon */}
-          <div
-            className={`shrink-0 w-9 h-9 rounded-lg border flex items-center justify-center ${colors.ring}`}
-          >
-            <IconSvg variant={icon} className={`w-[17px] h-[17px] ${colors.icon}`} />
+    <div className="bg-surface rounded-xl border border-gray-200 px-5 pt-4 pb-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium text-gray-500 leading-none">
+            {label}
+          </p>
+          {/* The number leads. Tabular figures so a column of tiles lines up
+              and a changing value does not shift its own label. */}
+          <p className="text-[1.6rem] font-semibold text-gray-900 mt-2.5 leading-none tabular-nums tracking-tight">
+            {value}
+          </p>
+          <div className="flex items-center gap-1.5 mt-2 min-h-[16px]">
+            {trend && (
+              <span
+                className={`text-[11px] font-medium ${
+                  trendUp ? "text-positive-600" : "text-critical-600"
+                }`}
+              >
+                {trend}
+              </span>
+            )}
+            {sub && (
+              <span className="text-[11px] text-gray-400 leading-none">{sub}</span>
+            )}
           </div>
         </div>
+
+        {/* The glyph, unboxed. It was a 36px tinted square with a border — a
+            second bordered surface inside a bordered surface, for an icon that
+            repeats what the label already says. It earns its place as a
+            scanning aid, not as a swatch. */}
+        <IconSvg variant={icon} className={`w-[18px] h-[18px] shrink-0 mt-0.5 ${TONE[accent]}`} />
       </div>
     </div>
   );

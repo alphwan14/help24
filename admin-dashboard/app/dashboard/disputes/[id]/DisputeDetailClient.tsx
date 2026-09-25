@@ -348,8 +348,8 @@ export default function DisputeDetailClient({
                 onClick={() => setEvidenceFrom(who)}
                 className={`py-1.5 px-3 rounded-lg text-xs font-semibold border transition-all ${
                   evidenceFrom === who
-                    ? "bg-gray-900 text-white border-gray-900"
-                    : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+                    ? "bg-gray-900 text-on-action border-gray-900"
+                    : "bg-surface text-gray-600 border-gray-200 hover:border-gray-400"
                 }`}
               >
                 From {who}
@@ -482,7 +482,7 @@ export default function DisputeDetailClient({
                   disabled={disabled}
                   onClick={() => setDecisionType(t)}
                   className={`py-2.5 px-3 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                    decisionType === t ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+                    decisionType === t ? "bg-gray-900 text-on-action border-gray-900" : "bg-surface text-gray-600 border-gray-200 hover:border-gray-400"
                   }`}
                   title={disabled ? "Requires senior_admin or higher" : undefined}
                 >
@@ -524,7 +524,7 @@ export default function DisputeDetailClient({
           </div>
 
           <button type="submit" disabled={isPending}
-            className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-gray-900 hover:bg-black transition-all disabled:opacity-50">
+            className="w-full py-3 rounded-xl font-semibold text-on-action text-sm bg-gray-900 hover:bg-black transition-all disabled:opacity-50">
             {isPending ? "Processing…" : `Confirm: ${DECISION_LABELS[decisionType]}`}
           </button>
         </form>

@@ -137,7 +137,7 @@ export default async function DisputesPage({ searchParams }: PageProps) {
         <Link
           href="/dashboard/disputes"
           className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-            !active ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"
+            !active ? "bg-gray-900 text-on-action border-gray-900" : "bg-surface text-gray-600 border-gray-200"
           }`}
         >
           Active queue
@@ -147,7 +147,7 @@ export default async function DisputesPage({ searchParams }: PageProps) {
             key={f}
             href={`/dashboard/disputes?status=${f}`}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize ${
-              active === f ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"
+              active === f ? "bg-gray-900 text-on-action border-gray-900" : "bg-surface text-gray-600 border-gray-200"
             }`}
           >
             {f}

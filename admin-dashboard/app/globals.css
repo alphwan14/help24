@@ -7,10 +7,15 @@
     box-sizing: border-box;
   }
   body {
-    @apply bg-slate-50 text-gray-900 antialiased;
+    /* page + contentPrimary, from the app. Was bg-slate-50 — a COOL grey on
+       what is now warm paper, which reads as slightly dirty rather than
+       neutral. */
+    @apply bg-page text-gray-900 antialiased;
   }
   :root {
-    --scrollbar-thumb: #d1d5db;
+    /* borderStrong. Was #d1d5db, a cool grey with no relationship to the
+       palette and the last raw hex in this file. */
+    --scrollbar-thumb: theme("colors.border-strong");
     --scrollbar-track: transparent;
   }
   ::-webkit-scrollbar        { width: 5px; height: 5px; }
@@ -25,7 +30,7 @@
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-brand-600 text-on-action text-sm font-medium hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
     /* Minimum 44px touch target */
     min-height: 44px;
   }
@@ -39,8 +44,15 @@
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
 
+  /* Numbers in columns. The app sets tabular figures on its money role for
+     the same reason: a dashboard is mostly figures, and proportional digits
+     make a changing value jitter and a column fail to line up. */
+  .font-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
   .card {
-    @apply bg-white rounded-xl border border-gray-100 shadow-sm;
+    @apply bg-surface rounded-xl border border-gray-100 shadow-sm;
   }
 
   .input {
@@ -61,7 +73,7 @@
 
   /* Chart card — responsive inner padding */
   .chart-card {
-    @apply bg-white rounded-xl border border-gray-100 shadow-sm px-4 pt-4 pb-5 sm:px-6 sm:pt-5 sm:pb-6;
+    @apply bg-surface rounded-xl border border-gray-100 shadow-sm px-4 pt-4 pb-5 sm:px-6 sm:pt-5 sm:pb-6;
   }
   /* Legacy selectors kept for pages that use them directly */
   .chart-card-title {
