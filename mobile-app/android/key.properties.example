@@ -1,0 +1,41 @@
+# Help24 — Android release signing (TEMPLATE)
+# =============================================================================
+# Copy to `android/key.properties` and fill in. That file, and any .jks or
+# .keystore anywhere under android/, are gitignored — by android/.gitignore
+# AND by the repo root .gitignore. Never commit either, and never paste these
+# values into a ticket, a chat message or a build log.
+#
+# If this file is absent, app/build.gradle falls back to these environment
+# variables instead (the CI path):
+#
+#   HELP24_KEYSTORE_PATH       absolute path to the decoded .jks
+#   HELP24_KEYSTORE_PASSWORD
+#   HELP24_KEY_ALIAS
+#   HELP24_KEY_PASSWORD
+#
+# If NEITHER is present, a release build fails with an explicit message. It
+# does not fall back to the debug key — a debug-signed release breaks Google
+# Sign-In and phone verification on every real device, and does so silently.
+#
+# Create the keystore once (keep the backup somewhere you will still have in
+# five years — losing it means you can never update the app under this
+# identity again):
+#
+#   keytool -genkeypair -v \
+#     -keystore %USERPROFILE%/help24-release.jks \
+#     -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 \
+#     -alias help24
+#
+# Then read its fingerprints and register BOTH with the identity provider:
+#
+#   keytool -list -v -keystore %USERPROFILE%/help24-release.jks -alias help24
+#
+# Full procedure, including the Play App Signing certificate: _docs/ANDROID_BUILD.md
+# =============================================================================
+
+# Absolute path preferred. A relative path is resolved against android/.
+storeFile=C:/Users/<you>/help24-release.jks
+
+storePassword=<the keystore password>
+keyAlias=help24
+keyPassword=<the key password — often the same as storePassword>

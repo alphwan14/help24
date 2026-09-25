@@ -23,13 +23,28 @@ class AppUrls {
   static const String helpCentre = 'https://help24.co.ke/help';
   static const String supportPortal = 'https://help24.co.ke/support';
 
-  /// Where password-reset and email-verification links land. Must match the
-  /// custom auth domain configured in the identity console, so the address bar
-  /// during an auth hand-off reads `auth.help24.co.ke` and nothing else.
-  static const String authDomain = 'auth.help24.co.ke';
-
-  /// Deep-link continuation for reset / verify hand-offs — the "back to
-  /// Help24" destination once the link has been consumed.
+  /// Where a reset / verify hand-off returns the user once the link has been
+  /// consumed — the "you're all set" landing page, served by the website at
+  /// `help24_website/app/auth/continue/`.
+  ///
+  /// THE ONE THING THIS CANNOT DO
+  /// ----------------------------
+  /// This sets the DESTINATION, not the HOST of the link itself. On Android and
+  /// iOS the client SDK has no say in the action-link domain at all: it is
+  /// whatever the identity console is configured to use, and the only way to
+  /// change it is in the console.
+  ///
+  /// There used to be an `authDomain = 'auth.help24.co.ke'` constant here that
+  /// looked like it controlled that. It never did — nothing read it — and a
+  /// constant that names a domain it has no power over is worse than no
+  /// constant, because the next reader trusts it. The console is the single
+  /// source of truth for the link host; this is the single source of truth for
+  /// where the user lands afterwards.
+  ///
+  /// Note the domain of this URL must be listed in the console's authorized
+  /// domains or the whole ActionCodeSettings object is refused — see the
+  /// `_continueUrlRejections` fallback in auth_service.dart, which exists
+  /// solely because that listing was missing.
   static const String authContinueUrl = 'https://help24.co.ke/auth/continue';
 }
 

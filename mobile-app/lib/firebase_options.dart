@@ -67,7 +67,7 @@ class DefaultFirebaseOptions {
     projectId: 'help24-24410',
     storageBucket: 'help24-24410.firebasestorage.app',
     iosClientId: '454215745233-u5cclbv3q4o801j9qvmabva73p5tquv4.apps.googleusercontent.com',
-    iosBundleId: 'com.example.help24',
+    iosBundleId: 'com.help24.help24',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -77,6 +77,6 @@ class DefaultFirebaseOptions {
     projectId: 'help24-24410',
     storageBucket: 'help24-24410.firebasestorage.app',
     iosClientId: '454215745233-u5cclbv3q4o801j9qvmabva73p5tquv4.apps.googleusercontent.com',
-    iosBundleId: 'com.example.help24',
+    iosBundleId: 'com.help24.help24',
   );
 }

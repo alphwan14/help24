@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "454215745233-l7nube95la6lech5klui5f1sf1nbm95m.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.help24.help24",
+            "certificate_hash": "67e611ac96cc2d4fb9c85f33a1617a381be7ab82"
+          }
+        },
+        {
           "client_id": "454215745233-beo1ckg5erre4hit8vvgqimchi73died.apps.googleusercontent.com",
           "client_type": 3
         }

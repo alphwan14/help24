@@ -24,6 +24,73 @@ if (flutterVersionName == null) {
 
 def mapsApiKey = localProperties.getProperty('MAPS_API_KEY', '')
 
+// ─── Release signing ─────────────────────────────────────────────────────────
+//
+// WHY THIS BLOCK EXISTS
+// ---------------------
+// `release` used to carry `signingConfig signingConfigs.debug`. That is a
+// silent production failure, not a build convenience: the debug key is
+// generated per-machine by the Android SDK and is not the key registered with
+// the identity provider. Every Play-signed or CI-built release would therefore
+// fail Google Sign-In outright and die on phone OTP with a device-verification
+// error — and the build itself would report complete success. Nothing on the
+// build machine says the artifact is unshippable.
+//
+// So the debug key is now unreachable from `release`, and a release build with
+// no credentials FAILS instead of producing something that looks fine.
+//
+// WHERE THE CREDENTIALS COME FROM (first match wins)
+//   1. android/key.properties        — the local/developer path. Gitignored.
+//   2. HELP24_KEYSTORE_* env vars    — the CI path, where secrets are injected
+//                                      and no file should be written to the repo.
+//
+// Nothing here is ever committed: android/.gitignore and the root .gitignore
+// both exclude key.properties, *.jks and *.keystore. See _docs/ANDROID_BUILD.md
+// for the exact keytool command and the Play Console steps.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
+    }
+}
+
+// `?:` on an empty string would not fall through, so blanks are normalised to
+// null first — an env var that exists but is empty is a missing credential,
+// not a valid one. This is the usual shape of a misconfigured CI secret.
+def credential = { String fileKey, String envKey ->
+    def fromFile = keystoreProperties.getProperty(fileKey)
+    if (fromFile != null && !fromFile.trim().isEmpty()) return fromFile.trim()
+    def fromEnv = System.getenv(envKey)
+    if (fromEnv != null && !fromEnv.trim().isEmpty()) return fromEnv.trim()
+    return null
+}
+
+// Deliberately NOT named storePassword/keyAlias/keyPassword. Inside the
+// signingConfigs closure below those are setter names on SigningConfig, and
+// `keyAlias keyAlias` resolves to the setter arguing with itself rather than to
+// this variable — a Groovy shadowing trap that fails at build time with a
+// message pointing nowhere near the cause.
+def releaseStorePath     = credential('storeFile',     'HELP24_KEYSTORE_PATH')
+def releaseStorePassword = credential('storePassword', 'HELP24_KEYSTORE_PASSWORD')
+def releaseKeyAlias      = credential('keyAlias',      'HELP24_KEY_ALIAS')
+def releaseKeyPassword   = credential('keyPassword',   'HELP24_KEY_PASSWORD')
+
+// A relative path is resolved against android/, which is where key.properties
+// lives — so `storeFile=help24-release.jks` means the obvious thing. Absolute
+// paths (what CI usually produces after decoding a secret) pass through.
+def releaseStoreFile = null
+if (releaseStorePath != null) {
+    def candidate = new File(releaseStorePath)
+    releaseStoreFile = candidate.isAbsolute() ? candidate : rootProject.file(releaseStorePath)
+}
+
+// Present means COMPLETE. A half-filled key.properties must not produce a
+// signing config that fails later with an opaque Gradle error.
+def releaseSigningReady =
+        releaseStoreFile != null && releaseStoreFile.exists() &&
+        releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null
+
 android {
     namespace "com.help24.help24"
     compileSdk 36
@@ -53,14 +120,106 @@ android {
         manifestPlaceholders += [MAPS_API_KEY: mapsApiKey]
     }
 
+    signingConfigs {
+        // Declared only when every piece of material is actually present.
+        // Declaring it unconditionally would let a release build start and then
+        // fail deep inside the packaging task with a message about a null
+        // keystore, which tells the reader nothing about what to do.
+        if (releaseSigningReady) {
+            release {
+                storeFile     releaseStoreFile
+                storePassword releaseStorePassword
+                keyAlias      releaseKeyAlias
+                keyPassword   releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
+
+            // Never `signingConfigs.debug`. When the release key is absent the
+            // config is left null on purpose: an unsigned artifact cannot be
+            // installed or uploaded by accident, whereas a debug-signed one
+            // looks completely normal right up until sign-in fails on a real
+            // user's phone. The task-graph guard below turns that null into an
+            // explicit, early, actionable failure.
+            signingConfig releaseSigningReady ? signingConfigs.release : null
         }
+        // debug keeps AGP's default debug signing config, untouched.
     }
+}
+
+/**
+ * Fail a release build that has no release key — and ONLY a release build.
+ *
+ * Checking at configuration time would break `flutter run`, `flutter test`,
+ * IDE sync and every debug build on a machine that has no keystore, which is
+ * every developer machine and this repo's own CI for non-release work. The
+ * task graph is the first moment Gradle knows whether a release artifact is
+ * actually being produced, so the check belongs here and nowhere earlier.
+ */
+gradle.taskGraph.whenReady { graph ->
+    if (releaseSigningReady) return
+
+    def releaseTask = graph.allTasks.find { task ->
+        task.project == project && task.name ==~ /^(assemble|bundle|package|sign)\w*Release$/
+    }
+    if (releaseTask == null) return
+
+    def reason
+    if (releaseStorePath == null) {
+        reason = 'no keystore was configured'
+    } else if (releaseStoreFile == null || !releaseStoreFile.exists()) {
+        reason = "the keystore file was not found at ${releaseStoreFile}"
+    } else {
+        def missing = []
+        if (releaseStorePassword == null) missing << 'storePassword'
+        if (releaseKeyAlias == null) missing << 'keyAlias'
+        if (releaseKeyPassword == null) missing << 'keyPassword'
+        reason = "these values are missing or blank: ${missing.join(', ')}"
+    }
+
+    throw new GradleException("""
+    ════════════════════════════════════════════════════════════════════════
+    Help24 release build stopped: ${reason}.
+
+    This build will NOT fall back to the debug key. A debug-signed release
+    is not shippable — Google Sign-In fails and phone verification fails —
+    and it fails silently, on the user's phone, long after the build says
+    it succeeded.
+
+    To build a release, provide signing material one of two ways.
+
+    LOCAL — create the key once, then point at it:
+
+      keytool -genkeypair -v \\
+        -keystore %USERPROFILE%/help24-release.jks \\
+        -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 \\
+        -alias help24
+
+      Then create android/key.properties (never commit it):
+
+        storeFile=C:/Users/<you>/help24-release.jks
+        storePassword=<store password>
+        keyAlias=help24
+        keyPassword=<key password>
+
+    CI — set these environment variables instead:
+
+      HELP24_KEYSTORE_PATH      absolute path to the decoded .jks
+      HELP24_KEYSTORE_PASSWORD
+      HELP24_KEY_ALIAS
+      HELP24_KEY_PASSWORD
+
+    After the key exists, register BOTH its SHA-1 and SHA-256 with the
+    identity provider, alongside the Play App Signing certificate. Full
+    steps: _docs/ANDROID_BUILD.md → "Release signing".
+    ════════════════════════════════════════════════════════════════════════
+    """.stripIndent())
 }
 
 flutter {

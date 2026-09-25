@@ -1,7 +1,32 @@
 class ApiConfig {
+  /// The production API origin, on Help24's own domain.
+  ///
+  /// WHY THIS IS A NAMED CONSTANT AND NOT TWO LITERALS
+  /// -------------------------------------------------
+  /// [baseUrl] and [isOverridden] both need this value, and when it was
+  /// spelled out twice the two could disagree — change one and every build
+  /// silently reports itself as "overridden", which is precisely the signal
+  /// that exists to catch a build pointed at the wrong server. One constant,
+  /// one truth.
+  ///
+  /// WHY THE BRAND DOMAIN RATHER THAN THE HOSTING VENDOR'S
+  /// -----------------------------------------------------
+  /// `api.help24.co.ke` is a verified custom domain in front of the same
+  /// service, serving byte-identical responses (health, config, feed, admin
+  /// and 404 parity all confirmed before this switch). Using it keeps the
+  /// hosting vendor's name out of the shipped binary, out of TLS SNI and out
+  /// of anything a user or a network observer can read — the same white-label
+  /// rule `AppUrls` applies to user-visible links.
+  ///
+  /// It is also the only URL that survives a hosting change: the vendor origin
+  /// would have to be re-released through the Play Store, this one is a DNS
+  /// edit. There is no certificate pinning in `network_security_config.xml`,
+  /// so the switch needs nothing else.
+  static const String productionOrigin = 'https://api.help24.co.ke';
+
   /// Backend origin.
   ///
-  /// This defaults to the deployed backend, so a release build is correct with
+  /// This defaults to [productionOrigin], so a release build is correct with
   /// no build flags at all. That default matters more than the override: this
   /// was previously hardcoded to a developer's LAN address, which meant every
   /// shipped APK sent M-Pesa, payout, chat-notification and routing traffic to
@@ -21,14 +46,13 @@ class ApiConfig {
   /// NEXT_PUBLIC_BACKEND_URL with the same production fallback.
   static const String baseUrl = String.fromEnvironment(
     'HELP24_API_BASE_URL',
-    defaultValue: 'https://help24-backend.onrender.com',
+    defaultValue: productionOrigin,
   );
 
   /// True when [baseUrl] is not the production origin — i.e. a dart-define
   /// override is in effect. Useful for a startup log line so a build pointed at
   /// a laptop is obvious in the console instead of silently failing later.
-  static const bool isOverridden =
-      baseUrl != 'https://help24-backend.onrender.com';
+  static const bool isOverridden = baseUrl != productionOrigin;
 
   /// Client bootstrap configuration: kill switches, maintenance notice, the
   /// minimum-version gate and the operational tunables. Public by design — it
