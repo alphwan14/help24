@@ -1,28 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-
-  "_comment_regions": [
-    "PIN THE FUNCTIONS WHERE THE DATABASE IS.",
-    "",
-    "This was unset, which means Vercel used the account default — normally",
-    "iad1, US East. The Supabase project resolves to an AWS EU address range",
-    "(2a05:d018::/32), so every query was very likely crossing the Atlantic.",
-    "",
-    "That asymmetry is the whole argument for co-location: a page load is ONE",
-    "hop from the reader to Vercel, but MANY hops from Vercel to Postgres. Move",
-    "the functions next to the database and you remove the multiplied cost;",
-    "move them next to the reader and you pay it on every query instead.",
-    "",
-    "VERIFY THIS VALUE. Supabase Dashboard -> Project Settings -> General shows",
-    "the region. Map it to the nearest Vercel region and set it here:",
-    "  eu-central-1 (Frankfurt) -> fra1",
-    "  eu-west-1   (Ireland)   -> dub1",
-    "  eu-west-2   (London)    -> lhr1",
-    "  us-east-1   (N. Virginia) -> iad1",
-    "",
-    "fra1 is set as the EU default. If the project turns out to be in Ireland",
-    "this is still far better than the unpinned US East it replaces — a ~20 ms",
-    "intra-EU hop instead of a transatlantic one."
-  ],
   "regions": ["fra1"]
 }

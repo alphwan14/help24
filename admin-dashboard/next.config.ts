@@ -1,3 +1,29 @@
+/**
+ * REGION — see vercel.json, which pins it.
+ *
+ * `vercel.json` is strict-schema and rejects comment keys, so the reasoning
+ * lives here.
+ *
+ * It was unset, meaning Vercel used the account default (normally iad1, US
+ * East), while the Supabase project resolves into an AWS EU range
+ * (2a05:d018::/32) — so every server-side query was very likely crossing the
+ * Atlantic.
+ *
+ * The asymmetry is the whole argument for co-location: a page load is ONE hop
+ * from the reader to Vercel, but MANY hops from Vercel to Postgres. Put the
+ * functions next to the database and the multiplied cost disappears; put them
+ * next to the reader and you pay it on every query instead.
+ *
+ * VERIFY THE VALUE. Supabase Dashboard -> Project Settings -> General shows the
+ * region; map it to the nearest Vercel one:
+ *   eu-central-1 (Frankfurt) -> fra1     eu-west-1 (Ireland) -> dub1
+ *   eu-west-2    (London)    -> lhr1     us-east-1 (Virginia) -> iad1
+ *
+ * fra1 is set as the EU default. If the project is in Ireland this is still far
+ * better than the unpinned US East it replaces — an intra-EU hop rather than a
+ * transatlantic one. Keep both properties on the same value.
+ */
+
 import type { NextConfig } from "next";
 
 // Derive the Supabase storage host from the env var instead of hardcoding a
