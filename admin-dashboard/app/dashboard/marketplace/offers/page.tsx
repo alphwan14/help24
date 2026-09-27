@@ -3,6 +3,10 @@ import DataTable from "@/components/DataTable";
 import { ArchivedBadge, archivedRowClass } from "@/components/PostStatusBadge";
 import { offerRateLabel, schemasByName, smartAnswerLines, type Json } from "@/lib/post-display";
 
+// Who is offering what, and their numbers — prerendered at build time, this
+// showed the offers as of the last deploy.
+export const dynamic = "force-dynamic";
+
 type OfferRow = {
   id: string;
   title: string;
