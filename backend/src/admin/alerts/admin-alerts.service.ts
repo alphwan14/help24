@@ -353,6 +353,9 @@ export class AdminAlertsService {
     });
     const disputePage = (e: { tx: Row }) =>
       disputeOf.has(e.tx.id) ? `/dashboard/disputes/${disputeOf.get(e.tx.id)}` : '/dashboard/payments/escrow';
+    // The job, where both people's phones are — unless its listing is gone.
+    const jobOrEscrow = (e: { tx: Row }) =>
+      titles.has(e.tx.post_id) ? jobPage(e.tx.post_id) : '/dashboard/payments/escrow';
 
     // Real money raises its own alerts; test money (the Daraja sandbox, or
     // anything from before the production cutover) is listed once, quietly.
@@ -372,7 +375,8 @@ export class AdminAlertsService {
       .filter(({ since }) => age(since, now) >= THRESHOLDS.payoutStuckMinutes * MINUTE);
 
     for (const e of buckets.failed) {
-      add('payout_failed', e, item(e, failedAt.get(e.tx.id) ?? e.tx.created_at, `M-Pesa said: ${truncate(e.tx.failure_reason, 80)}`));
+      add('payout_failed', e, item(e, failedAt.get(e.tx.id) ?? e.tx.created_at, `M-Pesa said: ${truncate(e.tx.failure_reason, 80)}`,
+        undefined, jobOrEscrow(e)));
     }
     for (const { e, since } of stuck) {
       add('payout_stuck', e, item(e, since, `Sent to M-Pesa ${ageOf(since, now)} ago, no result since`));
@@ -394,18 +398,19 @@ export class AdminAlertsService {
         undefined, '/dashboard/payments/pending'));
     }
     for (const e of stalled) {
-      add('paid_stalled', e, item(e, e.tx.created_at, `Paid ${ageOf(e.tx.created_at, now)} ago, no completion requested`));
+      add('paid_stalled', e, item(e, e.tx.created_at, `Paid ${ageOf(e.tx.created_at, now)} ago, no completion requested`,
+        undefined, jobOrEscrow(e)));
     }
 
     return [
       buildAlert('payout_failed', real.payout_failed,
-        (items) => `${kes(sum(items))} owed to providers. Money is still held in escrow.`),
+        (items) => `${kes(sum(items))} owed to providers, still held in escrow. The dashboard cannot retry a payout yet; engineering can.`),
       buildAlert('payout_stuck', real.payout_stuck,
         (items) => `${kes(sum(items))} in flight. Asking M-Pesa for the result settles it only if it succeeded.`),
       buildAlert('provider_owed', real.provider_owed,
         (items) => `${kes(sum(items))} ruled for providers and not yet recorded as paid. Record the payment on the dispute once finance has sent it.`),
       buildAlert('money_mismatch', real.money_mismatch,
-        (items) => `${kes(sum(items))} received, in a state the payment workflow cannot produce.`),
+        (items) => `${kes(sum(items))} received, in a state the payment workflow cannot produce. Where a closed dispute left the money frozen, apply its ruling on the dispute; anything else needs engineering.`),
       buildAlert('phantom_escrow', real.phantom_escrow,
         () => "No money was received. Escrow is created when a payment starts, so a failed one leaves the hold — which blocks the owner from removing the listing. Don't delete these by hand: see docs/escrow-cleanup-design.md."),
       buildAlert('payment_unconfirmed', real.payment_unconfirmed,
@@ -522,7 +527,7 @@ export class AdminAlertsService {
       label: truncate(titles.get(c.post_id)),
       detail: `Marked done ${ageOf(c.created_at, now)} ago; payout waits on the client`,
       at: c.created_at,
-      href: '/dashboard/marketplace/active-jobs',
+      href: jobPage(c.post_id),
     }));
 
     // Hired, never paid. The selection time comes from the event log, falling
@@ -552,7 +557,7 @@ export class AdminAlertsService {
           label: truncate(p.title),
           detail: `Provider chosen ${ageOf(since, now)} ago; no payment`,
           at: since,
-          href: '/dashboard/marketplace/active-jobs',
+          href: jobPage(p.id),
         }));
     }
 
@@ -595,7 +600,7 @@ export class AdminAlertsService {
         label: truncate(p.title),
         detail: [p.category, p.location, `posted ${ageOf(p.created_at, now)} ago`].filter(Boolean).join(' · '),
         at: p.created_at,
-        href: '/dashboard/marketplace/requests?status=open',
+        href: jobPage(p.id),
       };
       if (isUrgent && waited >= THRESHOLDS.urgentUnansweredHours * HOUR && waited <= THRESHOLDS.urgentWindowDays * DAY) {
         urgent.push(entry);
@@ -605,7 +610,8 @@ export class AdminAlertsService {
     }
     return [
       buildAlert('urgent_unanswered', urgent, () => `Marked urgent, and nobody has offered in ${THRESHOLDS.urgentUnansweredHours}h or more.`),
-      buildAlert('requests_unanswered', regular, () => 'Demand with no supply. Worth knowing which categories and places.'),
+      buildAlert('requests_unanswered', regular,
+        () => 'Nobody has offered. Each request shows who on Help24 could take it, or that nobody offers that work yet.'),
     ];
   }
 
@@ -653,6 +659,11 @@ function first(v: unknown): Row | null {
 
 function unique<T>(xs: T[]): T[] {
   return [...new Set(xs)];
+}
+
+/** A listing's own dashboard page: both people's phones, and who could take it. */
+function jobPage(postId: string): string {
+  return `/dashboard/marketplace/requests/${encodeURIComponent(postId)}`;
 }
 
 function age(iso: string | null | undefined, now: number): number {

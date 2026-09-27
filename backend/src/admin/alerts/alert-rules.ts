@@ -133,6 +133,11 @@ interface RuleMeta {
   category: AlertCategory;
   priority: AlertPriority;
   href: string;
+  /**
+   * Only what an admin can actually do from the page the alert opens. A label
+   * that names an action with no control behind it ("Find a provider" over a
+   * read-only list) sends the admin looking for a button that does not exist.
+   */
   action: string;
   title: (n: number) => string;
 }
@@ -145,7 +150,9 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     category: 'financial',
     priority: 'high',
     href: '/dashboard/payments/escrow',
-    action: 'Retry or pay out manually',
+    // The dashboard has no retry (POST /mpesa/release-payout is admin-only and
+    // not wired to any page). Each item opens the job, with the provider's phone.
+    action: 'Call the provider',
     title: (n) => `${plural(n, 'payout', 'payouts')} failed — provider not paid`,
   },
   payout_stuck: {
@@ -166,7 +173,9 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     category: 'financial',
     priority: 'high',
     href: '/dashboard/payments/escrow',
-    action: 'Reconcile the records',
+    // Only one shape has a repair (money frozen after a closed dispute: apply its
+    // ruling on the dispute page); the others need engineering.
+    action: 'Investigate each payment',
     title: (n) => `${plural(n, 'payment needs', 'payments need')} reconciling`,
   },
   phantom_escrow: {
@@ -217,25 +226,28 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
   },
 
   // ── Marketplace health ───────────────────────────────────────────────────
+  // The dashboard cannot message users outside a dispute. Each item opens the
+  // request's own page, which carries both people's phone numbers and, for an
+  // unanswered request, who on Help24 could take it.
   completion_overdue: {
     category: 'marketplace',
     priority: 'medium',
     href: '/dashboard/marketplace/active-jobs',
-    action: 'Nudge the client',
+    action: 'Call the client',
     title: (n) => `${plural(n, 'finished job is', 'finished jobs are')} waiting on client approval`,
   },
   paid_stalled: {
     category: 'marketplace',
     priority: 'medium',
     href: '/dashboard/marketplace/active-jobs',
-    action: 'Check in with both parties',
+    action: 'Call both parties',
     title: (n) => `${plural(n, 'paid job has', 'paid jobs have')} made no progress`,
   },
   urgent_unanswered: {
     category: 'marketplace',
     priority: 'medium',
     href: '/dashboard/marketplace/requests?status=open',
-    action: 'Find a provider',
+    action: 'Call a matching provider',
     title: (n) => `${plural(n, 'urgent request has', 'urgent requests have')} no responses`,
   },
   promotion_review: {
@@ -249,7 +261,7 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     category: 'marketplace',
     priority: 'low',
     href: '/dashboard/marketplace/active-jobs',
-    action: 'Follow up with the client',
+    action: 'Call the client',
     title: (n) => `${plural(n, 'hired job was', 'hired jobs were')} never paid for`,
   },
   sandbox_money: {
@@ -263,7 +275,7 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     category: 'marketplace',
     priority: 'low',
     href: '/dashboard/marketplace/requests?status=open',
-    action: 'Recruit supply',
+    action: 'See who could take them',
     title: (n) => `${plural(n, 'request has', 'requests have')} had no response for a day`,
   },
 };

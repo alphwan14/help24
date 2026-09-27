@@ -26,6 +26,8 @@ interface World {
   /** Rows in admin_alert_reviews, newest first. */
   reviews?: Array<Record<string, unknown>>;
   failReviews?: boolean;
+  /** Listings the title lookup no longer finds (transactions.post_id has no foreign key). */
+  orphanPosts?: string[];
 }
 
 /** One marketplace with exactly one instance of every condition, plus near-misses. */
@@ -117,7 +119,9 @@ function world(opts: World = {}) {
         {
           // Title lookup by id — how every money alert names its listing.
           const inIds = call.ops.find(([o, a]) => o === 'in' && a[0] === 'id')?.[1][1] as string[] | undefined;
-          return { data: (inIds ?? []).map((id) => ({ id, title: id === 'post-roof' ? 'Fix my roof' : `Job ${id.replace('post-', '')}` })) };
+          return { data: (inIds ?? [])
+            .filter((id) => !opts.orphanPosts?.includes(id))
+            .map((id) => ({ id, title: id === 'post-roof' ? 'Fix my roof' : `Job ${id.replace('post-', '')}` })) };
         }
       case 'system_events':
         return { data: [
@@ -289,6 +293,49 @@ describe('AdminAlertsService — marketplace health', () => {
   });
 });
 
+describe('AdminAlertsService — each item opens the page where the admin can act', () => {
+  // The dashboard cannot message users outside a dispute, so "act" on a
+  // marketplace alert means phoning someone: the request's own page carries
+  // both people's numbers and, when it is unanswered, who could take it.
+  it('request and job alerts link each item to that request\'s own page, not to a list', async () => {
+    const alerts = byId((await world().service.compute(NOW)).alerts);
+    const hrefOf = (id: string) => alerts.get(id as AdminAlert['id'])?.items[0].href;
+    expect(hrefOf('urgent_unanswered')).toBe('/dashboard/marketplace/requests/r-urgent');
+    expect(hrefOf('requests_unanswered')).toBe('/dashboard/marketplace/requests/r-flexible');
+    expect(hrefOf('completion_overdue')).toBe('/dashboard/marketplace/requests/post-roof');
+    expect(hrefOf('assigned_unpaid')).toBe('/dashboard/marketplace/requests/post-assigned');
+  });
+
+  it('a failed payout and a stalled job open the job, where the provider\'s phone is', async () => {
+    const alerts = byId((await world().service.compute(NOW)).alerts);
+    expect(alerts.get('payout_failed')?.items[0].href).toBe('/dashboard/marketplace/requests/post-failed-payout');
+    expect(alerts.get('paid_stalled')?.items[0].href).toBe('/dashboard/marketplace/requests/post-held-long');
+    // A stuck payout stays on the escrow page — "Check with M-Pesa" is there.
+    expect(alerts.get('payout_stuck')?.items[0].href).toBe('/dashboard/payments/escrow');
+  });
+
+  it('a payment whose listing is gone falls back to the escrow page instead of a page that 404s', async () => {
+    const alerts = byId((await world({ orphanPosts: ['post-held-long'] }).service.compute(NOW)).alerts);
+    const it0 = alerts.get('paid_stalled')?.items[0];
+    expect(it0?.label).toMatch(/^Listing not found/);
+    expect(it0?.href).toBe('/dashboard/payments/escrow');
+  });
+
+  it('test money keeps the same links, so the quiet list is just as actionable', async () => {
+    const a = byId((await world({ env: { MPESA_ENV: 'sandbox' } }).service.compute(NOW)).alerts).get('sandbox_money');
+    // The alert carries its first few records; held-long is among them.
+    expect(a?.items.find((i) => i.id === 'held-long')?.href).toBe('/dashboard/marketplace/requests/post-held-long');
+    for (const i of a?.items ?? []) expect(i.href).not.toBe('/dashboard/marketplace/active-jobs');
+  });
+
+  it('item ids — and so review fingerprints — did not change with the links', async () => {
+    const alerts = byId((await world().service.compute(NOW)).alerts);
+    expect(ids(alerts.get('urgent_unanswered'))).toEqual(['r-urgent']);
+    expect(ids(alerts.get('completion_overdue'))).toEqual(['c-overdue']);
+    expect(ids(alerts.get('paid_stalled'))).toEqual(['held-long']);
+  });
+});
+
 describe('AdminAlertsService — the list as a whole', () => {
   it('orders high before medium before low, money before safety before health', async () => {
     const alerts = (await world().service.compute(NOW)).alerts;
@@ -435,6 +482,19 @@ describe('alert-rules', () => {
       expect(rule.title(1)).not.toEqual(rule.title(2)); // singular and plural read differently
       expect(id).toMatch(/^[a-z_]+$/);
     }
+  });
+
+  it('no action promises a control the dashboard does not have (audit of 2026-09-27)', () => {
+    // Each of these named something no page could do: there is no provider
+    // search, no way to message a user outside a dispute, no payout retry and
+    // no general reconcile. They are what an admin can do now: phone someone
+    // from the request's page, or investigate.
+    const retired = ['Find a provider', 'Recruit supply', 'Nudge the client', 'Check in with both parties',
+      'Follow up with the client', 'Retry or pay out manually', 'Reconcile the records'];
+    const actions = Object.values(RULES).map((r) => r.action);
+    for (const label of retired) expect(actions).not.toContain(label);
+    expect(RULES.urgent_unanswered.action).toBe('Call a matching provider');
+    expect(RULES.paid_stalled.action).toBe('Call both parties');
   });
 
   it('only money, disputes and safety are ever HIGH', () => {
