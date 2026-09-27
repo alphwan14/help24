@@ -32,6 +32,7 @@ import { AppConfigAdminController } from '../../app-config/app-config-admin.cont
 import { ReportsController } from '../../moderation/reports.controller';
 import { ModerationAdminController } from '../../moderation/moderation-admin.controller';
 import { AdminAlertsController } from '../../admin/alerts/admin-alerts.controller';
+import { FinanceRepairsController } from '../../admin/finance/finance-repairs.controller';
 
 const CONTROLLERS = [
   FeedController,
@@ -60,6 +61,7 @@ const CONTROLLERS = [
   ReportsController,
   ModerationAdminController,
   AdminAlertsController,
+  FinanceRepairsController,
 ] as const;
 
 interface Handler {

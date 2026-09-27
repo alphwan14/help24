@@ -8,6 +8,11 @@ describe('toHttpError', () => {
     ['HELP24_MODERATION_SELF: you cannot moderate your own account', 403, 'You cannot moderate your own account.'],
     ['HELP24_ADMIN_INVALID: the acting admin is unknown or inactive', 403, 'The acting admin is unknown or inactive.'],
     ['HELP24_MODERATION_NO_CHANGE: nothing to update', 400, 'Nothing to update.'],
+    ['HELP24_FINANCE_NOT_FOUND: payment not found', 404, 'Payment not found.'],
+    ['HELP24_FINANCE_CONFLICT: this is already recorded as paid (completed)', 409, 'This is already recorded as paid (completed).'],
+    ['HELP24_FINANCE_FORBIDDEN: applying a ruling needs a senior admin', 403, 'Applying a ruling needs a senior admin.'],
+    ['HELP24_FINANCE_INVALID: give a reason of 5 to 1000 characters', 400, 'Give a reason of 5 to 1000 characters.'],
+    ['HELP24_APPEND_ONLY: rows in admin_alert_reviews cannot be changed or removed', 403, 'Rows in admin_alert_reviews cannot be changed or removed.'],
   ])('%s → %i with the database sentence passed through', (message, status, sentence) => {
     const e = toHttpError({ code: 'P0001', message });
     expect(e.getStatus()).toBe(status);

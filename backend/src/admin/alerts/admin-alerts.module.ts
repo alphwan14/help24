@@ -12,5 +12,7 @@ import { AdminAlertsService } from './admin-alerts.service';
   imports: [AdminAuthModule],
   controllers: [AdminAlertsController],
   providers: [AdminAlertsService],
+  // FinanceRepairsModule refreshes the shared result after a repair.
+  exports: [AdminAlertsService],
 })
 export class AdminAlertsModule {}

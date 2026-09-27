@@ -1,9 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { deriveSettlementState } from '../../jobs/settlement-state';
+import { toHttpError } from '../../moderation/moderation-errors';
+import { AdminContext } from '../auth/admin-role';
+import { AlertReviewDto } from './dto/alert-review.dto';
 import {
   AdminAlert,
+  AlertId,
   AlertItem,
+  MONEY_STATE_LABELS,
+  MoneyAlertId,
+  RULES,
   THRESHOLDS,
   ageOf,
   buildAlert,
@@ -55,8 +63,13 @@ export class AdminAlertsService {
   static readonly CACHE_MS = 20_000;
   private cache: { at: number; value: AlertsResponse } | null = null;
   private inFlight: Promise<AlertsResponse> | null = null;
+  /** Bumped by invalidate(), so a computation started before a write is not cached after it. */
+  private generation = 0;
 
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(
+    private readonly supabase: SupabaseService,
+    private readonly config: ConfigService,
+  ) {}
 
   private get db() {
     return this.supabase.client;
@@ -65,15 +78,23 @@ export class AdminAlertsService {
   list(): Promise<AlertsResponse> {
     const now = Date.now();
     if (this.cache && now - this.cache.at < AdminAlertsService.CACHE_MS) return Promise.resolve(this.cache.value);
+    const generation = this.generation;
     this.inFlight ??= this.compute(now)
       .then((value) => {
-        this.cache = { at: Date.now(), value };
+        if (generation === this.generation) this.cache = { at: Date.now(), value };
         return value;
       })
       .finally(() => {
         this.inFlight = null;
       });
     return this.inFlight;
+  }
+
+  /** Drop the shared result — after a review or a finance repair changes the answer. */
+  invalidate(): void {
+    this.generation += 1;
+    this.cache = null;
+    this.inFlight = null;
   }
 
   async compute(now = Date.now()): Promise<AlertsResponse> {
@@ -99,7 +120,79 @@ export class AdminAlertsService {
     ]);
 
     const alerts = sortAlerts(groups.flat().filter((a): a is AdminAlert => a !== null));
+    await this.attachReviews(alerts, unavailable);
     return { generated_at: new Date(now).toISOString(), alerts, unavailable };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Reviews — shared by every admin, bound to the exact records reviewed
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Mark an alert reviewed (or reopen it) for the set of records the admin
+   * actually saw. The fingerprint must match the alert as it is NOW: a review
+   * never covers records that joined after the admin looked.
+   */
+  async review(admin: AdminContext, alertId: string, dto: AlertReviewDto): Promise<AdminAlert> {
+    if (!(alertId in RULES)) {
+      throw new NotFoundException({ code: 'ALERT_UNKNOWN', message: 'There is no such alert.' });
+    }
+    const note = dto.note?.trim() ?? '';
+    if (dto.action === 'reviewed' && note.length < 5) {
+      throw new BadRequestException({ code: 'ALERT_REVIEW_NOTE', message: 'Say why it needs nothing more — at least 5 characters.' });
+    }
+    const current = (await this.compute()).alerts.find((a) => a.id === alertId);
+    if (!current) {
+      throw new NotFoundException({ code: 'ALERT_CLEARED', message: 'This alert has already cleared — there is nothing to review.' });
+    }
+    if (current.fingerprint !== dto.fingerprint) {
+      throw new ConflictException({
+        code: 'ALERT_CHANGED',
+        message: 'This alert changed since you opened it. Check again, then review what is there now.',
+      });
+    }
+    if (dto.action === 'reviewed' && current.review) return current;
+    if (dto.action === 'reopened' && !current.review) {
+      throw new ConflictException({ code: 'ALERT_NOT_REVIEWED', message: 'This alert is not marked reviewed.' });
+    }
+
+    const { error } = await this.db.from('admin_alert_reviews').insert({
+      alert_id: alertId,
+      fingerprint: dto.fingerprint,
+      action: dto.action,
+      note: note || null,
+      admin_id: admin.id,
+      admin_email: admin.email,
+      admin_role: admin.role,
+    });
+    if (error) throw toHttpError(error);
+    this.logger.log(`[ALERTS] ${alertId} ${dto.action} by=${admin.email} (${admin.role}) fp=${dto.fingerprint}`);
+    this.invalidate();
+    return (await this.list()).alerts.find((a) => a.id === alertId) ?? current;
+  }
+
+  private async attachReviews(alerts: AdminAlert[], unavailable: AlertsResponse['unavailable']): Promise<void> {
+    for (const a of alerts) a.review = null;
+    if (alerts.length === 0) return;
+    try {
+      const { data } = await must<Row[]>(this.db.from('admin_alert_reviews')
+        .select('alert_id, fingerprint, action, note, admin_email, admin_role, created_at')
+        .in('alert_id', unique(alerts.map((a) => a.id)))
+        .order('created_at', { ascending: false })
+        .limit(500));
+      const latest = new Map<string, Row>();
+      for (const r of data ?? []) if (!latest.has(r.alert_id)) latest.set(r.alert_id, r);
+      for (const a of alerts) {
+        const r = latest.get(a.id);
+        a.review = r && r.action === 'reviewed' && r.fingerprint === a.fingerprint
+          ? { note: r.note, admin_email: r.admin_email, admin_role: r.admin_role, at: r.created_at }
+          : null;
+      }
+    } catch (e) {
+      // Unreviewed is the safe reading: the alert still counts on the bell.
+      this.logger.warn(`[ALERTS] reviews unavailable: ${e instanceof Error ? e.message : String(e)}`);
+      unavailable.push({ source: 'reviews', reason: 'This check could not run.' });
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -115,7 +208,10 @@ export class AdminAlertsService {
         .in('status', ['pending', 'paid', 'payout_pending', 'released', 'refunded', 'disputed', 'failed'])
         .order('created_at', { ascending: false })
         .limit(2000)),
-      must<Row[]>(this.db.from('disputes').select('id, post_id, transaction_id, status').limit(2000)),
+      must<Row[]>(this.db.from('disputes')
+        .select('id, post_id, transaction_id, status, created_at')
+        .order('created_at', { ascending: false })
+        .limit(2000)),
       must<Row[]>(this.db.from('dispute_decisions')
         .select('dispute_id, decision_type, provider_amount, created_at')
         .neq('decision_type', 'ESCALATE')
@@ -147,6 +243,13 @@ export class AdminAlertsService {
     for (const dec of decisionData ?? []) {
       const txId = disputeTx.get(dec.dispute_id);
       if (txId && !decision.has(txId)) decision.set(txId, dec);
+    }
+    // The newest dispute on each payment — where its ruling, and the repairs
+    // for money a ruling left behind, live in the dashboard.
+    const disputeOf = new Map<string, string>();
+    for (const d of disputes) {
+      const txId = d.transaction_id ?? latestTxByPost.get(d.post_id);
+      if (txId && !disputeOf.has(txId)) disputeOf.set(txId, d.id);
     }
 
     const buckets: Record<string, Array<{ tx: Row; escrow: Row | null }>> = {
@@ -202,6 +305,20 @@ export class AdminAlertsService {
       }
     }
 
+    // A split share stops being owed once finance recorded paying it
+    // (admin_record_manual_settlement, migration 117).
+    let owed = buckets.owed;
+    if (owed.length) {
+      const { data: legs } = await must<Row[]>(this.db.from('settlements')
+        .select('transaction_id')
+        .in('transaction_id', owed.map((e) => e.tx.id as string))
+        .eq('direction', 'provider_payout')
+        .in('status', ['completed', 'succeeded'])
+        .limit(1000));
+      const paid = new Set((legs ?? []).map((l) => l.transaction_id));
+      owed = owed.filter((e) => !paid.has(e.tx.id));
+    }
+
     // A paid job counts as stalled only if no completion was ever requested.
     let stalled = buckets.held;
     if (stalled.length) {
@@ -213,52 +330,115 @@ export class AdminAlertsService {
       stalled = stalled.filter((e) => !progressed.has(e.tx.post_id));
     }
 
-    const flagged = [...buckets.failed, ...buckets.processing, ...buckets.owed, ...buckets.mismatch,
+    const flagged = [...buckets.failed, ...buckets.processing, ...owed, ...buckets.mismatch,
       ...buckets.phantom, ...buckets.unconfirmed, ...stalled];
     const titles = await this.titles(flagged.map((e) => e.tx.post_id));
 
     // `amount` omitted → the payment's own total; an explicit null → no money
     // involved (a hold with no payment behind it must not claim one).
-    const item = (e: { tx: Row; escrow: Row | null }, at: string | null, detail: string, amount?: number | null): AlertItem => ({
+    const item = (
+      e: { tx: Row; escrow: Row | null },
+      at: string | null,
+      detail: string,
+      amount?: number | null,
+      href = '/dashboard/payments/escrow',
+    ): AlertItem => ({
       id: e.tx.id,
       // transactions.post_id has no foreign key, so it can outlive its listing.
       label: titles.has(e.tx.post_id) ? truncate(titles.get(e.tx.post_id)) : `Listing not found (${String(e.tx.post_id).slice(0, 8)})`,
       detail,
       at,
       amount_kes: amount === undefined ? (e.tx.total_paid ?? e.tx.amount ?? null) : amount,
-      href: '/dashboard/payments/escrow',
+      href,
     });
+    const disputePage = (e: { tx: Row }) =>
+      disputeOf.has(e.tx.id) ? `/dashboard/disputes/${disputeOf.get(e.tx.id)}` : '/dashboard/payments/escrow';
+
+    // Real money raises its own alerts; test money (the Daraja sandbox, or
+    // anything from before the production cutover) is listed once, quietly.
+    const mode = this.moneyMode();
+    const real: Record<MoneyAlertId, AlertItem[]> = {
+      payout_failed: [], payout_stuck: [], provider_owed: [], money_mismatch: [],
+      phantom_escrow: [], payment_unconfirmed: [], paid_stalled: [],
+    };
+    const test: AlertItem[] = [];
+    const add = (rule: MoneyAlertId, e: { tx: Row }, it: AlertItem) => {
+      if (mode.isTest(e.tx.created_at)) test.push({ ...it, detail: `${MONEY_STATE_LABELS[rule]} — ${it.detail}` });
+      else real[rule].push(it);
+    };
 
     const stuck = buckets.processing
       .map((e) => ({ e, since: sentAt.get(e.tx.id) ?? e.tx.created_at }))
       .filter(({ since }) => age(since, now) >= THRESHOLDS.payoutStuckMinutes * MINUTE);
 
+    for (const e of buckets.failed) {
+      add('payout_failed', e, item(e, failedAt.get(e.tx.id) ?? e.tx.created_at, `M-Pesa said: ${truncate(e.tx.failure_reason, 80)}`));
+    }
+    for (const { e, since } of stuck) {
+      add('payout_stuck', e, item(e, since, `Sent to M-Pesa ${ageOf(since, now)} ago, no result since`));
+    }
+    for (const e of owed) {
+      const d = decision.get(e.tx.id);
+      add('provider_owed', e, item(e, d?.created_at ?? e.tx.created_at, 'Split decided; provider share not recorded as paid',
+        d?.provider_amount ?? null, disputePage(e)));
+    }
+    for (const e of buckets.mismatch) {
+      add('money_mismatch', e, item(e, e.tx.created_at, mismatchReason(e.tx, e.escrow, frozen.has(e.tx.id)), undefined, disputePage(e)));
+    }
+    for (const e of buckets.phantom) {
+      add('phantom_escrow', e, item(e, e.escrow?.created_at ?? e.tx.created_at,
+        `Payment ${e.tx.status}, escrow ${e.escrow?.status ?? 'missing'}`, null, '/dashboard/payments/failed'));
+    }
+    for (const e of buckets.unconfirmed) {
+      add('payment_unconfirmed', e, item(e, e.tx.created_at, `STK prompt sent ${ageOf(e.tx.created_at, now)} ago, no result recorded`,
+        undefined, '/dashboard/payments/pending'));
+    }
+    for (const e of stalled) {
+      add('paid_stalled', e, item(e, e.tx.created_at, `Paid ${ageOf(e.tx.created_at, now)} ago, no completion requested`));
+    }
+
     return [
-      buildAlert('payout_failed',
-        buckets.failed.map((e) => item(e, failedAt.get(e.tx.id) ?? e.tx.created_at, `M-Pesa said: ${truncate(e.tx.failure_reason, 80)}`)),
+      buildAlert('payout_failed', real.payout_failed,
         (items) => `${kes(sum(items))} owed to providers. Money is still held in escrow.`),
-      buildAlert('payout_stuck',
-        stuck.map(({ e, since }) => item(e, since, `Sent to M-Pesa ${ageOf(since, now)} ago, no result since`)),
+      buildAlert('payout_stuck', real.payout_stuck,
         (items) => `${kes(sum(items))} in flight. Asking M-Pesa for the result settles it only if it succeeded.`),
-      buildAlert('provider_owed',
-        buckets.owed.map((e) => {
-          const d = decision.get(e.tx.id);
-          return item(e, d?.created_at ?? e.tx.created_at, 'Split decided; provider share not paid out', d?.provider_amount ?? null);
-        }),
-        (items) => `${kes(sum(items))} recorded for providers but never sent.`),
-      buildAlert('money_mismatch',
-        buckets.mismatch.map((e) => item(e, e.tx.created_at, mismatchReason(e.tx, e.escrow, frozen.has(e.tx.id)))),
+      buildAlert('provider_owed', real.provider_owed,
+        (items) => `${kes(sum(items))} ruled for providers and not yet recorded as paid. Record the payment on the dispute once finance has sent it.`),
+      buildAlert('money_mismatch', real.money_mismatch,
         (items) => `${kes(sum(items))} received, in a state the payment workflow cannot produce.`),
-      buildAlert('phantom_escrow',
-        buckets.phantom.map((e) => item(e, e.escrow?.created_at ?? e.tx.created_at, `Payment ${e.tx.status}, escrow ${e.escrow?.status ?? 'missing'}`, null)),
+      buildAlert('phantom_escrow', real.phantom_escrow,
         () => "No money was received. Escrow is created when a payment starts, so a failed one leaves the hold — which blocks the owner from removing the listing. Don't delete these by hand: see docs/escrow-cleanup-design.md."),
-      buildAlert('payment_unconfirmed',
-        buckets.unconfirmed.map((e) => item(e, e.tx.created_at, `STK prompt sent ${ageOf(e.tx.created_at, now)} ago, no result recorded`)),
+      buildAlert('payment_unconfirmed', real.payment_unconfirmed,
         () => 'M-Pesa never reported back. If the customer paid, the money is unattributed.'),
-      buildAlert('paid_stalled',
-        stalled.map((e) => item(e, e.tx.created_at, `Paid ${ageOf(e.tx.created_at, now)} ago, no completion requested`)),
+      buildAlert('paid_stalled', real.paid_stalled,
         (items) => `${kes(sum(items))} held with no sign of the work being done.`),
+      buildAlert('sandbox_money', test, () => mode.describe),
     ];
+  }
+
+  /**
+   * Whether a payment was test money. While MPESA_ENV is not "production" every
+   * payment went through the Daraja sandbox; after the cutover, set
+   * MPESA_PRODUCTION_SINCE so the earlier test payments stay classed as tests.
+   * Unset after a cutover, everything counts as real — the noisy side, never
+   * the silent one.
+   */
+  private moneyMode(): { isTest: (createdAt: string | null | undefined) => boolean; describe: string } {
+    const env = String(this.config.get<string>('MPESA_ENV', 'sandbox') ?? 'sandbox').toLowerCase();
+    if (env !== 'production') {
+      return {
+        isTest: () => true,
+        describe: 'M-Pesa still runs on the Daraja sandbox (MPESA_ENV=sandbox), so none of this is real money. Each line says the state it was left in.',
+      };
+    }
+    const since = Date.parse(String(this.config.get<string>('MPESA_PRODUCTION_SINCE') ?? ''));
+    if (Number.isFinite(since)) {
+      return {
+        isTest: (createdAt) => !!createdAt && Date.parse(createdAt) < since,
+        describe: `Made before M-Pesa went live on ${new Date(since).toISOString().slice(0, 10)} — test money. Each line says the state it was left in.`,
+      };
+    }
+    return { isTest: () => false, describe: '' };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

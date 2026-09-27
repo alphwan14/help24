@@ -58,6 +58,16 @@ export function toHttpError(error: PgError): HttpException {
       case 'MODERATION_INVALID':
       case 'MODERATION_NO_CHANGE':
         return new BadRequestException({ code, message: human });
+      // Migration 117 — the finance repairs and the append-only audit tables.
+      case 'FINANCE_NOT_FOUND':
+        return new NotFoundException({ code, message: human });
+      case 'FINANCE_CONFLICT':
+        return new ConflictException({ code, message: human });
+      case 'FINANCE_FORBIDDEN':
+      case 'APPEND_ONLY':
+        return new ForbiddenException({ code, message: human });
+      case 'FINANCE_INVALID':
+        return new BadRequestException({ code, message: human });
     }
   }
 

@@ -1,8 +1,10 @@
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Call, fakeSupabase } from '../../moderation/fake-supabase.testspec';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { AdminAlertsService } from './admin-alerts.service';
 import { AdminAlert, buildAlert, fingerprint, RULES, sortAlerts } from './alert-rules';
+import { AdminContext } from '../auth/admin-role';
 
 const NOW = Date.parse('2026-09-27T12:00:00Z');
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -17,6 +19,13 @@ const selected = (call: Call) => String(call.ops.find(([o]) => o === 'select')?.
 interface World {
   failReports?: boolean;
   empty?: boolean;
+  /** Config the service reads. Defaults to real money: MPESA_ENV=production, no cutover date. */
+  env?: Record<string, string>;
+  /** The split's provider share is recorded as paid in the settlements ledger. */
+  paidSplit?: boolean;
+  /** Rows in admin_alert_reviews, newest first. */
+  reviews?: Array<Record<string, unknown>>;
+  failReviews?: boolean;
 }
 
 /** One marketplace with exactly one instance of every condition, plus near-misses. */
@@ -125,13 +134,21 @@ function world(opts: World = {}) {
           { id: 'rep-spam', reason: 'spam', severity: 'low', status: 'new', assigned_admin_id: null, target_type: 'post', created_at: ago(1 * H) },
           { id: 'rep-claimed', reason: 'scam_or_fraud', severity: 'critical', status: 'under_review', assigned_admin_id: 'a-1', target_type: 'user', created_at: ago(1 * D) },
         ] };
+      case 'settlements':
+        return { data: opts.paidSplit ? [{ transaction_id: 'split' }] : [] };
+      case 'admin_alert_reviews':
+        if (call.ops.some(([o]) => o === 'insert')) return { data: null };
+        if (opts.failReviews) return { error: { message: 'relation "admin_alert_reviews" does not exist' } };
+        return { data: opts.reviews ?? [] };
       case 'promotion_campaigns':
         return { data: opts.empty ? [] : [{ id: 'camp-1', post_title: 'Home cleaning', package_name: 'Boost', price_kes: 500, created_at: ago(1 * D), updated_at: ago(20 * H) }] };
       default:
         return { data: [] };
     }
   });
-  const service = new AdminAlertsService(supabase as unknown as SupabaseService);
+  const env = opts.env ?? { MPESA_ENV: 'production' };
+  const config = { get: (key: string, fallback?: unknown) => env[key] ?? fallback } as unknown as ConfigService;
+  const service = new AdminAlertsService(supabase as unknown as SupabaseService, config);
   return { service, calls };
 }
 
@@ -301,6 +318,101 @@ describe('AdminAlertsService — the list as a whole', () => {
     const first = calls.length;
     await service.list();
     expect(calls.length).toBe(first);
+  });
+});
+
+describe('AdminAlertsService — real money vs test money (fix 2)', () => {
+  const MONEY = ['payout_failed', 'payout_stuck', 'provider_owed', 'money_mismatch', 'phantom_escrow', 'payment_unconfirmed', 'paid_stalled'];
+
+  it('while M-Pesa is on the Daraja sandbox, every money state is ONE low alert — nothing high, nothing on the badge', async () => {
+    const res = await world({ env: { MPESA_ENV: 'sandbox' } }).service.compute(NOW);
+    const alerts = byId(res.alerts);
+    for (const id of MONEY) expect(alerts.has(id as never)).toBe(false);
+    const test = alerts.get('sandbox_money');
+    expect(test?.priority).toBe('low');
+    expect(test?.count).toBe(8); // failed, stuck, split, 2× mismatch, phantom, pending-old, held-long
+    expect(test?.detail).toContain('Daraja sandbox');
+    // Each line names the state it was left in (the panel carries the first five).
+    const labels = /^(Payout failed|Payout with no M-Pesa result|Split share not recorded as paid|Records disagree|Hold with no payment|Payment never confirmed|Paid, no progress) — /;
+    expect(test?.items.length).toBe(5);
+    for (const i of test?.items ?? []) expect(i.detail).toMatch(labels);
+    // What is still HIGH is not money: a dispute and a safety report.
+    expect(res.alerts.filter((a) => a.priority === 'high').map((a) => a.id).sort()).toEqual(['dispute_escalated', 'reports_urgent']);
+  });
+
+  it('with no MPESA_ENV at all it assumes the sandbox — the Daraja client defaults the same way', async () => {
+    const res = await world({ env: {} }).service.compute(NOW);
+    expect(byId(res.alerts).has('sandbox_money')).toBe(true);
+    expect(byId(res.alerts).has('payout_failed')).toBe(false);
+  });
+
+  it('after the cutover, payments before MPESA_PRODUCTION_SINCE stay test money and later ones are real', async () => {
+    const res = await world({ env: { MPESA_ENV: 'production', MPESA_PRODUCTION_SINCE: ago(1 * D) } }).service.compute(NOW);
+    const alerts = byId(res.alerts);
+    expect(ids(alerts.get('payment_unconfirmed'))).toEqual(['pending-old']); // 3 hours old → real
+    expect(alerts.has('payout_failed')).toBe(false); // 3 days old → test
+    expect(alerts.get('sandbox_money')?.detail).toContain('Made before M-Pesa went live');
+  });
+});
+
+describe('AdminAlertsService — owed shares and where they are repaired (fix 4)', () => {
+  it('a split share recorded as paid in the settlements ledger is no longer owed', async () => {
+    expect(byId((await world({ paidSplit: true }).service.compute(NOW)).alerts).has('provider_owed')).toBe(false);
+  });
+
+  it('owed shares and frozen money link to the dispute where they are repaired; money with no dispute links to escrow', async () => {
+    const alerts = byId((await world().service.compute(NOW)).alerts);
+    expect(alerts.get('provider_owed')?.items[0].href).toBe('/dashboard/disputes/d-split');
+    const hrefOf = (id: string) => alerts.get('money_mismatch')?.items.find((i) => i.id === id)?.href;
+    expect(hrefOf('stale-freeze')).toBe('/dashboard/disputes/d-stale');
+    expect(hrefOf('mismatch')).toBe('/dashboard/payments/escrow');
+  });
+});
+
+describe('AdminAlertsService — shared reviews (fixes 1 and 3)', () => {
+  const admin: AdminContext = { id: 'a-senior', email: 'senior@help24.test', name: 'Senior', role: 'senior_admin' };
+  const stuckFp = fingerprint(['stuck']);
+  const reviewed = (fp: string, action = 'reviewed') => ({
+    alert_id: 'payout_stuck', fingerprint: fp, action, note: 'Sandbox payouts — asked M-Pesa', admin_email: 'senior@help24.test',
+    admin_role: 'senior_admin', created_at: ago(1 * H),
+  });
+
+  it('a review of the exact records quiets the alert for everyone; a different set, or a reopen, raises it again', async () => {
+    const quiet = byId((await world({ reviews: [reviewed(stuckFp)] }).service.compute(NOW)).alerts).get('payout_stuck');
+    expect(quiet?.review).toMatchObject({ admin_email: 'senior@help24.test', note: 'Sandbox payouts — asked M-Pesa' });
+    const changed = byId((await world({ reviews: [reviewed('0000000000000000')] }).service.compute(NOW)).alerts).get('payout_stuck');
+    expect(changed?.review).toBeNull();
+    const reopened = byId((await world({ reviews: [reviewed(stuckFp, 'reopened'), reviewed(stuckFp)] }).service.compute(NOW)).alerts).get('payout_stuck');
+    expect(reopened?.review).toBeNull(); // newest row wins
+  });
+
+  it('reviews that cannot be read leave every alert counted — "unreviewed" is the safe reading', async () => {
+    const res = await world({ failReviews: true }).service.compute(NOW);
+    expect(res.unavailable.map((u) => u.source)).toEqual(['reviews']);
+    expect(res.alerts.every((a) => a.review === null)).toBe(true);
+  });
+
+  it('reviewing needs a reason and the fingerprint of the alert as it is NOW', async () => {
+    const { service } = world();
+    await expect(service.review(admin, 'nope_alert', { action: 'reviewed', fingerprint: stuckFp, note: 'reason here' })).rejects.toMatchObject({ status: 404 });
+    await expect(service.review(admin, 'payout_stuck', { action: 'reviewed', fingerprint: stuckFp, note: 'ok' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.review(admin, 'payout_stuck', { action: 'reviewed', fingerprint: '0000000000000000', note: 'Looked at it' }))
+      .rejects.toMatchObject({ status: 409 });
+    await expect(service.review(admin, 'payout_stuck', { action: 'reopened', fingerprint: stuckFp })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('a valid review is written with who, in what role, and why — and the shared result is recomputed', async () => {
+    const { service, calls } = world();
+    // review() judges the alert as it is NOW (real time), so take the fingerprint from there.
+    const fp = (await service.list()).alerts.find((a) => a.id === 'payout_stuck')!.fingerprint;
+    const before = calls.length;
+    await service.review(admin, 'payout_stuck', { action: 'reviewed', fingerprint: fp, note: 'Sandbox payouts — asked M-Pesa' });
+    const insert = calls.find((c) => c.table === 'admin_alert_reviews' && c.ops.some(([o]) => o === 'insert'));
+    expect(insert?.ops.find(([o]) => o === 'insert')?.[1][0]).toMatchObject({
+      alert_id: 'payout_stuck', fingerprint: fp, action: 'reviewed', admin_id: 'a-senior', admin_email: 'senior@help24.test',
+      admin_role: 'senior_admin', note: 'Sandbox payouts — asked M-Pesa',
+    });
+    expect(calls.length).toBeGreaterThan(before + 20); // recomputed, not served from the cache
   });
 });
 

@@ -30,6 +30,7 @@ import { HealthModule } from './health/health.module';
 import { ModerationEnforcementModule } from './moderation/moderation-enforcement.module';
 import { ModerationModule } from './moderation/moderation.module';
 import { AdminAlertsModule } from './admin/alerts/admin-alerts.module';
+import { FinanceRepairsModule } from './admin/finance/finance-repairs.module';
 
 @Module({
   imports: [
@@ -100,6 +101,8 @@ import { AdminAlertsModule } from './admin/alerts/admin-alerts.module';
     ModerationModule,
     // Read-only attention list for the dashboard (GET /admin/alerts).
     AdminAlertsModule,
+    // Manual settlements + applying a ruling on record (migration 117).
+    FinanceRepairsModule,
     // The client configuration plane: kill switches, maintenance mode, the
     // minimum-version gate and the client tunables that previously required a
     // Play release. A leaf — nothing imports it. Serves compiled defaults when

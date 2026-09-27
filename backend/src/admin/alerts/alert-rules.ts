@@ -44,7 +44,24 @@ export type AlertId =
   | 'urgent_unanswered'
   | 'promotion_review'
   | 'assigned_unpaid'
-  | 'requests_unanswered';
+  | 'requests_unanswered'
+  | 'sandbox_money';
+
+/** The money alerts that can be test data (see AdminAlertsService.moneyMode). */
+export type MoneyAlertId = Extract<AlertId,
+  'payout_failed' | 'payout_stuck' | 'provider_owed' | 'money_mismatch' | 'phantom_escrow' |
+  'payment_unconfirmed' | 'paid_stalled'>;
+
+/** How each money state reads when it is listed as test data. */
+export const MONEY_STATE_LABELS: Readonly<Record<MoneyAlertId, string>> = {
+  payout_failed: 'Payout failed',
+  payout_stuck: 'Payout with no M-Pesa result',
+  provider_owed: 'Split share not recorded as paid',
+  money_mismatch: 'Records disagree',
+  phantom_escrow: 'Hold with no payment',
+  payment_unconfirmed: 'Payment never confirmed',
+  paid_stalled: 'Paid, no progress',
+};
 
 /** Every threshold in one place, so a number in the panel is never a guess. */
 export const THRESHOLDS = {
@@ -77,6 +94,17 @@ export interface AlertItem {
   href?: string;
 }
 
+/**
+ * An admin looked at exactly this set of records (the fingerprint matched) and
+ * said why it needs nothing more — for every admin, until the set changes.
+ */
+export interface AlertReview {
+  note: string;
+  admin_email: string;
+  admin_role: string;
+  at: string;
+}
+
 export interface AdminAlert {
   id: AlertId;
   category: AlertCategory;
@@ -97,6 +125,8 @@ export interface AdminAlert {
   fingerprint: string;
   /** The first few affected records, oldest first. */
   items: AlertItem[];
+  /** Set when the latest review covers this exact fingerprint. */
+  review?: AlertReview | null;
 }
 
 interface RuleMeta {
@@ -129,7 +159,7 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     category: 'financial',
     priority: 'high',
     href: '/dashboard/disputes/resolved',
-    action: "Settle the provider's share",
+    action: 'Record the payment on the dispute',
     title: (n) => `${plural(n, 'provider is', 'providers are')} owed from a split decision`,
   },
   money_mismatch: {
@@ -221,6 +251,13 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     href: '/dashboard/marketplace/active-jobs',
     action: 'Follow up with the client',
     title: (n) => `${plural(n, 'hired job was', 'hired jobs were')} never paid for`,
+  },
+  sandbox_money: {
+    category: 'financial',
+    priority: 'low',
+    href: '/dashboard/payments',
+    action: 'See the test payments',
+    title: (n) => `${plural(n, 'test payment is', 'test payments are')} in an unfinished state`,
   },
   requests_unanswered: {
     category: 'marketplace',
