@@ -1,0 +1,44 @@
+{
+  "_comment": "The report taxonomy, shared by three test suites so the database, the backend and the app cannot drift: supabase/tests/trust-safety (moderation_report_categories), backend/src/moderation (REPORT_CATEGORIES), mobile-app/test (ReportCategory). Change it here and all three fail until updated.",
+  "categories": [
+    "scam_or_fraud",
+    "suspicious_activity",
+    "illegal_activity",
+    "harassment",
+    "threats",
+    "inappropriate_content",
+    "impersonation",
+    "misleading_listing",
+    "payment_issue",
+    "spam",
+    "unsafe_behavior",
+    "other"
+  ],
+  "by_target": {
+    "user": [
+      "scam_or_fraud", "suspicious_activity", "harassment", "threats", "impersonation",
+      "inappropriate_content", "unsafe_behavior", "payment_issue", "illegal_activity",
+      "spam", "other"
+    ],
+    "post": [
+      "scam_or_fraud", "misleading_listing", "suspicious_activity", "illegal_activity",
+      "inappropriate_content", "impersonation", "payment_issue", "unsafe_behavior",
+      "spam", "other"
+    ],
+    "application": [
+      "scam_or_fraud", "suspicious_activity", "misleading_listing", "harassment",
+      "inappropriate_content", "impersonation", "payment_issue", "unsafe_behavior",
+      "spam", "other"
+    ],
+    "message": [
+      "harassment", "threats", "scam_or_fraud", "payment_issue", "inappropriate_content",
+      "suspicious_activity", "unsafe_behavior", "illegal_activity", "impersonation",
+      "spam", "other"
+    ]
+  },
+  "capabilities": [
+    "post", "apply", "hire", "pay", "message", "promote", "review", "complete", "payout_config"
+  ],
+  "statuses": ["new", "under_review", "action_required", "resolved", "dismissed"],
+  "severities": ["low", "medium", "high", "critical"]
+}

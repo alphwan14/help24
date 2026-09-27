@@ -1,0 +1,14 @@
+{
+  "name": "help24-trust-safety-db-tests",
+  "private": true,
+  "description": "Runs migrations 114-116 against a local PostgreSQL 17 replica of the live schema and tests RLS, grants, triggers and the moderation functions.",
+  "type": "module",
+  "scripts": {
+    "test": "node db.test.mjs",
+    "refresh-replica": "node refresh-replica.mjs"
+  },
+  "devDependencies": {
+    "embedded-postgres": "17.6.0-beta.15",
+    "pg": "^8.13.0"
+  }
+}
