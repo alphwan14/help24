@@ -251,7 +251,7 @@ export class AdminAlertsService {
         (items) => `${kes(sum(items))} received, in a state the payment workflow cannot produce.`),
       buildAlert('phantom_escrow',
         buckets.phantom.map((e) => item(e, e.escrow?.created_at ?? e.tx.created_at, `Payment ${e.tx.status}, escrow ${e.escrow?.status ?? 'missing'}`, null)),
-        () => 'No money was received, but the hold blocks the owner from removing the listing.'),
+        () => "No money was received. Escrow is created when a payment starts, so a failed one leaves the hold — which blocks the owner from removing the listing. Don't delete these by hand: see docs/escrow-cleanup-design.md."),
       buildAlert('payment_unconfirmed',
         buckets.unconfirmed.map((e) => item(e, e.tx.created_at, `STK prompt sent ${ageOf(e.tx.created_at, now)} ago, no result recorded`)),
         () => 'M-Pesa never reported back. If the customer paid, the money is unattributed.'),

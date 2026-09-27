@@ -143,7 +143,9 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     category: 'financial',
     priority: 'medium',
     href: '/dashboard/payments/failed',
-    action: 'Clear the stale hold',
+    // A known defect with a designed fix awaiting approval (docs/escrow-cleanup-
+    // design.md). The action must never read as "delete these by hand".
+    action: 'Review — cleanup is designed, not approved',
     title: (n) => `${plural(n, 'escrow hold has', 'escrow holds have')} no payment behind it`,
   },
   payment_unconfirmed: {
