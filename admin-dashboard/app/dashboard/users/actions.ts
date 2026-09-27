@@ -39,47 +39,11 @@ async function requireAdmin(): Promise<
   return { ok: true, identity, db: createServiceClient() };
 }
 
-/** Suspend or reinstate a user.
- *
- *  This used to be a direct `update({ is_banned })` issued from the BROWSER with
- *  the visitor's own session, so the only thing standing between any holder of
- *  the publishable key and moderation state was the RLS policy on public.users —
- *  which permitted it. Banning now runs here, behind a server-side admin check,
- *  with service_role doing the write.
- *
- *  The self-suspend guard compares Help24 user ids, not emails: an id is the
- *  identity itself and cannot be restated as something else. */
-export async function setUserBanned(
-  targetId: string,
-  banned: boolean
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    const auth = await requireAdmin();
-    if (!auth.ok) return auth;
-    const { db, identity } = auth;
-
-    // Locking yourself out is never the intent, and it is not recoverable from
-    // inside the dashboard.
-    if (targetId === identity.help24UserId) {
-      return { ok: false, message: "You cannot suspend your own account." };
-    }
-
-    const { data: target } = await db
-      .from("users")
-      .select("id")
-      .eq("id", targetId)
-      .maybeSingle();
-
-    if (!target) return { ok: false, message: "That user no longer exists." };
-
-    const { error } = await db.from("users").update({ is_banned: banned }).eq("id", targetId);
-    if (error) return { ok: false, message: error.message };
-
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : "Unknown error." };
-  }
-}
+// Suspending and banning moved to Trust & Safety (lib/moderation-actions.ts):
+// every sanction now goes through the backend, carries a reason shown to the
+// person, and is written to the append-only moderation ledger. The old
+// setUserBanned flipped users.is_banned directly — migration 114 refuses that
+// write, and the flag is now only a mirror of an active ban.
 
 /** Promote or demote a user's role. All security checks run server-side. */
 export async function updateUserRole(

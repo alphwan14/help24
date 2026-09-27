@@ -7,6 +7,7 @@ import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import { useState, useEffect } from "react";
 import { clearArbitrationToken } from "@/lib/admin-actions";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import AlertsBell from "@/components/alerts/AlertsBell";
 import type { ArbitrationIdentity } from "@/lib/arbitration-client";
 import type { AdminRole } from "@/lib/api";
 
@@ -56,7 +57,6 @@ const NAV: NavItem[] = [
       { label: "All Users",    href: "/dashboard/users" },
       { label: "Active Users", href: "/dashboard/users/active" },
       { label: "Admin Roles",  href: "/dashboard/users/admins" },
-      { label: "Suspended",    href: "/dashboard/users/suspended" },
     ],
   },
   {
@@ -90,6 +90,18 @@ const NAV: NavItem[] = [
       { label: "Open Cases", href: "/dashboard/disputes" },
       { label: "Resolved",   href: "/dashboard/disputes/resolved" },
       { label: "Refunds",    href: "/dashboard/disputes/refunds" },
+    ],
+  },
+  {
+    id: "trust-safety",
+    label: "Trust & Safety",
+    icon: FlagIcon,
+    children: [
+      { label: "Reports",          href: "/dashboard/trust-safety/reports" },
+      { label: "Moderation Queue", href: "/dashboard/trust-safety/queue" },
+      { label: "Suspended Users",  href: "/dashboard/trust-safety/suspended" },
+      { label: "Banned Users",     href: "/dashboard/trust-safety/banned" },
+      { label: "Audit Log",        href: "/dashboard/trust-safety/audit" },
     ],
   },
   {
@@ -226,6 +238,8 @@ interface NavTreeProps {
   onNavClick?:   () => void;
   supabaseEmail: string | null;
   arbitration:   ArbitrationState;
+  /** The desktop rail carries the alerts bell; the mobile drawer does not (the top bar does). */
+  showAlerts?:   boolean;
 }
 
 function NavTree({
@@ -238,6 +252,7 @@ function NavTree({
   onNavClick,
   supabaseEmail,
   arbitration,
+  showAlerts = false,
 }: NavTreeProps) {
   const isDev = process.env.NODE_ENV === "development";
 
@@ -266,6 +281,13 @@ function NavTree({
               Operations
             </p>
           </div>
+          {/* Alerts sit in the chrome, beside the name — reachable from every
+              page, and never a banner inside anyone's work. */}
+          {showAlerts && (
+            <div className="ml-auto">
+              <AlertsBell placement="rail" />
+            </div>
+          )}
         </div>
       </div>
 
@@ -455,7 +477,7 @@ export default function Sidebar({
           DESKTOP SIDEBAR — always in layout flow
       ══════════════════════════════════════════ */}
       <nav className="hidden lg:flex lg:flex-col lg:w-[240px] lg:h-screen lg:shrink-0 bg-rail-950 border-r border-white/[0.06] overflow-hidden">
-        <NavTree {...sharedProps} />
+        <NavTree {...sharedProps} showAlerts />
       </nav>
 
       {/* ══════════════════════════════════════════
@@ -485,6 +507,10 @@ export default function Sidebar({
           <span className="text-rail-600 text-[10px] tracking-widest uppercase font-medium hidden sm:inline">
             Operations
           </span>
+        </div>
+
+        <div className="ml-auto">
+          <AlertsBell placement="topbar" />
         </div>
       </div>
 
@@ -564,6 +590,14 @@ function CreditCardIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+    </svg>
+  );
+}
+
+function FlagIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
     </svg>
   );
 }

@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { createServiceClient, getSessionUser } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { AccountStatusBadge } from "@/components/moderation/Badges";
 import { fetchAllReputations, ratingLabel, reputationByProvider } from "@/lib/reputation";
-import { BanToggle } from "./BanToggle";
 import { RoleToggle } from "./RoleToggle";
 
 type UserRow = {
@@ -50,6 +51,22 @@ async function getPostCounts(): Promise<Record<string, { requests: number; offer
   return counts;
 }
 
+/**
+ * Account standing, from the moderation view (migration 114) — the same
+ * derivation the backend enforces from. `null` means the read failed, which
+ * is shown as unknown rather than as "Active": an unreadable status is not a
+ * clean record.
+ */
+async function getAccountStates(): Promise<Map<string, string> | null> {
+  const db = createServiceClient();
+  const { data, error } = await db.from("moderation_account_state").select("user_id, account_status");
+  if (error) {
+    console.error("[Users/status] ERROR:", error.message);
+    return null;
+  }
+  return new Map((data ?? []).map((r) => [r.user_id as string, r.account_status as string]));
+}
+
 function fmtDate(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-KE", {
@@ -81,11 +98,12 @@ function Count({ n }: { n: number }) {
 }
 
 export default async function UsersPage() {
-  const [{ rows: users, error: usersError }, postCounts, sessionUser, reps] = await Promise.all([
+  const [{ rows: users, error: usersError }, postCounts, sessionUser, reps, states] = await Promise.all([
     getUsers(),
     getPostCounts(),
     getSessionUser(),
     fetchAllReputations(),
+    getAccountStates(),
   ]);
 
   const currentUserEmail = sessionUser?.email ?? "";
@@ -180,10 +198,25 @@ export default async function UsersPage() {
       ),
     },
     {
-      key: "is_banned",
+      key: "account_status",
       label: "Status",
+      // Read-only. Warnings, suspensions and bans are decisions with a reason
+      // and an audit record, made in Trust & Safety — never a one-click toggle.
       render: (r: EnrichedUser) => (
-        <BanToggle userId={r.id} isBanned={!!r.is_banned} />
+        <Link
+          href={`/dashboard/trust-safety/users/${encodeURIComponent(r.id)}`}
+          className="inline-flex items-center gap-1.5 group"
+          title="Open this account in Trust & Safety"
+        >
+          {states ? (
+            <AccountStatusBadge status={states.get(r.id) ?? "active"} />
+          ) : (
+            <span className="badge bg-gray-100 text-gray-500" title="Moderation status could not be read">
+              Unknown
+            </span>
+          )}
+          <span className="text-[11px] text-gray-400 group-hover:text-info-700">Review →</span>
+        </Link>
       ),
     },
   ];

@@ -3,6 +3,10 @@ import DataTable from "@/components/DataTable";
 import { PostStatusBadge, archivedRowClass } from "@/components/PostStatusBadge";
 import { requestBudgetLabel } from "@/lib/post-display";
 
+// Live money and job state. This page was prerendered at build time, so it
+// showed the database as of the last deploy — and the alerts link here.
+export const dynamic = "force-dynamic";
+
 type JobRow = {
   id: string;
   title: string;

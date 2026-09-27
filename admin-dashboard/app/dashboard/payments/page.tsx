@@ -1,7 +1,13 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { ErrorState } from "@/components/moderation/States";
+import { attachPosts } from "@/lib/transaction-posts";
 import { fmtKes } from "@/lib/post-display";
 import { ArchivedBadge } from "@/components/PostStatusBadge";
+
+// Live money and job state. This page was prerendered at build time, so it
+// showed the database as of the last deploy — and the alerts link here.
+export const dynamic = "force-dynamic";
 
 type TxRow = {
   id: string;
@@ -40,18 +46,21 @@ function fmtDate(iso: string) {
 
 async function getTransactions() {
   const db = createServiceClient();
-  const { data } = await db
+  const { data, error } = await db
     .from("transactions")
     .select(
-      "id, post_id, buyer_user_id, amount, fee, total_paid, status, mpesa_receipt, created_at, posts(title, archived_at), payment_receipts(receipt_number)",
+      "id, post_id, buyer_user_id, amount, fee, total_paid, status, mpesa_receipt, created_at, payment_receipts(receipt_number)",
     )
     .order("created_at", { ascending: false })
     .limit(200);
-  return (data ?? []) as unknown as TxRow[];
+  // A failed read is reported, never rendered as an empty table.
+  if (error) return { rows: [] as TxRow[], error: error.message };
+  const rows = await attachPosts(db, (data ?? []) as unknown as Array<{ post_id: string }>);
+  return { rows: rows as unknown as TxRow[], error: null as string | null };
 }
 
 export default async function PaymentsPage() {
-  const rows = await getTransactions();
+  const { rows, error: loadError } = await getTransactions();
 
   const totalVolume = rows
     .filter((r) => ["paid", "payout_pending", "released"].includes(r.status))
@@ -152,7 +161,11 @@ export default async function PaymentsPage() {
         })}
       </div>
 
-      <DataTable columns={columns} rows={rows} emptyMessage="No transactions found." />
+      {loadError ? (
+        <ErrorState message={`Transactions could not be loaded: ${loadError}`} />
+      ) : (
+        <DataTable columns={columns} rows={rows} emptyMessage="No transactions found." />
+      )}
     </div>
   );
 }

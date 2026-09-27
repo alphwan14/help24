@@ -9,6 +9,7 @@ import {
 } from "@/lib/arbitration-client";
 import { clearArbitrationToken } from "@/lib/admin-actions";
 import Sidebar from "@/components/Sidebar";
+import AlertsProvider from "@/components/alerts/AlertsProvider";
 import ConnectAccess from "@/app/dashboard/disputes/ConnectAccess";
 
 type Status = "checking" | "ready" | "recovery";
@@ -92,7 +93,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   return (
     <div className="bg-slate-50 lg:flex lg:h-screen lg:overflow-hidden">
-      <Sidebar supabaseEmail={supabaseEmail} arbitration={arbitration} />
+      {/* Alerts start only once admin access is confirmed — they are read
+          with the same admin token as every other admin surface. */}
+      <AlertsProvider enabled={status === "ready" && arbitration.connected} adminEmail={arbitration.email ?? null}>
+        <Sidebar supabaseEmail={supabaseEmail} arbitration={arbitration} />
+      </AlertsProvider>
       <main className="flex-1 min-w-0 overflow-y-auto pt-14 lg:pt-0">
         <div className="max-w-[1320px] mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 lg:py-8">
           {children}

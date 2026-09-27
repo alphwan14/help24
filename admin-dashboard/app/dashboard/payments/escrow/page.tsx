@@ -1,7 +1,15 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
+import { ErrorState } from "@/components/moderation/States";
+import { attachPosts } from "@/lib/transaction-posts";
 import { fmtKes } from "@/lib/post-display";
 import { ArchivedBadge } from "@/components/PostStatusBadge";
+import { getCurrentAdmin } from "@/lib/api";
+import ReconcileButton from "./ReconcileButton";
+
+// Live money and job state. This page was prerendered at build time, so it
+// showed the database as of the last deploy — and the alerts link here.
+export const dynamic = "force-dynamic";
 
 type TxRow = {
   id: string;
@@ -11,6 +19,8 @@ type TxRow = {
   total_paid: number;
   status: string;
   mpesa_receipt: string | null;
+  /** Set on a 'paid' transaction when a B2C payout was attempted and failed. */
+  failure_reason: string | null;
   created_at: string;
   updated_at: string;
   posts: { title: string | null; archived_at: string | null } | null;
@@ -33,13 +43,16 @@ const ESCROW_STATUSES = ["paid", "payout_pending", "disputed"];
 
 async function getData() {
   const db = createServiceClient();
-  const { data } = await db
+  const { data, error } = await db
     .from("transactions")
-    .select("id, post_id, buyer_user_id, amount, total_paid, status, mpesa_receipt, created_at, posts(title, archived_at)")
+    .select("id, post_id, buyer_user_id, amount, total_paid, status, mpesa_receipt, failure_reason, created_at")
     .in("status", ["paid", "payout_pending", "disputed"])
     .order("created_at", { ascending: false })
     .limit(300);
-  return (data ?? []) as unknown as TxRow[];
+  // A failed read is reported, never rendered as an empty table.
+  if (error) return { rows: [] as TxRow[], error: error.message };
+  const rows = await attachPosts(db, (data ?? []) as unknown as Array<{ post_id: string }>);
+  return { rows: rows as unknown as TxRow[], error: null as string | null };
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -49,7 +62,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default async function EscrowStatusPage() {
-  const rows = await getData();
+  const [{ rows, error: loadError }, admin] = await Promise.all([getData(), getCurrentAdmin()]);
+  // Reconciling a payout is a financial action: senior_admin, as the backend enforces.
+  const canReconcile = admin?.role === "senior_admin" || admin?.role === "super_admin";
   const locked = rows.reduce((s, r) => s + (r.total_paid ?? 0), 0);
 
   const byStatus = ESCROW_STATUSES.map((s) => ({
@@ -85,9 +100,18 @@ export default async function EscrowStatusPage() {
       key: "status",
       label: "Status",
       render: (r: TxRow) => (
-        <span className={`badge ${STATUS_COLORS[r.status] ?? "bg-gray-100 text-gray-600"}`}>
-          {r.status.replace(/_/g, " ")}
-        </span>
+        <div>
+          <span className={`badge ${STATUS_COLORS[r.status] ?? "bg-gray-100 text-gray-600"}`}>
+            {r.status.replace(/_/g, " ")}
+          </span>
+          {/* A paid transaction that carries a reason is a payout M-Pesa refused;
+              the money is back in escrow and the provider has not been paid. */}
+          {r.status === "paid" && r.failure_reason && (
+            <p className="text-[11px] text-critical-700 mt-1 max-w-[220px] whitespace-normal">
+              Payout failed: {r.failure_reason}
+            </p>
+          )}
+        </div>
       ),
     },
     {
@@ -99,6 +123,16 @@ export default async function EscrowStatusPage() {
       key: "created_at",
       label: "Date",
       render: (r: TxRow) => <span className="text-gray-500 text-xs">{fmtDate(r.created_at)}</span>,
+    },
+    {
+      key: "action",
+      label: "",
+      render: (r: TxRow) =>
+        r.status !== "payout_pending" ? null : canReconcile ? (
+          <ReconcileButton postId={r.post_id} />
+        ) : (
+          <span className="text-[11px] text-gray-400">A senior admin can check with M-Pesa</span>
+        ),
     },
   ];
 
@@ -118,7 +152,11 @@ export default async function EscrowStatusPage() {
         {rows.length} transactions · {fmtKES(locked)} in escrow
       </p>
 
-      <DataTable columns={columns} rows={rows} emptyMessage="No escrow transactions." />
+      {loadError ? (
+        <ErrorState message={`Transactions could not be loaded: ${loadError}`} />
+      ) : (
+        <DataTable columns={columns} rows={rows} emptyMessage="No escrow transactions." />
+      )}
     </div>
   );
 }
