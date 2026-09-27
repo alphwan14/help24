@@ -1,7 +1,9 @@
 // Production dry run for migrations 114–116 (docs/HANDOFF.md, standing rules 3–4).
 //
-//   node dry-run.mjs            → writes the dry-run SQL and prints its path
-//   node dry-run.mjs --local    → also proves it on the local replica
+//   node dry-run.mjs                 → writes the dry-run SQL (114–117) and prints its path
+//   node dry-run.mjs --only 117      → just the migrations whose file name starts 117
+//   node dry-run.mjs --local         → also proves it on the local replica, after
+//                                      applying whatever precedes it (as production has)
 //
 // The generated SQL runs all three migrations inside ONE `DO` block and then
 // raises. Postgres therefore rolls every statement back by construction — a
@@ -17,7 +19,14 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const migrations = path.resolve(here, '../../migrations');
-const FILES = ['114_trust_safety_schema.sql', '115_trust_safety_actions.sql', '116_trust_safety_enforcement.sql'];
+const ALL = ['114_trust_safety_schema.sql', '115_trust_safety_actions.sql', '116_trust_safety_enforcement.sql',
+  '117_alert_reviews_and_finance_repairs.sql'];
+const onlyAt = process.argv.indexOf('--only');
+const only = onlyAt > 0 ? String(process.argv[onlyAt + 1] ?? '').split(',').filter(Boolean) : null;
+const FILES = only ? ALL.filter((f) => only.some((p) => f.startsWith(p))) : ALL;
+if (FILES.length === 0) throw new Error('--only matched no migration');
+/** Everything that precedes the first dry-run file — already applied in production. */
+const BEFORE = ALL.slice(0, ALL.indexOf(FILES[0]));
 
 /** The statements between a file's own BEGIN; and COMMIT; lines. */
 function body(file) {
@@ -39,14 +48,14 @@ export function dryRunSql() {
     'DO $dry$',
     'BEGIN',
     ...parts.map(({ tag, text }) => `  EXECUTE ${tag}\n${text}\n${tag};`),
-    "  RAISE EXCEPTION 'HELP24_DRY_RUN_OK: 114, 115 and 116 applied cleanly inside one transaction and were rolled back';",
+    `  RAISE EXCEPTION 'HELP24_DRY_RUN_OK: ${FILES.map((f) => f.slice(0, 3)).join(', ')} applied cleanly inside one transaction and were rolled back';`,
     'END',
     '$dry$;',
     '',
   ].join('\n');
 }
 
-const out = path.join(os.tmpdir(), 'help24-trust-safety-dry-run.sql');
+const out = path.join(os.tmpdir(), `help24-dry-run-${FILES.map((f) => f.slice(0, 3)).join('-')}.sql`);
 fs.writeFileSync(out, dryRunSql());
 console.log(`dry-run SQL written to ${out}`);
 
@@ -60,9 +69,11 @@ if (process.argv.includes('--local')) {
       message = e.message;
     }
     if (!message.startsWith('HELP24_DRY_RUN_OK')) throw new Error(`dry run did not complete: ${message || 'no error raised'}`);
-    const { rows } = await db.query(
-      "select count(*)::int as n from pg_class where relname in ('account_restrictions','moderation_actions')");
+    const probe = FILES[0].startsWith('117')
+      ? "select count(*)::int as n from pg_class where relname in ('admin_alert_reviews','admin_finance_actions')"
+      : "select count(*)::int as n from pg_class where relname in ('account_restrictions','moderation_actions')";
+    const { rows } = await db.query(probe);
     if (rows[0].n !== 0) throw new Error('dry run left objects behind');
-    console.log('local replica: all three migrations applied inside the DO block, raised HELP24_DRY_RUN_OK, and left nothing behind');
-  }, { files: [] });
+    console.log(`local replica (+ ${BEFORE.map((f) => f.slice(0, 3)).join(', ') || 'nothing'} applied first): ${FILES.map((f) => f.slice(0, 3)).join(', ')} applied inside the DO block, raised HELP24_DRY_RUN_OK, and left nothing behind`);
+  }, { files: BEFORE.map((f) => path.join(migrations, f)) });
 }

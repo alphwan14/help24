@@ -891,6 +891,176 @@ test('the dashboard view lists restricted accounts only', async (t) => {
 });
 
 // =============================================================================
+// 117 — shared alert reviews, and the two finance repairs
+// =============================================================================
+
+/**
+ * A job that went to dispute and was ruled on: `decision` is the ruling on
+ * record (or none), the money is left in `txStatus` / `escrowStatus`, and
+ * `legs` seeds the settlements ledger the way the backfill did.
+ */
+async function ruledJob(t, { post, decision = null, provider = 750, refund = 750, txStatus, escrowStatus,
+  disputeStatus = 'resolved', legs = [] }) {
+  const tx = await runCoreFlow(t, { client: U.carol, provider: U.dave, post });
+  const dispute = (await t.svc(
+    `INSERT INTO public.disputes (post_id, transaction_id, raised_by_user_id, reason, raised_by_role, status)
+     VALUES ($1, $2, $3, 'Work not done', 'client', $4) RETURNING id`, [post, tx, U.carol, disputeStatus])).rows[0].id;
+  let decisionId = null;
+  if (decision) {
+    decisionId = (await t.svc(
+      `INSERT INTO public.dispute_decisions (dispute_id, admin_id, decided_by_system, decision_type,
+         provider_amount, client_refund_amount, reasoning)
+       VALUES ($1, $2, false, $3, $4, $5, 'The ruling for this test') RETURNING id`,
+      [dispute, A.super, decision, provider, refund])).rows[0].id;
+  }
+  await t.svc('UPDATE public.transactions SET status = $2 WHERE id = $1', [tx, txStatus]);
+  await t.svc('UPDATE public.escrow SET status = $2 WHERE transaction_id = $1', [tx, escrowStatus]);
+  for (const leg of legs) {
+    await t.svc(
+      `INSERT INTO public.settlements (transaction_id, post_id, direction, rail, amount, status, environment,
+         reason_ref_type, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, 'sandbox', 'backfill', 'backfill')`,
+      [tx, post, leg.direction, leg.rail ?? 'mpesa_b2c', leg.amount ?? 750, leg.status]);
+  }
+  return { tx, dispute, decisionId };
+}
+
+const manualSettlement = async (t, o) => (await t.svc(
+  'SELECT public.admin_record_manual_settlement($1,$2,$3,$4,$5,$6,$7) AS r',
+  [o.admin ?? A.senior, o.tx, o.direction ?? 'provider_payout', o.reference ?? 'QK12ABC34',
+    o.reason ?? 'Paid from the float by M-Pesa', o.env ?? 'sandbox', null])).rows[0].r;
+
+const applyRuling = async (t, o) => (await t.svc(
+  'SELECT public.admin_apply_recorded_ruling($1,$2,$3,$4) AS r',
+  [o.admin ?? A.senior, o.dispute, o.reason ?? 'Closed by the legacy path; the money never moved', null])).rows[0].r;
+
+test('117: alert reviews are append-only, backend-only, and a review needs a reason', async (t) => {
+  const review = (action, note, fp = 'abcdef0123456789') => t.svc(
+    `INSERT INTO public.admin_alert_reviews (alert_id, fingerprint, action, note, admin_id, admin_email, admin_role)
+     VALUES ('payout_stuck', $1, $2, $3, $4, 'senior@help24.test', 'senior_admin') RETURNING id`, [fp, action, note, A.senior]);
+  const { rows } = await review('reviewed', 'Sandbox test payouts — nothing to pay');
+  await review('reopened', null);
+  await t.rejects(review('reviewed', 'ok'), /admin_alert_reviews_note/);
+  await t.rejects(review('reviewed', 'A real reason', 'not-a-fingerprint'), /check constraint/);
+  await t.rejects(t.svc('UPDATE public.admin_alert_reviews SET note = $2 WHERE id = $1', [rows[0].id, 'edited later']),
+    /permission denied|HELP24_APPEND_ONLY/);
+  await t.rejects(t.owner('UPDATE public.admin_alert_reviews SET note = $2 WHERE id = $1', [rows[0].id, 'edited later']),
+    /HELP24_APPEND_ONLY/);
+  await t.rejects(t.owner('DELETE FROM public.admin_alert_reviews WHERE id = $1', [rows[0].id]), /HELP24_APPEND_ONLY/);
+  await t.rejects(t.owner('TRUNCATE public.admin_alert_reviews'), /HELP24_APPEND_ONLY/);
+  await t.rejects(t.user(U.alice)('SELECT * FROM public.admin_alert_reviews'), /permission denied/);
+  await t.rejects(t.anon('SELECT * FROM public.admin_finance_actions'), /permission denied/);
+});
+
+test('117: a manual payout completes the owed leg, for the RULING\'s amount, with an audit row', async (t) => {
+  const { tx, decisionId } = await ruledJob(t, {
+    post: ID(501), decision: 'PARTIAL_SPLIT', provider: 750, refund: 700, txStatus: 'refunded', escrowStatus: 'refunded',
+    legs: [{ direction: 'provider_payout', status: 'owed', amount: 750 },
+      { direction: 'client_refund', status: 'completed', rail: 'manual', amount: 700 }],
+  });
+  const r = await manualSettlement(t, { tx });
+  assert.equal(r.amount, 750);
+  assert.equal(r.beneficiary_user_id, U.dave);
+  assert.ok(r.voided_leg_id);
+
+  const legs = (await t.owner(
+    `SELECT id, direction, rail, status, amount, mpesa_receipt, reason_ref_type, reason_ref_id, failure_reason, created_by
+       FROM public.settlements WHERE transaction_id = $1 AND direction = 'provider_payout' ORDER BY created_at, status`, [tx])).rows;
+  const voided = legs.find((l) => l.id === r.voided_leg_id);
+  const paid = legs.find((l) => l.id === r.settlement_id);
+  assert.equal(voided.status, 'voided');
+  assert.match(voided.failure_reason, /paid by hand, reference QK12ABC34/);
+  assert.deepEqual(
+    { rail: paid.rail, status: paid.status, amount: paid.amount, receipt: paid.mpesa_receipt, ref: paid.reason_ref_type, by: paid.created_by },
+    { rail: 'manual', status: 'completed', amount: 750, receipt: 'QK12ABC34', ref: 'dispute_decision', by: 'senior@help24.test' });
+  assert.equal(paid.reason_ref_id, decisionId);
+
+  const audit = (await t.owner('SELECT action_type, admin_role, reference, settlement_id FROM public.admin_finance_actions WHERE transaction_id = $1', [tx])).rows;
+  assert.deepEqual(audit, [{ action_type: 'manual_settlement_recorded', admin_role: 'senior_admin', reference: 'QK12ABC34', settlement_id: r.settlement_id }]);
+
+  // Twice is refused: it is already paid.
+  await t.rejects(manualSettlement(t, { tx, reference: 'QK99ZZZ99' }), /HELP24_FINANCE_CONFLICT: this is already recorded as paid/);
+});
+
+test('117: a manual settlement is refused whenever it would not be true', async (t) => {
+  const split = await ruledJob(t, {
+    post: ID(502), decision: 'PARTIAL_SPLIT', txStatus: 'refunded', escrowStatus: 'refunded',
+    legs: [{ direction: 'client_refund', status: 'completed', rail: 'manual' }],
+  });
+  await t.rejects(manualSettlement(t, { tx: split.tx, admin: A.support }), /HELP24_FINANCE_FORBIDDEN/);
+  await t.rejects(manualSettlement(t, { tx: split.tx, direction: 'client_refund' }), /already recorded as paid/);
+  await t.rejects(manualSettlement(t, { tx: split.tx, reference: '!' }), /HELP24_FINANCE_INVALID/);
+  await t.rejects(manualSettlement(t, { tx: split.tx, env: 'staging' }), /HELP24_FINANCE_INVALID/);
+
+  const refundOnly = await ruledJob(t, { post: ID(503), decision: 'FULL_REFUND', provider: 0, refund: 1500, txStatus: 'refunded', escrowStatus: 'refunded' });
+  await t.rejects(manualSettlement(t, { tx: refundOnly.tx }), /owes the provider nothing/);
+
+  const stillHeld = await ruledJob(t, { post: ID(504), decision: 'PARTIAL_SPLIT', txStatus: 'paid', escrowStatus: 'locked' });
+  await t.rejects(manualSettlement(t, { tx: stillHeld.tx }), /only money a ruling handed to finance/);
+
+  const inFlight = await ruledJob(t, {
+    post: ID(505), decision: 'PARTIAL_SPLIT', txStatus: 'refunded', escrowStatus: 'refunded',
+    legs: [{ direction: 'provider_payout', status: 'pending' }],
+  });
+  await t.rejects(manualSettlement(t, { tx: inFlight.tx }), /still in flight/);
+
+  await t.rejects(t.user(U.alice)(`SELECT public.admin_record_manual_settlement($1,$2,'provider_payout','QK1','reason here','sandbox',null)`,
+    [A.super, split.tx]), /permission denied/);
+});
+
+test('117: applying a recorded refund ruling unfreezes money a legacy resolve left frozen', async (t) => {
+  const { tx, dispute } = await ruledJob(t, { post: ID(506), decision: 'PARTIAL_SPLIT', txStatus: 'disputed', escrowStatus: 'disputed' });
+  const r = await applyRuling(t, { dispute });
+  assert.deepEqual({ phase: r.phase, type: r.decision_type, payout: r.needs_payout }, { phase: 'applied', type: 'PARTIAL_SPLIT', payout: false });
+  const money = (await t.owner(
+    'SELECT t.status AS tx, e.status AS escrow FROM public.transactions t JOIN public.escrow e ON e.transaction_id = t.id WHERE t.id = $1', [tx])).rows[0];
+  assert.deepEqual(money, { tx: 'refunded', escrow: 'refunded' });
+  const audit = (await t.owner('SELECT action_type, previous_state, new_state FROM public.admin_finance_actions WHERE dispute_id = $1', [dispute])).rows;
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].previous_state.transaction, 'disputed');
+  assert.equal(audit[0].new_state.transaction, 'refunded');
+  // Nothing left to apply.
+  await t.rejects(applyRuling(t, { dispute }), /nothing to apply/);
+  // …and the split's shares can now be recorded as paid by hand.
+  await t.svc(`INSERT INTO public.settlements (transaction_id, post_id, direction, rail, amount, status, environment, reason_ref_type, created_by)
+               VALUES ($1, $2, 'provider_payout', 'mpesa_b2c', 750, 'owed', 'sandbox', 'backfill', 'backfill')`, [tx, ID(506)]);
+  assert.equal((await manualSettlement(t, { tx })).amount, 750);
+});
+
+test('117: a recorded release is unfrozen exactly once, then retried until the payout goes out', async (t) => {
+  const { tx, dispute } = await ruledJob(t, { post: ID(507), decision: 'FULL_RELEASE', provider: 1500, refund: 0, txStatus: 'disputed', escrowStatus: 'disputed' });
+  const first = await applyRuling(t, { dispute });
+  assert.deepEqual({ phase: first.phase, payout: first.needs_payout }, { phase: 'unfrozen_for_release', payout: true });
+  const money = async () => (await t.owner(
+    'SELECT t.status AS tx, e.status AS escrow FROM public.transactions t JOIN public.escrow e ON e.transaction_id = t.id WHERE t.id = $1', [tx])).rows[0];
+  assert.deepEqual(await money(), { tx: 'paid', escrow: 'locked' });
+
+  // The payout did not go out (the backend's release failed): calling again retries it, and changes nothing.
+  const retry = await applyRuling(t, { dispute });
+  assert.deepEqual({ phase: retry.phase, payout: retry.needs_payout }, { phase: 'retry_release', payout: true });
+  assert.deepEqual(await money(), { tx: 'paid', escrow: 'locked' });
+
+  // Once the payout is in flight there is nothing left to apply.
+  await t.svc(`UPDATE public.transactions SET status = 'payout_pending' WHERE id = $1`, [tx]);
+  await t.rejects(applyRuling(t, { dispute }), /nothing to apply — the payment is payout_pending/);
+});
+
+test('117: a ruling is only applied to a CLOSED dispute that has one on record, and never over an open case', async (t) => {
+  const open = await ruledJob(t, { post: ID(508), decision: 'FULL_RELEASE', txStatus: 'disputed', escrowStatus: 'disputed', disputeStatus: 'reviewing' });
+  await t.rejects(applyRuling(t, { dispute: open.dispute }), /is not closed \(reviewing\)/);
+
+  const noRuling = await ruledJob(t, { post: ID(509), txStatus: 'disputed', escrowStatus: 'disputed' });
+  await t.rejects(applyRuling(t, { dispute: noRuling.dispute }), /no ruling on record/);
+
+  const closed = await ruledJob(t, { post: ID(510), decision: 'FULL_REFUND', provider: 0, refund: 1500, txStatus: 'disputed', escrowStatus: 'disputed' });
+  await t.svc(`INSERT INTO public.disputes (post_id, transaction_id, raised_by_user_id, reason, raised_by_role)
+               VALUES ($1, $2, $3, 'Raised again', 'provider')`, [ID(510), closed.tx, U.dave]);
+  await t.rejects(applyRuling(t, { dispute: closed.dispute }), /another dispute on this job is still open/);
+
+  await t.rejects(applyRuling(t, { dispute: closed.dispute, admin: A.support }), /HELP24_FINANCE_FORBIDDEN/);
+});
+
+// =============================================================================
 // Runner
 // =============================================================================
 

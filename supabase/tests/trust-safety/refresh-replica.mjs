@@ -18,7 +18,7 @@ const repoRoot = path.resolve(here, '../../..');
 const TABLES = [
   'users', 'posts', 'post_images', 'applications', 'chats', 'chat_messages',
   'user_reports', 'admin_users', 'notifications', 'transactions', 'escrow',
-  'job_completions', 'disputes', 'dispute_decisions', 'reviews',
+  'job_completions', 'disputes', 'dispute_decisions', 'reviews', 'settlements',
   'provider_reputation', 'saved_items', 'fcm_tokens', 'post_engagement',
   'user_auth_identities', 'categories',
 ];
@@ -28,7 +28,11 @@ const QUERIES = {
   tables: `select 'CREATE TABLE IF NOT EXISTS public.' || quote_ident(c.relname) || E' (\\n' ||
      string_agg('  ' || quote_ident(a.attname) || ' ' || format_type(a.atttypid, a.atttypmod) ||
        case when a.attnotnull then ' NOT NULL' else '' end ||
-       coalesce(' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid), ''), E',\\n' order by a.attnum) || E'\\n);' as ddl
+       -- pg_attrdef holds generation expressions too; emitting one as a
+       -- DEFAULT is rejected ("cannot use column reference in DEFAULT").
+       case when a.attgenerated = 's'
+            then ' GENERATED ALWAYS AS (' || pg_get_expr(d.adbin, d.adrelid) || ') STORED'
+            else coalesce(' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid), '') end, E',\\n' order by a.attnum) || E'\\n);' as ddl
     from pg_class c join pg_namespace n on n.oid=c.relnamespace
     join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped
     left join pg_attrdef d on d.adrelid=c.oid and d.adnum=a.attnum

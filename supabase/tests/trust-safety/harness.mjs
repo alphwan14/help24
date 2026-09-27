@@ -14,6 +14,7 @@ export const MIGRATIONS = [
   '114_trust_safety_schema.sql',
   '115_trust_safety_actions.sql',
   '116_trust_safety_enforcement.sql',
+  '117_alert_reviews_and_finance_repairs.sql',
 ].map((f) => path.join(migrations, f));
 
 const PORT = Number(process.env.TS_PG_PORT ?? 54329);

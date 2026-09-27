@@ -275,6 +275,31 @@ CREATE TABLE IF NOT EXISTS public.saved_items (
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.settlements (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  transaction_id uuid NOT NULL,
+  escrow_id uuid,
+  post_id text NOT NULL,
+  direction text NOT NULL,
+  rail text NOT NULL,
+  amount integer NOT NULL,
+  beneficiary_user_id text,
+  status text NOT NULL,
+  conversation_id text,
+  originator_conversation_id text,
+  mpesa_receipt text,
+  failure_reason text,
+  attempts integer NOT NULL DEFAULT 0,
+  last_attempt_at timestamp with time zone,
+  environment text NOT NULL,
+  reason_ref_type text NOT NULL,
+  reason_ref_id text,
+  backfill_unverified boolean NOT NULL DEFAULT false,
+  created_by text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  settled_at timestamp with time zone
+);
+
 CREATE TABLE IF NOT EXISTS public.transactions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   phone text NOT NULL,
@@ -310,8 +335,29 @@ CREATE TABLE IF NOT EXISTS public.user_reports (
   message_id uuid,
   reason text NOT NULL,
   details text NOT NULL DEFAULT ''::text,
-  status text NOT NULL DEFAULT 'open'::text,
-  created_at timestamp with time zone NOT NULL DEFAULT now()
+  status text NOT NULL DEFAULT 'new'::text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  target_type text NOT NULL,
+  target_id text NOT NULL,
+  application_id uuid,
+  target_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  severity text NOT NULL DEFAULT 'medium'::text,
+  evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
+  source text NOT NULL DEFAULT 'app_direct'::text,
+  assigned_admin_id uuid,
+  assigned_at timestamp with time zone,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  resolved_at timestamp with time zone,
+  resolved_by uuid,
+  resolution text,
+  resolution_reason text,
+  severity_rank smallint GENERATED ALWAYS AS (
+CASE severity
+    WHEN 'critical'::text THEN 4
+    WHEN 'high'::text THEN 3
+    WHEN 'medium'::text THEN 2
+    ELSE 1
+END) STORED
 );
 
 CREATE TABLE IF NOT EXISTS public.users (
@@ -379,6 +425,8 @@ ALTER TABLE public.provider_reputation ADD CONSTRAINT provider_reputation_pkey P
 ALTER TABLE public.reviews ADD CONSTRAINT reviews_pkey PRIMARY KEY (id);
 
 ALTER TABLE public.saved_items ADD CONSTRAINT saved_items_pkey PRIMARY KEY (id);
+
+ALTER TABLE public.settlements ADD CONSTRAINT settlements_pkey PRIMARY KEY (id);
 
 ALTER TABLE public.transactions ADD CONSTRAINT transactions_pkey PRIMARY KEY (id);
 
@@ -460,6 +508,18 @@ ALTER TABLE public.reviews ADD CONSTRAINT reviews_status_check CHECK ((status = 
 
 ALTER TABLE public.saved_items ADD CONSTRAINT saved_items_item_type_check CHECK ((item_type = ANY (ARRAY['post'::text, 'provider'::text])));
 
+ALTER TABLE public.settlements ADD CONSTRAINT settlements_amount_check CHECK ((amount >= 0));
+
+ALTER TABLE public.settlements ADD CONSTRAINT settlements_direction_check CHECK ((direction = ANY (ARRAY['provider_payout'::text, 'client_refund'::text, 'platform_fee'::text])));
+
+ALTER TABLE public.settlements ADD CONSTRAINT settlements_environment_check CHECK ((environment = ANY (ARRAY['sandbox'::text, 'production'::text])));
+
+ALTER TABLE public.settlements ADD CONSTRAINT settlements_rail_check CHECK ((rail = ANY (ARRAY['mpesa_b2c'::text, 'manual'::text, 'internal'::text])));
+
+ALTER TABLE public.settlements ADD CONSTRAINT settlements_reason_ref_type_check CHECK ((reason_ref_type = ANY (ARRAY['dispute_decision'::text, 'job_approval'::text, 'legacy_admin_resolve'::text, 'backfill'::text])));
+
+ALTER TABLE public.settlements ADD CONSTRAINT settlements_status_check CHECK ((status = ANY (ARRAY['initiated'::text, 'pending'::text, 'owed'::text, 'succeeded'::text, 'failed'::text, 'recorded'::text, 'completed'::text, 'voided'::text, 'retained'::text, 'refunded'::text])));
+
 ALTER TABLE public.transactions ADD CONSTRAINT transactions_amount_check CHECK ((amount > 0));
 
 ALTER TABLE public.transactions ADD CONSTRAINT transactions_fee_check CHECK ((fee >= 0));
@@ -470,11 +530,29 @@ ALTER TABLE public.transactions ADD CONSTRAINT transactions_total_paid_check CHE
 
 ALTER TABLE public.user_auth_identities ADD CONSTRAINT user_auth_identities_provider_check CHECK ((provider = ANY (ARRAY['firebase'::text, 'supabase'::text])));
 
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_assignment_consistent CHECK (((assigned_admin_id IS NULL) = (assigned_at IS NULL)));
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_details_length CHECK ((char_length(details) <= 2000));
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_evidence_shape CHECK (((jsonb_typeof(evidence) = 'array'::text) AND (jsonb_array_length(evidence) <= 5)));
+
 ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_not_self CHECK ((reporter_id <> reported_user_id));
 
-ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_reason_check CHECK ((reason = ANY (ARRAY['spam'::text, 'scam_or_fraud'::text, 'inappropriate_content'::text, 'harassment'::text, 'other'::text])));
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_reason_check CHECK ((reason = ANY (ARRAY['spam'::text, 'scam_or_fraud'::text, 'inappropriate_content'::text, 'harassment'::text, 'other'::text, 'suspicious_activity'::text, 'illegal_activity'::text, 'threats'::text, 'impersonation'::text, 'misleading_listing'::text, 'payment_issue'::text, 'unsafe_behavior'::text])));
 
-ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_status_check CHECK ((status = ANY (ARRAY['open'::text, 'reviewed'::text, 'dismissed'::text])));
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_resolution_check CHECK (((resolution IS NULL) OR (resolution = ANY (ARRAY['action_taken'::text, 'no_action'::text, 'dismissed'::text]))));
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_resolution_matches_status CHECK (((resolution IS NULL) OR ((status = 'dismissed'::text) = (resolution = 'dismissed'::text))));
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_severity_check CHECK ((severity = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text])));
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_source_check CHECK ((source = ANY (ARRAY['api'::text, 'app_direct'::text])));
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_status_check CHECK ((status = ANY (ARRAY['new'::text, 'under_review'::text, 'action_required'::text, 'resolved'::text, 'dismissed'::text])));
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_target_type_check CHECK ((target_type = ANY (ARRAY['user'::text, 'post'::text, 'application'::text, 'message'::text])));
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_terminal_consistent CHECK (((status = ANY (ARRAY['resolved'::text, 'dismissed'::text])) = ((resolved_at IS NOT NULL) AND (resolution IS NOT NULL))));
 
 ALTER TABLE public.users ADD CONSTRAINT users_account_type_check CHECK ((account_type = ANY (ARRAY['individual'::text, 'business'::text])));
 
@@ -530,11 +608,17 @@ ALTER TABLE public.reviews ADD CONSTRAINT reviews_post_id_fkey FOREIGN KEY (post
 
 ALTER TABLE public.saved_items ADD CONSTRAINT saved_items_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE public.settlements ADD CONSTRAINT settlements_transaction_id_fkey FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT;
+
 ALTER TABLE public.user_auth_identities ADD CONSTRAINT user_auth_identities_help24_user_id_fkey FOREIGN KEY (help24_user_id) REFERENCES users(id) ON DELETE CASCADE;
 
-ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_reported_user_id_fkey FOREIGN KEY (reported_user_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_assigned_admin_fkey FOREIGN KEY (assigned_admin_id) REFERENCES admin_users(id) ON DELETE RESTRICT;
 
-ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_reporter_id_fkey FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_reported_user_id_fkey FOREIGN KEY (reported_user_id) REFERENCES users(id) ON DELETE RESTRICT;
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_reporter_id_fkey FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE RESTRICT;
+
+ALTER TABLE public.user_reports ADD CONSTRAINT user_reports_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES admin_users(id) ON DELETE RESTRICT;
 
 -- ── Indexes ──
 
@@ -686,6 +770,18 @@ CREATE INDEX idx_reviews_provider ON public.reviews USING btree (provider_id, cr
 
 CREATE INDEX idx_saved_items_user_created ON public.saved_items USING btree (user_id, created_at DESC);
 
+CREATE INDEX idx_settlements_conversation ON public.settlements USING btree (conversation_id);
+
+CREATE INDEX idx_settlements_environment ON public.settlements USING btree (environment);
+
+CREATE INDEX idx_settlements_open ON public.settlements USING btree (status) WHERE (status = ANY (ARRAY['initiated'::text, 'pending'::text, 'recorded'::text, 'owed'::text]));
+
+CREATE INDEX idx_settlements_originator ON public.settlements USING btree (originator_conversation_id);
+
+CREATE INDEX idx_settlements_transaction ON public.settlements USING btree (transaction_id);
+
+CREATE UNIQUE INDEX uq_settlements_active_leg ON public.settlements USING btree (transaction_id, direction) WHERE (status = ANY (ARRAY['initiated'::text, 'pending'::text, 'owed'::text, 'succeeded'::text, 'recorded'::text, 'completed'::text, 'retained'::text, 'refunded'::text]));
+
 CREATE INDEX idx_transactions_checkout_request_id ON public.transactions USING btree (checkout_request_id);
 
 CREATE INDEX idx_transactions_conversation_id ON public.transactions USING btree (conversation_id);
@@ -702,9 +798,21 @@ CREATE INDEX transactions_payout_destination_idx ON public.transactions USING bt
 
 CREATE INDEX idx_user_auth_identities_user ON public.user_auth_identities USING btree (help24_user_id);
 
+CREATE INDEX idx_user_reports_open_assignee ON public.user_reports USING btree (assigned_admin_id) WHERE (status = ANY (ARRAY['new'::text, 'under_review'::text, 'action_required'::text]));
+
+CREATE INDEX idx_user_reports_open_severity ON public.user_reports USING btree (severity_rank DESC, created_at) WHERE (status = ANY (ARRAY['new'::text, 'under_review'::text, 'action_required'::text]));
+
+CREATE INDEX idx_user_reports_reason ON public.user_reports USING btree (reason, created_at DESC);
+
 CREATE INDEX idx_user_reports_reported_user ON public.user_reports USING btree (reported_user_id, created_at DESC);
 
+CREATE INDEX idx_user_reports_reporter ON public.user_reports USING btree (reporter_id, created_at DESC);
+
 CREATE INDEX idx_user_reports_status_created ON public.user_reports USING btree (status, created_at DESC);
+
+CREATE INDEX idx_user_reports_target ON public.user_reports USING btree (target_type, target_id);
+
+CREATE UNIQUE INDEX user_reports_one_open_per_target ON public.user_reports USING btree (reporter_id, target_type, target_id) WHERE (status = ANY (ARRAY['new'::text, 'under_review'::text, 'action_required'::text]));
 
 CREATE INDEX idx_users_available_until ON public.users USING btree (available_until) WHERE (available_until IS NOT NULL);
 
@@ -750,6 +858,118 @@ BEGIN
   END IF;
 
   RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_chat_messages_undelete_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  IF public.moderation_caller_is_trusted() THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.deleted_for_everyone AND NOT coalesce(NEW.deleted_for_everyone, false) THEN
+    RAISE EXCEPTION 'HELP24_CONTENT_MODERATED: a deleted message cannot be restored'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_moderation_enforce()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_capability text := TG_ARGV[0];
+  v_column     text := coalesce(TG_ARGV[1], '');
+  v_jwt_uid    text;
+  v_row_uid    text;
+  v_who        text;
+  v_denial     text;
+BEGIN
+  -- The backend enforces its own routes (ModerationGuard) and performs writes
+  -- on people's behalf that must not be refused here — the chat it opens when a
+  -- provider is selected, for one. Owner connections are migrations and ops.
+  IF public.moderation_caller_is_trusted() THEN
+    RETURN NEW;
+  END IF;
+
+  v_jwt_uid := nullif(btrim(coalesce(
+    coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'user_id', '')), '');
+
+  IF v_column = '@post_author' THEN
+    SELECT p.author_user_id INTO v_row_uid FROM public.posts p WHERE p.id = NEW.post_id;
+  ELSIF v_column <> '' THEN
+    v_row_uid := nullif(btrim(coalesce(to_jsonb(NEW) ->> v_column, '')), '');
+  END IF;
+
+  FOREACH v_who IN ARRAY ARRAY[v_jwt_uid, v_row_uid] LOOP
+    CONTINUE WHEN v_who IS NULL;
+    v_denial := public.moderation_denial(v_who, v_capability);
+    IF v_denial IS NOT NULL THEN
+      RAISE EXCEPTION 'HELP24_ACCOUNT_RESTRICTED: %', v_denial
+        USING ERRCODE = '42501',
+              DETAIL  = v_capability,
+              HINT    = 'This account is restricted. Open Help24 to see why and how to get help.';
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE;
+  WHEN OTHERS THEN
+    RAISE WARNING 'HELP24 moderation enforcement skipped on % % (%): %',
+      TG_TABLE_NAME, TG_OP, SQLSTATE, SQLERRM;
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_moderation_history_immutable()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  RAISE EXCEPTION 'HELP24_MODERATION_HISTORY_IMMUTABLE: % on %.% is not permitted',
+    TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME
+    USING ERRCODE = '42501',
+          HINT = 'Moderation history is append-only. Record a new action instead.';
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_posts_moderation_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  IF public.moderation_caller_is_trusted() THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF TG_OP IN ('UPDATE', 'DELETE') AND OLD.archived_by = 'moderation' THEN
+    RAISE EXCEPTION 'HELP24_CONTENT_MODERATED: this listing was hidden by Help24 and cannot be changed'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.archived_by = 'moderation' THEN
+    RAISE EXCEPTION 'HELP24_CONTENT_MODERATED: only Help24 can mark a listing as moderated'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $function$
 ;
@@ -810,6 +1030,275 @@ END;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.fn_user_reports_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'HELP24_MODERATION_HISTORY_IMMUTABLE: reports are evidence and are never deleted'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF (NEW.id, NEW.reporter_id, NEW.reported_user_id, NEW.target_type, NEW.target_id, NEW.reason,
+      NEW.details, NEW.evidence, NEW.target_snapshot, NEW.chat_id, NEW.post_id, NEW.message_id,
+      NEW.application_id, NEW.source, NEW.created_at)
+     IS DISTINCT FROM
+     (OLD.id, OLD.reporter_id, OLD.reported_user_id, OLD.target_type, OLD.target_id, OLD.reason,
+      OLD.details, OLD.evidence, OLD.target_snapshot, OLD.chat_id, OLD.post_id, OLD.message_id,
+      OLD.application_id, OLD.source, OLD.created_at) THEN
+    RAISE EXCEPTION 'HELP24_REPORT_IMMUTABLE: a report cannot be edited after it is filed'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF coalesce(current_setting('help24.moderation_write', true), '') <> 'on' THEN
+    RAISE EXCEPTION 'HELP24_MODERATION_WRITE_REQUIRED: report triage changes only through the moderation functions'
+      USING ERRCODE = '42501';
+  END IF;
+
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_user_reports_prepare()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  c_uuid     CONSTANT text := '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+  v_trusted  boolean := public.moderation_caller_is_trusted();
+  v_reported text;
+  v_user     public.users%ROWTYPE;
+  v_post     public.posts%ROWTYPE;
+  v_app      public.applications%ROWTYPE;
+  v_msg      public.chat_messages%ROWTYPE;
+  v_chat     public.chats%ROWTYPE;
+  v_item     jsonb;
+  v_count    integer;
+BEGIN
+  -- ── 1. Server-owned columns ──────────────────────────────────────────────
+  -- Whatever the caller sent is discarded. Triage state is written only by the
+  -- migration-115 functions; a client inserting `status = 'dismissed'` or its
+  -- own severity simply does not get to.
+  NEW.status            := 'new';
+  NEW.assigned_admin_id := NULL;
+  NEW.assigned_at       := NULL;
+  NEW.resolved_at       := NULL;
+  NEW.resolved_by       := NULL;
+  NEW.resolution        := NULL;
+  NEW.resolution_reason := NULL;
+  NEW.created_at        := now();
+  NEW.updated_at        := now();
+  NEW.details           := btrim(coalesce(NEW.details, ''));
+  NEW.target_snapshot   := '{}'::jsonb;
+
+  IF v_trusted THEN
+    NEW.source := coalesce(NEW.source, 'api');
+    -- Evidence must be the REPORTER'S OWN uploads. The backend issues upload
+    -- paths under reports/<reporter>/, and this refuses anything else — a
+    -- reference to somebody else's file is not evidence, it is a leak.
+    FOR v_item IN SELECT * FROM jsonb_array_elements(coalesce(NEW.evidence, '[]'::jsonb)) LOOP
+      IF jsonb_typeof(v_item) <> 'object'
+         OR jsonb_typeof(v_item -> 'path') <> 'string'
+         OR (v_item ->> 'path') NOT LIKE ('reports/' || NEW.reporter_id || '/%') THEN
+        RAISE EXCEPTION 'HELP24_REPORT_INVALID_EVIDENCE: evidence must be your own upload'
+          USING ERRCODE = '22023';
+      END IF;
+    END LOOP;
+  ELSE
+    -- The direct-insert door cannot attach evidence at all: nothing on that
+    -- path has checked what a path points at.
+    NEW.source   := 'app_direct';
+    NEW.evidence := '[]'::jsonb;
+  END IF;
+
+  -- ── 2. Resolve the target; DERIVE the reported person ───────────────────
+  -- The shipped app sends the 084 shape (reported_user_id + optional
+  -- message_id) and no target at all. Translate it.
+  IF NEW.target_type IS NULL THEN
+    NEW.target_type := CASE WHEN NEW.message_id IS NOT NULL THEN 'message' ELSE 'user' END;
+    NEW.target_id   := CASE WHEN NEW.message_id IS NOT NULL THEN NEW.message_id::text ELSE NEW.reported_user_id END;
+  END IF;
+  NEW.target_id := btrim(coalesce(NEW.target_id, ''));
+  IF NEW.target_id = '' THEN
+    RAISE EXCEPTION 'HELP24_REPORT_INVALID_TARGET: a target is required' USING ERRCODE = '22023';
+  END IF;
+
+  IF NEW.target_type IN ('post', 'application', 'message') AND NEW.target_id !~* c_uuid THEN
+    RAISE EXCEPTION 'HELP24_REPORT_INVALID_TARGET: malformed id' USING ERRCODE = '22023';
+  END IF;
+
+  CASE NEW.target_type
+    WHEN 'user' THEN
+      SELECT * INTO v_user FROM public.users WHERE id = NEW.target_id;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'HELP24_REPORT_INVALID_TARGET: account not found' USING ERRCODE = '22023';
+      END IF;
+      v_reported := v_user.id;
+      NEW.target_snapshot := jsonb_build_object(
+        'name',         v_user.name,
+        'bio',          left(coalesce(v_user.bio, ''), 2000),
+        'profession',   v_user.profession,
+        'avatar_url',   coalesce(nullif(v_user.avatar_url, ''), v_user.profile_image),
+        'member_since', v_user.created_at);
+
+    WHEN 'post' THEN
+      SELECT * INTO v_post FROM public.posts WHERE id = NEW.target_id::uuid;
+      IF NOT FOUND OR v_post.author_user_id IS NULL THEN
+        RAISE EXCEPTION 'HELP24_REPORT_INVALID_TARGET: listing not found' USING ERRCODE = '22023';
+      END IF;
+      v_reported  := v_post.author_user_id;
+      NEW.post_id := v_post.id;
+      NEW.target_snapshot := jsonb_build_object(
+        'type',        v_post.type,
+        'title',       v_post.title,
+        'description', left(coalesce(v_post.description, ''), 4000),
+        'category',    v_post.category,
+        'location',    v_post.location,
+        'price',       v_post.price,
+        'status',      v_post.status,
+        'created_at',  v_post.created_at);
+
+    WHEN 'application' THEN
+      SELECT * INTO v_app FROM public.applications WHERE id = NEW.target_id::uuid;
+      IF NOT FOUND OR v_app.applicant_user_id IS NULL THEN
+        RAISE EXCEPTION 'HELP24_REPORT_INVALID_TARGET: application not found' USING ERRCODE = '22023';
+      END IF;
+      SELECT * INTO v_post FROM public.posts WHERE id = v_app.post_id;
+      -- Applicants are shown to the listing's owner, and only the owner has a
+      -- reason to be reading one.
+      IF NOT FOUND OR v_post.author_user_id IS DISTINCT FROM NEW.reporter_id THEN
+        RAISE EXCEPTION 'HELP24_REPORT_NOT_PARTICIPANT: only the listing owner can report an application'
+          USING ERRCODE = '42501';
+      END IF;
+      v_reported         := v_app.applicant_user_id;
+      NEW.application_id := v_app.id;
+      NEW.post_id        := v_app.post_id;
+      NEW.target_snapshot := jsonb_build_object(
+        'message',        left(coalesce(v_app.message, ''), 4000),
+        'proposed_price', v_app.proposed_price,
+        'applied_at',     v_app.created_at,
+        'post_title',     v_post.title,
+        'post_type',      v_post.type);
+
+    WHEN 'message' THEN
+      SELECT * INTO v_msg FROM public.chat_messages WHERE id = NEW.target_id::uuid;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'HELP24_REPORT_INVALID_TARGET: message not found' USING ERRCODE = '22023';
+      END IF;
+      SELECT * INTO v_chat FROM public.chats WHERE id = v_msg.chat_id;
+      -- You can report what was said TO you, in a conversation you are in.
+      IF NOT FOUND OR NEW.reporter_id NOT IN (v_chat.user1, v_chat.user2) THEN
+        RAISE EXCEPTION 'HELP24_REPORT_NOT_PARTICIPANT: you can only report messages in your own conversations'
+          USING ERRCODE = '42501';
+      END IF;
+      v_reported     := v_msg.sender_id;
+      NEW.message_id := v_msg.id;
+      NEW.chat_id    := v_msg.chat_id;
+      -- The conversation says which listing it is about; the client does not.
+      NEW.post_id    := v_chat.post_id;
+      NEW.target_snapshot := jsonb_build_object(
+        'content',              left(coalesce(v_msg.content, ''), 4000),
+        'type',                 v_msg.type,
+        'attachment_url',       v_msg.attachment_url,
+        'sent_at',              v_msg.created_at,
+        'deleted_for_everyone', v_msg.deleted_for_everyone);
+
+    ELSE
+      RAISE EXCEPTION 'HELP24_REPORT_INVALID_TARGET: unknown target type %', NEW.target_type
+        USING ERRCODE = '22023';
+  END CASE;
+
+  -- The shipped client still sends reported_user_id. It must agree with what
+  -- the target says; a mismatch is someone aiming a report at a bystander.
+  IF NEW.reported_user_id IS NOT NULL AND NEW.reported_user_id <> v_reported THEN
+    RAISE EXCEPTION 'HELP24_REPORT_INVALID_TARGET: the reported account does not match the target'
+      USING ERRCODE = '22023';
+  END IF;
+  NEW.reported_user_id := v_reported;
+
+  IF NEW.reporter_id = NEW.reported_user_id THEN
+    RAISE EXCEPTION 'HELP24_REPORT_SELF: you cannot report yourself' USING ERRCODE = '23514';
+  END IF;
+
+  -- A person reported from a listing: keep that context only when the listing
+  -- actually involves one of them (theirs, or the reporter's own that they
+  -- answered). Context that points at an unrelated listing is dropped, not
+  -- trusted.
+  IF NEW.target_type = 'user' AND NEW.post_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.posts p
+       WHERE p.id = NEW.post_id
+         AND (p.author_user_id IN (NEW.reporter_id, NEW.reported_user_id)
+              OR EXISTS (SELECT 1 FROM public.applications a
+                          WHERE a.post_id = p.id
+                            AND a.applicant_user_id IN (NEW.reporter_id, NEW.reported_user_id)))) THEN
+      NEW.post_id := NULL;
+    END IF;
+  END IF;
+
+  -- A person reported from inside a conversation: both must be in it.
+  IF NEW.chat_id IS NOT NULL THEN
+    SELECT * INTO v_chat FROM public.chats WHERE id = NEW.chat_id;
+    IF NOT FOUND
+       OR NEW.reporter_id NOT IN (v_chat.user1, v_chat.user2)
+       OR NEW.reported_user_id NOT IN (v_chat.user1, v_chat.user2) THEN
+      RAISE EXCEPTION 'HELP24_REPORT_NOT_PARTICIPANT: that conversation is not between you and this account'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- ── 3. The category must make sense for the target ─────────────────────
+  IF NOT (NEW.reason = ANY (public.moderation_report_categories(NEW.target_type))) THEN
+    RAISE EXCEPTION 'HELP24_REPORT_INVALID_CATEGORY: % does not apply to a %', NEW.reason, NEW.target_type
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- ── 4. Abuse controls ──────────────────────────────────────────────────
+  -- Same person, same thing, within a day: already heard. (Still-open
+  -- duplicates older than a day are caught by user_reports_one_open_per_target.)
+  IF EXISTS (
+    SELECT 1 FROM public.user_reports r
+     WHERE r.reporter_id = NEW.reporter_id
+       AND r.target_type = NEW.target_type
+       AND r.target_id   = NEW.target_id
+       AND r.created_at  > now() - interval '24 hours') THEN
+    RAISE EXCEPTION 'HELP24_REPORT_DUPLICATE: you have already reported this' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Volume. Ten a day is far past anyone reporting honestly and well short of
+  -- someone trying to bury the queue; five against one account stops a feud
+  -- from being fought through the report button.
+  SELECT count(*) INTO v_count
+    FROM public.user_reports r
+   WHERE r.reporter_id = NEW.reporter_id
+     AND r.created_at > now() - interval '24 hours';
+  IF v_count >= 10 THEN
+    RAISE EXCEPTION 'HELP24_REPORT_LIMIT: too many reports today' USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT count(*) INTO v_count
+    FROM public.user_reports r
+   WHERE r.reporter_id = NEW.reporter_id
+     AND r.reported_user_id = NEW.reported_user_id
+     AND r.created_at > now() - interval '24 hours';
+  IF v_count >= 5 THEN
+    RAISE EXCEPTION 'HELP24_REPORT_LIMIT: too many reports about this account today' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- ── 5. Where it lands in the queue ──────────────────────────────────────
+  NEW.severity := public.moderation_initial_severity(NEW.reason, NEW.reported_user_id, NEW.reporter_id);
+
+  RETURN NEW;
+END;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.fn_users_guard_privileged_columns()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -848,6 +1337,23 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_users_is_banned_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  IF NEW.is_banned IS DISTINCT FROM OLD.is_banned
+     AND coalesce(current_setting('help24.moderation_write', true), '') <> 'on' THEN
+    RAISE EXCEPTION 'HELP24_MODERATION_WRITE_REQUIRED: users.is_banned mirrors account_restrictions and changes only through the moderation functions'
+      USING ERRCODE = '42501',
+            HINT = 'Use moderation_apply_sanction / moderation_lift_restriction (migration 115).';
+  END IF;
   RETURN NEW;
 END;
 $function$
@@ -979,17 +1485,43 @@ CREATE TRIGGER trg_block_self_application BEFORE INSERT ON public.applications F
 
 CREATE TRIGGER trg_engagement_applications AFTER INSERT OR DELETE ON public.applications FOR EACH ROW EXECUTE FUNCTION fn_touch_post_engagement('post_id');
 
+CREATE TRIGGER trg_moderation_enforce_applications BEFORE INSERT ON public.applications FOR EACH ROW EXECUTE FUNCTION fn_moderation_enforce('apply', 'applicant_user_id');
+
+CREATE TRIGGER trg_chat_messages_undelete_guard BEFORE UPDATE OF deleted_for_everyone ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION fn_chat_messages_undelete_guard();
+
 CREATE TRIGGER trg_increment_unread AFTER INSERT ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION increment_unread_count();
 
+CREATE TRIGGER trg_moderation_enforce_chat_messages BEFORE INSERT ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION fn_moderation_enforce('message', 'sender_id');
+
+CREATE TRIGGER trg_moderation_enforce_message_edits BEFORE UPDATE OF content ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION fn_moderation_enforce('message', 'sender_id');
+
+CREATE TRIGGER trg_moderation_enforce_chat_preview BEFORE UPDATE OF last_message ON public.chats FOR EACH ROW EXECUTE FUNCTION fn_moderation_enforce('message', '');
+
+CREATE TRIGGER trg_moderation_enforce_chats BEFORE INSERT ON public.chats FOR EACH ROW EXECUTE FUNCTION fn_moderation_enforce('message', '');
+
 CREATE TRIGGER trg_dispute_decisions_immutable BEFORE DELETE OR UPDATE ON public.dispute_decisions FOR EACH ROW EXECUTE FUNCTION fn_block_decision_mutation();
+
+CREATE TRIGGER trg_moderation_enforce_post_images BEFORE INSERT ON public.post_images FOR EACH ROW EXECUTE FUNCTION fn_moderation_enforce('post', '@post_author');
 
 CREATE TRIGGER posts_reputation_recompute AFTER UPDATE OF status, selected_provider_id ON public.posts FOR EACH ROW EXECUTE FUNCTION trg_posts_reputation_recompute();
 
 CREATE TRIGGER posts_validate_job_employment_trigger BEFORE INSERT OR UPDATE ON public.posts FOR EACH ROW EXECUTE FUNCTION posts_validate_job_employment_type();
 
+CREATE TRIGGER trg_moderation_enforce_posts BEFORE INSERT OR UPDATE ON public.posts FOR EACH ROW EXECUTE FUNCTION fn_moderation_enforce('post', 'author_user_id');
+
+CREATE TRIGGER trg_posts_moderation_guard BEFORE INSERT OR DELETE OR UPDATE ON public.posts FOR EACH ROW EXECUTE FUNCTION fn_posts_moderation_guard();
+
 CREATE TRIGGER trg_engagement_saved_items AFTER INSERT OR DELETE ON public.saved_items FOR EACH ROW EXECUTE FUNCTION fn_touch_post_engagement('item_id');
 
+CREATE TRIGGER trg_user_reports_guard BEFORE DELETE OR UPDATE ON public.user_reports FOR EACH ROW EXECUTE FUNCTION fn_user_reports_guard();
+
+CREATE TRIGGER trg_user_reports_no_truncate BEFORE TRUNCATE ON public.user_reports FOR EACH STATEMENT EXECUTE FUNCTION fn_moderation_history_immutable();
+
+CREATE TRIGGER trg_user_reports_prepare BEFORE INSERT ON public.user_reports FOR EACH ROW EXECUTE FUNCTION fn_user_reports_prepare();
+
 CREATE TRIGGER trg_users_guard_privileged_columns BEFORE INSERT OR UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION fn_users_guard_privileged_columns();
+
+CREATE TRIGGER trg_users_is_banned_guard BEFORE UPDATE OF is_banned ON public.users FOR EACH ROW EXECUTE FUNCTION fn_users_is_banned_guard();
 
 CREATE TRIGGER trg_users_name_change_guard BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION fn_users_name_change_guard();
 
@@ -1028,6 +1560,8 @@ ALTER TABLE public.provider_reputation ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.saved_items ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.settlements ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 
@@ -1104,6 +1638,8 @@ CREATE POLICY reviews_service_role ON public.reviews AS PERMISSIVE FOR ALL TO pu
 CREATE POLICY saved_items_owner ON public.saved_items AS PERMISSIVE FOR ALL TO authenticated USING ((user_id = (auth.jwt() ->> 'user_id'::text))) WITH CHECK ((user_id = (auth.jwt() ->> 'user_id'::text)));
 
 CREATE POLICY saved_items_service_role ON public.saved_items AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY settlements_service_role ON public.settlements AS PERMISSIVE FOR ALL TO public USING (true) WITH CHECK (true);
 
 CREATE POLICY transactions_read_own ON public.transactions AS PERMISSIVE FOR SELECT TO public USING (((auth.jwt() ->> 'user_id'::text) IS NOT NULL));
 
@@ -1187,13 +1723,15 @@ GRANT DELETE, INSERT, SELECT ON public.saved_items TO authenticated;
 
 GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.saved_items TO service_role;
 
+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.settlements TO service_role;
+
 GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.transactions TO service_role;
 
 GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.user_auth_identities TO service_role;
 
 GRANT INSERT ON public.user_reports TO authenticated;
 
-GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.user_reports TO service_role;
+GRANT INSERT, SELECT ON public.user_reports TO service_role;
 
 GRANT INSERT, REFERENCES, SELECT, TRIGGER ON public.users TO anon;
 
