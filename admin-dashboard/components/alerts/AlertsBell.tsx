@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAlerts } from "./AlertsProvider";
+import { reviewAlertAction } from "@/lib/alerts-actions";
 import {
   CATEGORY_LABELS,
   PRIORITY_META,
@@ -229,8 +230,12 @@ function AlertsPanel({ placement, onClose }: { placement: "rail" | "topbar"; onC
 
 function AlertCard({ alert: a, now }: { alert: AdminAlert; now: number }) {
   const alerts = useAlerts()!;
-  const acknowledged = alerts.isAcknowledged(a);
+  const reviewed = a.review ?? null;
   const [expanded, setExpanded] = useState(false);
+  const [writing, setWriting] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
   const meta = PRIORITY_META[a.priority];
   const amount = fmtKesShort(a.amount_kes);
   const oldest = waited(a.oldest_at, now);
@@ -239,9 +244,25 @@ function AlertCard({ alert: a, now }: { alert: AdminAlert; now: number }) {
   const expandable = a.items.length > 2;
   const beyond = a.count - a.items.length;
 
+  function send(action: "reviewed" | "reopened") {
+    setError(null);
+    start(async () => {
+      const res = await reviewAlertAction(a.id, a.fingerprint, action, action === "reviewed" ? note : undefined);
+      if (!res.ok) {
+        setError(res.error ?? "That did not go through.");
+        // The alert changed underneath the admin: show them what is there now.
+        if ((res.error ?? "").includes("changed since")) alerts.refresh();
+        return;
+      }
+      if (res.alert) alerts.replaceAlert(res.alert);
+      setWriting(false);
+      setNote("");
+    });
+  }
+
   return (
-    <li className={`rounded-lg border ${acknowledged ? "border-gray-100 opacity-70" : meta.ring} bg-surface`}>
-      <div className="px-3 pt-2.5 pb-2">
+    <li className={`rounded-lg border ${reviewed ? "border-gray-100" : meta.ring} bg-surface`}>
+      <div className={`px-3 pt-2.5 pb-2 ${reviewed ? "opacity-70" : ""}`}>
         <div className="flex items-start justify-between gap-2">
           <p className="text-[13px] font-semibold text-gray-900 leading-snug">{a.title}</p>
           {amount && <span className="text-[12px] font-semibold text-gray-700 tabular-nums whitespace-nowrap">{amount}</span>}
@@ -250,7 +271,6 @@ function AlertCard({ alert: a, now }: { alert: AdminAlert; now: number }) {
         <p className="text-[11px] text-gray-400 mt-1">
           {CATEGORY_LABELS[a.category]}
           {oldest && <> · oldest {oldest}</>}
-          {acknowledged && <> · acknowledged</>}
         </p>
 
         {shown.length > 0 && (
@@ -276,15 +296,64 @@ function AlertCard({ alert: a, now }: { alert: AdminAlert; now: number }) {
         )}
         {expanded && beyond > 0 && <p className="text-[11px] text-gray-400 mt-0.5">and {beyond} more on the page</p>}
       </div>
+
+      {/* Reviewed: quiet for every admin, with who and why — until the records change. */}
+      {reviewed && (
+        <div className="mx-3 mb-2 rounded-md bg-gray-50 border border-gray-100 px-2.5 py-2 text-[11.5px] text-gray-600">
+          <span className="font-semibold text-gray-700">Reviewed</span> by {reviewed.admin_email}
+          {waited(reviewed.at, now) && <> · {waited(reviewed.at, now)} ago</>}
+          <span className="block text-gray-500 mt-0.5">&ldquo;{reviewed.note}&rdquo;</span>
+        </div>
+      )}
+
+      {writing && !reviewed && (
+        <div className="mx-3 mb-2 space-y-1.5">
+          <textarea
+            className="input resize-none !min-h-0 text-[12.5px]"
+            rows={2}
+            maxLength={500}
+            autoFocus
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Why does this need nothing more? e.g. Sandbox test payouts — no real money."
+            aria-label="Why this needs nothing more"
+          />
+          <p className="text-[10.5px] text-gray-400">
+            Every admin sees this. It stays reviewed until a record joins or leaves the alert.
+          </p>
+        </div>
+      )}
+      {error && <p className="mx-3 mb-2 text-[11.5px] text-critical-700">{error}</p>}
+
       <div className="flex items-center justify-between gap-2 px-3 py-2 border-t border-gray-100">
-        <button
-          type="button"
-          onClick={() => (acknowledged ? alerts.unacknowledge(a) : alerts.acknowledge(a))}
-          className="text-[11.5px] font-medium text-gray-500 hover:text-gray-800"
-          title={acknowledged ? "Count it on the bell again" : "Stop counting this on the bell until something new joins it"}
-        >
-          {acknowledged ? "Undo acknowledge" : "Acknowledge"}
-        </button>
+        {reviewed ? (
+          <button type="button" disabled={pending} onClick={() => send("reopened")} className="text-[11.5px] font-medium text-gray-500 hover:text-gray-800 disabled:opacity-50">
+            {pending ? "Reopening…" : "Reopen"}
+          </button>
+        ) : writing ? (
+          <span className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={pending || note.trim().length < 5}
+              onClick={() => send("reviewed")}
+              className="text-[11.5px] font-semibold text-gray-800 hover:underline disabled:opacity-40 disabled:no-underline"
+            >
+              {pending ? "Saving…" : "Save review"}
+            </button>
+            <button type="button" disabled={pending} onClick={() => { setWriting(false); setError(null); }} className="text-[11.5px] text-gray-500 hover:text-gray-800">
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setWriting(true)}
+            className="text-[11.5px] font-medium text-gray-500 hover:text-gray-800"
+            title="Quiet this for every admin, for exactly these records, with a reason"
+          >
+            Mark reviewed
+          </button>
+        )}
         <Link href={a.href} className="text-[12px] font-semibold text-info-700 hover:underline">
           {a.action} →
         </Link>

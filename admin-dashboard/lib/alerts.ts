@@ -15,6 +15,14 @@ export interface AlertItem {
   href?: string;
 }
 
+/** Set when an admin reviewed exactly the records this alert names now. Shared by every admin. */
+export interface AlertReview {
+  note: string;
+  admin_email: string;
+  admin_role: string;
+  at: string;
+}
+
 export interface AdminAlert {
   id: string;
   category: AlertCategory;
@@ -29,6 +37,7 @@ export interface AdminAlert {
   href: string;
   fingerprint: string;
   items: AlertItem[];
+  review?: AlertReview | null;
 }
 
 export interface AlertsResponse {
@@ -75,6 +84,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   jobs: "Jobs",
   requests: "Requests",
   promotions: "Promotions",
+  reviews: "Review status",
 };
 
 export function fmtKesShort(n: number | null | undefined): string | null {

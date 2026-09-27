@@ -95,7 +95,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     <div className="bg-slate-50 lg:flex lg:h-screen lg:overflow-hidden">
       {/* Alerts start only once admin access is confirmed — they are read
           with the same admin token as every other admin surface. */}
-      <AlertsProvider enabled={status === "ready" && arbitration.connected} adminEmail={arbitration.email ?? null}>
+      <AlertsProvider enabled={status === "ready" && arbitration.connected}>
         <Sidebar supabaseEmail={supabaseEmail} arbitration={arbitration} />
       </AlertsProvider>
       <main className="flex-1 min-w-0 overflow-y-auto pt-14 lg:pt-0">

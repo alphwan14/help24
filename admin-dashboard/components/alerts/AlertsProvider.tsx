@@ -11,10 +11,12 @@ import type { AdminAlert, AlertsResponse } from "@/lib/alerts";
  * visible after 30s or more away, and never while hidden — an admin with the
  * dashboard open in a background tab costs nothing.
  *
- * ACKNOWLEDGING: per admin, per alert, for the exact set of records it named
- * (its fingerprint). If a new record joins the alert, the fingerprint changes
- * and it is raised again. Stored in this browser only — a convenience for the
- * person looking, never a way to hide a problem from the other admins.
+ * REVIEWS are the server's (admin_alert_reviews, migration 117): an alert an
+ * admin reviewed is quiet for EVERY admin, for exactly the records it named,
+ * and raised again the moment a record joins or leaves it. This replaced a
+ * per-browser acknowledgement that no other admin could see — and that this
+ * provider silently forgot whenever one check was briefly unavailable, which is
+ * why the bell's count kept coming back.
  */
 
 const POLL_MS = 120_000;
@@ -30,12 +32,11 @@ type State = {
 type Ctx = State & {
   enabled: boolean;
   refresh: () => void;
-  isAcknowledged: (a: AdminAlert) => boolean;
-  acknowledge: (a: AdminAlert) => void;
-  unacknowledge: (a: AdminAlert) => void;
-  /** Unacknowledged HIGH alerts — the only number the bell ever shows. */
+  /** Swap one alert for the version the server returned after a review. */
+  replaceAlert: (alert: AdminAlert) => void;
+  /** Unreviewed HIGH alerts — the only number the bell ever shows. */
   urgentCount: number;
-  /** Anything unacknowledged at MEDIUM — shown as a dot, never a number. */
+  /** Anything unreviewed at MEDIUM — shown as a dot, never a number. */
   hasUnreadMedium: boolean;
 };
 
@@ -45,46 +46,10 @@ export function useAlerts(): Ctx | null {
   return useContext(AlertsContext);
 }
 
-function storageKey(adminEmail: string) {
-  return `h24.alerts.ack.v1:${adminEmail.toLowerCase()}`;
-}
-
-function readAcks(key: string): Record<string, string> {
-  try {
-    const raw = window.localStorage.getItem(key);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeAcks(key: string, value: Record<string, string>) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* private mode / quota — acknowledgements are a convenience */
-  }
-}
-
-export default function AlertsProvider({
-  enabled,
-  adminEmail,
-  children,
-}: {
-  enabled: boolean;
-  adminEmail: string | null;
-  children: React.ReactNode;
-}) {
+export default function AlertsProvider({ enabled, children }: { enabled: boolean; children: React.ReactNode }) {
   const [state, setState] = useState<State>({ data: null, error: null, loading: false, fetchedAt: null });
-  const [acks, setAcks] = useState<Record<string, string>>({});
   const inFlight = useRef<AbortController | null>(null);
   const fetchedAtRef = useRef<number | null>(null);
-  const key = adminEmail ? storageKey(adminEmail) : null;
-
-  useEffect(() => {
-    if (key) setAcks(readAcks(key));
-  }, [key]);
 
   const load = useCallback(async () => {
     if (!enabled) return;
@@ -129,48 +94,23 @@ export default function AlertsProvider({
     };
   }, [enabled, load]);
 
-  // Forget acknowledgements for alerts that no longer exist, so a condition
-  // that clears and later recurs is raised afresh.
-  useEffect(() => {
-    if (!key || !state.data) return;
-    const live = new Set(state.data.alerts.map((a) => a.id));
-    const pruned = Object.fromEntries(Object.entries(acks).filter(([id]) => live.has(id)));
-    if (Object.keys(pruned).length !== Object.keys(acks).length) {
-      setAcks(pruned);
-      writeAcks(key, pruned);
-    }
-  }, [state.data, acks, key]);
-
-  const isAcknowledged = useCallback((a: AdminAlert) => acks[a.id] === a.fingerprint, [acks]);
-
-  const setAck = useCallback(
-    (a: AdminAlert, on: boolean) => {
-      if (!key) return;
-      setAcks((prev) => {
-        const next = { ...prev };
-        if (on) next[a.id] = a.fingerprint;
-        else delete next[a.id];
-        writeAcks(key, next);
-        return next;
-      });
-    },
-    [key],
-  );
+  const replaceAlert = useCallback((alert: AdminAlert) => {
+    setState((s) =>
+      s.data ? { ...s, data: { ...s.data, alerts: s.data.alerts.map((a) => (a.id === alert.id ? alert : a)) } } : s,
+    );
+  }, []);
 
   const value = useMemo<Ctx>(() => {
-    const alerts = state.data?.alerts ?? [];
-    const open = alerts.filter((a) => acks[a.id] !== a.fingerprint);
+    const open = (state.data?.alerts ?? []).filter((a) => !a.review);
     return {
       ...state,
       enabled,
       refresh: () => void load(),
-      isAcknowledged,
-      acknowledge: (a) => setAck(a, true),
-      unacknowledge: (a) => setAck(a, false),
+      replaceAlert,
       urgentCount: open.filter((a) => a.priority === "high").length,
       hasUnreadMedium: open.some((a) => a.priority === "medium"),
     };
-  }, [state, enabled, load, isAcknowledged, setAck, acks]);
+  }, [state, enabled, load, replaceAlert]);
 
   return <AlertsContext.Provider value={value}>{children}</AlertsContext.Provider>;
 }

@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { ApiError, getCurrentAdmin, getDispute, getRecommendation } from "@/lib/api";
 import type { DisputeRecommendation } from "@/lib/api";
 import DisputeDetailClient from "./DisputeDetailClient";
+import MoneyPanel from "./MoneyPanel";
+import { getDisputeMoney, type DisputeMoney } from "@/lib/finance-api";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +33,21 @@ export default async function DisputeDetailPage({ params }: PageProps) {
     recommendation = null;
   }
 
+  // Money after the ruling — only once the case is closed; an open case is
+  // decided in the case view below. Best-effort like the recommendation: a
+  // failure hides the panel, never the case.
+  let money: DisputeMoney | null = null;
+  try {
+    const m = await getDisputeMoney(id);
+    money = m.dispute.closed ? m : null;
+  } catch {
+    money = null;
+  }
+
   return (
-    <DisputeDetailClient dispute={dispute} recommendation={recommendation} admin={admin} />
+    <div className="space-y-6">
+      {money && <MoneyPanel money={money} role={admin.role} />}
+      <DisputeDetailClient dispute={dispute} recommendation={recommendation} admin={admin} />
+    </div>
   );
 }
