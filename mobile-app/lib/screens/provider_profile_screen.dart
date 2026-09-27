@@ -18,6 +18,8 @@ import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 import '../utils/time_utils.dart';
 import '../widgets/auth_guard.dart';
+import '../models/moderation.dart';
+import '../widgets/report_sheet.dart';
 import '../widgets/profile_widgets.dart';
 import '../widgets/reputation_widgets.dart';
 import 'messages_screen.dart';
@@ -245,6 +247,25 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                   ),
                 );
               },
+            ),
+          if (!isSelf && widget.providerId.isNotEmpty)
+            PopupMenuButton<String>(
+              tooltip: 'More options',
+              icon: const Icon(AppIcons.more),
+              onSelected: (_) => ReportSheet.show(
+                context,
+                ReportTarget.user(userId: widget.providerId, name: _name),
+              ),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'report',
+                  child: Row(children: [
+                    Icon(AppIcons.report, size: 20),
+                    SizedBox(width: AppSpace.md),
+                    Text('Report account'),
+                  ]),
+                ),
+              ],
             ),
         ],
       ),

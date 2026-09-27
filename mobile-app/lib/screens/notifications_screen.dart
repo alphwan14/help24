@@ -13,6 +13,7 @@ import '../theme/tokens.dart';
 import '../utils/notification_sections.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
+import 'account_status_screen.dart';
 import 'applications_screen.dart';
 import 'approve_or_dispute_screen.dart';
 import 'dispute_thread_screen.dart';
@@ -393,6 +394,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'badge_earned':
       case 'profile_updated':
         await _push(ProviderProfileScreen(providerId: widget.userId));
+        return;
+
+      // Account standing. The rows carry no ids on purpose — the screen reads
+      // the person's own status, with the reason and the way to appeal.
+      case 'account_warning':
+      case 'account_suspended':
+      case 'account_banned':
+      case 'account_restricted':
+      case 'account_restored':
+      case 'content_removed':
+        await _push(const AccountStatusScreen());
+        return;
+
+      // A receipt, not a thread: the reporter is never shown what happened
+      // next, so there is nowhere further to go.
+      case 'report_received':
         return;
     }
 
@@ -801,6 +818,7 @@ class _NotificationTile extends StatelessWidget {
         NotificationCategory.reviews => 'new reviews',
         NotificationCategory.messages => 'new messages',
         NotificationCategory.promotions => 'campaign updates',
+        NotificationCategory.account => 'account notices',
         NotificationCategory.provider => 'profile updates',
         NotificationCategory.system => 'system notices',
         NotificationCategory.support => 'support updates',

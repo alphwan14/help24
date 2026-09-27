@@ -43,6 +43,14 @@ const _backendTypes = <String>[
   'promotion_live',
   'promotion_rejected',
   'promotion_completed',
+  // Trust & Safety (backend/src/moderation).
+  'report_received',
+  'account_warning',
+  'account_suspended',
+  'account_banned',
+  'account_restricted',
+  'account_restored',
+  'content_removed',
 ];
 
 AppNotification _n(

@@ -56,6 +56,10 @@ class SessionScope {
     // disputes and the people involved — user-owned by any reading, and
     // therefore scoped and purged like the conversation list it sits beside.
     'help24_cache_notifications_',
+    // Which account restrictions this person has already been shown. Whether
+    // someone is restricted is theirs alone to know — never the next account's
+    // on a shared phone. See AccountStatusStore.ackPrefix.
+    'help24_moderation_ack_',
   ];
 
   /// Keys that belong to the signed-in user but carry NO uid — device-local

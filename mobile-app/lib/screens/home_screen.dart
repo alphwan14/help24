@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/moderation.dart';
+import '../services/account_status_service.dart';
 import '../services/adaptive_poll.dart';
 import '../services/launch_sequence.dart';
 import '../services/notification_store.dart';
@@ -12,6 +14,7 @@ import '../theme/app_icons.dart';
 import '../theme/tokens.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../widgets/auth_guard.dart';
+import '../widgets/account_restriction.dart';
 import '../widgets/ops_banners.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
@@ -87,10 +90,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _presencePoll = null;
   }
 
+  /// True while the one-time restriction explainer is on screen.
+  bool _explainerOpen = false;
+
+  /// A restriction this person has not been walked through yet gets the
+  /// explainer ONCE — acknowledged first, so a rebuild can never stack a
+  /// second copy. The banner then carries it for as long as it lasts.
+  void _onAccountStatus() {
+    final restriction = AccountStatusStore.instance.unacknowledged;
+    if (restriction == null || _explainerOpen || !mounted) return;
+    _explainerOpen = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        if (!mounted) return;
+        await AccountStatusStore.instance.acknowledge();
+        if (!mounted) return;
+        await RestrictionExplainerSheet.show(context, restriction);
+      } finally {
+        _explainerOpen = false;
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AccountStatusStore.instance.addListener(_onAccountStatus);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final auth = context.read<AuthProvider>();
@@ -112,6 +138,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _stopPresence();
+    AccountStatusStore.instance.removeListener(_onAccountStatus);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -128,6 +155,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // app the moment it returns, not 15 minutes later. Cheap: a fresh cache
         // returns without a request, and a stale one costs a 304.
         unawaited(RemoteConfigService.instance.refreshIfStale());
+        // A suspension may have ended, or begun, while the app was away.
+        unawaited(AccountStatusStore.instance.refreshIfStale());
         // Re-check location permission in case user granted it in Settings
         // while the app was in the background.
         context.read<LocationProvider>().refreshPermissionStatus();
@@ -194,6 +223,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       context,
       action: 'create a post',
       onAuthenticated: () async {
+        // Told why before filling in a listing the server would refuse.
+        if (!RestrictionGate.allows(context, Capability.post)) return;
         setState(() => _composerOpen = true);
         _syncDiscoverVisibility();
         final posted = await Navigator.of(context).push<bool>(
@@ -278,6 +309,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // it is rendered instead of appearing a beat later. Idempotent, and an
         // empty uid resets it on sign-out.
         unawaited(NotificationStore.instance.bind(uid));
+        // Account standing, for the banner and the pre-flight explanations.
+        // Fails open: an unreadable status restricts nothing.
+        unawaited(AccountStatusStore.instance.bind(uid));
       });
     }
 
@@ -310,6 +344,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // and none of them may obstruct what the user came to do. Renders
           // nothing at all when there is nothing to say — which is every launch
           // until someone edits the config.
+          // A restriction on THIS account outranks any broadcast notice.
+          const AccountStatusBanner(),
           const OpsBanners(),
           Expanded(
             child: IndexedStack(

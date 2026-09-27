@@ -36,6 +36,8 @@ import 'approve_or_dispute_screen.dart';
 import 'job_lifecycle_screen.dart';
 import 'mark_complete_screen.dart';
 import 'payment_screen.dart';
+import '../models/moderation.dart';
+import '../widgets/report_sheet.dart';
 
 /// Production post detail — the conversion surface of Help24.
 ///
@@ -402,6 +404,23 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 },
               );
             },
+          ),
+        // Report — behind a ⋮ rather than a flag in the bar: it is an action
+        // most people never need, and a flag beside Save reads as an accusation
+        // hanging over every listing.
+        if (!isAuthor && post.authorUserId.isNotEmpty)
+          Semantics(
+            label: 'More options',
+            button: true,
+            child: _CircleIconButton(
+              icon: AppIcons.more,
+              isDark: isDark,
+              onScrim: hasImages,
+              onTap: () => ReportMenu.show(context, [
+                ReportTarget.post(postId: post.id, title: post.title),
+                ReportTarget.user(userId: post.authorUserId, name: post.authorName, postId: post.id),
+              ]),
+            ),
           ),
         if (isAuthor)
           _CircleIconButton(

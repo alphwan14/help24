@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../models/moderation.dart';
 import '../models/post_model.dart';
 import '../providers/connectivity_provider.dart' show NetworkHealth;
 import '../screens/provider_profile_screen.dart';
@@ -12,6 +13,7 @@ import '../theme/tokens.dart';
 import '../utils/format_utils.dart';
 import '../utils/time_utils.dart';
 import 'profile_widgets.dart';
+import 'report_sheet.dart';
 import 'reputation_widgets.dart';
 
 // =============================================================================
@@ -179,6 +181,42 @@ class ApplicantCard extends StatelessWidget {
                     ),
                   ),
                 ],
+                // Only the listing owner sees applicants, and only the owner
+                // may report an application (the database checks it too).
+                if (application.id.isNotEmpty && application.applicantUserId.isNotEmpty)
+                  SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: PopupMenuButton<ReportTarget>(
+                      tooltip: 'More options',
+                      padding: EdgeInsets.zero,
+                      iconSize: 20,
+                      icon: Icon(AppIcons.more, color: textTertiary),
+                      onSelected: (target) => ReportSheet.show(context, target),
+                      itemBuilder: (_) => [
+                        PopupMenuItem(
+                          value: ReportTarget.application(applicationId: application.id, applicantName: _name),
+                          child: const Row(children: [
+                            Icon(AppIcons.report, size: 20),
+                            SizedBox(width: AppSpace.md),
+                            Text('Report application'),
+                          ]),
+                        ),
+                        PopupMenuItem(
+                          value: ReportTarget.user(
+                            userId: application.applicantUserId,
+                            name: _name,
+                            postId: application.postId.isNotEmpty ? application.postId : null,
+                          ),
+                          child: Row(children: [
+                            const Icon(AppIcons.report, size: 20),
+                            const SizedBox(width: AppSpace.md),
+                            Flexible(child: Text('Report $_name', overflow: TextOverflow.ellipsis)),
+                          ]),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
 

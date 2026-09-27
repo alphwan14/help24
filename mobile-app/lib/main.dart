@@ -15,6 +15,7 @@ import 'providers/auth_provider.dart';
 import 'providers/connectivity_provider.dart';
 import 'providers/locale_provider.dart';
 import 'providers/location_provider.dart';
+import 'screens/account_status_screen.dart';
 import 'screens/applications_screen.dart';
 import 'screens/approve_or_dispute_screen.dart';
 import 'screens/dispute_thread_screen.dart';
@@ -23,6 +24,7 @@ import 'screens/review_submission_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'services/account_status_service.dart';
 import 'services/auth_service.dart';
 import 'services/cache_service.dart';
 import 'services/category_schema_service.dart';
@@ -43,6 +45,7 @@ import 'services/session_scope.dart';
 import 'services/startup_prefetch.dart';
 import 'services/supabase_auth_bridge.dart';
 import 'theme/app_theme.dart';
+import 'utils/error_mapper.dart';
 import 'theme/system_bars.dart';
 import 'widgets/launch_splash.dart';
 import 'widgets/notification_banner.dart';
@@ -158,6 +161,10 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
     NotificationService.setOnLocalNotificationTap((data) {
       _onNotificationTap(RemoteMessage(data: data));
     });
+    // A refusal that turns out to be an account restriction refreshes the
+    // standing the banner and the pre-flight gates read. Single-flight, and a
+    // no-op while signed out.
+    ErrorMapper.onAccountRestricted = () => unawaited(AccountStatusStore.instance.refresh());
     _bootstrapFuture = _runBackgroundBootstrap();
   }
 
@@ -207,6 +214,10 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // mirrored in memory for the session. Both halves are user-owned, so it
       // registers here like every other user-scoped store.
       SessionScope.instance.register(OutboxStore.instance);
+      // Whether this account is restricted is its own business: the standing,
+      // and the record of which restrictions were already explained, reset
+      // with the session like every other user-owned store.
+      SessionScope.instance.register(AccountStatusStore.instance);
       await SessionScope.instance.purgeForeignScopes(await _restoredUid());
 
       if (AppFirebase.isReady) {
@@ -280,6 +291,11 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
     // resume, on exactly the notification the user was pushed about.
     if (type != 'chat_message') {
       unawaited(NotificationStore.instance.refresh());
+    }
+    // A decision about this account just landed: re-read the standing now, so
+    // the banner and the gates do not wait for the next resume.
+    if (type.startsWith('account_')) {
+      unawaited(AccountStatusStore.instance.refresh());
     }
 
     // Suppress if the user is actively viewing this chat.
@@ -520,6 +536,22 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
         } else {
           _openNotificationsScreen(context);
         }
+        break;
+
+      // ── Account standing → the person's own status, and how to get help ───
+      // These payloads carry no ids (data is {} on purpose: a notification row
+      // is not the place for moderation detail), so the screen reads the
+      // standing itself.
+      case 'account_warning':
+      case 'account_suspended':
+      case 'account_banned':
+      case 'account_restricted':
+      case 'account_restored':
+      case 'content_removed':
+        debugPrint('[NAV][OPEN_ACCOUNT_STATUS] type=$type');
+        await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const AccountStatusScreen(),
+        ));
         break;
 
       default:

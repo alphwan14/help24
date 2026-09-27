@@ -10,6 +10,7 @@ import '../utils/error_mapper.dart';
 import '../utils/external_links.dart';
 import '../utils/phone_utils.dart';
 import '../l10n/app_localizations.dart';
+import '../models/moderation.dart';
 import '../models/profile_completion.dart';
 import '../models/theme_preference.dart';
 import '../models/user_model.dart';
@@ -17,6 +18,7 @@ import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/location_provider.dart';
+import '../services/account_status_service.dart';
 import '../services/notification_service.dart';
 import '../services/notification_toggle_state.dart';
 import '../services/payout_authority.dart';
@@ -37,6 +39,7 @@ import 'promotion/promote_business_screen.dart';
 import 'provider/payout_destinations_screen.dart';
 import 'provider/provider_onboarding_screen.dart';
 import 'location_permission_explainer_screen.dart';
+import 'account_status_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -704,6 +707,33 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                       currentPhone: profile?.phone,
                     ),
                   ),
+                ),
+                // The person's own standing with Help24. Always listed, so the
+                // way to read a restriction — or appeal one — is never hidden
+                // behind the restriction itself.
+                ListenableBuilder(
+                  listenable: AccountStatusStore.instance,
+                  builder: (context, _) {
+                    final c = AppColors.of(context);
+                    final (String? label, Color? tone) = switch (AccountStatusStore.instance.status.standing) {
+                      AccountStanding.active => ('Good standing', null),
+                      AccountStanding.restricted => ('Restricted', c.cautionText),
+                      AccountStanding.suspended => ('Suspended', c.criticalText),
+                      AccountStanding.banned => ('Banned', c.criticalText),
+                      AccountStanding.unknown => (null, null),
+                    };
+                    return _SettingsTile(
+                      icon: AppIcons.securityAlert,
+                      title: 'Account status',
+                      value: label,
+                      iconColor: tone,
+                      trailing: const Icon(AppIcons.disclosure),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AccountStatusScreen()),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

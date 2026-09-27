@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/moderation.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
@@ -14,6 +15,7 @@ import '../theme/tokens.dart';
 import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
 import '../utils/post_ownership.dart';
+import 'account_restriction.dart';
 import 'application_modal.dart';
 import 'provider_gate.dart';
 
@@ -311,6 +313,10 @@ Future<void> _applyToListing(BuildContext context, PostModel post) async {
     );
     return;
   }
+
+  // A restricted account is told why BEFORE filling in an application the
+  // server would refuse (migration 116 / ModerationGuard enforce it anyway).
+  if (!RestrictionGate.allows(context, Capability.apply)) return;
 
   // Layer C (frontend): guard — prevent duplicate application before showing modal.
   final alreadyApplied = await ApplicationService.hasApplied(post.id, currentUserId);

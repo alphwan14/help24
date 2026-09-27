@@ -107,6 +107,9 @@ enum NotificationCategory {
   provider('Provider'),
   messages('Messages'),
   promotions('Promotions'),
+  /// The person's own standing with Help24: warnings, restrictions, hidden
+  /// listings. Never who reported them, never an internal note.
+  account('Account'),
   system('System'),
   support('Support');
 
@@ -448,7 +451,67 @@ class NotificationKind {
       action: 'View campaign',
     ),
 
+    // ── Account (Trust & Safety) ────────────────────────────────────────────
+    // Every one routes to Account status, which reads the standing itself:
+    // these rows carry no ids, and their text names no reporter.
+    NotificationKind._(
+      type: 'account_suspended',
+      category: NotificationCategory.account,
+      priority: NotificationPriority.critical,
+      icon: AppIcons.securityAlert,
+      tone: NotificationTone.critical,
+      action: 'View details',
+    ),
+    NotificationKind._(
+      type: 'account_banned',
+      category: NotificationCategory.account,
+      priority: NotificationPriority.critical,
+      icon: AppIcons.securityAlert,
+      tone: NotificationTone.critical,
+      action: 'View details',
+    ),
+    NotificationKind._(
+      type: 'account_restricted',
+      category: NotificationCategory.account,
+      priority: NotificationPriority.high,
+      icon: AppIcons.securityAlert,
+      tone: NotificationTone.warning,
+      action: 'View details',
+    ),
+    NotificationKind._(
+      type: 'account_warning',
+      category: NotificationCategory.account,
+      priority: NotificationPriority.high,
+      icon: AppIcons.warning,
+      tone: NotificationTone.warning,
+      action: 'Read warning',
+    ),
+    NotificationKind._(
+      type: 'content_removed',
+      category: NotificationCategory.account,
+      priority: NotificationPriority.high,
+      icon: AppIcons.warning,
+      tone: NotificationTone.warning,
+      action: 'Get help',
+    ),
+    NotificationKind._(
+      type: 'account_restored',
+      category: NotificationCategory.account,
+      priority: NotificationPriority.normal,
+      icon: AppIcons.success,
+      tone: NotificationTone.positive,
+    ),
+
     // ── System / Support ────────────────────────────────────────────────────
+    // A receipt for a report the person filed. Informational by design: the
+    // outcome of a report is never shown to the person who made it.
+    NotificationKind._(
+      type: 'report_received',
+      category: NotificationCategory.support,
+      priority: NotificationPriority.low,
+      icon: AppIcons.report,
+      tone: NotificationTone.neutral,
+    ),
     NotificationKind._(
       type: 'security_alert',
       category: NotificationCategory.system,

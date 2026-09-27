@@ -35,6 +35,10 @@ import '../utils/time_utils.dart';
 import '../services/adaptive_poll.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/chat_ui.dart';
+import '../models/moderation.dart';
+import '../services/account_status_service.dart';
+import '../widgets/account_restriction.dart';
+import '../widgets/report_sheet.dart';
 import '../widgets/location_experience.dart';
 import '../services/journey_engine.dart';
 import '../services/route_service.dart';
@@ -1506,6 +1510,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty || _isSending) return;
+    // Explained up front; the server refuses it regardless (migration 116).
+    if (!RestrictionGate.allows(context, Capability.message)) return;
 
     // Capture reply state before clearing it.
     final replyingTo = _replyToMessage;
@@ -2477,21 +2483,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       onDeleteForMe: () => _deleteForMe(message),
       onDeleteForEveryone:
           canDeleteForEveryone ? () => _deleteForEveryone(message) : null,
-      onReport: message.isMe ? null : () => _openReportSheet(messageId: message.id),
+      onReport: message.isMe ? null : () => _openReportSheet(message: message),
     );
   }
 
-  void _openReportSheet({String? messageId}) {
+  /// Report the person (from the menu) or one message they sent (from the
+  /// long-press). The server derives who is reported from the target and
+  /// keeps the chat/listing context only when both people are really in it.
+  void _openReportSheet({Message? message}) {
     if (widget.conversation.participantId.isEmpty) return;
-    ReportUserSheet.show(
-      context,
-      reporterId: widget.currentUserId,
-      reportedUserId: widget.conversation.participantId,
-      reportedUserName: widget.conversation.userName,
-      chatId: _chatId.isNotEmpty ? _chatId : null,
-      postId: _postId,
-      messageId: messageId,
-    );
+    final target = message != null && !message.isMe && !message.id.startsWith('pending_')
+        ? ReportTarget.message(messageId: message.id, senderName: widget.conversation.userName)
+        : ReportTarget.user(
+            userId: widget.conversation.participantId,
+            name: widget.conversation.userName,
+            chatId: _chatId.isNotEmpty ? _chatId : null,
+            postId: _postId,
+          );
+    ReportSheet.show(context, target);
   }
 
   /// Dispatch for the three-dot conversation command menu.
@@ -3196,156 +3205,165 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             // elevated above the background (theme convention: shadow, not
             // Material elevation). resizeToAvoidBottomInset moves it with the
             // keyboard; SafeArea covers the home-indicator gap.
-            Container(
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.05),
-                    blurRadius: 12,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: Container(
-                          constraints: const BoxConstraints(
-                            maxHeight: _kChatInputMaxHeight,
-                            minHeight: 52,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                            borderRadius: AppRadius.pillAll,
-                            border: Border.all(
-                              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                              width: 0.5,
+            // Messaging denied → the composer is replaced, so nobody writes a
+            // message the server will refuse. The status is explanation only;
+            // the database and backend still enforce.
+            ListenableBuilder(
+              listenable: AccountStatusStore.instance,
+              builder: (context, composer) => AccountStatusStore.instance.denies(Capability.message)
+                  ? const SafeArea(top: false, child: RestrictedComposerNotice())
+                  : composer!,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.05),
+                      blurRadius: 12,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Container(
+                            constraints: const BoxConstraints(
+                              maxHeight: _kChatInputMaxHeight,
+                              minHeight: 52,
                             ),
-                          ),
-                          child: Row(
-                            // Bottom-anchored so the attach button stays put
-                            // while the field grows upward; 4px offset centers
-                            // it optically inside the 52px resting height.
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(left: 6, bottom: 4),
-                                child: IconButton(
-                                  onPressed: _showAttachmentOptions,
-                                  tooltip: 'Attach',
-                                  icon: Icon(
-                                    AppIcons.addAttachment,
-                                    size: 26,
-                                    color: isDark
-                                        ? AppTheme.darkTextSecondary
-                                        : AppTheme.lightTextSecondary,
-                                  ),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 44,
-                                    minHeight: 44,
-                                  ),
-                                ),
+                            decoration: BoxDecoration(
+                              color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
+                              borderRadius: AppRadius.pillAll,
+                              border: Border.all(
+                                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                                width: 0.5,
                               ),
-                              Expanded(
-                                child: TextField(
-                                  controller: _messageController,
-                                  minLines: 1,
-                                  maxLines: 5,
-                                  textInputAction: TextInputAction.newline,
-                                  keyboardType: TextInputType.multiline,
-                                  textCapitalization: TextCapitalization.sentences,
-                                  decoration: InputDecoration(
-                                    hintText: 'Message…',
-                                    hintStyle: TextStyle(
+                            ),
+                            child: Row(
+                              // Bottom-anchored so the attach button stays put
+                              // while the field grows upward; 4px offset centers
+                              // it optically inside the 52px resting height.
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 6, bottom: 4),
+                                  child: IconButton(
+                                    onPressed: _showAttachmentOptions,
+                                    tooltip: 'Attach',
+                                    icon: Icon(
+                                      AppIcons.addAttachment,
+                                      size: 26,
                                       color: isDark
-                                          ? AppTheme.darkTextTertiary
-                                          : AppTheme.lightTextTertiary,
-                                      fontSize: 15.5,
+                                          ? AppTheme.darkTextSecondary
+                                          : AppTheme.lightTextSecondary,
                                     ),
-                                    border: InputBorder.none,
-                                    isDense: true,
-                                    contentPadding:
-                                        const EdgeInsets.fromLTRB(4, 15.5, 16, 15.5),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 44,
+                                      minHeight: 44,
+                                    ),
                                   ),
-                                  style: const TextStyle(fontSize: 15.5, height: 1.4),
-                                  onSubmitted: (_) => _sendMessage(),
                                 ),
-                              ),
-                            ],
+                                Expanded(
+                                  child: TextField(
+                                    controller: _messageController,
+                                    minLines: 1,
+                                    maxLines: 5,
+                                    textInputAction: TextInputAction.newline,
+                                    keyboardType: TextInputType.multiline,
+                                    textCapitalization: TextCapitalization.sentences,
+                                    decoration: InputDecoration(
+                                      hintText: 'Message…',
+                                      hintStyle: TextStyle(
+                                        color: isDark
+                                            ? AppTheme.darkTextTertiary
+                                            : AppTheme.lightTextTertiary,
+                                        fontSize: 15.5,
+                                      ),
+                                      border: InputBorder.none,
+                                      isDense: true,
+                                      contentPadding:
+                                          const EdgeInsets.fromLTRB(4, 15.5, 16, 15.5),
+                                    ),
+                                    style: const TextStyle(fontSize: 15.5, height: 1.4),
+                                    onSubmitted: (_) => _sendMessage(),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      // Send — enabled state follows the text live; stays
-                      // interactive while an attachment uploads elsewhere.
-                      ValueListenableBuilder<TextEditingValue>(
-                        valueListenable: _messageController,
-                        builder: (context, value, _) {
-                          final canSend =
-                              value.text.trim().isNotEmpty && !_isSending;
-                          return GestureDetector(
-                            onTap: canSend ? _sendMessage : null,
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
-                              curve: Curves.easeOut,
-                              width: 52,
-                              height: 52,
-                              decoration: BoxDecoration(
-                                color: canSend
-                                    ? AppTheme.primaryAccent
-                                    : (isDark
-                                        ? AppTheme.darkCard
-                                        : AppTheme.lightBackground),
-                                shape: BoxShape.circle,
-                                border: canSend
-                                    ? null
-                                    : Border.all(
-                                        color: isDark
-                                            ? AppTheme.darkBorder
-                                            : AppTheme.lightBorder,
-                                        width: 0.5,
-                                      ),
-                                boxShadow: canSend
-                                    ? [
-                                        BoxShadow(
-                                          color: AppTheme.primaryAccent
-                                              .withValues(alpha: 0.35),
-                                          blurRadius: 10,
-                                          offset: const Offset(0, 3),
+                        const SizedBox(width: 10),
+                        // Send — enabled state follows the text live; stays
+                        // interactive while an attachment uploads elsewhere.
+                        ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: _messageController,
+                          builder: (context, value, _) {
+                            final canSend =
+                                value.text.trim().isNotEmpty && !_isSending;
+                            return GestureDetector(
+                              onTap: canSend ? _sendMessage : null,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 150),
+                                curve: Curves.easeOut,
+                                width: 52,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  color: canSend
+                                      ? AppTheme.primaryAccent
+                                      : (isDark
+                                          ? AppTheme.darkCard
+                                          : AppTheme.lightBackground),
+                                  shape: BoxShape.circle,
+                                  border: canSend
+                                      ? null
+                                      : Border.all(
+                                          color: isDark
+                                              ? AppTheme.darkBorder
+                                              : AppTheme.lightBorder,
+                                          width: 0.5,
                                         ),
-                                      ]
-                                    : null,
-                              ),
-                              child: _isSending
-                                  ? const Padding(
-                                      padding: EdgeInsets.all(14),
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(
-                                            AppTheme.primaryAccent),
+                                  boxShadow: canSend
+                                      ? [
+                                          BoxShadow(
+                                            color: AppTheme.primaryAccent
+                                                .withValues(alpha: 0.35),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 3),
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                                child: _isSending
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(14),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(
+                                              AppTheme.primaryAccent),
+                                        ),
+                                      )
+                                    : Icon(
+                                        AppIcons.sendMessage,
+                                        color: canSend
+                                            ? Colors.white
+                                            : (isDark
+                                                ? AppTheme.darkTextTertiary
+                                                : AppTheme.lightTextTertiary),
+                                        size: 24,
                                       ),
-                                    )
-                                  : Icon(
-                                      AppIcons.sendMessage,
-                                      color: canSend
-                                          ? Colors.white
-                                          : (isDark
-                                              ? AppTheme.darkTextTertiary
-                                              : AppTheme.lightTextTertiary),
-                                      size: 24,
-                                    ),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

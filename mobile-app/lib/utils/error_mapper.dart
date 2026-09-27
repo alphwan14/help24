@@ -63,6 +63,12 @@ enum ErrorContext {
 class ErrorMapper {
   ErrorMapper._();
 
+  /// Called when a failure turns out to be an account restriction — wired at
+  /// startup to refresh AccountStatusStore, so the banner and the gates catch
+  /// up with what the server just enforced. Kept as a hook so this file stays
+  /// free of service imports.
+  static void Function()? onAccountRestricted;
+
   // ─── Public API ────────────────────────────────────────────────────────────
 
   /// The friendly one-line message for [error]. Drop-in replacement for every
@@ -109,6 +115,18 @@ class ErrorMapper {
         title: "We couldn't set up your account",
         message: error.message,
       );
+    }
+
+    // 2c) A Trust & Safety restriction, refused by the database (migration
+    //     116, SQLSTATE 42501) or by the backend (ModerationGuard, 403). Before
+    //     the permission branch below, which would otherwise read it as "you
+    //     don't have permission" — true, and useless: the person needs to know
+    //     their ACCOUNT is restricted, and where to see why.
+    final restricted = _restrictionFailure(error);
+    if (restricted != null) {
+      final hook = onAccountRestricted;
+      if (hook != null) scheduleMicrotask(hook);
+      return restricted;
     }
 
     // 3) Storage (image / evidence uploads).
@@ -200,6 +218,48 @@ class ErrorMapper {
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
+  /// The four restriction refusals, recognised by their machine marker (the
+  /// database's `HELP24_ACCOUNT_RESTRICTED: <denial>`) or by the backend's
+  /// sentence — every one of which ends "Open Account status in the app…"
+  /// (RESTRICTION_MESSAGES in backend/src/moderation/moderation.guard.ts).
+  static AppFailure? _restrictionFailure(Object? error) {
+    final raw = (_rawMessageOf(error) ?? '').toLowerCase();
+    if (raw.isEmpty) return null;
+    final String? denial;
+    final marker = RegExp(r'help24_account_restricted:\s*([a-z_]+)').firstMatch(raw);
+    if (marker != null) {
+      denial = marker.group(1);
+    } else if (raw.contains('open account status in the app')) {
+      denial = raw.contains('banned')
+          ? 'banned'
+          : raw.contains('suspended')
+              ? 'suspended'
+              : raw.contains('send messages')
+                  ? 'messaging_restricted'
+                  : 'marketplace_restricted';
+    } else {
+      return null;
+    }
+    return switch (denial) {
+      'banned' => const AppFailure(
+          title: 'Account banned',
+          message: 'Your Help24 account has been banned. Open Account status in your profile to see why and how to appeal.',
+        ),
+      'suspended' => const AppFailure(
+          title: 'Account suspended',
+          message: 'Your account is suspended right now. Open Account status in your profile to see when it ends.',
+        ),
+      'messaging_restricted' => const AppFailure(
+          title: 'Messaging restricted',
+          message: "Your account can't send messages right now. Open Account status in your profile for details.",
+        ),
+      _ => const AppFailure(
+          title: 'Account restricted',
+          message: "Your account can't do this right now. Open Account status in your profile for details.",
+        ),
+    };
+  }
+
   static bool _looksLikeExpiredSession(Object? error) {
     final s = _lower(error);
     return s.contains('jwt expired') ||
@@ -246,6 +306,14 @@ class ErrorMapper {
     // Matched before 'already applied' etc. so the local pre-flight guard and
     // the database trigger produce the identical sentence.
     if (_isSelfApplication(raw)) return _selfApplicationFailure;
+    // A listing Trust & Safety hid (JobsService.selectProvider). Before the
+    // "provider"/"status" phrases, which would call it "already chosen".
+    if (s.contains('hidden by help24')) {
+      return const AppFailure(
+        title: 'No longer available',
+        message: 'This listing was hidden by Help24 and can no longer be booked.',
+      );
+    }
     if (s.contains('already applied')) {
       return const AppFailure(
         title: 'Already applied',
