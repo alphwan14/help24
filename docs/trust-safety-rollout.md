@@ -8,6 +8,10 @@ rules apply here unchanged.
 > production check passed. Evidence is in [Rollout log](#rollout-log-2026-09-27)
 > at the end of this file. The mobile app release was NOT part of this and has
 > not been done.
+>
+> **Follow-up (13:57–14:08 UTC): migration 117 and the four fixes for the bell's
+> "3" are live and verified.** Details in
+> [Follow-up: the bell's "3"](#follow-up-the-bells-3-117-2026-09-27).
 
 ## Approval on record
 
@@ -201,3 +205,130 @@ sign-in was GET only.
 Still deliberately not exercised: a moderation **write** in production (filing
 a report, applying/lifting a sanction, hiding content) — each is a production
 write outside this approval. The 74 DB tests cover those paths on the replica.
+
+## Follow-up: the bell's "3" (117, 2026-09-27)
+
+The owner asked why the bell's "3" never cleared, even after an admin reviewed
+it. Part of that was by design: alerts are derived from records, so they clear
+when the records are fixed. The rest was wrong, in three ways:
+
+- all three alerts were June **sandbox** test records (the Daraja cutover was
+  never done; `MPESA_ENV=sandbox`);
+- the product had no way to fix two of them;
+- acknowledging was per-browser, and got forgotten whenever one check was
+  briefly unavailable.
+
+The owner approved four fixes. Commits: `25a6e9f` db, `7f501a6` backend,
+`19f35a2` admin.
+
+| Fix | What changed |
+|---|---|
+| 1. Acknowledgements that came back | The dashboard kept acknowledgements in one browser's localStorage. It also *pruned* every acknowledgement whose alert was missing from a response. So a single poll where the payments check was unavailable wiped them, and the 3 returned. Removed, and replaced by fix 3. |
+| 2. Test money off the bell | While `MPESA_ENV` is not `production`, every money finding is test money. It is reported as ONE LOW `sandbox_money` alert, and each line names the state its record was left in. After the cutover, `MPESA_PRODUCTION_SINCE` keeps earlier records classed as tests (see below). |
+| 3. Shared "Mark reviewed" | `admin_alert_reviews` (117) is append-only: one row per review or reopen, bound to the alert's fingerprint (the exact records shown), with the admin and a reason of 5–500 characters. Every admin sees who reviewed it and why. A record joining or leaving the alert changes the fingerprint and raises it again. The badge counts unreviewed HIGH only. Route: `POST /admin/alerts/:id/reviews` (support_agent and up). |
+| 4. Real fix paths | Closed disputes get a "Money after the ruling" panel (`GET /admin/finance/disputes/:id/money`, support_agent and up). Senior admins have two actions. **Apply the recorded ruling** (`admin_apply_recorded_ruling`) moves money that a legacy resolve left frozen; for a FULL_RELEASE it then dispatches the payout. **Record a share as paid** (`admin_record_manual_settlement`) takes the amount from the ruling, never from the request. Both write a row to `admin_finance_actions` in the same transaction. |
+
+### Rollout log
+
+| # | Step | Evidence |
+|---|---|---|
+| 1 | Dry run 117 | Local replica, with 114–116 applied first: `HELP24_DRY_RUN_OK`, nothing left behind. Production, same generated SQL: `HELP24_DRY_RUN_OK: 117 applied cleanly…`. Money-table fingerprints were identical before and after. |
+| 2 | Apply 117 (~13:58 UTC) | Sent with `supabase db query --linked -f`: the Supabase MCP was not authorised in that session, and the migration ledger stays empty as intended. Created 2 tables, 3 functions and 4 append-only triggers, with RLS on both tables. Grants: service_role SELECT+INSERT on reviews, SELECT on finance actions. EXECUTE on both functions: anon false, authenticated false, service_role true. **10/10 schema hashes identical to the tested replica.** Money tables byte-identical before and after. |
+| 3 | Backend | Pushed `fae99c2..19f35a2`. Render deploy `dep-dasi2mbncjis73ehfldg`: build 13:59:53, live 14:00:50 UTC. Boot log: `[AUTH][ROUTES] 142 routes — firebase=49 admin=70 public=23 undeclared=0 (mode=enforce)` (4 new admin routes); `AdminAlertsModule` and `FinanceRepairsModule dependencies initialized`; `[MODERATION_SELFCHECK] ✓`; `[ADMIN_AUTH_SELFCHECK] ✓ 3 active admin(s)`; `Daraja → SANDBOX`. The only warnings since boot are the pre-existing Redis-degraded and narrowed-auth banners. |
+| 4 | Dashboard | `npx vercel --prod --yes` gave `dpl_4t9aZZxaEbz4W5NK1vEJ2h6N8qXn`, READY and aliased to `admin.help24.co.ke`. It compiled, and types and lint passed. `/dashboard/disputes/[id]` and `/api/admin/alerts` are dynamic. |
+| 5 | Verify (read-only) | Below. |
+
+**HTTP.** Each new route was probed with no token and with a forged token, on
+both `help24-backend.onrender.com` and `api.help24.co.ke`. Every probe returned
+401:
+
+- `GET /admin/alerts`
+- `POST /admin/alerts/{payout_stuck,sandbox_money}/reviews`
+- `GET /admin/finance/disputes/:id/money`
+- `POST /admin/finance/transactions/:id/manual-settlements`
+- `POST /admin/finance/disputes/:id/apply-ruling`
+
+Controls: `/health` 200 (degraded is Redis, pre-existing), `POST /reports` 401,
+`/feed` 200, an unknown path 404.
+
+The dashboard, with no session:
+
+- `/login` 200;
+- `/dashboard`, `/dashboard/disputes/:id`, `/dashboard/payments` and
+  `/dashboard/trust-safety/queue` all 307 → `/login`;
+- `/api/admin/alerts` 401.
+
+**Alerts.** Computed with the deployed code against production, with
+`MPESA_ENV=sandbox` as on Render. `unavailable: []` — the new `reviews` check
+answers. There are 4 alerts and **the badge is 0**:
+
+- MEDIUM `reports_untriaged` 1: the first real report (see below).
+- MEDIUM `urgent_unanswered` 1.
+- LOW `sandbox_money` 15. These are the records behind the former 3 HIGH and
+  3 MEDIUM money alerts, and each line says the state it was left in:
+  - 1 where the records disagree (Cook, KES 270 frozen as disputed);
+  - 1 provider owed from a split;
+  - 3 payouts with no M-Pesa result;
+  - 5 holds with no payment;
+  - 3 payments never confirmed;
+  - 2 paid jobs with no progress.
+- LOW `requests_unanswered` 1.
+
+Contrast: the same data with `MPESA_ENV=production` gives 3 HIGH alerts
+(`money_mismatch` 1, `provider_owed` 1, `payout_stuck` 3) and a badge of 3.
+Detection is unchanged; only the classification moved.
+
+**Money panels.** `FinanceRepairsService.money()` on all 4 disputes (all
+closed):
+
+| Dispute | Ruling | Payment / escrow | Panel |
+|---|---|---|---|
+| `e0bb9f2e` (Cook) | FULL_RELEASE | disputed / disputed | Frozen. **Apply the recorded ruling…** is offered. |
+| `879ee132` (split) | PARTIAL_SPLIT | refunded / refunded | Provider share KES 1,250 **owed**, and **Record as paid…** is offered. Client refund KES 1,250 paid. 3 ledger legs. |
+| `f6d6df1f`, `18f72f6a` | FULL_RELEASE | payout_pending | Nothing to apply: the payout is waiting on M-Pesa (Escrow → Check with M-Pesa). |
+
+**Fingerprints after deploy and verification**, byte-identical to before 117:
+
+- escrow 17 / 73250 `ec96a938…`
+- transactions 45 / 136375 `5d2651c6…`
+- settlements 7 / 3585 `31f82c35…`
+- disputes 4 `ee8c9bd7…`
+- dispute_decisions 4 `893e24ab…`
+- job_completions 9 `d8d9c984…`
+
+`admin_alert_reviews` has 0 rows, `admin_finance_actions` has 0 rows, and all 4
+append-only triggers are enabled.
+
+**First real report.** `user_reports` went from 0 to 1 at 13:43 UTC: a
+`misleading_listing` report on an offer, made with `source: api` (through
+`POST /reports`), snapshot captured, status `new`. It is the MEDIUM alert above
+and waits, untriaged, in the Trust & Safety queue.
+
+### Deliberately not done
+
+- **No financial correction was run on the June sandbox records**: no ruling was
+  applied and nothing was recorded as paid. They are test money, and they now
+  sit in the LOW test alert. The repair actions are there for real cases.
+- **No review was written in production.** Review rows are append-only and
+  cannot be deleted, so the first one should be a real admin decision.
+- **The signed-in check is still owed by the owner.** Sign in at
+  `admin.help24.co.ke`, then check:
+  1. The bell shows no number, shows a dot (for the 2 MEDIUM alerts), and lists
+     the LOW test-payments card.
+  2. Mark reviewed on any alert asks why. Afterwards the card shows who
+     reviewed it and why, for every admin, and Reopen undoes it.
+  3. The Cook dispute page shows "Money after the ruling" as frozen, with Apply
+     offered. Do not apply it to test money unless you intend to.
+
+### Rollback
+
+Roll back in reverse order: the dashboard (promote
+`dpl_sJbVCvCrCyj6eSHnUVezKMM12pGP`), then the backend (redeploy `fae99c2`, deploy
+`dep-dash1k0473hc73frbtjg`), then 117 (the exact statements are in its header).
+
+### At the Daraja cutover
+
+Set `MPESA_PRODUCTION_SINCE` (the cutover time, ISO 8601) on `help24-backend`
+in the same change as `MPESA_ENV=production`. Without it, every June test record
+becomes a HIGH alert again. That is deliberate: unset is the noisy side, never
+the silent one.

@@ -10,6 +10,13 @@ re-deriving anything. Read this first, then the linked reports.
 > a signed-in end-to-end pass of the dashboard (T&S pages, alerts bell, Payments
 > pages now listing all 45 transactions). Still open: the mobile app release
 > (not approved) and a first real moderation write in production.
+>
+> **Also done (13:57–14:08 UTC): migration 117 and the four fixes for the
+> bell's "3".** June sandbox money is now one LOW test alert, so the badge is 0.
+> "Mark reviewed" is shared and recorded on the server. Closed disputes have a
+> "Money after the ruling" panel with two senior-only repairs. Evidence is in
+> `trust-safety-rollout.md` § Follow-up. At the Daraja cutover, set
+> `MPESA_PRODUCTION_SINCE` together with `MPESA_ENV=production`.
 
 ---
 
@@ -41,7 +48,7 @@ re-deriving anything. Read this first, then the linked reports.
 | Phase 2A — ranking admin API | **Complete.** `964c980`, live 2026-08-07 17:47:51 UTC |
 | Phase 2B | **Planned only.** Awaiting approval |
 | Phase 2C / 2D / 2E | Planned only |
-| Trust & Safety + admin alerts | **Live.** 114–116 applied, backend `fae99c2` + dashboard deployed 2026-09-27, verified. App release not approved. See `trust-safety-rollout.md` |
+| Trust & Safety + admin alerts | **Live.** 114–117 applied; backend `19f35a2` and dashboard deployed 2026-09-27, verified. App release not approved. See `trust-safety-rollout.md` |
 
 ### Production fingerprints (verify these still hold before changing anything)
 
@@ -199,7 +206,7 @@ raw and filter locally.
 | `auth-stage1-production-verification.md` | Stage 1 applied + verified |
 | `phase2-audit-and-plan.md` | Phase 2 audit, 2A complete, 2B–2E planned |
 | `phase2b-implementation-plan.md` | **Next up — awaiting approval** |
-| `trust-safety-rollout.md` | T&S + alerts: approval, runbook, pre-flight evidence, rollout log — **complete** |
+| `trust-safety-rollout.md` | T&S + alerts: approval, runbook, pre-flight evidence, rollout log, and the 117 follow-up — **complete** |
 
 ---
 
