@@ -8,6 +8,7 @@
 // which the production-write rule pre-authorises.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,14 +59,23 @@ const QUERIES = {
     and grantee in ('anon','authenticated','service_role') group by table_name, grantee order by table_name, grantee`,
 };
 
+// The SQL goes through a file (`db query -f`), never the command line: on
+// Windows npx.cmd runs under cmd.exe, which mangles a multi-line argument
+// ("The syntax of the command is incorrect").
 function readOnly(sql) {
-  const out = execFileSync(
-    process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    ['--yes', 'supabase', 'db', 'query', '--linked', `begin transaction read only; ${sql} ; rollback;`],
-    { cwd: repoRoot, encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 64 * 1024 * 1024 },
-  );
-  const json = JSON.parse(out.slice(out.indexOf('{')));
-  return json.rows.map((r) => r.ddl);
+  const file = path.join(os.tmpdir(), `help24-replica-${process.pid}.sql`);
+  fs.writeFileSync(file, `begin transaction read only;\n${sql};\nrollback;\n`);
+  try {
+    const out = execFileSync(
+      process.platform === 'win32' ? 'npx.cmd' : 'npx',
+      ['--yes', 'supabase', 'db', 'query', '--linked', '-f', file],
+      { cwd: repoRoot, encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 64 * 1024 * 1024 },
+    );
+    const json = JSON.parse(out.slice(out.indexOf('{')));
+    return json.rows.map((r) => r.ddl);
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
 }
 
 const part = {};

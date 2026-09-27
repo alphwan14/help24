@@ -39,7 +39,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES 
 CREATE OR REPLACE FUNCTION public.fn_recompute_post_engagement(p_post_id text) RETURNS void LANGUAGE sql AS $f$ SELECT $f$;
 CREATE OR REPLACE FUNCTION public.fn_recompute_provider_reputation(p_provider_id text) RETURNS void LANGUAGE sql AS $f$ SELECT $f$;
 
-
 -- ── Tables ──
 
 CREATE TABLE IF NOT EXISTS public.admin_users (
@@ -344,7 +343,6 @@ CREATE TABLE IF NOT EXISTS public.users (
   account_type text NOT NULL DEFAULT 'individual'::text,
   available_until timestamp with time zone
 );
-
 
 -- ── Constraints ──
 
@@ -724,7 +722,6 @@ CREATE INDEX idx_users_role ON public.users USING btree (role) WHERE (role = 'ad
 
 CREATE UNIQUE INDEX users_email_unique ON public.users USING btree (lower(email)) WHERE ((email IS NOT NULL) AND (email <> ''::text));
 
-
 -- ── Trigger functions ──
 
 CREATE OR REPLACE FUNCTION public.fn_block_decision_mutation()
@@ -976,7 +973,6 @@ END;
 $function$
 ;
 
-
 -- ── Triggers ──
 
 CREATE TRIGGER trg_block_self_application BEFORE INSERT ON public.applications FOR EACH ROW EXECUTE FUNCTION fn_block_self_application();
@@ -996,7 +992,6 @@ CREATE TRIGGER trg_engagement_saved_items AFTER INSERT OR DELETE ON public.saved
 CREATE TRIGGER trg_users_guard_privileged_columns BEFORE INSERT OR UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION fn_users_guard_privileged_columns();
 
 CREATE TRIGGER trg_users_name_change_guard BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION fn_users_name_change_guard();
-
 
 -- ── RLS ──
 
@@ -1041,7 +1036,6 @@ ALTER TABLE public.user_auth_identities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_reports ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-
 
 -- ── Policies ──
 
@@ -1128,7 +1122,6 @@ CREATE POLICY users_insert ON public.users AS PERMISSIVE FOR INSERT TO public WI
 CREATE POLICY users_select ON public.users AS PERMISSIVE FOR SELECT TO public USING (true);
 
 CREATE POLICY users_update_own ON public.users AS PERMISSIVE FOR UPDATE TO authenticated USING ((id = (auth.jwt() ->> 'user_id'::text))) WITH CHECK ((id = (auth.jwt() ->> 'user_id'::text)));
-
 
 -- ── Grants (live) ──
 
