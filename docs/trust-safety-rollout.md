@@ -332,3 +332,115 @@ Set `MPESA_PRODUCTION_SINCE` (the cutover time, ISO 8601) on `help24-backend`
 in the same change as `MPESA_ENV=production`. Without it, every June test record
 becomes a HIGH alert again. That is deliberate: unset is the noisy side, never
 the silent one.
+
+### Owner check, done in production
+
+Between 14:33 and 14:40 UTC the owner (`alphwan14@gmail.com`, super_admin) used
+the bell for real. `admin_alert_reviews` holds four rows, and the backend log
+shows a `201` and an `[ALERTS] … by=` line for each:
+
+1. `urgent_unanswered` reviewed ("Already reviewed");
+2. `reports_untriaged` reviewed ("Reviewed");
+3. `urgent_unanswered` reopened;
+4. `urgent_unanswered` reviewed again.
+
+Both alerts are quiet for every admin, and the medium dot is gone. Still not
+exercised: the money panel on a closed dispute. No
+`GET /admin/finance/disputes/:id/money` has succeeded, and
+`admin_finance_actions` is empty.
+
+## Follow-up 2: alert actions that work (2026-09-27)
+
+The owner asked whether "Find a provider" actually works. It did not. It linked
+to a read-only list of requests showing a name or email, with no phone numbers,
+no matching, and no way to contact or invite anyone. The dashboard cannot
+message a user at all outside a dispute.
+
+An audit of all 17 alert actions against the pages they open found:
+
+- **7 had a real control behind them:** triage and claim reports, decide or
+  respond on disputes, approve or reject promotions, Check with M-Pesa, and
+  record a provider payment.
+- **3 were honest views or off-dashboard instructions.**
+- **6 promised something no page could do:** "Find a provider", "Recruit
+  supply", "Nudge the client", "Check in with both parties", "Follow up with the
+  client", and "Retry or pay out manually". For the last one, there is no retry
+  button; `POST /mpesa/release-payout` is admin-only and not wired to any page.
+- **"Reconcile the records" works only in part.** Only its
+  frozen-after-a-closed-dispute shape has a repair.
+
+Commits: `a9ce701` backend, `a713c2a` admin.
+
+| Change | What it does |
+|---|---|
+| Truthful labels | Each label now names what the admin can do: "Call a matching provider", "See who could take them", "Call the client", "Call both parties", "Call the provider", "Investigate each payment". The failed-payout and mismatch descriptions say what the dashboard cannot do, and who can. A test pins the retired labels out. |
+| Items open the listing | Every request and job item links to `/dashboard/marketplace/requests/:id`. A failed payout and a stalled paid job do too. One whose listing is gone falls back to the escrow page rather than a 404. Item ids are unchanged, so the reviews above still attach. |
+| A page per request | It shows the client, with a tap-to-call number (`tel:+254…`), email and account standing. Once a provider is chosen, it shows them too, and where the job stands (payment, work, dispute). It lists every applicant with their number. While the request is open and unanswered, it shows **who could take it** (details below). |
+| Requests list | Titles open the page, and the client's number is shown. A "Could take it" column marks supply gaps at a glance. |
+| Active jobs | Shows the client and the provider by name and number, where it used to show a truncated provider id. |
+| Offers | Renders per request. It was prerendered at build time, so it listed offers and numbers as of the last deploy. |
+
+**Who could take it.** Each person on the list shows:
+
+- their evidence: an open offer, or the trade on their profile;
+- the distance, when both sides have map coordinates;
+- their `provider_reputation` track record, as counts and never percentages;
+- any open reports;
+- whether they already applied.
+
+Suspended and banned accounts are left out, and the page counts them. When
+nobody fits, it says so plainly: a supply gap, which is recruited for outside
+the dashboard.
+
+**Matching** lives in `admin-dashboard/lib/provider-matching.ts` and is
+tested with `npm test` (12 cases). It uses the backend feed's own three tiers
+from `profession-match.ts`: same category, same trade group, or a trade word in
+the text. It reads the same registry, turned around to find providers for a
+post. Open offers count as evidence, resolved through the registry by name,
+alias or category; so "Delivery", which is not a category name, reaches the
+`delivery-rider` trade.
+
+Two deliberate differences from the feed, both found in live data:
+
+- **Text matches whole words.** The feed tests substrings, so "rider" would
+  match "provider".
+- **Unknown labels borrow a category.** A label the registry cannot place
+  borrows a category that contains it ("Cleaning" → "House Cleaning"), but
+  never claims "same work".
+
+Every read on these pages that fails is shown as a failure, never as "nobody"
+or "no applications".
+
+**Rollout.** No migration was needed. The dashboard went first, so no alert
+link could point at a page that did not exist yet.
+
+| Step | Evidence |
+|---|---|
+| Local | Backend: 763 tests pass (15 pre-existing skips) and the build is clean. Dashboard: tsc OK; lint 140 files, 0 errors (the 2 warnings are pre-existing); build OK; `npm test` 12/12. |
+| Dashboard | `dpl_HsQyW4DTta8E492yz9btkSW42jDL` READY at about 14:56 UTC, aliased to `admin.help24.co.ke`. It compiled and passed types and lint. `/dashboard/marketplace/requests/[id]`, `/requests`, `/active-jobs` and `/offers` are dynamic. |
+| Backend | Render `dep-dasitdbncjis73eianj0` (`a713c2a`): build 14:56:53, live 14:57:50 UTC. Boot log: `142 routes — admin=70 undeclared=0 (mode=enforce)`, both self-checks ✓, `Daraja → SANDBOX`, no errors. |
+| Verify | New and existing admin routes: 401 with no token and with a forged one. Dashboard pages: 307 → `/login`. `/health` 200 (degraded is Redis). Alerts computed with the deployed code: `unavailable: []`, badge 0, the new labels, and the owner's reviews still attached (fingerprints unchanged). Request and job items open the request page. Money tables byte-identical; `admin_finance_actions` 0. |
+| Rollback | Promote `dpl_4t9aZZxaEbz4W5NK1vEJ2h6N8qXn`, then redeploy `19f35a2` (`dep-dasi2mbncjis73ehfldg`). |
+
+**Against production (read-only, the deployed matcher over live data).** Of 21
+open unanswered requests, 10 have nobody who could take them. The rest:
+
+- **The urgent delivery request in Kisauni** has one person doing the same
+  work: the only Delivery offer, in Shanzu, with a phone number. It carries the
+  open "misleading listing" report, and the page shows that on the row.
+- **Painting and Laundry show "nobody" correctly.** Their only matching offers
+  belong to the account that posted the requests, and a client is never
+  suggested to themselves.
+- **Posho mill request:** found through the free-text trade "Posho Mill
+  Grinder", as a mention. That person has no phone on file, so the page shows
+  their email.
+
+**Found, not changed:**
+
+- **A registry defect.** The `delivery-rider` profession's `category_id` is
+  `delivery`, but the category's id is `delivery-rider`. So the backend feed
+  only links delivery riders to delivery requests through words in the text.
+  The registry is generated from bundled assets, so the fix belongs there, not
+  in a hand-edited row.
+- **Stale pages.** `/dashboard/marketplace` (overview), `/completed`, `/jobs`
+  and `/dashboard/insights/providers` are still prerendered at build time.

@@ -17,6 +17,14 @@ re-deriving anything. Read this first, then the linked reports.
 > "Money after the ruling" panel with two senior-only repairs. Evidence is in
 > `trust-safety-rollout.md` § Follow-up. At the Daraja cutover, set
 > `MPESA_PRODUCTION_SINCE` together with `MPESA_ENV=production`.
+>
+> **And (14:56 UTC): alert actions that work.** Six alert labels promised
+> controls no page had, such as "Find a provider". They now name what an admin
+> can do, which is mostly a phone call. Each request and job item opens a new
+> page per request (`/dashboard/marketplace/requests/:id`). It shows both
+> people's numbers and, for an unanswered request, who on Help24 could take it,
+> or that nobody does. The owner has used "Mark reviewed" and "Reopen" in
+> production. Evidence is in `trust-safety-rollout.md` § Follow-up 2.
 
 ---
 
@@ -48,7 +56,7 @@ re-deriving anything. Read this first, then the linked reports.
 | Phase 2A — ranking admin API | **Complete.** `964c980`, live 2026-08-07 17:47:51 UTC |
 | Phase 2B | **Planned only.** Awaiting approval |
 | Phase 2C / 2D / 2E | Planned only |
-| Trust & Safety + admin alerts | **Live.** 114–117 applied; backend `19f35a2` and dashboard deployed 2026-09-27, verified. App release not approved. See `trust-safety-rollout.md` |
+| Trust & Safety + admin alerts | **Live.** 114–117 applied; backend `a713c2a` and dashboard deployed 2026-09-27, verified. App release not approved. See `trust-safety-rollout.md` |
 
 ### Production fingerprints (verify these still hold before changing anything)
 
