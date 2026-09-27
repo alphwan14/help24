@@ -1,7 +1,13 @@
 # Help24 — Session Handoff
 
-Last updated: **2026-08-07**. Written so a new session can resume without
+Last updated: **2026-09-27**. Written so a new session can resume without
 re-deriving anything. Read this first, then the linked reports.
+
+> **In flight (2026-09-27): Trust & Safety + admin alerts rollout — approved,
+> not yet applied.** Everything needed to finish it is in
+> [`trust-safety-rollout.md`](trust-safety-rollout.md). Nothing is pushed or
+> applied yet; the approval covers 114 → 115 → backend + dashboard → 116 →
+> production verification.
 
 ---
 
@@ -33,6 +39,7 @@ re-deriving anything. Read this first, then the linked reports.
 | Phase 2A — ranking admin API | **Complete.** `964c980`, live 2026-08-07 17:47:51 UTC |
 | Phase 2B | **Planned only.** Awaiting approval |
 | Phase 2C / 2D / 2E | Planned only |
+| Trust & Safety + admin alerts | **Approved, committed locally, not applied/pushed.** See `trust-safety-rollout.md` |
 
 ### Production fingerprints (verify these still hold before changing anything)
 
@@ -190,6 +197,7 @@ raw and filter locally.
 | `auth-stage1-production-verification.md` | Stage 1 applied + verified |
 | `phase2-audit-and-plan.md` | Phase 2 audit, 2A complete, 2B–2E planned |
 | `phase2b-implementation-plan.md` | **Next up — awaiting approval** |
+| `trust-safety-rollout.md` | T&S + alerts: approval on record, runbook, pre-flight evidence — **in flight** |
 
 ---
 
