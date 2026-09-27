@@ -174,11 +174,30 @@ through the Supabase MCP `execute_sql` (never `apply_migration`, never
 | 4 | Apply 116 | All nine triggers present and enabled (`O`): `trg_moderation_enforce_{posts,post_images,applications,chats,chat_preview,chat_messages,message_edits}`, `trg_posts_moderation_guard`, `trg_chat_messages_undelete_guard`. Byte-identity re-run after 116: all six fingerprints identical to the replica (26 functions, 18 triggers). |
 | 5 | Verify | **Fingerprints:** escrow 17/73250/`ec96a938…`, transactions 45/136375/`5d2651c6…`, disputes 4/`ee8c9bd7…`, job_completions 9/`d8d9c984…`, posts 53/`266273df…`, users 18/`1b8ec6c1…`, user_reports 0 — **byte-identical to pre-flight.** `moderation_audit_integrity` bad rows: 0. `moderation_denial(id,'post')` non-null across all 18 users: 0. **HTTP:** `/health` database healthy (overall `degraded` = Redis only, pre-existing); `POST /reports` 401; `GET /admin/alerts` 401; `GET /admin/moderation/summary` 401; `/promotions/campaigns` 401; `/feed` 200; control 404; `/config` ETag still `W/"3b6c0888a44bf4c1"`. Dashboard: `/login` 200; `/dashboard/trust-safety/queue` without a session 307 → `/login`; `/api/admin/alerts` without a session 401. **Alerts:** compiled `AdminAlertsService.compute()` against production: `unavailable: []` (the `reports` source now answers), 8 alerts — 1 payment needs reconciling, 1 provider owed from a split decision, 3 payouts with no M-Pesa result, 5 escrow holds with no payment, 3 payments never confirmed, 2 paid jobs with no progress, 1 urgent request with no responses, 1 request unanswered for a day — matching the day-one prediction above. |
 
-### Not verified (needs a signed-in admin)
+### Signed-in end-to-end (2026-09-27, 13:04 UTC)
 
-- The dashboard **signed in**: the Trust & Safety queue, the alerts bell, and
-  the Payments pages listing rows. Only the unauthenticated behaviour (redirect
-  / 401) was checked; no admin session was available to this session.
-- No moderation **write** was exercised in production (no report filed, no
-  sanction applied) — deliberately: each is a production write outside this
-  approval. The 74 DB tests cover those paths on the replica.
+Run with the owner's dev admin login (`super_admin`), which the owner supplied and
+authorised for this check. It replays the dashboard's own login: Supabase
+password sign-in (session cookie written by `@supabase/ssr`) → the dashboard's
+`POST /api/admin/session/restore` → `h24_admin_token` cookie. Everything after
+sign-in was GET only.
+
+- **Login:** restore → `200 {"connected":true,"role":"super_admin"}`; admin
+  cookie set. A forged bearer token is still refused (401).
+- **Dashboard pages, signed in — all 200, none redirected, no error text:**
+  overview; Trust & Safety queue / reports ("No reports yet") / restricted /
+  suspended / banned / audit; Payments all (46 `<tr>` = header + **45
+  transactions** — this page rendered EMPTY before the fix), completed (10),
+  pending (4), failed (32), escrow (11); Active jobs (19); Users (19 = header +
+  18).
+- **Alerts bell** (`/api/admin/alerts` through the dashboard): 200,
+  `unavailable: []`, the same 8 alerts, each linking to its admin page.
+- **Backend with the minted admin token:** `/admin/me` super_admin;
+  `/admin/moderation/summary` all zeros; `/reports` `{"total":0}`;
+  `/restricted` `[]`; `/audit` `{"total":0}`; `/audit/integrity`
+  `{"intact":true, edited_rows:0, broken_links:0, sequence_gaps:0}`;
+  `/admins` 3; `/admin/alerts` 8 with none unavailable.
+
+Still deliberately not exercised: a moderation **write** in production (filing
+a report, applying/lifting a sanction, hiding content) — each is a production
+write outside this approval. The 74 DB tests cover those paths on the replica.

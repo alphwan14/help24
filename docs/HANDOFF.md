@@ -6,9 +6,10 @@ re-deriving anything. Read this first, then the linked reports.
 > **Done (2026-09-27): Trust & Safety + admin alerts are LIVE.** Migrations
 > 114 → 115 → 116 applied, `help24-backend` deployed (`fae99c2`), admin
 > dashboard deployed, production verified — evidence in
-> [`trust-safety-rollout.md`](trust-safety-rollout.md) § Rollout log. Still
-> open: a signed-in look at the dashboard's T&S queue / alerts bell / Payments
-> pages, and the mobile app release (not approved).
+> [`trust-safety-rollout.md`](trust-safety-rollout.md) § Rollout log, including
+> a signed-in end-to-end pass of the dashboard (T&S pages, alerts bell, Payments
+> pages now listing all 45 transactions). Still open: the mobile app release
+> (not approved) and a first real moderation write in production.
 
 ---
 
