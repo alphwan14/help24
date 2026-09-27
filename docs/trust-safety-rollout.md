@@ -3,6 +3,12 @@
 Last updated: **2026-09-27**. Read `docs/HANDOFF.md` §0 first — its standing
 rules apply here unchanged.
 
+> **STATUS: COMPLETE (2026-09-27, 12:40–13:00 UTC).** 114, 115 and 116 are
+> applied; `help24-backend` and the admin dashboard are deployed; every
+> production check passed. Evidence is in [Rollout log](#rollout-log-2026-09-27)
+> at the end of this file. The mobile app release was NOT part of this and has
+> not been done.
+
 ## Approval on record
 
 On 2026-09-27 the owner approved, in this order:
@@ -116,8 +122,11 @@ nine triggers (`trg_moderation_enforce_*`, `trg_posts_moderation_guard`,
 
 ### Rollback
 Each migration's header lists its exact rollback. Roll back in reverse order
-(116 → 115 → 114). Backend: redeploy `65ca515` from Render. Dashboard: promote
-the previous Vercel deployment.
+(116 → 115 → 114). Backend: redeploy **`959943d`** (`dep-daqt46avcj2c739qb910`,
+the deploy that was live before this rollout) from Render — not `65ca515`, which
+touched no `backend/` file and was never deployed. Dashboard: promote the
+previous Vercel production deployment (the one this build restored its cache
+from, `8zU2fDYaAMdzMGy7bRTK47NV3L89`).
 
 ## What the alerts will show on day one
 
@@ -146,3 +155,30 @@ unanswered requests.
 `notifications` readable/updatable by anon; `posts`/`applications` accept anon
 inserts with any author id; `post_images` deletes open to public; chat
 participants can edit each other's messages; `users` anon-readable.
+
+## Rollout log (2026-09-27)
+
+Executed by Claude under the owner's approval of 2026-09-27. All SQL went
+through the Supabase MCP `execute_sql` (never `apply_migration`, never
+`supabase db push`), so the migration ledger is still empty, as intended.
+
+| # | Step | Evidence |
+|---|---|---|
+| 0 | Pre-flight | Supabase MCP tools present. Fingerprints re-run: all seven rows identical to the pre-flight table above. `git fetch`: `main` 8 ahead / 0 behind `origin/main`. Render service confirmed: `help24-backend`, owner `tea-d48881c9c44c73b0gefg`, branch `main`, rootDir `backend`, auto-deploy on commit. |
+| 1 | Dry run 114–116 | `node dry-run.mjs --local` passed. The same generated SQL against production returned `ERROR P0001: HELP24_DRY_RUN_OK: 114, 115 and 116 applied cleanly inside one transaction and were rolled back`. Afterwards: 0 new tables, 0 moderation functions, 0 new `user_reports` columns, 0 moderation triggers left behind. |
+| 2a | Apply 114 | `account_restrictions`, `moderation_actions` exist; 8 moderation functions; `anon` cannot execute `my_account_status()`, `authenticated` can; 0 restrictions / 0 actions / 0 reports (no legacy bans to import). |
+| 2b | Apply 115 | 16 `moderation_*` functions; `authenticated` cannot execute `moderation_apply_sanction`, `service_role` can. |
+| 2c | Byte-identity | Because the SQL was sent by hand, production was compared with a local replica built from the repo files (`pg_get_functiondef` / constraint / index / trigger / view / column hashes). After 115: all six fingerprints identical (23 functions, 46 constraints, 22 indexes, 9 triggers, 2 views, 25 `user_reports` columns). |
+| 3a | Backend | `git push origin main` (`65ca515..fae99c2`). Render deploy `dep-dash1k0473hc73frbtjg` for `fae99c2`: build 12:49:20 → live 12:50:17 UTC. Boot log: `[AUTH][ROUTES] 138 routes — firebase=49 admin=66 public=23 undeclared=0 (mode=enforce)`, `[MODERATION_SELFCHECK] ✓ moderation schema present — account restrictions enforced.`, `[ADMIN_AUTH_SELFCHECK] ✓ 3 active admin(s)`. No DI errors. (The Redis-degraded and narrowed-auth warnings are pre-existing.) |
+| 3b | Dashboard | `npx vercel --prod --yes` → `dpl_sJbVCvCrCyj6eSHnUVezKMM12pGP` READY, aliased to `https://admin.help24.co.ke`. Build clean; `/dashboard/trust-safety/*` and `/api/admin/alerts` in the route table; payments pages are dynamic (`ƒ`). |
+| 4 | Apply 116 | All nine triggers present and enabled (`O`): `trg_moderation_enforce_{posts,post_images,applications,chats,chat_preview,chat_messages,message_edits}`, `trg_posts_moderation_guard`, `trg_chat_messages_undelete_guard`. Byte-identity re-run after 116: all six fingerprints identical to the replica (26 functions, 18 triggers). |
+| 5 | Verify | **Fingerprints:** escrow 17/73250/`ec96a938…`, transactions 45/136375/`5d2651c6…`, disputes 4/`ee8c9bd7…`, job_completions 9/`d8d9c984…`, posts 53/`266273df…`, users 18/`1b8ec6c1…`, user_reports 0 — **byte-identical to pre-flight.** `moderation_audit_integrity` bad rows: 0. `moderation_denial(id,'post')` non-null across all 18 users: 0. **HTTP:** `/health` database healthy (overall `degraded` = Redis only, pre-existing); `POST /reports` 401; `GET /admin/alerts` 401; `GET /admin/moderation/summary` 401; `/promotions/campaigns` 401; `/feed` 200; control 404; `/config` ETag still `W/"3b6c0888a44bf4c1"`. Dashboard: `/login` 200; `/dashboard/trust-safety/queue` without a session 307 → `/login`; `/api/admin/alerts` without a session 401. **Alerts:** compiled `AdminAlertsService.compute()` against production: `unavailable: []` (the `reports` source now answers), 8 alerts — 1 payment needs reconciling, 1 provider owed from a split decision, 3 payouts with no M-Pesa result, 5 escrow holds with no payment, 3 payments never confirmed, 2 paid jobs with no progress, 1 urgent request with no responses, 1 request unanswered for a day — matching the day-one prediction above. |
+
+### Not verified (needs a signed-in admin)
+
+- The dashboard **signed in**: the Trust & Safety queue, the alerts bell, and
+  the Payments pages listing rows. Only the unauthenticated behaviour (redirect
+  / 401) was checked; no admin session was available to this session.
+- No moderation **write** was exercised in production (no report filed, no
+  sanction applied) — deliberately: each is a production write outside this
+  approval. The 74 DB tests cover those paths on the replica.

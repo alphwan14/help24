@@ -3,11 +3,12 @@
 Last updated: **2026-09-27**. Written so a new session can resume without
 re-deriving anything. Read this first, then the linked reports.
 
-> **In flight (2026-09-27): Trust & Safety + admin alerts rollout — approved,
-> not yet applied.** Everything needed to finish it is in
-> [`trust-safety-rollout.md`](trust-safety-rollout.md). Nothing is pushed or
-> applied yet; the approval covers 114 → 115 → backend + dashboard → 116 →
-> production verification.
+> **Done (2026-09-27): Trust & Safety + admin alerts are LIVE.** Migrations
+> 114 → 115 → 116 applied, `help24-backend` deployed (`fae99c2`), admin
+> dashboard deployed, production verified — evidence in
+> [`trust-safety-rollout.md`](trust-safety-rollout.md) § Rollout log. Still
+> open: a signed-in look at the dashboard's T&S queue / alerts bell / Payments
+> pages, and the mobile app release (not approved).
 
 ---
 
@@ -39,7 +40,7 @@ re-deriving anything. Read this first, then the linked reports.
 | Phase 2A — ranking admin API | **Complete.** `964c980`, live 2026-08-07 17:47:51 UTC |
 | Phase 2B | **Planned only.** Awaiting approval |
 | Phase 2C / 2D / 2E | Planned only |
-| Trust & Safety + admin alerts | **Approved, committed locally, not applied/pushed.** See `trust-safety-rollout.md` |
+| Trust & Safety + admin alerts | **Live.** 114–116 applied, backend `fae99c2` + dashboard deployed 2026-09-27, verified. App release not approved. See `trust-safety-rollout.md` |
 
 ### Production fingerprints (verify these still hold before changing anything)
 
@@ -197,7 +198,7 @@ raw and filter locally.
 | `auth-stage1-production-verification.md` | Stage 1 applied + verified |
 | `phase2-audit-and-plan.md` | Phase 2 audit, 2A complete, 2B–2E planned |
 | `phase2b-implementation-plan.md` | **Next up — awaiting approval** |
-| `trust-safety-rollout.md` | T&S + alerts: approval on record, runbook, pre-flight evidence — **in flight** |
+| `trust-safety-rollout.md` | T&S + alerts: approval, runbook, pre-flight evidence, rollout log — **complete** |
 
 ---
 
