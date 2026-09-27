@@ -29,6 +29,9 @@ import { DisputesController } from '../../admin/disputes/disputes.controller';
 import { DisputesPublicController } from '../../admin/disputes/disputes-public.controller';
 import { AppConfigController } from '../../app-config/app-config.controller';
 import { AppConfigAdminController } from '../../app-config/app-config-admin.controller';
+import { ReportsController } from '../../moderation/reports.controller';
+import { ModerationAdminController } from '../../moderation/moderation-admin.controller';
+import { AdminAlertsController } from '../../admin/alerts/admin-alerts.controller';
 
 const CONTROLLERS = [
   FeedController,
@@ -54,6 +57,9 @@ const CONTROLLERS = [
   DisputesPublicController,
   AppConfigController,
   AppConfigAdminController,
+  ReportsController,
+  ModerationAdminController,
+  AdminAlertsController,
 ] as const;
 
 interface Handler {
@@ -206,6 +212,9 @@ describe('auth contract — money and third-party-impact routes are protected', 
     ['PromotionsController', 'createCampaign'],
     ['FeedController', 'setAvailability'],
     ['RoutesController', 'compute'],
+    // A report is an accusation attributed to a person.
+    ['ReportsController', 'create'],
+    ['ReportsController', 'uploadUrls'],
   ];
 
   it.each(MUST_REQUIRE_IDENTITY)('%s.%s requires a verified identity', (controller, handler) => {

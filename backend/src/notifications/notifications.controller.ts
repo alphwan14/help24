@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, HttpCode, HttpStatus, Logger, Po
 import { NotificationsService } from './notifications.service';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import { Auth } from '../common/auth/auth.decorator';
+import { Restrict } from '../moderation/restrict.decorator';
 
 /**
  * HTTP surface for push/bell notification operations.
@@ -36,6 +37,9 @@ export class NotificationsController {
   // send a push that appears to come from either side of any conversation whose
   // id they knew. Bound, the sender is the person the token proves.
   @Auth('body.senderId')
+  // The message itself is refused by the database (migration 116); this stops
+  // the push, which would otherwise still reach the other person's phone.
+  @Restrict('message')
   async chatMessage(
     @Body()
     body: {

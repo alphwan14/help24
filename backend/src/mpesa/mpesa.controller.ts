@@ -17,6 +17,7 @@ import { ReleasePayoutDto } from './dto/release-payout.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import { AdminAuth, Auth, Public } from '../common/auth/auth.decorator';
 import { AdminAuthGuard } from '../admin/auth/admin-auth.guard';
+import { Restrict } from '../moderation/restrict.decorator';
 
 @Controller('mpesa')
 export class MpesaController {
@@ -33,6 +34,7 @@ export class MpesaController {
   // Every call pushes a PIN prompt to the phone on file for `buyer_user_id`.
   // Unbound, that is a way to make someone else's phone ask them to pay.
   @Auth('body.buyer_user_id')
+  @Restrict('pay')
   initiatePayment(@Body() dto: InitiatePaymentDto) {
     this.logger.log(`[STK] initiate — post=${dto.post_id} buyer=${dto.buyer_user_id}`);
     return this.mpesa.initiatePayment(dto);

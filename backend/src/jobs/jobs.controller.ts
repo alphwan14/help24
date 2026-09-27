@@ -7,6 +7,7 @@ import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import { Auth, Public } from '../common/auth/auth.decorator';
+import { Restrict } from '../moderation/restrict.decorator';
 
 class NotifyApplicationDto {
   @IsUUID()
@@ -31,6 +32,9 @@ export class JobsController {
   // Unbound, this is a push-notification injector: name any applicant and any
   // post, and the author's phone buzzes with an application that never happened.
   @Auth('body.applicant_user_id')
+  // A restricted applicant cannot insert the application (migration 116), so
+  // this push would announce one that never happened.
+  @Restrict('apply')
   notifyApplication(@Body() dto: NotifyApplicationDto) {
     return this.jobs.notifyApplication(dto);
   }
@@ -44,6 +48,7 @@ export class JobsController {
   // authorization layer. The service checks post.author_user_id ===
   // client_user_id; making that field trustworthy is the whole fix.
   @Auth('body.client_user_id')
+  @Restrict('hire')
   selectProvider(@Body() dto: SelectProviderDto) {
     return this.jobs.selectProvider(dto);
   }
@@ -54,6 +59,10 @@ export class JobsController {
   // Gates the escrow release request. jobs.service compares this against
   // post.selected_provider_id.
   @Auth('body.provider_user_id')
+  // Blocked for suspended/banned providers: a completion request nudges the
+  // client to release escrow to them. Approving (below) is deliberately NOT
+  // restricted — it pays a provider and settles an obligation that exists.
+  @Restrict('complete')
   markComplete(@Body() dto: MarkCompleteDto) {
     return this.jobs.markComplete(dto);
   }

@@ -27,6 +27,9 @@ import { IdentityMiddleware } from './common/identity/identity.middleware';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import { AuthModule } from './common/auth/auth.module';
 import { HealthModule } from './health/health.module';
+import { ModerationEnforcementModule } from './moderation/moderation-enforcement.module';
+import { ModerationModule } from './moderation/moderation.module';
+import { AdminAlertsModule } from './admin/alerts/admin-alerts.module';
 
 @Module({
   imports: [
@@ -57,9 +60,14 @@ import { HealthModule } from './health/health.module';
     //   TokenVerifierService, and middleware resolves its dependencies from
     //   AppModule's injector — so the provider has to exist by the time this
     //   list reaches IdentityModule.
+    //
+    //   ModerationEnforcementModule AFTER AuthModule. Its global guard refuses
+    //   restricted accounts on @Restrict routes, and must see the identity
+    //   AuthGuard has already verified and bound.
     LoggingModule,
     RateLimitModule,
     AuthModule,
+    ModerationEnforcementModule,
     IdentityModule,
     HealthModule,
 
@@ -87,6 +95,11 @@ import { HealthModule } from './health/health.module';
     // Journey routing (Phase 3): Google Routes proxy for ETA, remaining
     // distance and polyline. Keeps the billable key off the device.
     RoutesModule,
+    // Trust & Safety: reporting, the moderation console API, and the ledger.
+    // Writes go through the migration-115 database functions only.
+    ModerationModule,
+    // Read-only attention list for the dashboard (GET /admin/alerts).
+    AdminAlertsModule,
     // The client configuration plane: kill switches, maintenance mode, the
     // minimum-version gate and the client tunables that previously required a
     // Play release. A leaf — nothing imports it. Serves compiled defaults when

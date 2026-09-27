@@ -3,6 +3,7 @@ import { ReviewsService } from './reviews.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import { Auth } from '../common/auth/auth.decorator';
+import { Restrict } from '../moderation/restrict.decorator';
 
 /**
  * Review submission + eligibility. Public/participant-facing (the reviewer is a
@@ -23,6 +24,9 @@ export class ReviewsController {
   // reviewer identity that is not bound is a reputation-farming primitive.
   // Eligibility (completed job, not self-review) is re-checked in the service.
   @Auth('body.client_id')
+  // A suspended or banned account does not get to shape someone else's
+  // reputation — the likeliest review from one is a retaliatory one.
+  @Restrict('review')
   create(@Body() dto: CreateReviewDto) {
     return this.reviews.createReview(dto);
   }

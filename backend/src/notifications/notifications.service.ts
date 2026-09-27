@@ -30,7 +30,17 @@ export type NotificationType =
   | 'promotion_payment_received' // promotion paid; campaign queued for review
   | 'promotion_live'             // campaign approved and now serving
   | 'promotion_rejected'         // moderation rejected the campaign
-  | 'promotion_completed';       // campaign finished its purchased window
+  | 'promotion_completed'        // campaign finished its purchased window
+  // Trust & Safety. Deliberately generic copy and EMPTY data: the reason lives
+  // on the in-app account-status screen, and a report confirmation never
+  // names what was reported. See moderation.service.ts.
+  | 'report_received'            // reporter: we have your report
+  | 'account_warning'            // a policy warning was issued
+  | 'account_suspended'          // temporary suspension
+  | 'account_banned'             // permanent ban
+  | 'account_restricted'         // messaging or marketplace restriction
+  | 'account_restored'           // a restriction was lifted
+  | 'content_removed';           // one of the user's listings was hidden
 
 export interface NotificationPayload {
   userId: string;

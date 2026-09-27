@@ -35,7 +35,7 @@ export class JobsService {
     // 1. Validate post exists and caller is the owner.
     const { data: post, error: postErr } = await this.supabase.client
       .from('posts')
-      .select('id, title, author_user_id, selected_provider_id, status')
+      .select('id, title, author_user_id, selected_provider_id, status, archived_by')
       .eq('id', dto.post_id)
       .single();
 
@@ -56,6 +56,13 @@ export class JobsService {
         `[JOBS][SELECT_PROVIDER] Post ${dto.post_id} is not open (status=${post.status as string})`,
       );
       throw new ConflictException(`Cannot select a provider — post status is '${post.status as string}'.`);
+    }
+
+    // A listing Help24 hid is closed to new bookings, whoever still holds a link
+    // to it. (The database guard stops direct writes; this path is service-role.)
+    if (post.archived_by === 'moderation') {
+      this.logger.warn(`[JOBS][SELECT_PROVIDER] Post ${dto.post_id} is hidden by moderation`);
+      throw new ConflictException('This listing was hidden by Help24 and can no longer be booked.');
     }
 
     // 2. Validate the provider has actually applied to this post.

@@ -702,6 +702,28 @@ export const RATE_LIMIT_POLICIES: readonly RateLimitPolicy[] = [
   },
 
   {
+    name: 'reports:create',
+    rationale:
+      'Filing a report puts an allegation in front of a human moderator and, at ' +
+      'volume, is a way to harass the person reported or to bury the queue. A ' +
+      'person being mistreated might report a user, their listing and two of ' +
+      'their messages in a few minutes; 6 per 10 minutes covers that. The ' +
+      'database adds the longer-horizon caps (10 a day, 5 about one account), ' +
+      'which also bind the shipped app\'s direct-insert path that never reaches ' +
+      'this limiter. Keyed on the VERIFIED uid — the route is @AuthCritical.',
+    rules: [
+      {
+        id: 'subject',
+        algorithm: 'sliding-window',
+        by: ['auth.uid'],
+        windowMs: 10 * MINUTE,
+        limit: 6,
+      },
+      { id: 'ip', algorithm: 'sliding-window', by: 'ip', windowMs: HOUR, limit: 120 },
+    ],
+  },
+
+  {
     name: 'uploads:sign',
     rationale:
       'Issues signed upload URLs into the private evidence bucket. Each URL is ' +

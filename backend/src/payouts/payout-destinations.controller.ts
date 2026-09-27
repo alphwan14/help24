@@ -20,6 +20,7 @@ import {
   VerifyChallengeDto,
 } from './dto/payout-destination.dtos';
 import { PayoutOnboardingService } from './payout-onboarding.service';
+import { Restrict } from '../moderation/restrict.decorator';
 
 /**
  * The HTTP layer the payouts module deliberately shipped without — added now
@@ -55,6 +56,10 @@ export class PayoutDestinationsController {
   @HttpCode(HttpStatus.CREATED)
   @RateLimit('payout:issue')
   @AuthCritical('body.user_id')
+  // A suspended or banned provider cannot redirect where money goes while the
+  // decision stands. Retiring a destination (below) stays open — it only ever
+  // reduces where money can go.
+  @Restrict('payout_config')
   async add(@Body() dto: AddDestinationDto) {
     this.onboarding.assertEnabled();
     return { destination: await this.onboarding.add(dto.user_id, dto.msisdn) };
@@ -65,6 +70,7 @@ export class PayoutDestinationsController {
   @HttpCode(HttpStatus.OK)
   @RateLimit('payout:issue')
   @AuthCritical('body.user_id')
+  @Restrict('payout_config')
   async requestChallenge(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: RequestChallengeDto,
@@ -81,6 +87,7 @@ export class PayoutDestinationsController {
   @HttpCode(HttpStatus.OK)
   @RateLimit('payout:verify')
   @AuthCritical('body.user_id')
+  @Restrict('payout_config')
   async verify(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: VerifyChallengeDto,
@@ -100,6 +107,7 @@ export class PayoutDestinationsController {
   @HttpCode(HttpStatus.OK)
   @RateLimit('payout:manage')
   @AuthCritical('body.user_id')
+  @Restrict('payout_config')
   async setDefault(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: SetDefaultDto,

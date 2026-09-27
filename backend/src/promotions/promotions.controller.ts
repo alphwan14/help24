@@ -24,6 +24,7 @@ import {
 } from './dto/promotions.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import { Auth, Public } from '../common/auth/auth.decorator';
+import { Restrict } from '../moderation/restrict.decorator';
 
 /**
  * "Promote Business" — user-facing routes.
@@ -110,6 +111,7 @@ export class PromotionsController {
   @RateLimit('promotions:manage')
   @Post('campaigns')
   @Auth('body.user_id')
+  @Restrict('promote')
   createCampaign(@Body() dto: CreateCampaignDto) {
     return this.campaigns.create({
       userId: dto.user_id,
@@ -148,6 +150,7 @@ export class PromotionsController {
   // Pushes an STK prompt, exactly like /mpesa/initiate, and is bound for the
   // same reason: unbound it is a way to make someone else's phone ask for a PIN.
   @Auth('body.user_id')
+  @Restrict('promote')
   pay(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PayCampaignDto) {
     return this.payments.initiate(id, dto.user_id, dto.phone);
   }
@@ -172,6 +175,9 @@ export class PromotionsController {
   @RateLimit('promotions:manage')
   @Post('campaigns/:id/resume')
   @Auth('body.user_id')
+  // Resuming puts a restricted account's listing back in front of buyers.
+  // Pausing and cancelling reduce reach and stay open to everyone.
+  @Restrict('promote')
   resume(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OwnerActionDto) {
     return this.campaigns.resume(id, dto.user_id);
   }
