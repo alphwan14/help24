@@ -113,8 +113,11 @@ class MpesaService {
           )
           .timeout(_timeout);
     } catch (e) {
-      debugPrint('[MpesaService] network error: $e');
-      throw MpesaException('Network error — check your connection');
+      // Rethrown as-is: the caller maps it, and only the original exception
+      // tells "offline" from "timed out" — a timeout here means the prompt may
+      // still arrive, which the payer needs to be told.
+      debugPrint('[PAYMENT][MpesaService] network error: $e');
+      rethrow;
     }
 
     debugPrint('[MpesaService] status=${response.statusCode} body=${response.body}');
@@ -150,11 +153,12 @@ class MpesaService {
         return 'Unable to start payment. Check your details and try again.';
       }
 
-      // Plain string message from BadRequestException / custom throw.
+      // Plain string message from BadRequestException / custom throw. Carried
+      // for MpesaFailureCopy to READ; it is never shown as written.
       if (msg is String && msg.isNotEmpty) return msg;
     } catch (_) {
-      // Body wasn't JSON — return raw body if short enough.
-      if (body.isNotEmpty && body.length < 300) return body;
+      // Body wasn't JSON — a proxy's "Bad Gateway" or an HTML error page.
+      // Never forwarded: the status fallback below says it in our words.
     }
 
     // Fallback by status code.

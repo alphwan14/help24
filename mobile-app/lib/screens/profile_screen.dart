@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
+import 'package:local_auth/error_codes.dart' as auth_error;
 import 'package:local_auth/local_auth.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -1283,6 +1285,17 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
         ),
       );
       if (mounted) setState(() { _unlocked = ok; _authenticating = false; });
+    } on PlatformException catch (e) {
+      // The plugin's own prose ("local_auth plugin requires a foreground
+      // activity", "No Biometrics enrolled on this device.") is for
+      // developers; its code says what the person can actually do.
+      debugPrint('[AUTH][Profile] device auth failed: ${e.code} ${e.message}');
+      if (mounted) {
+        setState(() {
+          _authenticating = false;
+          _error = _deviceAuthMessage(e.code);
+        });
+      }
     } on Exception catch (e) {
       debugPrint('[Profile] biometric auth failed: $e');
       if (mounted) {
@@ -1293,6 +1306,20 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
       }
     }
   }
+
+  /// What to do next, by the device-auth failure code. A lockout needs
+  /// waiting, not retrying — "please try again" was wrong advice for it.
+  static String _deviceAuthMessage(String code) => switch (code) {
+        auth_error.lockedOut =>
+          'Too many attempts. Wait 30 seconds, then try again.',
+        auth_error.permanentlyLockedOut =>
+          'Too many attempts. Unlock your phone with your PIN or pattern, then try again.',
+        auth_error.notAvailable ||
+        auth_error.notEnrolled ||
+        auth_error.passcodeNotSet =>
+          'Set up a screen lock on your phone to change your M-Pesa number.',
+        _ => "We couldn't verify it's you. Please try again.",
+      };
 
   Future<void> _save() async {
     final raw = _phoneController.text.trim();

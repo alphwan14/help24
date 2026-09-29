@@ -73,17 +73,13 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
         _loading = false;
         _error = null;
       });
-    } on DisputeException catch (e) {
+    } catch (e) {
+      // DisputeException and transport failures alike: offline reads as
+      // offline, not as a generic "could not load".
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = ErrorMapper.toMessage(e, context: ErrorContext.loadContent);
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = 'Could not load the dispute. Pull to retry.';
       });
     }
   }
@@ -96,7 +92,9 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       await DisputeService.reply(disputeId: widget.disputeId, userId: _uid, message: text);
       _composer.clear();
       await _load();
-    } on DisputeException catch (e) {
+    } catch (e) {
+      // Not only DisputeException: a dead connection used to escape this
+      // method unhandled, and the only sign of it was the spinner stopping.
       _toast(ErrorMapper.toMessage(e, context: ErrorContext.sendMessage));
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -141,7 +139,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       );
       await _load();
       if (mounted) _toast('Evidence submitted.');
-    } on DisputeException catch (e) {
+    } catch (e) {
       _toast(ErrorMapper.toMessage(e, context: ErrorContext.upload));
     } finally {
       if (mounted) setState(() => _uploading = false);
@@ -595,7 +593,8 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       case 'merged':
         return 'Merged';
       default:
-        return s.startsWith('resolved') ? 'Resolved' : s;
+        // An unknown status is a server value, never a label.
+        return s.startsWith('resolved') ? 'Resolved' : 'In progress';
     }
   }
 

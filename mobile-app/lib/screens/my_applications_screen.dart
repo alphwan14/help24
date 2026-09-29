@@ -5,6 +5,7 @@ import '../services/application_service.dart';
 import '../services/post_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/tokens.dart';
+import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
 import '../utils/post_ownership.dart';
 import '../utils/time_utils.dart';
@@ -156,13 +157,17 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         _offline = false;
       });
     } catch (e) {
+      debugPrint('[APPLICATIONS] load failed: $e');
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _offline = e is PostServiceException && e.isNetworkError;
-        _error = e is PostServiceException
-            ? e.message
-            : 'We could not load your applications.';
+        // Either service can fail offline — the applications read wraps its
+        // transport error in text, the posts read flags it.
+        _offline = ErrorMapper.isConnectivityError(e) ||
+            (e is PostServiceException && e.isNetworkError);
+        // This screen's own sentence: the posts read is shared with Saved, and
+        // its message ("Failed to load saved posts.") named the wrong tab.
+        _error = "We couldn't load your applications. Please try again.";
       });
     }
   }

@@ -342,7 +342,9 @@ class UserProfileService {
     }
     try {
       final url = await StorageService.uploadProfileImageToProfilesBucket(file, uid);
-      if (url.isEmpty) throw UserProfileException('Upload returned no URL.');
+      if (url.isEmpty) {
+        throw UserProfileException("We couldn't upload your photo. Please try again.");
+      }
       final t = DateTime.now().millisecondsSinceEpoch;
       final urlWithCacheBuster = url.contains('?') ? '$url&t=$t' : '$url?t=$t';
       await _updateUser(uid, {

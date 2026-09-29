@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
-import 'error_mapper.dart';
 
 /// Opens a Help24 web address (Help Centre, Privacy, Terms, Support) in an
 /// in-app browser tab — Chrome Custom Tabs on Android, SFSafariViewController on
@@ -15,8 +14,9 @@ import 'error_mapper.dart';
 ///
 /// Offline is handled by the browser tab itself (it shows its own no-connection
 /// page). Our SnackBar only appears if the launch genuinely fails — e.g. a
-/// device with no browser at all, or a malformed URL — routed through
-/// [ErrorMapper] for consistent, human copy.
+/// device with no browser at all, or a malformed URL. Every such failure means
+/// the same thing to the person tapping, so it gets one sentence: the plugin's
+/// own text ("Launching a URL requires a foreground activity.") is only logged.
 Future<void> openHelp24Url(BuildContext context, String url) async {
   // Capture the messenger before any await so we never touch a stale context.
   final messenger = ScaffoldMessenger.of(context);
@@ -28,9 +28,10 @@ Future<void> openHelp24Url(BuildContext context, String url) async {
     if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
     throw Exception('Unable to open $url');
   } catch (e) {
+    debugPrint('[LINK] could not open $url: $e');
     messenger.showSnackBar(
       SnackBar(
-        content: Text(ErrorMapper.toMessage(e, context: ErrorContext.generic)),
+        content: const Text("We couldn't open that page. Please try again."),
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppTheme.errorRed,
         shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),

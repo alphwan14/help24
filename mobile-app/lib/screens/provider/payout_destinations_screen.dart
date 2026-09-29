@@ -123,12 +123,13 @@ class _PayoutDestinationsScreenState extends State<PayoutDestinationsScreen> {
                           if (sheetContext.mounted) {
                             Navigator.pop(sheetContext, destination);
                           }
-                        } on PayoutException catch (e) {
-                          setSheetState(() {
-                            saving = false;
-                            errorText = e.message;
-                          });
                         } catch (e) {
+                          // PayoutException included: its message is the
+                          // server's `message`, which is usually a sentence
+                          // for the provider ("This number is already a
+                          // verified payout destination.") and then still
+                          // reads as written — but an unhandled 500 carries
+                          // Node's own error text in the same field.
                           setSheetState(() {
                             saving = false;
                             errorText = ErrorMapper.toMessage(e,

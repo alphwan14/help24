@@ -8,7 +8,7 @@ import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/format_utils.dart';
-import '../utils/payment_utils.dart';
+import '../utils/mpesa_failure_copy.dart';
 
 // ─── State machine ────────────────────────────────────────────────────────────
 
@@ -173,13 +173,11 @@ class _PaymentScreenState extends State<PaymentScreen>
         _transition(PaymentState.awaitingPin);
       });
       _startPolling();
-    } on MpesaException catch (e) {
-      debugPrint('[PaymentSM] MpesaException: ${e.message}');
-      _transition(PaymentState.failed, error: _friendlyError(e.message));
     } catch (e) {
-      debugPrint('[PaymentSM] unexpected: $e');
-      _transition(PaymentState.failed,
-          error: 'Something went wrong. Please try again.');
+      // One reading for every start failure — a refusal, a missing number, a
+      // dead connection — and never the server's or Daraja's own text.
+      debugPrint('[PAYMENT][PaymentSM] start failed: $e');
+      _transition(PaymentState.failed, error: MpesaFailureCopy.forInitiation(e));
     }
   }
 
@@ -234,8 +232,9 @@ class _PaymentScreenState extends State<PaymentScreen>
           _transition(PaymentState.success, receipt: status.mpesaReceipt);
         } else if (status.isFailed) {
           _pollTimer?.cancel();
+          debugPrint('[PAYMENT][PaymentSM] failed: ${status.failureReason}');
           _transition(PaymentState.failed,
-              error: _darajaFailureMessage(status.failureReason));
+              error: MpesaFailureCopy.forResult(status.failureReason));
         }
         // isPending → keep polling
       } catch (_) {
@@ -273,69 +272,6 @@ class _PaymentScreenState extends State<PaymentScreen>
         SnackBar(content: Text('[DEV] ${result['error'] ?? result['message'] ?? 'Force-success failed'}')),
       );
     }
-  }
-
-  // ─── Error sanitisation ───────────────────────────────────────────────────
-
-  static String _friendlyError(String raw) {
-    final lower = raw.toLowerCase();
-    if (lower.contains('m-pesa number') || lower.contains('phone')) {
-      return 'Add a valid M-Pesa number in Profile → Payment Number.';
-    }
-    if (lower.contains('no provider')) {
-      return 'No provider selected for this service yet.';
-    }
-    if (lower.contains('already been made') || lower.contains('already in progress')) {
-      return 'Payment has already been made for this service.';
-    }
-    if (lower.contains('network')) {
-      return 'Network error. Check your connection and try again.';
-    }
-    if (lower.contains('daraja') || lower.contains('[daraja]')) {
-      return 'M-Pesa service error. Please try again shortly.';
-    }
-    if (lower.contains('below the minimum')) {
-      return 'Service price is below the minimum M-Pesa amount (KES 100).';
-    }
-    // Pass through friendly backend messages verbatim.
-    if (raw.length < 120 && !raw.contains('{') && !raw.contains('Exception')) {
-      return raw;
-    }
-    return 'Payment could not be started. Please try again.';
-  }
-
-  /// Maps Daraja's ResultDesc (stored in DB and returned by /status) to a
-  /// human-readable message. Known codes from Safaricom Daraja docs:
-  ///   1       — Insufficient funds
-  ///   1031    — Request cancelled by user
-  ///   1032    — Request cancelled by user
-  ///   1037    — DS timeout — user unreachable
-  ///   2001    — Wrong PIN entered
-  static String _darajaFailureMessage(String? raw) {
-    if (raw == null || raw.isEmpty) {
-      return 'Payment was not completed. Please try again.';
-    }
-    final lower = raw.toLowerCase();
-
-    // User explicitly cancelled on their phone.
-    if (lower.contains('cancel') || lower.contains('1032') || lower.contains('1031')) {
-      return 'You cancelled the M-Pesa request. Tap Pay to try again.';
-    }
-    // Wrong PIN.
-    if (lower.contains('wrong pin') || lower.contains('2001') || lower.contains('invalid pin')) {
-      return 'Incorrect M-Pesa PIN entered. Tap Pay to try again.';
-    }
-    // Insufficient funds.
-    if (lower.contains('insufficient') || raw == '1') {
-      return 'Insufficient M-Pesa balance. Top up and try again.';
-    }
-    // User unreachable / timeout from Daraja side.
-    if (lower.contains('timeout') || lower.contains('1037') || lower.contains('cannot be reached')) {
-      return 'M-Pesa request timed out. Make sure you have network and try again.';
-    }
-    // Pass through short Daraja messages verbatim.
-    if (raw.length < 120) return raw;
-    return 'Payment was not completed. Please try again.';
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────

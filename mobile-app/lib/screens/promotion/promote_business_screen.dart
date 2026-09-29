@@ -4,7 +4,9 @@ import '../../models/promotion_models.dart';
 import '../../services/promotion_service.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
+import '../../utils/mpesa_failure_copy.dart';
 import '../../utils/time_utils.dart';
+import '../../widgets/loading_empty_offline.dart';
 import 'campaign_detail_screen.dart';
 import 'promote_listing_flow_screen.dart';
 
@@ -12,7 +14,20 @@ import 'promote_listing_flow_screen.dart';
 /// Native marketplace feel — this is a Help24 feature, not an ad portal.
 class PromoteBusinessScreen extends StatefulWidget {
   final String uid;
-  const PromoteBusinessScreen({super.key, required this.uid});
+
+  /// The hub's two reads. Default to [PromotionService]; injectable so a test
+  /// can hand the real screen the exact failure a device produces offline.
+  @visibleForTesting
+  final Future<List<PromotionCampaign>> Function(String uid)? loadCampaigns;
+  @visibleForTesting
+  final Future<List<PromotionPaymentRecord>> Function(String uid)? loadPayments;
+
+  const PromoteBusinessScreen({
+    super.key,
+    required this.uid,
+    this.loadCampaigns,
+    this.loadPayments,
+  });
 
   @override
   State<PromoteBusinessScreen> createState() => _PromoteBusinessScreenState();
@@ -30,8 +45,14 @@ class _PromoteBusinessScreenState extends State<PromoteBusinessScreen> {
 
   void _reload() {
     setState(() {
-      _campaigns = PromotionService.fetchCampaigns(widget.uid);
-      _payments = PromotionService.fetchPayments(widget.uid);
+      // Both reads start now, but each tab's FutureBuilder only listens once
+      // that tab is built. Offline, the unopened tab's failure therefore had
+      // no listener and escaped as an uncaught async error. `ignore()` marks it
+      // handled; a FutureBuilder that attaches later still receives it.
+      _campaigns = (widget.loadCampaigns ?? PromotionService.fetchCampaigns)(widget.uid)
+        ..ignore();
+      _payments = (widget.loadPayments ?? PromotionService.fetchPayments)(widget.uid)
+        ..ignore();
     });
   }
 
@@ -59,16 +80,21 @@ class _PromoteBusinessScreenState extends State<PromoteBusinessScreen> {
           icon: const Icon(AppIcons.promote),
           label: const Text('Promote a listing'),
         ),
-        body: TabBarView(
-          children: [
-            _CampaignsTab(
-              future: _campaigns,
-              uid: widget.uid,
-              onChanged: _reload,
-              onPromote: _startPromotionFlow,
-            ),
-            _PaymentsTab(future: _payments, onRefresh: _reload),
-          ],
+        // A failed load refills itself when the connection returns, the same
+        // as every other screen that owns its fetch.
+        body: ReconnectListener(
+          onReconnect: _reload,
+          child: TabBarView(
+            children: [
+              _CampaignsTab(
+                future: _campaigns,
+                uid: widget.uid,
+                onChanged: _reload,
+                onPromote: _startPromotionFlow,
+              ),
+              _PaymentsTab(future: _payments, onRefresh: _reload),
+            ],
+          ),
         ),
       ),
     );
@@ -97,7 +123,14 @@ class _CampaignsTab extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (snap.hasError) {
-          return _ErrorView(message: '${snap.error}', onRetry: onChanged);
+          // The raw error goes to the view, never its text: this branch once
+          // rendered '${snap.error}' and showed users "ClientException with
+          // SocketException: Failed host lookup: 'api.help24.co.ke'…".
+          return ErrorRetryView.fromError(
+            snap.error,
+            stackTrace: snap.stackTrace,
+            onRetry: onChanged,
+          );
         }
         final campaigns = snap.data ?? const <PromotionCampaign>[];
         if (campaigns.isEmpty) {
@@ -188,7 +221,11 @@ class _PaymentsTab extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (snap.hasError) {
-          return _ErrorView(message: '${snap.error}', onRetry: onRefresh);
+          return ErrorRetryView.fromError(
+            snap.error,
+            stackTrace: snap.stackTrace,
+            onRetry: onRefresh,
+          );
         }
         final payments = snap.data ?? const <PromotionPaymentRecord>[];
         if (payments.isEmpty) {
@@ -219,7 +256,10 @@ class _PaymentsTab extends StatelessWidget {
                       if (p.postTitle.isNotEmpty) p.postTitle,
                       if (p.mpesaReceipt != null && p.mpesaReceipt!.isNotEmpty)
                         'Receipt ${p.mpesaReceipt}',
-                      if (p.status == 'failed' && p.failureReason != null) p.failureReason!,
+                      // failure_reason is Daraja's ResultDesc or a server
+                      // fault ('[Daraja] STK push failed — HTTP 500: {…}'),
+                      // stored for support. It is read here, never shown.
+                      if (p.status == 'failed') MpesaFailureCopy.summary(p.failureReason),
                       formatRelativeTime(p.createdAt),
                     ].join(' · '),
                     maxLines: 2,
@@ -231,35 +271,6 @@ class _PaymentsTab extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _ErrorView extends StatelessWidget {
-  final String message;
-  final VoidCallback onRetry;
-  const _ErrorView({required this.message, required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(AppIcons.offline, size: 40),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 12),
-            TextButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(AppIcons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

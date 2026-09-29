@@ -117,7 +117,13 @@ class _Unavailable extends StatelessWidget {
         EmptyStateView(
           icon: result.isPending ? AppIcons.pending : AppIcons.receipt,
           title: result.isPending ? 'Payment still processing' : 'No receipt yet',
-          subtitle: result.message,
+          // For a failed payment the server's message is the stored
+          // failure_reason — Daraja's own ResultDesc — so Help24's sentence
+          // is shown instead. The other reasons carry the server's authored
+          // copy ("Payment is still being confirmed. …").
+          subtitle: result.reason == 'payment_failed'
+              ? 'This payment did not complete, so no receipt was issued.'
+              : result.message,
           actions: [
             if (result.isPending)
               TextButton.icon(

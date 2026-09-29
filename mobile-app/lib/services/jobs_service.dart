@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 // Backend calls go through the authenticated client: it attaches the Firebase
 // ID token the server binds identity from, so the ownership checks in each
@@ -69,12 +70,11 @@ class JobsService {
         )
         .timeout(_timeout);
 
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode == 200 || response.statusCode == 201) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
       return json['completion_id'] as String? ?? '';
     }
-    final msg = _extractMessage(json);
-    throw JobsException(msg, statusCode: response.statusCode);
+    throw _failure(response);
   }
 
   /// Client approves the completion — triggers payout.
@@ -91,8 +91,7 @@ class JobsService {
         .timeout(_timeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) return;
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    throw JobsException(_extractMessage(json), statusCode: response.statusCode);
+    throw _failure(response);
   }
 
   /// Raise a dispute through the arbitration centre (POST /disputes/create).
@@ -124,11 +123,11 @@ class JobsService {
         )
         .timeout(_timeout);
 
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode == 200 || response.statusCode == 201) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
       return json['dispute_id'] as String? ?? '';
     }
-    throw JobsException(_extractMessage(json), statusCode: response.statusCode);
+    throw _failure(response);
   }
 
   /// Client selects a provider — the ONLY supported path for provider assignment.
@@ -157,10 +156,9 @@ class JobsService {
       return;
     }
 
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    final msg = _extractMessage(json);
-    debugPrint('[JOBS][SELECT_PROVIDER][ERROR] postId=$postId status=${response.statusCode} msg=$msg');
-    throw JobsException(msg, statusCode: response.statusCode);
+    final failure = _failure(response);
+    debugPrint('[JOBS][SELECT_PROVIDER][ERROR] postId=$postId status=${response.statusCode} msg=${failure.message}');
+    throw failure;
   }
 
   /// Poll the latest job completion status for a post.
@@ -200,8 +198,7 @@ class JobsService {
         .timeout(_timeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) return;
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    throw JobsException(_extractMessage(json), statusCode: response.statusCode);
+    throw _failure(response);
   }
 
   /// Participant-scoped job lifecycle aggregate (payment + completion + dispute +
@@ -215,11 +212,27 @@ class JobsService {
     );
     final response = await api.get(uri).timeout(_timeout);
 
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode == 200) {
-      return JobLifecycle.fromJson(json);
+      return JobLifecycle.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
     }
-    throw JobsException(_extractMessage(json), statusCode: response.statusCode);
+    throw _failure(response);
+  }
+
+  /// The [JobsException] for a non-2xx [response], ALWAYS carrying its status.
+  ///
+  /// Every failure path used to `jsonDecode` the body first. A hosting proxy's
+  /// 502/503 is an HTML page, not JSON, so that decode threw a FormatException
+  /// with no status attached — and "Help24 is temporarily unavailable" arrived
+  /// at the screen as an unclassifiable error ("Unexpected character").
+  static JobsException _failure(http.Response response) {
+    var message = 'Something went wrong. Please try again.';
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) message = _extractMessage(decoded);
+    } catch (_) {
+      // Not JSON. The status code carries the meaning.
+    }
+    return JobsException(message, statusCode: response.statusCode);
   }
 
   static String _extractMessage(Map<String, dynamic> json) {

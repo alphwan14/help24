@@ -4,7 +4,8 @@ import '../../models/promotion_models.dart';
 import '../../services/promotion_service.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
-import '../../utils/error_mapper.dart';
+import '../../utils/action_feedback.dart';
+import '../../widgets/loading_empty_offline.dart';
 
 /// Campaign analytics + lifecycle actions. Answers one question:
 /// "Is promoting my business working?"
@@ -41,18 +42,11 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     try {
       await action();
       _reload();
-    } on PromotionException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ErrorMapper.toMessage(e))),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Something went wrong. Please try again.')),
-        );
-      }
+    } catch (e) {
+      // A refusal reads as the rule ("Only a paused campaign can be
+      // resumed."); a dead connection reads as one — not "something went
+      // wrong", which is what every non-PromotionException used to get.
+      if (mounted) ActionFeedback.failure(context, e);
     } finally {
       if (mounted) setState(() => _actionBusy = false);
     }
@@ -87,172 +81,184 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Campaign')),
-      body: FutureBuilder<CampaignAnalytics>(
-        future: _analytics,
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError || snap.data == null) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+      body: ReconnectListener(
+        onReconnect: _reload,
+        child: FutureBuilder<CampaignAnalytics>(
+          future: _analytics,
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            // The raw error goes to the view, never its text — this branch once
+            // rendered '${snap.error}', exception class, URL and all.
+            if (snap.hasError) {
+              return ErrorRetryView.fromError(
+                snap.error,
+                stackTrace: snap.stackTrace,
+                onRetry: _reload,
+              );
+            }
+            if (snap.data == null) {
+              return ErrorRetryView(
+                message: "We couldn't load this campaign. Please try again.",
+                onRetry: _reload,
+              );
+            }
+            final a = snap.data!;
+            final c = a.campaign;
+            return RefreshIndicator(
+              onRefresh: () async => _reload(),
+              child: ListView(
+                padding: const EdgeInsets.all(16),
                 children: [
-                  Text('${snap.error ?? 'Could not load campaign.'}',
-                      textAlign: TextAlign.center, maxLines: 3),
-                  TextButton.icon(
-                    onPressed: _reload,
-                    icon: const Icon(AppIcons.refresh),
-                    label: const Text('Retry'),
-                  ),
-                ],
-              ),
-            );
-          }
-          final a = snap.data!;
-          final c = a.campaign;
-          return RefreshIndicator(
-            onRefresh: () async => _reload(),
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                // ── Header ──────────────────────────────────────────────
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(c.postTitle,
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                )),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            _HeaderChip(
-                              icon: AppIcons.campaignBudget,
-                              label: '${c.packageName} · KES ${c.priceKes}',
+                  // ── Header ──────────────────────────────────────────────
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(c.postTitle,
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  )),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              _HeaderChip(
+                                icon: AppIcons.campaignBudget,
+                                label: '${c.packageName} · KES ${c.priceKes}',
+                              ),
+                              if (c.startsAt != null && c.endsAt != null)
+                                _HeaderChip(
+                                  icon: AppIcons.schedule,
+                                  label: '${_date(c.startsAt!)} – ${_date(c.endsAt!)}',
+                                ),
+                              if (c.status == CampaignStatus.active)
+                                _HeaderChip(
+                                  icon: AppIcons.pending,
+                                  label:
+                                      '${c.daysRemaining} day${c.daysRemaining == 1 ? '' : 's'} left',
+                                ),
+                            ],
+                          ),
+                          if (c.status == CampaignStatus.rejected && c.rejectionReason != null) ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              'Reason: ${c.rejectionReason}',
+                              style: const TextStyle(color: AppTheme.errorRed),
                             ),
-                            if (c.startsAt != null && c.endsAt != null)
-                              _HeaderChip(
-                                icon: AppIcons.schedule,
-                                label:
-                                    '${_date(c.startsAt!)} – ${_date(c.endsAt!)}',
-                              ),
-                            if (c.status == CampaignStatus.active)
-                              _HeaderChip(
-                                icon: AppIcons.pending,
-                                label:
-                                    '${c.daysRemaining} day${c.daysRemaining == 1 ? '' : 's'} left',
-                              ),
                           ],
-                        ),
-                        if (c.status == CampaignStatus.rejected &&
-                            c.rejectionReason != null) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            'Reason: ${c.rejectionReason}',
-                            style: const TextStyle(color: AppTheme.errorRed),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              _StatusPill(status: c.status),
+                              const Spacer(),
+                              if (!_actionBusy) ..._actionsFor(c),
+                              if (_actionBusy)
+                                const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                            ],
                           ),
                         ],
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            _StatusPill(status: c.status),
-                            const Spacer(),
-                            if (!_actionBusy) ..._actionsFor(c),
-                            if (_actionBusy)
-                              const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // ── Results ─────────────────────────────────────────────
-                Text('Results', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 10),
-                GridView.count(
-                  crossAxisCount: 3,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 10,
-                  crossAxisSpacing: 10,
-                  childAspectRatio: 1.15,
-                  children: [
-                    _MetricTile(label: 'Views', value: '${a.impressions}', icon: AppIcons.impressions),
-                    _MetricTile(label: 'Clicks', value: '${a.clicks}', icon: AppIcons.taps),
-                    _MetricTile(
-                      label: 'CTR',
-                      value: a.impressions > 0
-                          ? '${(a.ctr * 100).toStringAsFixed(1)}%'
-                          : '—',
-                      icon: AppIcons.rate,
-                    ),
-                    _MetricTile(
-                        label: 'Profile views', value: '${a.profileViews}', icon: AppIcons.person),
-                    _MetricTile(label: 'Phone taps', value: '${a.phoneTaps}', icon: AppIcons.call),
-                    _MetricTile(label: 'Messages', value: '${a.messages}', icon: AppIcons.chat),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Where people saw you',
-                            style: Theme.of(context).textTheme.titleSmall),
-                        const SizedBox(height: 8),
-                        _PlacementRow(label: 'Discover feed', value: a.impressionsDiscover, total: a.impressions),
-                        _PlacementRow(label: 'Search results', value: a.impressionsSearch, total: a.impressions),
-                        _PlacementRow(label: 'Category pages', value: a.impressionsCategory, total: a.impressions),
-                        _PlacementRow(label: 'Nearby', value: a.impressionsNearby, total: a.impressions),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // ── Daily trend ─────────────────────────────────────────
-                if (a.daily.isNotEmpty) ...[
-                  Text('Daily views', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 10),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: _DailyTrend(daily: a.daily),
-                    ),
-                  ),
-                ] else
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Text(
-                        c.status == CampaignStatus.active
-                            ? 'Results appear here as people discover your listing.'
-                            : 'No activity recorded yet.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ),
                   ),
-                const SizedBox(height: 32),
-              ],
-            ),
-          );
-        },
+                  const SizedBox(height: 16),
+
+                  // ── Results ─────────────────────────────────────────────
+                  Text('Results', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 10),
+                  GridView.count(
+                    crossAxisCount: 3,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: 1.15,
+                    children: [
+                      _MetricTile(
+                          label: 'Views', value: '${a.impressions}', icon: AppIcons.impressions),
+                      _MetricTile(label: 'Clicks', value: '${a.clicks}', icon: AppIcons.taps),
+                      _MetricTile(
+                        label: 'CTR',
+                        value: a.impressions > 0 ? '${(a.ctr * 100).toStringAsFixed(1)}%' : '—',
+                        icon: AppIcons.rate,
+                      ),
+                      _MetricTile(
+                          label: 'Profile views',
+                          value: '${a.profileViews}',
+                          icon: AppIcons.person),
+                      _MetricTile(
+                          label: 'Phone taps', value: '${a.phoneTaps}', icon: AppIcons.call),
+                      _MetricTile(label: 'Messages', value: '${a.messages}', icon: AppIcons.chat),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Where people saw you',
+                              style: Theme.of(context).textTheme.titleSmall),
+                          const SizedBox(height: 8),
+                          _PlacementRow(
+                              label: 'Discover feed',
+                              value: a.impressionsDiscover,
+                              total: a.impressions),
+                          _PlacementRow(
+                              label: 'Search results',
+                              value: a.impressionsSearch,
+                              total: a.impressions),
+                          _PlacementRow(
+                              label: 'Category pages',
+                              value: a.impressionsCategory,
+                              total: a.impressions),
+                          _PlacementRow(
+                              label: 'Nearby', value: a.impressionsNearby, total: a.impressions),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Daily trend ─────────────────────────────────────────
+                  if (a.daily.isNotEmpty) ...[
+                    Text('Daily views', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 10),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: _DailyTrend(daily: a.daily),
+                      ),
+                    ),
+                  ] else
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Text(
+                          c.status == CampaignStatus.active
+                              ? 'Results appear here as people discover your listing.'
+                              : 'No activity recorded yet.',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 32),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -262,8 +268,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       case CampaignStatus.active:
         return [
           TextButton(
-            onPressed: () => _runAction(
-                () => PromotionService.pauseCampaign(widget.campaignId, widget.uid)),
+            onPressed: () =>
+                _runAction(() => PromotionService.pauseCampaign(widget.campaignId, widget.uid)),
             child: const Text('Pause'),
           ),
           TextButton(
@@ -275,8 +281,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       case CampaignStatus.paused:
         return [
           TextButton(
-            onPressed: () => _runAction(
-                () => PromotionService.resumeCampaign(widget.campaignId, widget.uid)),
+            onPressed: () =>
+                _runAction(() => PromotionService.resumeCampaign(widget.campaignId, widget.uid)),
             child: const Text('Resume'),
           ),
           TextButton(
@@ -299,8 +305,20 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     }
   }
 
-  static String _date(DateTime d) =>
-      '${d.day} ${const ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.month - 1]}';
+  static String _date(DateTime d) => '${d.day} ${const [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec'
+      ][d.month - 1]}';
 }
 
 class _StatusPill extends StatelessWidget {
@@ -371,8 +389,7 @@ class _MetricTile extends StatelessWidget {
           children: [
             Icon(icon, size: 18, color: AppTheme.primaryAccent),
             const SizedBox(height: 6),
-            Text(value,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
             const SizedBox(height: 2),
             Text(label,
                 style: Theme.of(context).textTheme.bodySmall,
@@ -430,8 +447,7 @@ class _DailyTrend extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final window = daily.length > 14 ? daily.sublist(daily.length - 14) : daily;
-    final maxImpressions =
-        window.fold<int>(1, (m, d) => d.impressions > m ? d.impressions : m);
+    final maxImpressions = window.fold<int>(1, (m, d) => d.impressions > m ? d.impressions : m);
     return SizedBox(
       height: 120,
       child: Row(
@@ -450,8 +466,7 @@ class _DailyTrend extends StatelessWidget {
                         height: 90.0 * (d.impressions / maxImpressions),
                         decoration: BoxDecoration(
                           color: AppTheme.primaryAccent.withValues(alpha: 0.75),
-                          borderRadius:
-                              AppRadius.pillAll,
+                          borderRadius: AppRadius.pillAll,
                         ),
                       ),
                       const SizedBox(height: 4),

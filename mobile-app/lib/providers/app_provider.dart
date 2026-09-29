@@ -1574,13 +1574,23 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     String? currentUserId, {
     String? authorUserId,
   }) async {
-    if (currentUserId == null || currentUserId.isEmpty) return false;
+    // Every failing exit below writes the slot, and it starts clear: the
+    // caller shows `postingError` as the reason, and it used to replay an
+    // older failure from an unrelated action when an early return wrote none.
+    _errors.clear(AppFeature.posting);
+    if (currentUserId == null || currentUserId.isEmpty) {
+      _errors.set(AppFeature.posting, 'Sign in to remove this post.');
+      return false;
+    }
     var authorId = authorUserId;
     if (authorId == null || authorId.isEmpty) {
       final match = _posts.where((p) => p.id == postId);
       authorId = match.isEmpty ? null : match.first.authorUserId;
     }
-    if (authorId == null || authorId != currentUserId) return false;
+    if (authorId == null || authorId != currentUserId) {
+      _errors.set(AppFeature.posting, 'Only the person who posted this can remove it.');
+      return false;
+    }
     try {
       // Soft delete / archive via the backend (policy-enforced; never hard-deletes,
       // so reviews, reputation, escrow, disputes and chat history are preserved).
@@ -1589,14 +1599,18 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       _cachePostsIfDefault();
       notifyListeners();
       return true;
-    } on JobsException catch (e) {
-      // Policy message (e.g. funds in escrow, active dispute) — surface to the user.
-      _errors.set(AppFeature.posting, e.message);
-      debugPrint('[ARCHIVE] blocked: ${e.message}');
-      return false;
     } catch (e) {
-      _errors.set(AppFeature.posting, 'Could not remove this post. Please try again.');
-      debugPrint('[ARCHIVE] error: $e');
+      // Mapped, not forwarded. The policy refusals ("Funds are currently held.
+      // Resolve or complete the job before removing it.") are the backend's
+      // own sentences and still read as written; what used to be forwarded
+      // with them was everything else in JobsException.message — a 404 naming
+      // the post's id, and the raw Node text the backend's catch-all filter
+      // puts in a 500 ("Cannot read properties of null (reading '…')").
+      _errors.set(
+        AppFeature.posting,
+        ErrorMapper.toMessage(e, context: ErrorContext.delete),
+      );
+      debugPrint('[ARCHIVE] failed: $e');
       return false;
     }
   }

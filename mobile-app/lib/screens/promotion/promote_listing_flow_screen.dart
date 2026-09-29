@@ -10,6 +10,7 @@ import '../../services/remote_config_service.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
 import '../../utils/error_mapper.dart';
+import '../../utils/mpesa_failure_copy.dart';
 
 /// The one-minute "Promote Business" flow:
 ///   Choose listing → Choose package → Review → Pay with M-Pesa → live.
@@ -124,14 +125,16 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
         postId: post.id,
         packageId: pkg.id,
       );
-      final message = await PromotionService.payCampaign(
+      // The server's reply is Daraja's CustomerMessage ("Success. Request
+      // accepted for processing") — integrator text, so it is not shown.
+      await PromotionService.payCampaign(
         campaignId: campaign.id,
         userId: widget.uid,
       );
       if (!mounted) return;
       setState(() {
         _phase = _PayPhase.awaitingPin;
-        _payMessage = message;
+        _payMessage = 'Waiting for M-Pesa to confirm your payment…';
       });
       _polls = 0;
       // Deliberately a plain Timer, not an AdaptivePoll: `_polls` counts against
@@ -146,17 +149,15 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
         tuning.pollInterval,
         (_) => _poll(campaign.id, budget: tuning.pollBudget),
       );
-    } on PromotionException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _phase = _PayPhase.failed;
-        _payMessage = ErrorMapper.toMessage(e, context: ErrorContext.payment);
-      });
     } catch (e) {
+      // A refusal ("Only open, visible listings can be promoted."), a Daraja
+      // failure, or no connection at all — each in Help24's words. The offline
+      // case used to fall to "Something went wrong", which named no cause.
+      debugPrint('[PAYMENT][PROMO] start failed: $e');
       if (!mounted) return;
       setState(() {
         _phase = _PayPhase.failed;
-        _payMessage = 'Something went wrong. Please try again.';
+        _payMessage = MpesaFailureCopy.forInitiation(e);
       });
     }
   }
@@ -186,10 +187,13 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
       }
       if (paymentStatus == 'failed') {
         _pollTimer?.cancel();
+        final reason = status['failure_reason']?.toString();
+        debugPrint('[PAYMENT][PROMO] payment failed: $reason');
         setState(() {
           _phase = _PayPhase.failed;
-          _payMessage = status['failure_reason']?.toString() ??
-              'Payment was not completed. You can try again.';
+          // failure_reason is Daraja's ResultDesc or a server fault ("[Daraja]
+          // STK push failed — HTTP 500: {…}") — read, never shown.
+          _payMessage = MpesaFailureCopy.forResult(reason);
         });
         return;
       }

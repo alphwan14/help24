@@ -30,6 +30,7 @@ import '../services/location_registry.dart';
 import '../services/recent_locations_store.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
+import '../utils/error_mapper.dart';
 
 /// Opens the picker. Resolves to the chosen location, or null if dismissed.
 ///
@@ -142,7 +143,21 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
       _locationError = null;
       _errorIsBlocked = false;
     });
-    final result = await CurrentLocationService.resolve();
+    final CurrentLocationResult result;
+    try {
+      result = await CurrentLocationService.resolve();
+    } catch (e) {
+      // resolve() reports every EXPECTED failure as a result; a platform
+      // channel throwing is the unexpected one, and used to leave this button
+      // spinning forever with nothing said.
+      debugPrint('[LOCATION] resolve failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _locating = false;
+        _locationError = ErrorMapper.toMessage(e, context: ErrorContext.location);
+      });
+      return;
+    }
     if (!mounted) return;
     if (result.isSuccess) {
       setState(() => _locating = false);

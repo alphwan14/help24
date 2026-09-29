@@ -3,6 +3,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../utils/error_mapper.dart';
+
 /// Service for handling image uploads to Supabase Storage
 /// Supports both mobile (File) and web (XFile with bytes) platforms
 class StorageService {
@@ -220,6 +222,16 @@ class StorageService {
     } catch (e) {
       debugPrint('❌ Storage upload FAILED: $e');
       if (e is StorageException) rethrow;
+      // The one cause the person can fix themselves, said in so many words.
+      // The original error is discarded below, so without this ErrorMapper
+      // could only ever answer "please try again" — verified on a device with
+      // no network, where the upload failed on a DNS lookup and the user was
+      // not told they were offline.
+      if (ErrorMapper.isConnectivityError(e)) {
+        throw StorageException(
+          "We couldn't upload your photo. Check your internet connection and try again.",
+        );
+      }
       final msg = e.toString();
       if (msg.contains('403') || msg.contains('row-level security') || msg.contains('Unauthorized')) {
         throw StorageException("We couldn't upload your photo. Please sign in again and try again.");

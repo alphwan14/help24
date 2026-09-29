@@ -168,7 +168,10 @@ Future<bool> confirmAndDeletePost(BuildContext context, PostModel post) async {
   } else {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(appProvider.postingError ?? 'Failed to delete post'),
+        // Always an ErrorMapper result or a literal — see AppProvider.deletePost.
+        content: Text(
+          appProvider.postingError ?? "We couldn't remove this post. Please try again.",
+        ),
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppTheme.errorRed,
         shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),

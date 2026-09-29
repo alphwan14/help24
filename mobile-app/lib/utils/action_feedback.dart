@@ -117,6 +117,11 @@ class ActionFeedback {
       debugPrint('[FEEDBACK] no ScaffoldMessenger for: $message');
       return;
     }
+    // Backstop for [info] and [success], which take a caller's string as
+    // written: exception text handed to them still never reaches the screen.
+    final safe = ErrorMapper.isUserSafe(message);
+    if (!safe) debugPrint('[FEEDBACK] refused to show technical text: $message');
+    final shown = safe ? message : 'Something went wrong. Please try again.';
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -125,7 +130,7 @@ class ActionFeedback {
             children: [
               Icon(icon, color: Colors.white, size: 18),
               const SizedBox(width: 10),
-              Expanded(child: Text(message)),
+              Expanded(child: Text(shown)),
             ],
           ),
           behavior: SnackBarBehavior.floating,

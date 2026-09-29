@@ -40,9 +40,10 @@ class ServiceRecordsService {
     });
 
     final response = await api.get(uri).timeout(_timeout);
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    if (response.statusCode == 200) return ServiceHistory.fromJson(json);
-    throw ServiceRecordsException(_extractMessage(json), statusCode: response.statusCode);
+    if (response.statusCode == 200) {
+      return ServiceHistory.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw _failure(response.statusCode, response.body);
   }
 
   /// The Help24 receipt for a job, or an honest reason there is not one yet.
@@ -59,9 +60,25 @@ class ServiceRecordsService {
     );
 
     final response = await api.get(uri).timeout(_timeout);
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    if (response.statusCode == 200) return ReceiptResult.fromJson(json);
-    throw ServiceRecordsException(_extractMessage(json), statusCode: response.statusCode);
+    if (response.statusCode == 200) {
+      return ReceiptResult.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw _failure(response.statusCode, response.body);
+  }
+
+  /// The exception for a non-200, always carrying its status. The body was
+  /// decoded BEFORE the status check, so a hosting proxy's HTML 502 page threw
+  /// a FormatException instead — no status, and "Unexpected character" where
+  /// "Help24 is temporarily unavailable" belonged.
+  static ServiceRecordsException _failure(int statusCode, String body) {
+    var message = 'Something went wrong. Please try again.';
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) message = _extractMessage(decoded);
+    } catch (_) {
+      // Not JSON. The status code carries the meaning.
+    }
+    return ServiceRecordsException(message, statusCode: statusCode);
   }
 
   static String _extractMessage(Map<String, dynamic> json) {

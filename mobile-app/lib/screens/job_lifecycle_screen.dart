@@ -561,7 +561,13 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
 
   int _disputeStageIndex(String status) {
     if (_isResolved(status)) return 2;
-    if (status == 'reviewing' || status == 'under_review' || status == 'escalated' || status == 'awaiting_evidence') {
+    // The backend's evidence stages are awaiting_client_evidence,
+    // awaiting_provider_evidence and awaiting_admin_review — there is no bare
+    // "awaiting_evidence", so a dispute waiting on evidence sat at stage 0.
+    if (status == 'reviewing' ||
+        status == 'under_review' ||
+        status == 'escalated' ||
+        status.startsWith('awaiting')) {
       return 1;
     }
     return 0; // open / submitted
@@ -581,11 +587,19 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       case 'under_review':
         return 'Under Review';
       case 'awaiting_evidence':
+      case 'awaiting_client_evidence':
+      case 'awaiting_provider_evidence':
         return 'Awaiting Evidence';
+      case 'awaiting_admin_review':
+        return 'Under Review';
       case 'escalated':
         return 'Escalated';
+      case 'merged':
+        return 'Merged';
       default:
-        return _isResolved(status) ? 'Resolved' : status;
+        // A status this build does not know is a server value, not a label —
+        // it used to be shown as-is ("awaiting_client_evidence").
+        return _isResolved(status) ? 'Resolved' : 'In progress';
     }
   }
 

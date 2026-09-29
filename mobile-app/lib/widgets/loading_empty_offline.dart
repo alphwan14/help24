@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
+import '../utils/error_mapper.dart';
 
 /// Consistent loading view (spinner + message). Use when data is being fetched.
 class LoadingView extends StatelessWidget {
@@ -117,22 +118,66 @@ class EmptyStateView extends StatelessWidget {
 /// The FAILURE state of the universal load contract: Loading → Success | Empty
 /// | Failure→Retry. Distinct from [EmptyStateView] on purpose — "we couldn't
 /// load this" must never be rendered as "there's nothing here", because the two
-/// call for different user actions (retry vs. nothing to do). Pair the [message]
-/// with an [ErrorMapper]-produced string so it is always human, never technical.
+/// call for different user actions (retry vs. nothing to do).
+///
+/// Prefer [ErrorRetryView.fromError]: it takes the RAW error and maps it here,
+/// so a failure view cannot be built from exception text by mistake. That is
+/// the exact mistake Promote Business made — `'${snap.error}'` handed to a
+/// view like this one put "ClientException with SocketException: Failed host
+/// lookup: 'api.help24.co.ke'" on a user's screen. The plain constructor is
+/// for copy that is already human (an [ErrorMapper] result, or a literal).
 class ErrorRetryView extends StatelessWidget {
   final String message;
   final VoidCallback? onRetry;
   final IconData icon;
+
+  /// Headline above [message].
+  final String title;
 
   const ErrorRetryView({
     super.key,
     required this.message,
     this.onRetry,
     this.icon = AppIcons.warning,
+    this.title = "We couldn't load this",
   });
+
+  /// The failure view for a raw [error] — a caught exception, a FutureBuilder's
+  /// `snapshot.error`, a stream's error. Maps through [ErrorMapper], so the
+  /// user reads "You're offline / Check your internet connection and try
+  /// again." rather than the exception, and the icon follows the failure:
+  /// offline, Help24 unavailable, or a general warning.
+  factory ErrorRetryView.fromError(
+    Object? error, {
+    Key? key,
+    ErrorContext context = ErrorContext.loadContent,
+    StackTrace? stackTrace,
+    VoidCallback? onRetry,
+  }) {
+    final failure =
+        ErrorMapper.toFailure(error, context: context, stackTrace: stackTrace);
+    return ErrorRetryView(
+      key: key,
+      // A connectivity or availability failure has a headline more useful
+      // than "we couldn't load this" — it says WHY, and what will fix it.
+      title: failure.isRetryable ? failure.title : "We couldn't load this",
+      message: failure.body,
+      icon: failure.isOffline
+          ? AppIcons.offline
+          : failure.category == ErrorCategory.serverUnavailable
+              ? AppIcons.unreachable
+              : AppIcons.warning,
+      onRetry: onRetry,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Defence in depth: a caller that hands this view raw exception text still
+    // does not get it on screen. The mapper is the rule; this is the backstop.
+    final shown = ErrorMapper.isUserSafe(message)
+        ? message
+        : 'Something went wrong. Please try again.';
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -146,7 +191,7 @@ class ErrorRetryView extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text(
-              "We couldn't load this",
+              title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: AppColors.of(context).contentSecondary,
                   ),
@@ -154,7 +199,7 @@ class ErrorRetryView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              message,
+              shown,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppColors.of(context).contentTertiary,
                   ),
