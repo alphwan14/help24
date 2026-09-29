@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 
@@ -128,9 +129,16 @@ function LoginForm() {
       <div className="w-full max-w-sm">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/10 mb-4">
-            <span className="text-2xl font-bold text-rail-50">H</span>
-          </div>
+          {/* The mark carries its own squircle, so it sits on the page with no
+              plate — same as the sidebar. */}
+          <Image
+            src="/help24.png"
+            alt="Help24 logo"
+            width={56}
+            height={56}
+            className="w-14 h-14 mx-auto mb-4"
+            priority
+          />
           <h1 className="text-2xl font-bold text-rail-50">Help24 Admin</h1>
           <p className="text-rail-200 text-sm mt-1">
             {resetMode ? "Reset your password" : "Sign in to the operations console"}
