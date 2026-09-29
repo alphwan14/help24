@@ -178,6 +178,18 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// that reverts on the next feed load and re-invites a duplicate.
   Set<String> _appliedPostIds = {};
 
+  /// Posts the current user archived (deleted) this session.
+  ///
+  /// Screens that hold their OWN copy of a post list — My Posts loads the
+  /// author's history once into its own future — filter these out, so a
+  /// delete made anywhere (the post's detail screen, Discover) leaves every
+  /// list at once instead of lingering until a pull-to-refresh. Replaced, never
+  /// mutated, so `context.select` sees each change.
+  Set<String> _archivedPostIds = const {};
+
+  /// See [_archivedPostIds].
+  Set<String> get archivedPostIds => _archivedPostIds;
+
   // Getters
   /// The user's theme choice (Device Default / Light / Dark).
   ThemePreference get themePreference => _themePreference;
@@ -477,6 +489,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _isLoadingConversations = false;
     _loadingMoreConversations = false;
     _appliedPostIds = {};
+    _archivedPostIds = const {};
     _activeChatId = null;
     _warmedAvatarUrls.clear();
     _errors.clearAll();
@@ -1601,6 +1614,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // Soft delete / archive via the backend (policy-enforced; never hard-deletes,
       // so reviews, reputation, escrow, disputes and chat history are preserved).
       await JobsService.archivePost(postId: postId, userId: currentUserId);
+      _archivedPostIds = {..._archivedPostIds, postId};
       _splice((posts) => posts.removeWhere((p) => p.id == postId));
       _cachePostsIfDefault();
       notifyListeners();

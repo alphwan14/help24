@@ -113,6 +113,33 @@ class CurrentLocationResult {
           "We couldn't get your location. Please try again.",
         null => '',
       };
+
+  /// Whether this refresh outcome still describes the device as it is NOW —
+  /// so a screen can drop its message the moment the message stops being true,
+  /// instead of leaving "Turn on location services" under a header that
+  /// already says location is on.
+  ///
+  /// Each outcome lapses when the thing it named is resolved: a switched-off
+  /// toggle when it is back on, a permission when it is granted, the internet
+  /// message ([wasOffline]) when the connection returns, and a success when
+  /// location is no longer on. A GPS failure while online names nothing the
+  /// app can observe being fixed, so it stands until the next attempt.
+  bool stillApplies({
+    required bool locationOn,
+    required bool serviceEnabled,
+    required bool permissionGranted,
+    required bool offlineNow,
+    required bool wasOffline,
+  }) =>
+      switch (failure) {
+        null => locationOn,
+        CurrentLocationFailure.serviceDisabled => !serviceEnabled,
+        CurrentLocationFailure.permissionDenied ||
+        CurrentLocationFailure.permissionBlocked =>
+          !permissionGranted,
+        _ when wasOffline => offlineNow,
+        _ => true,
+      };
 }
 
 /// Turns a GPS fix into a named, postable location.

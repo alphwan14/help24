@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:help24/models/post_model.dart';
 import 'package:help24/screens/my_posts_screen.dart';
@@ -140,6 +142,44 @@ void main() {
     test('it returns the same instances, so tapping opens the real post', () {
       final found = searchAuthoredPosts(corpus, 'Kitchen');
       expect(found.single, same(corpus[3]));
+    });
+  });
+
+  group('a deleted post leaves the list without a refresh', () {
+    // My Posts loads the author's history ONCE into its own future. A delete
+    // used to leave the post listed until a pull-to-refresh; AppProvider now
+    // publishes what was archived and the screen filters it out.
+    test('an archived post is removed, the rest keep their order', () {
+      final left = withoutArchived(corpus, {'Kitchen', 'Mechanic wa EV Cars'});
+      expect(titles(left), [
+        'Pin gate test',
+        'Am an experienced welder based in Mombasa',
+        'Looking for a Ceiling Painter',
+      ]);
+      expect(left.first, same(corpus.first));
+    });
+
+    test('nothing archived is the identity, so no copy per rebuild', () {
+      expect(withoutArchived(corpus, const {}), same(corpus));
+    });
+
+    test('an id not in the list changes nothing', () {
+      expect(titles(withoutArchived(corpus, {'someone-elses-post'})), titles(corpus));
+    });
+
+    test('deleting the last post leaves an empty list, not a stale card', () {
+      expect(withoutArchived([corpus.first], {corpus.first.id}), isEmpty);
+    });
+
+    test('the screen filters against the provider, and the provider publishes', () {
+      final screen = File('lib/screens/my_posts_screen.dart').readAsStringSync();
+      expect(screen.contains('p.archivedPostIds'), isTrue);
+      expect(screen.contains('withoutArchived(snap.data'), isTrue);
+      final provider = File('lib/providers/app_provider.dart').readAsStringSync();
+      expect(provider.contains('_archivedPostIds = {..._archivedPostIds, postId};'), isTrue,
+          reason: 'deletePost must publish the id by replacing the set');
+      expect(provider.contains('_archivedPostIds = const {};'), isTrue,
+          reason: "sign-out must not carry one account's deletions into the next");
     });
   });
 }

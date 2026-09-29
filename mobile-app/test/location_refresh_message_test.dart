@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:help24/models/place.dart';
 import 'package:help24/services/current_location_service.dart';
 
 /// REFRESHING A LOCATION SAYS WHY IT FAILED.
@@ -65,6 +66,75 @@ void main() {
         expect(m, isNot('Could not get location. Try again.'));
       }
     }
+  });
+
+  group('a message lapses when what it said stops being true', () {
+    bool applies(
+      CurrentLocationResult r, {
+      bool locationOn = true,
+      bool serviceEnabled = true,
+      bool permissionGranted = true,
+      bool offlineNow = false,
+      bool wasOffline = false,
+    }) =>
+        r.stillApplies(
+          locationOn: locationOn,
+          serviceEnabled: serviceEnabled,
+          permissionGranted: permissionGranted,
+          offlineNow: offlineNow,
+          wasOffline: wasOffline,
+        );
+    CurrentLocationResult failed(CurrentLocationFailure f) => CurrentLocationResult.failed(f);
+
+    test('"turn on location services" goes once location is back on', () {
+      // The reported case: header said "Location Enabled", this line stayed.
+      final r = failed(CurrentLocationFailure.serviceDisabled);
+      expect(applies(r, serviceEnabled: false, locationOn: false), isTrue);
+      expect(applies(r, serviceEnabled: true), isFalse);
+    });
+
+    test('a permission message goes once permission is granted', () {
+      for (final f in [
+        CurrentLocationFailure.permissionDenied,
+        CurrentLocationFailure.permissionBlocked,
+      ]) {
+        expect(applies(failed(f), permissionGranted: false), isTrue, reason: f.name);
+        expect(applies(failed(f), permissionGranted: true), isFalse, reason: f.name);
+      }
+    });
+
+    test('the internet message goes once the connection returns', () {
+      for (final f in [
+        CurrentLocationFailure.noFix,
+        CurrentLocationFailure.lowAccuracy,
+        CurrentLocationFailure.unnamed,
+      ]) {
+        expect(applies(failed(f), wasOffline: true, offlineNow: true), isTrue, reason: f.name);
+        expect(applies(failed(f), wasOffline: true, offlineNow: false), isFalse, reason: f.name);
+      }
+    });
+
+    test('a GPS failure while online stands until the next attempt', () {
+      final r = failed(CurrentLocationFailure.noFix);
+      expect(applies(r, offlineNow: false), isTrue);
+      expect(applies(r, offlineNow: true), isTrue);
+    });
+
+    test('"Location updated." goes if location is switched off', () {
+      const r = CurrentLocationResult.success(
+          LocationSelection(label: 'Nairobi', cityName: 'Nairobi'));
+      expect(applies(r, locationOn: true), isTrue);
+      expect(applies(r, locationOn: false), isFalse);
+    });
+
+    test('the sheet listens for the change and unhooks on dispose', () {
+      final src = File('lib/screens/profile_screen.dart').readAsStringSync();
+      expect(src.contains('_location.addListener(_dropStaleFeedback);'), isTrue);
+      expect(src.contains('_connectivity.addListener(_dropStaleFeedback);'), isTrue);
+      expect(src.contains('_location.removeListener(_dropStaleFeedback);'), isTrue);
+      expect(src.contains('_connectivity.removeListener(_dropStaleFeedback);'), isTrue);
+      expect(src.contains('result.stillApplies('), isTrue);
+    });
   });
 
   test('the refresh sheet uses the reason, and colours success explicitly', () {

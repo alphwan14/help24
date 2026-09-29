@@ -22,6 +22,7 @@ import '../providers/locale_provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../providers/location_provider.dart';
 import '../services/account_status_service.dart';
+import '../services/current_location_service.dart' show CurrentLocationResult;
 import '../services/notification_service.dart';
 import '../services/notification_toggle_state.dart';
 import '../services/payout_authority.dart';
@@ -1621,23 +1622,77 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
   /// ever contained that word would have been painted as a success.
   bool _feedbackOk = false;
 
+  /// The outcome [_feedback] describes, and whether the device was offline
+  /// then — kept so the message is dropped the moment it stops being true.
+  /// Without it the header flipped to "Location Enabled" the instant location
+  /// came back on, while "Turn on location services and try again." stayed
+  /// underneath until the next refresh (seen on a device).
+  CurrentLocationResult? _lastResult;
+  bool _lastOffline = false;
+
+  // Captured in initState rather than read in dispose(): the element is
+  // defunct by then (test/dispose_safety_test.dart).
+  late final LocationProvider _location;
+  late final ConnectivityProvider _connectivity;
+
+  @override
+  void initState() {
+    super.initState();
+    _location = context.read<LocationProvider>();
+    _connectivity = context.read<ConnectivityProvider>();
+    _location.addListener(_dropStaleFeedback);
+    _connectivity.addListener(_dropStaleFeedback);
+  }
+
+  @override
+  void dispose() {
+    _location.removeListener(_dropStaleFeedback);
+    _connectivity.removeListener(_dropStaleFeedback);
+    super.dispose();
+  }
+
+  /// Clear the message once what it said no longer holds — location turned
+  /// back on, permission granted, the connection restored. See
+  /// CurrentLocationResult.stillApplies.
+  void _dropStaleFeedback() {
+    if (!mounted || _refreshing || _feedback == null) return;
+    final result = _lastResult;
+    final stillTrue = result != null
+        ? result.stillApplies(
+            locationOn: _location.isLocationOn,
+            serviceEnabled: _location.serviceEnabled,
+            permissionGranted: _location.isGranted,
+            offlineNow: _connectivity.isOffline,
+            wasOffline: _lastOffline,
+          )
+        // A thrown error: only a connection problem has a resolution the
+        // app can see happen.
+        : !(_lastOffline && !_connectivity.isOffline);
+    if (stillTrue) return;
+    setState(() {
+      _feedback = null;
+      _lastResult = null;
+    });
+  }
+
   Future<void> _refreshLocation() async {
     setState(() {
       _refreshing = true;
       _feedback = null;
+      _lastResult = null;
     });
     try {
-      final result = await context
-          .read<LocationProvider>()
-          .captureCurrentLocation(widget.userId);
+      final result = await _location.captureCurrentLocation(widget.userId);
       if (!mounted) return;
       final ok = result.isSuccess;
-      final offline = context.read<ConnectivityProvider>().isOffline;
+      final offline = _connectivity.isOffline;
       setState(() {
         // Why it failed, not one sentence for every cause — see
         // CurrentLocationResult.refreshMessage.
         _feedback = ok ? 'Location updated.' : result.refreshMessage(offline: offline);
         _feedbackOk = ok;
+        _lastResult = result;
+        _lastOffline = offline;
       });
       if (ok) {
         // New coordinates → the distance signal has something better to work
@@ -1657,6 +1712,8 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
         setState(() {
           _feedback = ErrorMapper.toMessage(e, context: ErrorContext.location);
           _feedbackOk = false;
+          _lastResult = null;
+          _lastOffline = ErrorMapper.isConnectivityError(e);
         });
       }
     } finally {

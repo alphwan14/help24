@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import '../theme/app_icons.dart';
 
+import 'package:provider/provider.dart';
+
 import '../models/post_model.dart';
+import '../providers/app_provider.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
@@ -88,6 +91,8 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
   }
 
   Widget _body(BuildContext context) {
+    // Rebuilds only when a post is archived — the set is replaced, not mutated.
+    final archived = context.select<AppProvider, Set<String>>((p) => p.archivedPostIds);
     return FutureBuilder<List<PostModel>>(
         future: _future,
         builder: (context, snap) {
@@ -116,7 +121,7 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
               ),
             );
           }
-          final posts = snap.data ?? const <PostModel>[];
+          final posts = withoutArchived(snap.data ?? const <PostModel>[], archived);
           // Nothing authored yet is a different situation from "nothing
           // matches", and it gets the empty state rather than a search box over
           // an empty list.
@@ -252,6 +257,18 @@ class _NoMatches extends StatelessWidget {
       ],
     );
   }
+}
+
+/// [posts] without the ones archived this session ([AppProvider.archivedPostIds]).
+///
+/// This screen loads the author's history ONCE into its own future, so a post
+/// deleted from its detail screen used to stay listed until a pull-to-refresh
+/// fetched the list again. Filtering against what AppProvider knows was deleted
+/// removes it the moment the delete succeeds, from any entry point, with no
+/// reload and no skeleton flash. Returns [posts] itself when nothing applies.
+List<PostModel> withoutArchived(List<PostModel> posts, Set<String> archived) {
+  if (archived.isEmpty) return posts;
+  return posts.where((p) => !archived.contains(p.id)).toList();
 }
 
 /// Filter an author's own posts by [query], matching TITLE or PROFESSION.
