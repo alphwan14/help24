@@ -1504,7 +1504,10 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       notifyListeners();
       return createdPost;
     } catch (e) {
-      _errors.set(AppFeature.posting, ErrorMapper.toMessage(e, context: ErrorContext.save));
+      _errors.set(
+        AppFeature.posting,
+        ErrorMapper.toMessage(e, context: post.type.newPostErrorContext),
+      );
       debugPrint('[AppProvider] createPost failed: $e');
       return null;
     } finally {
@@ -1540,7 +1543,10 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       notifyListeners();
       return createdJob;
     } catch (e) {
-      _errors.set(AppFeature.posting, ErrorMapper.toMessage(e, context: ErrorContext.save));
+      _errors.set(
+        AppFeature.posting,
+        ErrorMapper.toMessage(e, context: ErrorContext.createJob),
+      );
       debugPrint('[AppProvider] createJob failed: $e');
       return null;
     } finally {

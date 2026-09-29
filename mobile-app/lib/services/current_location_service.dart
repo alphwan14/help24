@@ -79,6 +79,40 @@ class CurrentLocationResult {
           "We got your position but couldn't name it. Pick the closest town below.",
         null => '',
       };
+
+  /// The same outcome for REFRESHING a stored location (Profile → Location),
+  /// where there is no town list to fall back on and [offline] is known.
+  ///
+  /// Only a failure to FIX or NAME the position becomes an internet message,
+  /// and only while offline. Permission and the device toggle are checked
+  /// before any fix is attempted, so they keep their own remedies even with no
+  /// network. A missing fix while offline IS the connection's doing: without
+  /// Wi-Fi or mobile data Android loses network-assisted positioning, and
+  /// indoors GPS alone rarely arrives in time — seen on a device in airplane
+  /// mode, where every other cause was ruled out. Reconnecting is the remedy
+  /// that works; "move to an open area" is the one that would not.
+  String refreshMessage({required bool offline}) => switch (failure) {
+        CurrentLocationFailure.permissionDenied =>
+          'Location permission is needed to update your location.',
+        CurrentLocationFailure.permissionBlocked =>
+          "Location is blocked for Help24. Allow it in your phone's Settings "
+              'to update your location.',
+        CurrentLocationFailure.serviceDisabled =>
+          'Turn on location services and try again.',
+        CurrentLocationFailure.noFix ||
+        CurrentLocationFailure.lowAccuracy ||
+        CurrentLocationFailure.unnamed when offline =>
+          "We couldn't update your location. Check your internet connection "
+              'and try again.',
+        CurrentLocationFailure.noFix =>
+          "We couldn't get your location. Move to an open area and try again.",
+        CurrentLocationFailure.lowAccuracy =>
+          "Your location isn't precise enough yet. Move to an open area and "
+              'try again.',
+        CurrentLocationFailure.unnamed =>
+          "We couldn't get your location. Please try again.",
+        null => '',
+      };
 }
 
 /// Turns a GPS fix into a named, postable location.

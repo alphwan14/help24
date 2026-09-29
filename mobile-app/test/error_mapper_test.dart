@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:help24/models/post_model.dart' show PostType;
 import 'package:help24/models/promotion_models.dart';
 import 'package:help24/providers/connectivity_provider.dart';
 import 'package:help24/screens/promotion/promote_business_screen.dart';
@@ -437,6 +438,59 @@ void main() {
       );
       expect(f.category, ErrorCategory.networkOffline);
       expect(f.message, "We couldn't save your changes. Check your internet connection and try again.");
+    });
+  });
+
+  group('publishing a new listing names what was being posted', () {
+    test('offline: request, offer and job each say which one', () {
+      expect(
+        ErrorMapper.toMessage(_productionError(),
+            context: PostType.request.newPostErrorContext),
+        "We couldn't post your request. Check your internet connection and try again.",
+      );
+      expect(
+        ErrorMapper.toMessage(_productionError(), context: PostType.offer.newPostErrorContext),
+        "We couldn't post your offer. Check your internet connection and try again.",
+      );
+      expect(
+        ErrorMapper.toMessage(_productionError(), context: PostType.job.newPostErrorContext),
+        "We couldn't post your job. Check your internet connection and try again.",
+      );
+    });
+
+    test('never "save your changes" for something that did not exist yet', () {
+      for (final type in PostType.values) {
+        for (final error in [_productionError(), Object(), _ApiError('x', 503)]) {
+          final message =
+              ErrorMapper.toMessage(error, context: type.newPostErrorContext);
+          expect(message.toLowerCase(), isNot(contains('save your changes')),
+              reason: '$type / $error');
+        }
+      }
+      expect(ErrorMapper.toMessage(Object(), context: ErrorContext.createOffer),
+          "We couldn't post your offer. Please try again.");
+    });
+
+    test('an edit still says "save your changes"', () {
+      expect(ErrorMapper.toMessage(_productionError(), context: ErrorContext.save),
+          "We couldn't save your changes. Check your internet connection and try again.");
+    });
+
+    test('the posting slot round-trips: AppProvider maps, PostScreen re-maps', () {
+      // AppProvider stores the mapped sentence; PostScreen re-throws it as
+      // Exception(message) and maps again — the wording must survive.
+      final stored =
+          ErrorMapper.toMessage(_productionError(), context: ErrorContext.createOffer);
+      expect(
+          ErrorMapper.toMessage(Exception(stored), context: ErrorContext.createOffer), stored);
+    });
+
+    test('the post screen and AppProvider both use the type\'s context', () {
+      final screen = File('lib/screens/post_screen.dart').readAsStringSync();
+      final provider = File('lib/providers/app_provider.dart').readAsStringSync();
+      expect(screen.contains('.newPostErrorContext'), isTrue);
+      expect(provider.contains('post.type.newPostErrorContext'), isTrue);
+      expect(provider.contains('context: ErrorContext.createJob'), isTrue);
     });
   });
 

@@ -233,13 +233,20 @@ class LocationProvider extends ChangeNotifier {
   /// like a working feed.
   Future<bool> captureAndStoreCurrentLocation(String uid) async {
     if (uid.isEmpty) return false;
+    return (await captureCurrentLocation(uid)).isSuccess;
+  }
+
+  /// [captureAndStoreCurrentLocation] with the REASON when it fails, so a
+  /// screen can tell permission, the device toggle and a missing fix apart
+  /// instead of answering all of them with one sentence.
+  Future<CurrentLocationResult> captureCurrentLocation(String uid) async {
     final result = await CurrentLocationService.resolve(requestPermission: false);
     if (!result.isSuccess) {
       debugPrint('[LOCATION] capture failed: ${result.failure?.name}');
-      return false;
+      return result;
     }
-    await _store(uid, result.selection!);
-    return true;
+    if (uid.isNotEmpty) await _store(uid, result.selection!);
+    return result;
   }
 
   /// Refresh the stored position only if it has gone stale.

@@ -24,6 +24,7 @@ import '../utils/format_utils.dart';
 import '../widgets/primitives.dart';
 import '../widgets/location_experience.dart';
 import '../widgets/location_picker.dart';
+import '../widgets/post_preview_card.dart';
 import '../widgets/schema_question_flow.dart';
 import 'place_picker_screen.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
@@ -1788,6 +1789,66 @@ class _PostScreenState extends State<PostScreen> {
     );
   }
 
+  /// The photo header of the preview card — sized here, clipped to the card's
+  /// corners by [PostPreviewCard] itself.
+  Widget _buildPreviewMedia() {
+    return SizedBox(
+      height: 160,
+      width: double.infinity,
+      child: _selectedImages.length == 1
+          ? _buildImagePreview(_selectedImages[0])
+          : Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: double.infinity,
+                    child: _buildImagePreview(_selectedImages[0]),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: _buildImagePreview(_selectedImages[1]),
+                        ),
+                      ),
+                      if (_selectedImages.length > 2) ...[
+                        const SizedBox(height: 2),
+                        Expanded(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              _buildImagePreview(_selectedImages[2]),
+                              if (_selectedImages.length > 3)
+                                Container(
+                                  color: Colors.black54,
+                                  child: Center(
+                                    child: Text(
+                                      '+${_selectedImages.length - 3}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
   Widget _buildPreviewStep() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final price = _effectivePrice;
@@ -1802,234 +1863,42 @@ class _PostScreenState extends State<PostScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Preview Card
-        Container(
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: AppRadius.pillAll,
-            border: Border.all(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+        // The card's geometry and containment live in PostPreviewCard (it was
+        // a capsule-radius oval here); this screen only decides what it says.
+        PostPreviewCard(
+          media: _selectedImages.isEmpty ? null : _buildPreviewMedia(),
+          icon: _selectedCategory?.icon ?? AppIcons.category,
+          typeLabel: _getTypeDisplayLabel(),
+          typeColor: _getTypeBadgeColor(),
+          categoryName: _selectedCategory?.name,
+          title: _titleController.text,
+          description: _descriptionController.text,
+          tags: [
+            // No place, no tag — never an icon beside nothing.
+            if (_hasLocation) PreviewTag(icon: AppIcons.location, text: location),
+            PreviewTag(
+              icon: AppIcons.price,
+              text: _isRequestFlow
+                  ? (price <= 0
+                      ? 'Budget · Open to offers'
+                      : 'Budget · ${formatPriceDisplay(price)}')
+                  : _isOfferFlow
+                      ? 'From ${formatPriceDisplay(price)} · ${_selectedPricingType.displayLabel}'
+                      : '${formatPriceDisplay(price)} · ${_selectedPricingType.displayLabel}',
             ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Images preview (only if images exist)
-              if (_selectedImages.isNotEmpty)
-                ClipRRect(
-                  borderRadius: AppRadius.sheetTop,
-                  child: SizedBox(
-                    height: 160,
-                    width: double.infinity,
-                    child: _selectedImages.length == 1
-                        ? _buildImagePreview(_selectedImages[0])
-                        : Row(
-                            children: [
-                              Expanded(
-                                flex: 2,
-                                child: SizedBox(
-                                  height: double.infinity,
-                                  child: _buildImagePreview(_selectedImages[0]),
-                                ),
-                              ),
-                              const SizedBox(width: 2),
-                              Expanded(
-                                child: Column(
-                                  children: [
-                                    Expanded(
-                                      child: SizedBox(
-                                        width: double.infinity,
-                                        child: _buildImagePreview(_selectedImages[1]),
-                                      ),
-                                    ),
-                                    if (_selectedImages.length > 2) ...[
-                                      const SizedBox(height: 2),
-                                      Expanded(
-                                        child: Stack(
-                                          fit: StackFit.expand,
-                                          children: [
-                                            _buildImagePreview(_selectedImages[2]),
-                                            if (_selectedImages.length > 3)
-                                              Container(
-                                                color: Colors.black54,
-                                                child: Center(
-                                                  child: Text(
-                                                    '+${_selectedImages.length - 3}',
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontWeight: FontWeight.bold,
-                                                      fontSize: 18,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                  ),
-                ),
-              
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryAccent.withValues(alpha: 0.12),
-                            borderRadius: AppRadius.mdAll,
-                          ),
-                          child: Icon(
-                            _selectedCategory?.icon ?? AppIcons.category,
-                            color: AppTheme.primaryAccent,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: _getTypeBadgeColor().withValues(alpha: 0.15),
-                                      borderRadius: AppRadius.smAll,
-                                    ),
-                                    child: Text(
-                                      _getTypeDisplayLabel(),
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: _getTypeBadgeColor(),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  if (_selectedCategory != null)
-                                    Text(
-                                      _selectedCategory!.name,
-                                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                                        color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                _titleController.text,
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _descriptionController.text,
-                                style: Theme.of(context).textTheme.bodyMedium,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        _PreviewChip(
-                          icon: AppIcons.location,
-                          text: location,
-                        ),
-                        _PreviewChip(
-                          icon: AppIcons.price,
-                          text: _isRequestFlow
-                              ? (price <= 0
-                                  ? 'Budget · Open to offers'
-                                  : 'Budget · ${formatPriceDisplay(price)}')
-                              : _isOfferFlow
-                                  ? 'From ${formatPriceDisplay(price)} · ${_selectedPricingType.displayLabel}'
-                                  : '${formatPriceDisplay(price)} · ${_selectedPricingType.displayLabel}',
-                        ),
-                        if (_isOfferFlow && _availability != null)
-                          _PreviewChip(
-                            icon: AppIcons.pending,
-                            text: _availability!.label,
-                          ),
-                        if (_isJobFlow && _start != null)
-                          _PreviewChip(
-                            icon: AppIcons.schedule,
-                            text: 'Starts: ${_start!.label}',
-                          ),
-                        if (_selectedType == PostType.job && _selectedEmploymentType != null)
-                          _PreviewChip(
-                            icon: AppIcons.jobs,
-                            text: _selectedEmploymentType!.displayLabel,
-                          ),
-                        // Urgency is a request concept — offers show
-                        // availability, jobs show a start date.
-                        if (_isRequestFlow)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: _getUrgencyColor().withValues(alpha: 0.15),
-                              borderRadius: AppRadius.pillAll,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: _getUrgencyColor(),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 5),
-                                Text(
-                                  _getUrgencyText(),
-                                  style: TextStyle(
-                                    color: _getUrgencyColor(),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                    // Smart Posting: collected answers, labeled from the schema.
-                    if (_attributeSummary().isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final entry in _attributeSummary())
-                            _PreviewChip(icon: AppIcons.success, text: entry),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
+            if (_isOfferFlow && _availability != null)
+              PreviewTag(icon: AppIcons.pending, text: _availability!.label),
+            if (_isJobFlow && _start != null)
+              PreviewTag(icon: AppIcons.schedule, text: 'Starts: ${_start!.label}'),
+            if (_selectedType == PostType.job && _selectedEmploymentType != null)
+              PreviewTag(icon: AppIcons.jobs, text: _selectedEmploymentType!.displayLabel),
+            // Urgency is a request concept — offers show availability, jobs
+            // show a start date.
+            if (_isRequestFlow)
+              PreviewTag(text: _getUrgencyText(), accent: _getUrgencyColor()),
+          ],
+          // Smart Posting: collected answers, labeled from the schema.
+          attributes: _attributeSummary(),
         ),
 
         const SizedBox(height: 32),
@@ -2346,7 +2215,13 @@ class _PostScreenState extends State<PostScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    ErrorMapper.toMessage(e, context: ErrorContext.save),
+                    // Named for what was being published — "We couldn't post
+                    // your offer…" — never "save your changes" for a listing
+                    // that did not exist yet.
+                    ErrorMapper.toMessage(
+                      e,
+                      context: (_selectedType ?? PostType.request).newPostErrorContext,
+                    ),
                   ),
                 ),
               ],
@@ -2468,46 +2343,6 @@ class _TypeCard extends StatelessWidget {
               ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _PreviewChip extends StatelessWidget {
-  final IconData icon;
-  final String text;
-
-  const _PreviewChip({
-    required this.icon,
-    required this.text,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.darkSurface : AppTheme.lightBackground,
-        borderRadius: AppRadius.pillAll,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 12,
-                color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
       ),
     );
   }

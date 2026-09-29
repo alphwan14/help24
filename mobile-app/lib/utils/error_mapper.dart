@@ -9,6 +9,7 @@ import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart'
     show AuthException, FunctionException, PostgrestException, StorageException;
 
+import '../models/post_model.dart' show PostType;
 import '../services/auth_service.dart' show ProfileUnavailableException;
 import 'auth_error_mapper.dart';
 
@@ -133,6 +134,24 @@ enum ErrorContext {
 
   /// Removing something the user owns — a post, a listing.
   delete,
+
+  /// Publishing a NEW listing, by type. Distinct from [save]: "We couldn't
+  /// save your changes" is the sentence for an edit, and read wrong to
+  /// someone who had just tapped "Post Now" on something that did not exist
+  /// yet (seen on a device, offline). Choose with [ErrorContextForNewPost].
+  createRequest,
+  createOffer,
+  createJob,
+}
+
+/// The [ErrorContext] for publishing a new listing of this type — one mapping,
+/// shared by the post screen and AppProvider so their wording cannot drift.
+extension ErrorContextForNewPost on PostType {
+  ErrorContext get newPostErrorContext => switch (this) {
+        PostType.request => ErrorContext.createRequest,
+        PostType.offer => ErrorContext.createOffer,
+        PostType.job => ErrorContext.createJob,
+      };
 }
 
 /// The single production-grade translation layer between raw failures and the
@@ -881,6 +900,9 @@ class ErrorMapper {
         ErrorContext.sendMessage => "Your message couldn't be sent. $_checkConnection",
         ErrorContext.location => "We couldn't find your location. $_checkConnection",
         ErrorContext.delete => "We couldn't remove this. $_checkConnection",
+        ErrorContext.createRequest => "We couldn't post your request. $_checkConnection",
+        ErrorContext.createOffer => "We couldn't post your offer. $_checkConnection",
+        ErrorContext.createJob => "We couldn't post your job. $_checkConnection",
         _ => "You're offline. $_checkConnection",
       };
 
@@ -919,7 +941,10 @@ class ErrorMapper {
         ErrorContext.apply ||
         ErrorContext.payment ||
         ErrorContext.auth ||
-        ErrorContext.sendMessage =>
+        ErrorContext.sendMessage ||
+        ErrorContext.createRequest ||
+        ErrorContext.createOffer ||
+        ErrorContext.createJob =>
           _validation,
         _ => _fallback(context, ErrorCategory.validation),
       };
@@ -1038,6 +1063,24 @@ class ErrorMapper {
         return AppFailure(
           title: "We couldn't remove that",
           message: "We couldn't remove this. Please try again.",
+          category: c,
+        );
+      case ErrorContext.createRequest:
+        return AppFailure(
+          title: "We couldn't post that",
+          message: "We couldn't post your request. Please try again.",
+          category: c,
+        );
+      case ErrorContext.createOffer:
+        return AppFailure(
+          title: "We couldn't post that",
+          message: "We couldn't post your offer. Please try again.",
+          category: c,
+        );
+      case ErrorContext.createJob:
+        return AppFailure(
+          title: "We couldn't post that",
+          message: "We couldn't post your job. Please try again.",
           category: c,
         );
       case ErrorContext.generic:

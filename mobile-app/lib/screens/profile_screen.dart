@@ -19,6 +19,7 @@ import '../models/user_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
+import '../providers/connectivity_provider.dart';
 import '../providers/location_provider.dart';
 import '../services/account_status_service.dart';
 import '../services/notification_service.dart';
@@ -1615,18 +1616,28 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
   bool _disabling = false;
   String? _feedback;
 
+  /// Whether [_feedback] reports success. Explicit: the colour used to be
+  /// chosen by `_feedback.contains('updated')`, so a failure sentence that
+  /// ever contained that word would have been painted as a success.
+  bool _feedbackOk = false;
+
   Future<void> _refreshLocation() async {
     setState(() {
       _refreshing = true;
       _feedback = null;
     });
     try {
-      final ok = await context
+      final result = await context
           .read<LocationProvider>()
-          .captureAndStoreCurrentLocation(widget.userId);
+          .captureCurrentLocation(widget.userId);
       if (!mounted) return;
+      final ok = result.isSuccess;
+      final offline = context.read<ConnectivityProvider>().isOffline;
       setState(() {
-        _feedback = ok ? 'Location updated.' : 'Could not get location. Try again.';
+        // Why it failed, not one sentence for every cause — see
+        // CurrentLocationResult.refreshMessage.
+        _feedback = ok ? 'Location updated.' : result.refreshMessage(offline: offline);
+        _feedbackOk = ok;
       });
       if (ok) {
         // New coordinates → the distance signal has something better to work
@@ -1637,6 +1648,16 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
               latitude: location.latitude,
               longitude: location.longitude,
             );
+      }
+    } catch (e) {
+      // Expected failures arrive as a result above. A platform channel
+      // throwing is the unexpected one — it used to escape this method with
+      // no message at all; now it is mapped, never shown raw.
+      if (mounted) {
+        setState(() {
+          _feedback = ErrorMapper.toMessage(e, context: ErrorContext.location);
+          _feedbackOk = false;
+        });
       }
     } finally {
       if (mounted) setState(() => _refreshing = false);
@@ -1792,9 +1813,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
                 Text(
                   _feedback!,
                   style: TextStyle(
-                    color: _feedback!.contains('updated')
-                        ? AppTheme.successGreen
-                        : AppTheme.warningOrange,
+                    color: _feedbackOk ? AppTheme.successGreen : AppTheme.warningOrange,
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                   ),
