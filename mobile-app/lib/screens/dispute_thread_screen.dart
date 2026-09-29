@@ -11,6 +11,7 @@ import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
+import 'image_viewer_screen.dart';
 
 /// DisputeThreadScreen — the participant's home for a single dispute. Drives off
 /// GET /disputes/:id/thread (backend is source of truth). Supports: reading the
@@ -382,13 +383,26 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
               ]),
               const SizedBox(height: 6),
               if (e.isImage)
-                ClipRRect(
-                  borderRadius: AppRadius.mdAll,
-                  child: Image.network(
-                    e.fileUrl!,
-                    height: 150,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _fileChip(e, isDark),
+                // Evidence is the photo a dispute turns on — it opens in the
+                // zoomable viewer like every other photo in the app.
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ImageViewerScreen(
+                        imageUrl: e.fileUrl!,
+                        caption: e.content,
+                      ),
+                    ),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: AppRadius.mdAll,
+                    child: Image.network(
+                      e.fileUrl!,
+                      height: 150,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _fileChip(e, isDark),
+                    ),
                   ),
                 )
               else

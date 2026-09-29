@@ -31,6 +31,7 @@ import '../widgets/auth_guard.dart';
 import '../widgets/loading_empty_offline.dart' show SkeletonPulse;
 import '../widgets/post_flows.dart';
 import '../widgets/reputation_widgets.dart';
+import '../widgets/zoomable_image.dart';
 import 'applications_screen.dart';
 import 'approve_or_dispute_screen.dart';
 import 'job_lifecycle_screen.dart';
@@ -847,25 +848,38 @@ class _ImageCarousel extends StatefulWidget {
 
 class _ImageCarouselState extends State<_ImageCarousel> {
   int _page = 0;
+  Offset _doubleTapAt = Offset.zero;
+
+  /// Tap opens the photo; DOUBLE-tap opens it already zoomed in on the spot
+  /// touched. The header is too small to zoom in place, and before this the
+  /// first tap of a double-tap opened the gallery and the second was lost.
+  void _open(int index, {({Offset at, Size preview})? zoomedAt}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _FullScreenGallery(
+          images: widget.images,
+          initialIndex: index,
+          zoomedAt: zoomedAt,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
+    return LayoutBuilder(
+      builder: (context, box) => Stack(
       fit: StackFit.expand,
       children: [
         PageView.builder(
           itemCount: widget.images.length,
           onPageChanged: (i) => setState(() => _page = i),
           itemBuilder: (context, index) => GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => _FullScreenGallery(
-                  images: widget.images,
-                  initialIndex: index,
-                ),
-              ),
-            ),
+            onTap: () => _open(index),
+            onDoubleTapDown: (d) => _doubleTapAt = d.localPosition,
+            onDoubleTap: () =>
+                _open(index, zoomedAt: (at: _doubleTapAt, preview: box.biggest)),
             child: CachedNetworkImage(
               imageUrl: widget.images[index],
               fit: BoxFit.cover,
@@ -947,16 +961,26 @@ class _ImageCarouselState extends State<_ImageCarousel> {
           ),
         ],
       ],
+      ),
     );
   }
 }
 
-/// Full-screen swipeable, zoomable gallery.
+/// Full-screen swipeable, zoomable gallery — every photo is a [ZoomableImage].
 class _FullScreenGallery extends StatefulWidget {
   final List<String> images;
   final int initialIndex;
 
-  const _FullScreenGallery({required this.images, required this.initialIndex});
+  /// Set when the gallery was opened by a double-tap on the post's header:
+  /// where on the header it landed and the header's size. The gallery then
+  /// opens zoomed in on that same detail of the photo.
+  final ({Offset at, Size preview})? zoomedAt;
+
+  const _FullScreenGallery({
+    required this.images,
+    required this.initialIndex,
+    this.zoomedAt,
+  });
 
   @override
   State<_FullScreenGallery> createState() => _FullScreenGalleryState();
@@ -967,8 +991,62 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
       PageController(initialPage: widget.initialIndex);
   late int _page = widget.initialIndex;
 
+  /// While a photo is zoomed the pager stands down, so a sideways drag pans
+  /// the photo instead of turning the page. Zoom out (double-tap or pinch) to
+  /// swipe again.
+  bool _zoomed = false;
+
+  final _initialPhoto = GlobalKey<ZoomableImageState>();
+  ImageStream? _sizeStream;
+  ImageStreamListener? _sizeListener;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.zoomedAt != null) _zoomWhenSized();
+  }
+
+  /// Finish the header's double-tap: once the photo's own size is known,
+  /// zoom the viewer in on the pixel that was tapped. The header just showed
+  /// this photo, so it normally resolves from the image cache at once; if it
+  /// cannot be sized the gallery simply opens unzoomed.
+  void _zoomWhenSized() {
+    final stream = CachedNetworkImageProvider(widget.images[widget.initialIndex])
+        .resolve(ImageConfiguration.empty);
+    final listener = ImageStreamListener(
+      (info, _) {
+        final image = Size(info.image.width / info.scale, info.image.height / info.scale);
+        info.dispose();
+        _stopSizing();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final tap = widget.zoomedAt;
+          final viewer = _initialPhoto.currentContext?.size;
+          if (!mounted || tap == null || viewer == null || _page != widget.initialIndex) return;
+          _initialPhoto.currentState?.zoomIn(previewPointInViewer(
+            tap: tap.at,
+            preview: tap.preview,
+            viewer: viewer,
+            image: image,
+          ));
+        });
+      },
+      onError: (_, __) => _stopSizing(),
+    );
+    _sizeStream = stream;
+    _sizeListener = listener;
+    stream.addListener(listener);
+  }
+
+  void _stopSizing() {
+    final listener = _sizeListener;
+    if (listener != null) _sizeStream?.removeListener(listener);
+    _sizeStream = null;
+    _sizeListener = null;
+  }
+
   @override
   void dispose() {
+    _stopSizing();
     _controller.dispose();
     super.dispose();
   }
@@ -981,10 +1059,12 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
         children: [
           PageView.builder(
             controller: _controller,
+            physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
             itemCount: widget.images.length,
             onPageChanged: (i) => setState(() => _page = i),
-            itemBuilder: (context, index) => InteractiveViewer(
-              maxScale: 4,
+            itemBuilder: (context, index) => ZoomableImage(
+              key: index == widget.initialIndex ? _initialPhoto : null,
+              onZoomChanged: (zoomed) => setState(() => _zoomed = zoomed),
               child: Center(
                 child: CachedNetworkImage(
                   imageUrl: widget.images[index],

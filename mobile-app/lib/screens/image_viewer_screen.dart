@@ -8,14 +8,15 @@
 //
 // Gestures follow the platform conventions people already know, so nothing has
 // to be taught: pinch to zoom, double-tap to toggle zoom at the point touched,
-// drag to pan while zoomed, and drag down to dismiss when not.
+// drag to pan while zoomed (all [ZoomableImage]), and drag down to dismiss
+// when not.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_icons.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
 import '../theme/system_bars.dart';
+import '../widgets/zoomable_image.dart';
 
 class ImageViewerScreen extends StatefulWidget {
   final String imageUrl;
@@ -38,71 +39,18 @@ class ImageViewerScreen extends StatefulWidget {
   State<ImageViewerScreen> createState() => _ImageViewerScreenState();
 }
 
-class _ImageViewerScreenState extends State<ImageViewerScreen>
-    with SingleTickerProviderStateMixin {
-  final TransformationController _transform = TransformationController();
-  late final AnimationController _animation = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 220),
-  );
-  Animation<Matrix4>? _zoomAnimation;
-
+class _ImageViewerScreenState extends State<ImageViewerScreen> {
   /// Vertical drag offset while swiping to dismiss.
   double _dragY = 0;
   bool _dragging = false;
 
-  bool get _isZoomed => _transform.value.getMaxScaleOnAxis() > 1.01;
-
-  @override
-  void initState() {
-    super.initState();
-    _animation.addListener(() {
-      final value = _zoomAnimation?.value;
-      if (value != null) _transform.value = value;
-    });
-    // Rebuild on zoom changes so the dismiss gesture enables/disables and the
-    // chrome can respond.
-    _transform.addListener(_onTransform);
-  }
-
-  void _onTransform() => setState(() {});
-
-  @override
-  void dispose() {
-    _transform.removeListener(_onTransform);
-    _transform.dispose();
-    _animation.dispose();
-    super.dispose();
-  }
-
-  void _animateTo(Matrix4 target) {
-    _zoomAnimation = Matrix4Tween(begin: _transform.value, end: target)
-        .animate(CurvedAnimation(parent: _animation, curve: Curves.easeOutCubic));
-    _animation.forward(from: 0);
-  }
-
-  /// Double-tap zooms toward the point touched rather than the image centre —
-  /// tapping a detail should magnify THAT detail, which is the whole reason
-  /// someone double-taps a photo of a serial number.
-  void _handleDoubleTap(TapDownDetails details) {
-    HapticFeedback.selectionClick();
-    if (_isZoomed) {
-      _animateTo(Matrix4.identity());
-      return;
-    }
-    const scale = 2.5;
-    final position = details.localPosition;
-    _animateTo(
-      Matrix4.identity()
-        ..translate(-position.dx * (scale - 1), -position.dy * (scale - 1))
-        ..scale(scale),
-    );
-  }
+  /// Reported by [ZoomableImage]. While zoomed the dismiss handlers are not
+  /// even attached: a vertical-drag recogniser wins the arena before the
+  /// viewer's pan does, so merely ignoring its updates left the image unable
+  /// to pan up or down.
+  bool _isZoomed = false;
 
   void _onDragUpdate(DragUpdateDetails details) {
-    // Only while un-zoomed: once zoomed, vertical drags are panning, and
-    // stealing them would make the image feel stuck.
-    if (_isZoomed) return;
     setState(() {
       _dragging = true;
       _dragY += details.delta.dy;
@@ -110,7 +58,6 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
   }
 
   void _onDragEnd(DragEndDetails details) {
-    if (_isZoomed) return;
     final velocity = details.velocity.pixelsPerSecond.dy;
     // A deliberate flick, or dragged far enough to read as intent.
     if (_dragY.abs() > 120 || velocity > 700) {
@@ -170,11 +117,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
         systemOverlayStyle: SystemBars.immersive,
       ),
       body: GestureDetector(
-        onDoubleTapDown: _handleDoubleTap,
-        // onDoubleTap must exist for onDoubleTapDown to fire.
-        onDoubleTap: () {},
-        onVerticalDragUpdate: _onDragUpdate,
-        onVerticalDragEnd: _onDragEnd,
+        onVerticalDragUpdate: _isZoomed ? null : _onDragUpdate,
+        onVerticalDragEnd: _isZoomed ? null : _onDragEnd,
         child: Stack(
           children: [
             Positioned.fill(
@@ -184,10 +128,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
                   // Shrinks slightly as it is thrown away — the standard cue
                   // that the content is leaving.
                   scale: _dragging ? (1 - progress * 0.15).clamp(0.85, 1.0) : 1.0,
-                  child: InteractiveViewer(
-                    transformationController: _transform,
-                    minScale: 1,
-                    maxScale: 5,
+                  child: ZoomableImage(
+                    onZoomChanged: (zoomed) => setState(() => _isZoomed = zoomed),
                     child: Center(child: image),
                   ),
                 ),
