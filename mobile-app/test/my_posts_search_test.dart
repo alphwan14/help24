@@ -174,12 +174,71 @@ void main() {
     test('the screen filters against the provider, and the provider publishes', () {
       final screen = File('lib/screens/my_posts_screen.dart').readAsStringSync();
       expect(screen.contains('p.archivedPostIds'), isTrue);
-      expect(screen.contains('withoutArchived(snap.data'), isTrue);
+      expect(RegExp(r'withoutArchived\(\s*withCreated\(snap\.data').hasMatch(screen), isTrue,
+          reason: 'the loaded list is what gets filtered');
       final provider = File('lib/providers/app_provider.dart').readAsStringSync();
       expect(provider.contains('_archivedPostIds = {..._archivedPostIds, postId};'), isTrue,
           reason: 'deletePost must publish the id by replacing the set');
       expect(provider.contains('_archivedPostIds = const {};'), isTrue,
           reason: "sign-out must not carry one account's deletions into the next");
+    });
+  });
+
+  group('a new post is listed without a refresh', () {
+    // The counterpart of the group above: a post published after My Posts
+    // loaded its list used to be missing until a pull-to-refresh.
+    final fresh = _post(title: 'TEST delete me gardening', category: 'Gardening');
+
+    test('a created post the list lacks goes on top, the rest keep order', () {
+      final all = withCreated(corpus, [fresh], authorId: 'me');
+      expect(all.first, same(fresh));
+      expect(all.skip(1).toList(), corpus);
+    });
+
+    test('several created this session keep newest-first order', () {
+      final older = _post(title: 'Older new post', category: 'Laundry');
+      expect(titles(withCreated(corpus, [fresh, older], authorId: 'me').take(2).toList()),
+          ['TEST delete me gardening', 'Older new post']);
+    });
+
+    test('once a load includes it, the loaded row wins and it is listed once', () {
+      final loaded = [fresh, ...corpus];
+      final stale = fresh.copyWith(description: 'optimistic copy');
+      final all = withCreated(loaded, [stale], authorId: 'me');
+      expect(all, same(loaded));
+      expect(all.where((p) => p.id == fresh.id).single, same(fresh));
+    });
+
+    test('nothing created is the identity, so no copy per rebuild', () {
+      expect(withCreated(corpus, const [], authorId: 'me'), same(corpus));
+    });
+
+    test("another account's post is never shown here", () {
+      final theirs = fresh.copyWith(authorUserId: 'someone-else');
+      expect(withCreated(corpus, [theirs], authorId: 'me'), same(corpus));
+    });
+
+    test('an empty history shows the new post, not "No posts yet"', () {
+      expect(withCreated(const <PostModel>[], [fresh], authorId: 'me'), [fresh]);
+    });
+
+    test('created then deleted in one session is gone', () {
+      final shown = withoutArchived(withCreated(corpus, [fresh], authorId: 'me'), {fresh.id});
+      expect(titles(shown), titles(corpus));
+    });
+
+    test('every creation path publishes, and the screen merges before filtering', () {
+      final provider = File('lib/providers/app_provider.dart').readAsStringSync();
+      expect(provider.contains('_recordCreated(createdPost);'), isTrue,
+          reason: 'requests and offers');
+      expect(provider.contains('_recordCreated(createdJob.toPostModel());'), isTrue,
+          reason: 'job posts are listed in My Posts too');
+      expect(provider.contains('_createdPosts = const [];'), isTrue,
+          reason: "sign-out must not carry one account's posts into the next");
+      final screen = File('lib/screens/my_posts_screen.dart').readAsStringSync();
+      expect(screen.contains('p.createdPosts'), isTrue);
+      expect(RegExp(r'withoutArchived\(\s*withCreated\(').hasMatch(screen), isTrue,
+          reason: 'archived is applied last, so create-then-delete stays gone');
     });
   });
 }

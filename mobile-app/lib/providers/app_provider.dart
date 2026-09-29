@@ -190,6 +190,21 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// See [_archivedPostIds].
   Set<String> get archivedPostIds => _archivedPostIds;
 
+  /// Listings the current user created this session, newest first — the
+  /// counterpart of [_archivedPostIds]. My Posts adds the ones its own
+  /// once-loaded list does not have yet, so a new post is there the moment it
+  /// is published instead of after a pull-to-refresh. Jobs are included as
+  /// their [PostModel] (`JobModel.toPostModel`), the shape My Posts lists.
+  /// Replaced, never mutated, so `context.select` sees each change.
+  List<PostModel> _createdPosts = const [];
+
+  /// See [_createdPosts].
+  List<PostModel> get createdPosts => _createdPosts;
+
+  void _recordCreated(PostModel post) {
+    _createdPosts = [post, ..._createdPosts.where((p) => p.id != post.id)];
+  }
+
   // Getters
   /// The user's theme choice (Device Default / Light / Dark).
   ThemePreference get themePreference => _themePreference;
@@ -490,6 +505,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _loadingMoreConversations = false;
     _appliedPostIds = {};
     _archivedPostIds = const {};
+    _createdPosts = const [];
     _activeChatId = null;
     _warmedAvatarUrls.clear();
     _errors.clearAll();
@@ -1502,6 +1518,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
           posts.insert(0, createdPost);
         }
       });
+      _recordCreated(createdPost);
       _warmPostMedia([createdPost]);
       _cachePostsIfDefault();
       // Emergency posts must surface in the Urgent section immediately —
@@ -1551,7 +1568,9 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
       // A created job reaches the feed through the next load, like every
       // other listing: the parallel `_jobs` list it used to be spliced into
-      // was read by exactly one screen, and that screen is gone.
+      // was read by exactly one screen, and that screen is gone. My Posts is
+      // the author's own list, though, and must not wait for a load.
+      _recordCreated(createdJob.toPostModel());
       _warmAvatarUrls([createdJob.authorAvatarUrl]);
       notifyListeners();
       return createdJob;

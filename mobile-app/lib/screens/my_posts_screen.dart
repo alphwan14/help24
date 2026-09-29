@@ -91,8 +91,10 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
   }
 
   Widget _body(BuildContext context) {
-    // Rebuilds only when a post is archived — the set is replaced, not mutated.
+    // Rebuild only when a post is created or archived — both are replaced,
+    // not mutated.
     final archived = context.select<AppProvider, Set<String>>((p) => p.archivedPostIds);
+    final created = context.select<AppProvider, List<PostModel>>((p) => p.createdPosts);
     return FutureBuilder<List<PostModel>>(
         future: _future,
         builder: (context, snap) {
@@ -121,7 +123,10 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
               ),
             );
           }
-          final posts = withoutArchived(snap.data ?? const <PostModel>[], archived);
+          final posts = withoutArchived(
+            withCreated(snap.data ?? const <PostModel>[], created, authorId: widget.userId),
+            archived,
+          );
           // Nothing authored yet is a different situation from "nothing
           // matches", and it gets the empty state rather than a search box over
           // an empty list.
@@ -260,6 +265,8 @@ class _NoMatches extends StatelessWidget {
 }
 
 /// [posts] without the ones archived this session ([AppProvider.archivedPostIds]).
+/// Applied after [withCreated], so a post created and then deleted in the same
+/// session is gone too.
 ///
 /// This screen loads the author's history ONCE into its own future, so a post
 /// deleted from its detail screen used to stay listed until a pull-to-refresh
@@ -269,6 +276,29 @@ class _NoMatches extends StatelessWidget {
 List<PostModel> withoutArchived(List<PostModel> posts, Set<String> archived) {
   if (archived.isEmpty) return posts;
   return posts.where((p) => !archived.contains(p.id)).toList();
+}
+
+/// [posts] with the ones [authorId] created this session
+/// ([AppProvider.createdPosts]) that it does not have yet, on top.
+///
+/// The counterpart of [withoutArchived]: a post published after this screen
+/// loaded its list used to be missing until a pull-to-refresh. Once a load does
+/// include it, the loaded row wins — it is the server's current copy, and the
+/// id is only listed once. Posts by anyone else are ignored, so this screen can
+/// never show another account's listing. Returns [posts] itself when nothing
+/// is missing.
+List<PostModel> withCreated(
+  List<PostModel> posts,
+  List<PostModel> created, {
+  required String authorId,
+}) {
+  if (created.isEmpty) return posts;
+  final have = {for (final p in posts) p.id};
+  final missing = created
+      .where((p) => p.authorUserId == authorId && !have.contains(p.id))
+      .toList();
+  if (missing.isEmpty) return posts;
+  return [...missing, ...posts];
 }
 
 /// Filter an author's own posts by [query], matching TITLE or PROFESSION.
