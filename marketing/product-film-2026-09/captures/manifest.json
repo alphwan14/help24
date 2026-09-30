@@ -1,0 +1,93 @@
+[
+ {
+  "name": "discover",
+  "source": "C:\\Users\\840 g8\\Desktop\\Projects\\help24\\marketing\\play-store-2026-09\\raw-captures\\01-discover.png",
+  "what": "Discover feed, scrolled one card past a Kampala listing",
+  "status_bg": "#FAF9F7"
+ },
+ {
+  "name": "discover-top",
+  "source": "C:\\Users\\840G8~1\\AppData\\Local\\Temp\\claude\\c--Users-840-g8-Desktop-Projects-help24\\205a52af-9783-4fe2-b39f-355a9986810d\\scratchpad\\explore\\CANDIDATE-discover-top.png",
+  "what": "Discover feed at top; ONLY rows 1140-1194 (Kitchen card's top edge) are used",
+  "status_bg": "#FAF9F7",
+  "edge_handle_removed": true
+ },
+ {
+  "name": "discover-scroll1",
+  "source": "C:\\Users\\840G8~1\\AppData\\Local\\Temp\\claude\\c--Users-840-g8-Desktop-Projects-help24\\205a52af-9783-4fe2-b39f-355a9986810d\\scratchpad\\explore\\04-discover-scroll1.png",
+  "what": "Discover feed, further down",
+  "status_bg": "#FAF9F7",
+  "edge_handle_removed": true
+ },
+ {
+  "name": "discover-scroll2",
+  "source": "C:\\Users\\840G8~1\\AppData\\Local\\Temp\\claude\\c--Users-840-g8-Desktop-Projects-help24\\205a52af-9783-4fe2-b39f-355a9986810d\\scratchpad\\explore\\05-discover-scroll2.png",
+  "what": "Discover feed, further down again",
+  "status_bg": "#FAF9F7",
+  "edge_handle_removed": true
+ },
+ {
+  "name": "post-composer",
+  "source": "C:\\Users\\840 g8\\Desktop\\Projects\\help24\\marketing\\play-store-2026-09\\raw-captures\\02-post.png",
+  "what": "Post composer step 1: Request / Offer / Job",
+  "status_bg": "#FAF9F7"
+ },
+ {
+  "name": "myposts",
+  "source": "C:\\Users\\840G8~1\\AppData\\Local\\Temp\\claude\\c--Users-840-g8-Desktop-Projects-help24\\205a52af-9783-4fe2-b39f-355a9986810d\\scratchpad\\explore\\21-myposts-s4.png",
+  "what": "Activity > My posts, Emergency Dog Trainer card",
+  "status_bg": "#FAF9F7",
+  "edge_handle_removed": true
+ },
+ {
+  "name": "notifications",
+  "source": "C:\\Users\\840G8~1\\AppData\\Local\\Temp\\claude\\c--Users-840-g8-Desktop-Projects-help24\\205a52af-9783-4fe2-b39f-355a9986810d\\scratchpad\\explore\\16-notifications.png",
+  "what": "Notifications, incl. application to Emergency Dog Trainer",
+  "status_bg": "#FAF9F7",
+  "edge_handle_removed": true
+ },
+ {
+  "name": "detail-top",
+  "source": "C:\\Users\\840G8~1\\AppData\\Local\\Temp\\claude\\c--Users-840-g8-Desktop-Projects-help24\\205a52af-9783-4fe2-b39f-355a9986810d\\scratchpad\\explore\\CLEAN-postdetail.png",
+  "what": "Post detail: Emergency Dog Trainer, top",
+  "status_bg": "#FFFFFF"
+ },
+ {
+  "name": "detail-scrolled",
+  "source": "C:\\Users\\840G8~1\\AppData\\Local\\Temp\\claude\\c--Users-840-g8-Desktop-Projects-help24\\205a52af-9783-4fe2-b39f-355a9986810d\\scratchpad\\explore\\23-secure-banner.png",
+  "what": "Post detail scrolled: Pay securely through Help24 card",
+  "status_bg": "#FFFFFF",
+  "edge_handle_removed": true
+ },
+ {
+  "name": "secure",
+  "source": "C:\\Users\\840 g8\\Desktop\\Projects\\help24\\marketing\\play-store-2026-09\\raw-captures\\03-secure-service.png",
+  "what": "Secure this service, IDLE (nothing paid)",
+  "status_bg": "#FAF9F7"
+ },
+ {
+  "name": "chat",
+  "source": "C:\\Users\\840 g8\\Desktop\\Projects\\help24\\marketing\\play-store-2026-09\\raw-captures\\05-messages.png",
+  "what": "Chat pinned to Emergency Dog Trainer, Arrived card",
+  "status_bg": "#FAF9F7"
+ },
+ {
+  "name": "job-status",
+  "source": "C:\\Users\\840 g8\\Desktop\\Projects\\help24\\marketing\\play-store-2026-09\\raw-captures\\04-job-status.png",
+  "what": "Job status: Payment + Completion trackers",
+  "status_bg": "#FAF9F7"
+ },
+ {
+  "name": "history-work",
+  "source": "C:\\Users\\840 g8\\Desktop\\Projects\\help24\\marketing\\play-store-2026-09\\raw-captures\\06-service-records.png",
+  "what": "Service History > My Work",
+  "status_bg": "#FAF9F7"
+ },
+ {
+  "name": "history-services",
+  "source": "C:\\Users\\840G8~1\\AppData\\Local\\Temp\\claude\\c--Users-840-g8-Desktop-Projects-help24\\205a52af-9783-4fe2-b39f-355a9986810d\\scratchpad\\explore\\29-service-records.png",
+  "what": "Service History > My Services",
+  "status_bg": "#FAF9F7",
+  "edge_handle_removed": true
+ }
+]
