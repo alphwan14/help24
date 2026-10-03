@@ -17,6 +17,12 @@ dependencies:
   image_picker: ^1.0.7
   file_picker: ^8.0.0
   cached_network_image: ^3.3.1
+  # Both already resolved transitively (via cached_network_image); named here
+  # because the chat outbox imports them directly: path_provider for the
+  # durable app-private copy of a queued attachment, flutter_cache_manager to
+  # seed the image cache with a photo the moment it is delivered.
+  flutter_cache_manager: ^3.4.1
+  path_provider: ^2.1.5
   supabase_flutter: ^2.3.0
   uuid: ^4.2.0
   shared_preferences: ^2.2.2

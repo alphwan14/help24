@@ -295,9 +295,14 @@ class CacheService {
       if (json == null || json.isEmpty) return [];
       final list = jsonDecode(json) as List<dynamic>?;
       if (list == null || list.isEmpty) return [];
-      return list
-          .map((e) => Message.fromJson(Map<String, dynamic>.from(e as Map), currentUserId))
-          .toList();
+      return list.map((e) {
+        final m = Message.fromJson(Map<String, dynamic>.from(e as Map), currentUserId);
+        // 'sending' (OutboxStatus.sending) on disk means a request was open
+        // when this was written. A process reading it now has opened none, so
+        // the true state is queued — a spinner here would claim work that
+        // died with the previous process.
+        return m.status == 'sending' ? m.copyWith(status: 'queued') : m;
+      }).toList();
     } catch (e) {
       return [];
     }

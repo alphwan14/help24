@@ -5,10 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/post_model.dart';
 import '../providers/connectivity_provider.dart';
+import '../utils/error_mapper.dart';
 import 'cache_service.dart';
-import 'chat_service_supabase.dart';
+import 'outbox_delivery.dart';
 import 'session_scope.dart';
-import 'supabase_auth_bridge.dart';
 
 /// THE OUTBOX IS NOT A SCREEN'S PROPERTY.
 ///
@@ -83,10 +83,37 @@ class OutboxStore extends ChangeNotifier implements SessionScoped {
     if (_ownerUid != owner) _clear();
     _ownerUid = owner;
     _started = true;
-    _reconnectSub ??= NetworkHealth.onReconnect.listen((_) => unawaited(drain()));
+    _reconnectSub ??= NetworkHealth.onReconnect.listen((_) {
+      // A new network is a fresh budget for every transient failure.
+      _transientFailures.clear();
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      _retrySignal.add(null);
+      unawaited(drain());
+    });
     await hydrate(owner);
+    unawaited(_sweepFiles(owner));
     if (!NetworkHealth.isOffline) unawaited(drain());
   }
+
+  /// Delete queued-attachment copies nothing refers to any more. Runs after
+  /// hydration, so every copy a persisted queue still needs is in [_byChat].
+  Future<void> _sweepFiles(String owner) async {
+    final keep = <String>{
+      for (final queue in _byChat.values)
+        for (final m in queue)
+          if (m.localPath != null) m.localPath!,
+    };
+    final removed = await OutboxFiles.sweep(uid: owner, keep: keep);
+    if (removed > 0) debugPrint('[OUTBOX] swept $removed orphaned attachment copies');
+  }
+
+  /// When to try again: the reconnect edge, or the short transient-retry timer
+  /// (see [statusAfterFailure]). `ChatScreen` listens to this for the thread
+  /// it owns; this store drains every other thread on the same signal, so both
+  /// senders act on one definition of "now is worth trying".
+  Stream<void> get retrySignal => _retrySignal.stream;
+  final StreamController<void> _retrySignal = StreamController<void>.broadcast();
 
   /// Whichever thread is on screen, or '' when none is.
   void setActiveChat(String chatId) => _activeChatId = chatId.trim();
@@ -216,23 +243,104 @@ class OutboxStore extends ChangeNotifier implements SessionScoped {
   Future<void> _send(String uid, String chatId, Message message) async {
     if (!claimSend(message.id)) return;
     try {
-      await SupabaseAuthBridge.ensureSessionAsync();
-      await ChatServiceSupabase.sendMessage(
-        chatIdParam: chatId,
+      await OutboxDelivery.deliver(
         senderId: uid,
-        content: message.text,
-        replyToId: message.replyToId,
-        replyToSender: message.replyToSender,
-        replyToPreview: message.replyToPreview,
+        chatId: chatId,
+        message: message,
+        // Persist the uploaded URL at once: a retry after this point must
+        // write the row, not store the file a second time.
+        onUploaded: (uploaded) => _replaceAndPersist(uid, chatId, uploaded),
       );
+      clearFailures(message.id);
       _removeAndPersist(uid, chatId, message.id);
-      debugPrint('[OUTBOX] sent queued message chat=$chatId');
+      debugPrint('[OUTBOX] sent queued ${message.type} chat=$chatId');
     } catch (e) {
-      debugPrint('[OUTBOX] send failed chat=$chatId: $e');
-      _markAndPersist(uid, chatId, message.id, OutboxStatus.failed);
+      debugPrint('[OUTBOX] send failed chat=$chatId type=${message.type}: $e');
+      _markAndPersist(uid, chatId, message.id, statusAfterFailure(message.id, e));
     } finally {
       releaseSend(message.id);
     }
+  }
+
+  // ── Failure policy ────────────────────────────────────────────────────────
+
+  /// Transient failures per message on the current network, reset by a
+  /// reconnect edge or a success.
+  final Map<String, int> _transientFailures = {};
+  Timer? _retryTimer;
+
+  /// How long to wait before each automatic re-attempt after a transient
+  /// failure that did NOT take the app offline (a blip, a dropped upload, a
+  /// brief server outage). Three, then the message is marked failed.
+  static const List<Duration> transientRetryDelays = [
+    Duration(seconds: 5),
+    Duration(seconds: 15),
+    Duration(seconds: 45),
+  ];
+
+  /// WHAT A FAILED ATTEMPT MEANS FOR THE MESSAGE — decided in one place for
+  /// both senders.
+  ///
+  ///   * The app is offline → `queued`. Nothing went wrong that the user must
+  ///     act on; the reconnect edge will send it.
+  ///   * A transient failure while online (socket dropped mid-upload, timeout,
+  ///     5xx) → `queued`, and a short timer tries again. After
+  ///     [transientRetryDelays] is exhausted → `failed`.
+  ///   * Anything else — refused by the server, a restricted account, the
+  ///     queued file gone → `failed` at once. Retrying on a timer cannot fix
+  ///     it; the bubble says "Couldn't send" and offers Retry.
+  ///
+  /// Never removes the message: a failure is a status, not a deletion.
+  String statusAfterFailure(String messageId, Object error) {
+    // Logs the true cause and fires the restriction hook when the database
+    // refused a restricted account — the user is told why elsewhere.
+    final category = error is OutboxPermanentFailure
+        ? ErrorCategory.unknown
+        : ErrorMapper.toFailure(error, context: ErrorContext.sendMessage).category;
+    final transient = isTransientCategory(category);
+    if (NetworkHealth.isOffline) return OutboxStatus.queued;
+    if (!transient) {
+      _transientFailures.remove(messageId);
+      return OutboxStatus.failed;
+    }
+    final attempts = (_transientFailures[messageId] ?? 0) + 1;
+    if (attempts > transientRetryDelays.length) {
+      _transientFailures.remove(messageId);
+      return OutboxStatus.failed;
+    }
+    _transientFailures[messageId] = attempts;
+    _armRetry(transientRetryDelays[attempts - 1]);
+    return OutboxStatus.queued;
+  }
+
+  /// A failure the network or the server may recover from by itself.
+  static bool isTransientCategory(ErrorCategory category) =>
+      category == ErrorCategory.networkOffline ||
+      category == ErrorCategory.networkTimeout ||
+      category == ErrorCategory.serverUnavailable ||
+      category == ErrorCategory.rateLimited;
+
+  /// Forget [messageId]'s transient failures — on delivery, or when the user
+  /// retries by hand and so earns a fresh budget.
+  void clearFailures(String messageId) => _transientFailures.remove(messageId);
+
+  void _armRetry(Duration delay) {
+    if (_retryTimer?.isActive ?? false) return;
+    _retryTimer = Timer(delay, () {
+      _retryTimer = null;
+      if (NetworkHealth.isOffline) return; // the reconnect edge will do it
+      _retrySignal.add(null);
+      unawaited(drain());
+    });
+  }
+
+  void _replaceAndPersist(String uid, String chatId, Message updated) {
+    final queue = _byChat[chatId];
+    if (queue == null) return;
+    final i = queue.indexWhere((m) => m.id == updated.id);
+    if (i == -1) return;
+    queue[i] = updated;
+    unawaited(CacheService.saveOutbox(uid, chatId, List<Message>.of(queue)));
   }
 
   void _removeAndPersist(String uid, String chatId, String messageId) {
@@ -260,6 +368,11 @@ class OutboxStore extends ChangeNotifier implements SessionScoped {
 
   @override
   void resetForSignOut() {
+    // The queue's persisted entries are purged by prefix at this boundary;
+    // the attachment copies they referenced go with them. Fire-and-forget:
+    // sign-out must never wait on cleanup.
+    final owner = _ownerUid;
+    if (owner.isNotEmpty) unawaited(OutboxFiles.purgeUser(owner));
     _clear();
     _ownerUid = '';
     _started = false;
@@ -270,6 +383,9 @@ class OutboxStore extends ChangeNotifier implements SessionScoped {
     _byChat.clear();
     _inFlight.clear();
     _activeChatId = '';
+    _transientFailures.clear();
+    _retryTimer?.cancel();
+    _retryTimer = null;
   }
 
   @visibleForTesting

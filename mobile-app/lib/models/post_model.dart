@@ -1192,6 +1192,13 @@ class Message {
   /// Denormalised: first ~200 chars of the quoted message text.
   final String? replyToPreview;
 
+  /// A QUEUED attachment's file on this device — the app-private copy made
+  /// when it was picked (see `OutboxFiles`). Null for every row the server
+  /// has: once a message exists there, [attachmentUrl] is its only address.
+  /// Persisted with the outbox so a photo picked offline survives the app
+  /// being killed before it could be uploaded.
+  final String? localPath;
+
   Message({
     required this.id,
     this.conversationId = '',
@@ -1211,6 +1218,7 @@ class Message {
     this.replyToId,
     this.replyToSender,
     this.replyToPreview,
+    this.localPath,
   });
 
   bool get isLocation => type == 'location' || type == 'live_location';
@@ -1242,6 +1250,7 @@ class Message {
     final replyToId      = json['reply_to_id']?.toString();
     final replyToSender  = json['reply_to_sender']?.toString();
     final replyToPreview = json['reply_to_preview']?.toString();
+    final localPath = json['local_path']?.toString();
     return Message(
       id: (json['id'] ?? '').toString(),
       conversationId: (json['conversation_id'] ?? '').toString(),
@@ -1261,6 +1270,7 @@ class Message {
       replyToId: replyToId,
       replyToSender: replyToSender,
       replyToPreview: replyToPreview,
+      localPath: (localPath == null || localPath.isEmpty) ? null : localPath,
     );
   }
 
@@ -1283,6 +1293,7 @@ class Message {
     String? replyToId,
     String? replyToSender,
     String? replyToPreview,
+    String? localPath,
   }) {
     return Message(
       id: id ?? this.id,
@@ -1303,6 +1314,7 @@ class Message {
       replyToId: replyToId ?? this.replyToId,
       replyToSender: replyToSender ?? this.replyToSender,
       replyToPreview: replyToPreview ?? this.replyToPreview,
+      localPath: localPath ?? this.localPath,
     );
   }
 
@@ -1327,13 +1339,20 @@ class Message {
       'sender_id': senderId,
       'content': text,
       'message': text,
-      'created_at': timestamp.toIso8601String(),
+      // UTC with a `Z`, always. A message composed on this phone carries a
+      // LOCAL DateTime, whose plain toIso8601String() has no zone — and
+      // fromJson reads a zoneless string as UTC (that is what the server
+      // sends). So a queued message re-read from the outbox moved by the
+      // device's offset: composed at 1:09 PM in Nairobi, shown at 4:09 PM
+      // after leaving the chat, and sorted after newer messages. Seen on the
+      // S20+. Server rows are already UTC, so their strings are unchanged.
+      'created_at': toServerTime(timestamp),
       'type': type,
       'status': status,
-      if (seenAt != null) 'seen_at': seenAt!.toIso8601String(),
+      if (seenAt != null) 'seen_at': toServerTime(seenAt!),
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
-      if (liveUntil != null) 'live_until': liveUntil!.toIso8601String(),
+      if (liveUntil != null) 'live_until': toServerTime(liveUntil!),
       if (attachmentUrl != null) 'attachment_url': attachmentUrl,
       // Tombstones and reply quotes must survive the cache round-trip —
       // otherwise a cache-hydrated chat resurrects deleted content and
@@ -1342,6 +1361,9 @@ class Message {
       if (replyToId != null) 'reply_to_id': replyToId,
       if (replyToSender != null) 'reply_to_sender': replyToSender,
       if (replyToPreview != null) 'reply_to_preview': replyToPreview,
+      // Outbox only: a server row never has one, so the thread cache is
+      // unchanged.
+      if (localPath != null) 'local_path': localPath,
     };
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show File;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' show Geolocator;
@@ -22,6 +23,7 @@ import '../services/chat_resolution.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/post_service.dart';
 import '../services/cache_service.dart';
+import '../services/outbox_delivery.dart';
 import '../services/outbox_store.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../services/storage_service.dart';
@@ -29,6 +31,7 @@ import 'post_detail_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/time_utils.dart';
@@ -338,7 +341,11 @@ class _ConversationTile extends StatelessWidget {
     // knows, and it is shown as such — marked, never disguised as delivered.
     final pending = OutboxStore.instance.pendingFor(currentUserId, conversation.id);
     final hasFailure = OutboxStore.instance.hasFailure(currentUserId, conversation.id);
-    final previewText = pending?.text ?? conversation.lastMessage;
+    // Worded exactly as the server will write it once delivered, so a queued
+    // photo or place does not change its preview the moment it is sent.
+    final previewText = pending == null
+        ? conversation.lastMessage
+        : ChatServiceSupabase.previewFor(type: pending.type, content: pending.text);
     final previewTime = pending?.timestamp ?? conversation.lastMessageTime;
     // Three states, three honest labels. "Sending…" is reserved for a request
     // that is genuinely open RIGHT NOW — asked of the store, not read off the
@@ -849,6 +856,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _beginExistingChat();
       // The post context just changed under us; refresh what depends on it.
       _ensureChatPost();
+      // The outbox is keyed by chat id, which was unknown until now: show what
+      // an earlier session queued here, then give anything composed while the
+      // conversation was unresolved its place on disk. Load BEFORE persisting,
+      // or the in-memory queue would overwrite the one on disk.
+      await _loadOutbox();
+      if (mounted && _pendingMessages.isNotEmpty) _persistOutbox();
       return;
     }
 
@@ -875,9 +888,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _messageController.addListener(_onTypingChanged);
     // Offline outbox: restore anything queued in a previous session and resend
     // automatically whenever the connection comes back.
+    //
+    // The store is started here as well as by AppProvider: a chat opened cold
+    // from a notification can arrive before the conversation list ever loads,
+    // and the retry signal below is only fed once the store has an owner.
+    // Idempotent per uid.
+    unawaited(OutboxStore.instance.start(widget.currentUserId));
     _loadOutbox();
-    _reconnectSub =
-        context.read<ConnectivityProvider>().onReconnect.listen((_) {
+    // The reconnect edge AND the store's short transient-retry timer — one
+    // signal, so this thread and every other thread retry on the same cue.
+    _reconnectSub = OutboxStore.instance.retrySignal.listen((_) {
       if (mounted) _flushOutbox();
     });
     if (_chatId.isNotEmpty) {
@@ -1108,12 +1128,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         merged = messages;
       }
       final hadNew = messages.length > _lastMessageCount;
+      // The server now has these rows, so any queued copy of them is done —
+      // whichever sender delivered it (this screen, or OutboxStore draining
+      // the thread before it was opened). The queued id names the row
+      // exactly, so this is a match, not a guess.
+      final deliveredIds = {for (final m in messages) m.id};
+      final queuedBefore = _pendingMessages.length;
       setState(() {
         _messages = merged;
         _loadingMessages = false;
         _loadFailed = false; // a successful emission clears any prior failure
         _hasMoreOlder = messages.length >= 30;
+        _pendingMessages.removeWhere((p) {
+          final serverId = OutboxIds.serverIdOf(p.id);
+          return serverId != null && deliveredIds.contains(serverId);
+        });
       });
+      if (_pendingMessages.length != queuedBefore) _persistOutbox();
       // Re-adopt an orphaned journey: if this device's user has a live share
       // but this screen instance isn't streaming (chat was closed/reopened,
       // app restarted), take ownership again so position updates resume and
@@ -1497,7 +1528,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _startRealtimeMessages();
       _startChatRowRealtime();
       _typingPoll ??= _makeTypingPoll()..start();
-      context.read<AppProvider>()
+      // The captured provider, not `context.read`: this runs after awaits on
+      // the send path, which the retry signal can drive while the element is
+      // already unusable (see [_appProvider]).
+      _appProvider
         ..setActiveChatId(_chatId)
         ..updateConversation(conv);
       return true;
@@ -1527,7 +1561,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // when it fails) and is resent automatically on reconnect. So composing a
     // message offline is a normal, safe action, not an error.
     final optimistic = Message(
-      id: 'pending_${DateTime.now().millisecondsSinceEpoch}',
+      // Minted once; the server row is inserted under the uuid inside it, so
+      // no retry can ever store this message twice (see OutboxIds).
+      id: OutboxIds.create(),
       conversationId: _chatId,
       senderId: widget.currentUserId,
       receiverId: '',
@@ -1547,31 +1583,50 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ? replyingTo!.text.substring(0, replyingTo.text.length.clamp(0, 120))
           : null,
     );
-    setState(() {
-      _pendingMessages.add(optimistic);
-      _replyToMessage = null; // clear reply preview immediately on send
-    });
+    setState(() => _replyToMessage = null); // clear reply preview immediately
+    await _enqueue([optimistic]);
+  }
+
+  /// EVERY OUTBOUND MESSAGE ENTERS THE THREAD HERE — text, photo, document,
+  /// place, location request.
+  ///
+  /// It is on screen and persisted before any network work starts, so losing
+  /// the connection can never lose it: offline it waits with a clock and goes
+  /// out on the reconnect edge; online it is sent now. Photos, documents and
+  /// places used to bypass this entirely and upload on the spot, which is why
+  /// they could not be sent offline at all — a failed upload had nowhere to
+  /// wait and was simply dropped.
+  Future<void> _enqueue(List<Message> messages) async {
+    if (messages.isEmpty) return;
+    final hadQueue = _pendingMessages.isNotEmpty;
+    if (mounted) {
+      setState(() => _pendingMessages.addAll(messages));
+    } else {
+      _pendingMessages.addAll(messages);
+    }
     _persistOutbox();
     _scrollToBottom();
 
     // Offline: don't burn a long timeout — leave it queued (clock) and reassure
-    // the user it will go out on its own. Online: try now.
+    // the user it will go out on its own. Online: try now, in order.
     // One definition of offline for the whole send path — see `_attemptSend`.
-    final offline = NetworkHealth.isOffline;
-    if (offline) {
+    if (NetworkHealth.isOffline) {
       // Reassure once, not on every queued message — the clock on each bubble
       // already shows they're waiting to send.
-      if (_pendingMessages.length == 1) {
+      if (!hadQueue) {
         _showInfo("No internet — we'll send this when you're back online.");
       }
       return;
     }
-    await _attemptSend(optimistic);
+    for (final m in messages) {
+      await _attemptSend(m);
+    }
   }
 
-  /// Try to deliver one queued message. Removes it from the outbox on success,
-  /// marks it 'failed' (tap-to-retry) on error, and leaves it 'sending' (queued)
-  /// when we're offline. Safe to call repeatedly — an in-flight id is skipped.
+  /// Try to deliver one queued message. Removes it from the outbox on success;
+  /// on failure, [OutboxStore.statusAfterFailure] decides between queued
+  /// (waiting for a network, retried automatically) and failed (Retry). Safe
+  /// to call repeatedly — an in-flight id is skipped.
   Future<void> _attemptSend(Message pending) async {
     // The claim is shared with OutboxStore, which drains every OTHER thread on
     // the reconnect edge. Two senders holding the same message is how one
@@ -1598,6 +1653,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     if (!OutboxStore.instance.claimSend(pending.id)) return;
     _updatePendingStatus(pending.id, OutboxStatus.sending);
+    // The CURRENT copy, not the one the caller captured: an earlier attempt
+    // may have uploaded the file and recorded its URL on the queued message.
+    final current = _pendingMessages.firstWhere(
+      (m) => m.id == pending.id,
+      orElse: () => pending,
+    );
     try {
       // Lazy chat creation for a brand-new conversation's first message. Needs
       // the network, so it lives here: offline it fails and the message simply
@@ -1605,15 +1666,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (_chatId.isEmpty && !await _ensureChatCreated()) {
         throw Exception('chat not created');
       }
-      await SupabaseAuthBridge.ensureSessionAsync();
-      final confirmed = await ChatServiceSupabase.sendMessage(
-        chatIdParam: _chatId,
+      final confirmed = await OutboxDelivery.deliver(
         senderId: widget.currentUserId,
-        content: pending.text,
-        replyToId: pending.replyToId,
-        replyToSender: pending.replyToSender,
-        replyToPreview: pending.replyToPreview,
+        chatId: _chatId,
+        message: current,
+        // Persisted at once, so a retry after this writes the row instead of
+        // uploading the file again.
+        onUploaded: (uploaded) {
+          _replacePending(uploaded);
+          _persistOutbox();
+        },
       );
+      OutboxStore.instance.clearFailures(pending.id);
       // Clear it from the outbox FIRST, even if the screen has since closed —
       // the send succeeded, so it must never be resent (that would duplicate the
       // message). UI updates below are best-effort and only when still mounted.
@@ -1630,14 +1694,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _scrollToBottom();
     } catch (e) {
       if (e is PostgrestException) {
-        debugPrint('[CHAT][SEND] postgrest code=${e.code} msg=${e.message}');
+        debugPrint('[CHAT][SEND] ${pending.type} postgrest code=${e.code} msg=${e.message}');
       } else {
-        debugPrint('[CHAT][SEND] failed: $e');
+        debugPrint('[CHAT][SEND] ${pending.type} failed: $e');
       }
-      _updatePendingStatus(pending.id, OutboxStatus.failed);
+      final next = OutboxStore.instance.statusAfterFailure(pending.id, e);
+      debugPrint('[CHAT][SEND] ${pending.id} → $next');
+      _updatePendingStatus(pending.id, next);
       _persistOutbox();
     } finally {
       OutboxStore.instance.releaseSend(pending.id);
+    }
+  }
+
+  void _replacePending(Message updated) {
+    final i = _pendingMessages.indexWhere((m) => m.id == updated.id);
+    if (i == -1) return;
+    // Keep the live status: the copy handed back mid-send predates it.
+    final next = updated.copyWith(status: _pendingMessages[i].status);
+    if (mounted) {
+      setState(() => _pendingMessages[i] = next);
+    } else {
+      _pendingMessages[i] = next;
     }
   }
 
@@ -1655,8 +1733,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// Manual retry from a failed message's "Tap to retry" chip.
+  /// Manual retry from a failed message's "Couldn't send · Retry" chip. A
+  /// deliberate retry gets a fresh transient budget.
   void _retryPending(Message m) {
+    OutboxStore.instance.clearFailures(m.id);
     _updatePendingStatus(m.id, OutboxStatus.sending);
     _attemptSend(m);
   }
@@ -1714,16 +1794,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// the composer: picking an image is not the same as deciding to send it,
   /// and photos here are often evidence (damage, receipts, meter readings)
   /// where sending the wrong shot has real consequences.
+  ///
+  /// Nothing here needs the network: the gallery, the composer and the queue
+  /// are all on the device. The chat row is created lazily by the send path,
+  /// exactly as for text, so a photo can be composed in a tunnel.
   Future<void> _pickAndSendImage() async {
-    if (_isSending) return;
-    if (!await _ensureChatCreated()) {
-      if (mounted) _showError('Could not start chat. Please try again.');
-      return;
-    }
     List<XFile> picked;
     try {
       picked = await ImagePicker().pickMultiImage(maxWidth: 1024, imageQuality: 85);
     } catch (e) {
+      debugPrint('ChatScreen pickMultiImage: $e');
       if (mounted) _showError('Could not open your gallery.');
       return;
     }
@@ -1738,41 +1818,58 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
     if (composed == null || composed.files.isEmpty || !mounted) return;
-    await _sendComposedImages(composed);
+    await _queueComposedImages(composed);
   }
 
-  /// Uploads and sends in order. Each image is an independent message, so a
-  /// failure part-way leaves the successful ones delivered rather than
-  /// discarding the batch — and the caption rides the first image, matching
-  /// how every messenger treats a captioned set.
-  Future<void> _sendComposedImages(ComposedImages composed) async {
-    setState(() => _isSending = true);
-    await SupabaseAuthBridge.ensureSessionAsync();
-    var failures = 0;
+  /// Each photo becomes its own queued message, so a failure part-way leaves
+  /// the others delivered rather than holding the batch hostage — and the
+  /// caption rides the first one, matching how every messenger treats a
+  /// captioned set. Each is copied out of the picker's cache into durable
+  /// app storage BEFORE it is queued: the queue outlives this screen, and the
+  /// cache can be cleared under it.
+  Future<void> _queueComposedImages(ComposedImages composed) async {
+    final queued = <Message>[];
+    var skipped = 0;
+    final now = DateTime.now();
     for (var i = 0; i < composed.files.length; i++) {
+      final file = composed.files[i];
+      final id = OutboxIds.create();
       try {
-        final url = await StorageService.uploadChatAttachment(composed.files[i], _chatId);
-        if (!mounted) return;
-        await ChatServiceSupabase.sendAttachmentMessage(
-          chatIdParam: _chatId,
-          senderId: widget.currentUserId,
-          type: 'image',
-          attachmentUrl: url,
-          caption: i == 0 ? composed.caption : '',
+        if (await file.length() > StorageService.maxChatAttachmentBytes) {
+          skipped++;
+          continue;
+        }
+        final local = await OutboxFiles.adopt(
+          sourcePath: file.path,
+          uid: widget.currentUserId,
+          messageId: id,
+          name: file.name,
         );
+        queued.add(Message(
+          id: id,
+          conversationId: _chatId,
+          senderId: widget.currentUserId,
+          text: ChatServiceSupabase.attachmentContent(
+              'image', queued.isEmpty ? composed.caption : ''),
+          // A millisecond apart, so the set keeps its order on screen and in
+          // the queue (both sort by timestamp).
+          timestamp: now.add(Duration(milliseconds: i)),
+          isMe: true,
+          type: 'image',
+          status: OutboxStatus.queued,
+          localPath: local,
+        ));
       } catch (e) {
-        failures++;
-        debugPrint('ChatScreen sendComposedImages [$i]: $e');
+        debugPrint('ChatScreen queue photo [$i]: $e');
+        skipped++;
       }
     }
-    if (!mounted) return;
-    setState(() => _isSending = false);
-    _scrollToBottom();
-    if (failures > 0) {
-      _showError(failures == composed.files.length
-          ? 'Failed to send. Check your connection and try again.'
-          : "$failures of ${composed.files.length} photos didn't send.");
+    if (skipped > 0 && mounted) {
+      _showError(queued.isEmpty
+          ? "We couldn't prepare your photos. Please try again."
+          : "$skipped of ${composed.files.length} photos couldn't be prepared.");
     }
+    await _enqueue(queued);
   }
 
   /// Opens a sent or received photo fullscreen. The hero tag is the message id,
@@ -1792,47 +1889,62 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Pick a document and queue it. Like a photo, nothing here needs the
+  /// network — it used to wait on a session exchange before the picker would
+  /// even open, and then upload on the spot, so offline the document was lost.
   Future<void> _pickAndSendFile() async {
-    if (_isSending) return;
-    if (!await _ensureChatCreated()) {
-      if (mounted) _showError('Could not start chat. Please try again.');
-      return;
-    }
-    await SupabaseAuthBridge.ensureSessionAsync();
+    FilePickerResult? result;
     try {
-      final result = await FilePicker.platform.pickFiles(
+      result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'doc', 'docx'],
         withData: false,
       );
-      if (result == null || result.files.isEmpty || !mounted) return;
-      final platformFile = result.files.single;
-      final path = platformFile.path;
-      if (path == null || path.isEmpty) {
-        _showError('Could not access file.');
-        return;
-      }
-      setState(() => _isSending = true);
-      final xFile = XFile(path);
-      final url = await StorageService.uploadChatAttachment(xFile, _chatId);
-      if (!mounted) return;
-      await ChatServiceSupabase.sendAttachmentMessage(
-        chatIdParam: _chatId,
-        senderId: widget.currentUserId,
-        type: 'file',
-        attachmentUrl: url,
-        caption: platformFile.name,
-      );
-      if (mounted) {
-        setState(() => _isSending = false);
-        _scrollToBottom();
-      }
     } catch (e) {
-      if (mounted) {
-        setState(() => _isSending = false);
-        _showError('Failed to send file.');
-      }
+      debugPrint('ChatScreen pickFiles: $e');
+      if (mounted) _showError('Could not open your files.');
+      return;
     }
+    if (result == null || result.files.isEmpty || !mounted) return;
+    final platformFile = result.files.single;
+    final path = platformFile.path;
+    if (path == null || path.isEmpty) {
+      _showError('Could not access file.');
+      return;
+    }
+    // Refused here, not in the queue: a file over the limit can never be
+    // sent, and queueing it would only fail later with less to say.
+    if (platformFile.size > StorageService.maxChatAttachmentBytes) {
+      _showError('This file is too large to send. The limit is 10 MB.');
+      return;
+    }
+    final id = OutboxIds.create();
+    final String local;
+    try {
+      local = await OutboxFiles.adopt(
+        sourcePath: path,
+        uid: widget.currentUserId,
+        messageId: id,
+        name: platformFile.name,
+      );
+    } catch (e) {
+      debugPrint('ChatScreen queue document: $e');
+      if (mounted) _showError('Could not access file.');
+      return;
+    }
+    await _enqueue([
+      Message(
+        id: id,
+        conversationId: _chatId,
+        senderId: widget.currentUserId,
+        text: ChatServiceSupabase.attachmentContent('file', platformFile.name),
+        timestamp: DateTime.now(),
+        isMe: true,
+        type: 'file',
+        status: OutboxStatus.queued,
+        localPath: local,
+      ),
+    ]);
   }
 
   /// Single attach entry point: photo, document and location all live here
@@ -2147,6 +2259,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// recent pinned place in the thread), then hand the journey to the engine.
   /// The confirm screen owns the permission scenario.
   Future<void> _startJourneyFlow() async {
+    // A journey is LIVE — it streams the traveller's position as they move —
+    // so it is the one location intent that cannot wait in the queue: sent
+    // later, "on my way" would describe a moment that has passed. Say so, and
+    // offer the intent that can wait. Without this the engine tried, failed,
+    // and blamed "something on our side".
+    if (NetworkHealth.isOffline) {
+      await _showJourneyBlocked(
+        icon: AppIcons.unreachable,
+        title: "You're offline",
+        body: 'Sharing your journey needs a connection, because it sends your '
+            'position as you move. You can send a place instead — it will go '
+            "out as soon as you're back online.",
+        actionLabel: 'Send a place',
+        onAction: _openPlacePicker,
+      );
+      return;
+    }
     await _ensureChatPost();
     if (!mounted) return;
     final post = _chatPost;
@@ -2181,56 +2310,43 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (picked != null && mounted) await _sendPickedPlace(picked);
   }
 
+  /// A place is a pin the user chose on the map — a spot, not a claim about
+  /// where they are right now — so it keeps its meaning however long it waits
+  /// in the queue. Queued like any other message: picked offline (the picker
+  /// works from GPS and a draggable pin), it goes out on reconnect.
   Future<void> _sendPickedPlace(PickedPlace place) async {
-    setState(() => _isSending = true);
-    if (!await _ensureChatCreated()) {
-      if (mounted) { setState(() => _isSending = false); _showError('Could not start chat. Please try again.'); }
-      return;
-    }
-    await SupabaseAuthBridge.ensureSessionAsync();
-    try {
-      await ChatServiceSupabase.sendLocation(
-        chatId: _chatId,
+    final label = place.label.trim();
+    await _enqueue([
+      Message(
+        id: OutboxIds.create(),
+        conversationId: _chatId,
         senderId: widget.currentUserId,
+        text: label.isEmpty ? 'Location' : label,
+        timestamp: DateTime.now(),
+        isMe: true,
+        type: 'location',
         latitude: place.latitude,
         longitude: place.longitude,
-        label: place.label,
-      );
-      if (mounted) {
-        setState(() => _isSending = false);
-        _scrollToBottom();
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isSending = false);
-        _showError('Failed to send the place.');
-      }
-    }
+        status: OutboxStatus.queued,
+      ),
+    ]);
   }
 
-  /// "Request location": sends immediately — no second UI (by design).
+  /// "Request location": sends immediately — no second UI (by design). It
+  /// carries no coordinates, so it can wait in the queue like text.
   Future<void> _sendLocationRequest() async {
-    setState(() => _isSending = true);
-    if (!await _ensureChatCreated()) {
-      if (mounted) { setState(() => _isSending = false); _showError('Could not start chat. Please try again.'); }
-      return;
-    }
-    await SupabaseAuthBridge.ensureSessionAsync();
-    try {
-      await ChatServiceSupabase.sendLocationRequest(
-        chatId: _chatId,
+    await _enqueue([
+      Message(
+        id: OutboxIds.create(),
+        conversationId: _chatId,
         senderId: widget.currentUserId,
-      );
-      if (mounted) {
-        setState(() => _isSending = false);
-        _scrollToBottom();
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isSending = false);
-        _showError('Could not send the request.');
-      }
-    }
+        text: 'Location requested',
+        timestamp: DateTime.now(),
+        isMe: true,
+        type: 'location_request',
+        status: OutboxStatus.queued,
+      ),
+    ]);
   }
 
   Future<void> _startJourney(GeoPoint? destination) async {
@@ -2883,13 +2999,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 children: [
                 Builder(
                 builder: (context) {
-                  final combined = _messages.where(_isLocallyVisible).toList();
-                  for (final p in _pendingMessages) {
-                    final duplicate = combined.any((m) =>
-                        m.isMe && m.text == p.text && m.timestamp.difference(p.timestamp).inSeconds.abs() < 15);
-                    if (!duplicate) combined.add(p);
-                  }
-                  combined.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+                  final combined = mergeOutboxIntoThread(
+                    _messages.where(_isLocallyVisible).toList(),
+                    _pendingMessages,
+                  );
 
                   // Still asking whether a conversation exists. Progress, never
                   // an empty state — "Start the conversation" here was §D1.
@@ -3599,6 +3712,26 @@ class _MessageBubble extends StatelessWidget {
   String _formatTime(BuildContext context, DateTime time) =>
       formatMessageStamp(context, time);
 
+  /// Hand a delivered document to the phone. The bubble used to do nothing on
+  /// tap (`// Could launch URL in browser`), so a document could be sent but
+  /// never opened by either side.
+  static Future<void> _openDocument(BuildContext context, String url) async {
+    var opened = false;
+    try {
+      opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('ChatScreen open document: $e');
+    }
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't open this file."),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   Widget _buildTombstone(BuildContext context, bool isDark) {
     return Padding(
       padding: EdgeInsets.only(bottom: isLastInGroup ? 6 : 2),
@@ -3653,8 +3786,15 @@ class _MessageBubble extends StatelessWidget {
     }
 
     final isLocation = message.isLocation && message.hasValidCoordinates;
-    final isImage = message.isImage && (message.attachmentUrl != null && message.attachmentUrl!.isNotEmpty);
-    final isFile = message.isFile && (message.attachmentUrl != null && message.attachmentUrl!.isNotEmpty);
+    final hasUrl = message.attachmentUrl != null && message.attachmentUrl!.isNotEmpty;
+    // A queued attachment has no URL yet — only the copy on this phone. It is
+    // drawn from that copy, never from a server address it does not have, and
+    // keeps drawing from it until the message is delivered (so a photo whose
+    // upload finished but whose row has not landed does not flash a download).
+    final localFile =
+        isPending && message.localPath != null ? message.localPath : null;
+    final isImage = message.isImage && (hasUrl || localFile != null);
+    final isFile = message.isFile && (hasUrl || localFile != null);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -3780,10 +3920,14 @@ class _MessageBubble extends StatelessWidget {
                 ],
                 if (isImage) ...[
                   Semantics(
-                    button: true,
-                    label: message.text.isNotEmpty && message.text != 'Image'
-                        ? 'Photo: ${message.text}. Double tap to view fullscreen.'
-                        : 'Photo. Double tap to view fullscreen.',
+                    button: localFile == null,
+                    label: localFile != null
+                        ? (message.status == OutboxStatus.failed
+                            ? "Photo. Couldn't send."
+                            : 'Photo. Not sent yet.')
+                        : message.text.isNotEmpty && message.text != 'Image'
+                            ? 'Photo: ${message.text}. Double tap to view fullscreen.'
+                            : 'Photo. Double tap to view fullscreen.',
                     child: GestureDetector(
                       onTap: onTapImage == null ? null : () => onTapImage!(message),
                       child: Hero(
@@ -3792,7 +3936,9 @@ class _MessageBubble extends StatelessWidget {
                         tag: 'chat_image_${message.id}',
                         child: ClipRRect(
                           borderRadius: AppRadius.mdAll,
-                          child: CachedNetworkImage(
+                          child: localFile != null
+                              ? _QueuedPhoto(path: localFile, status: message.status)
+                              : CachedNetworkImage(
                             imageUrl: message.attachmentUrl!,
                             width: 220,
                             height: 180,
@@ -3839,11 +3985,12 @@ class _MessageBubble extends StatelessWidget {
                   ],
                 ] else if (isFile) ...[
                   InkWell(
-                    onTap: () {
-                      if (message.attachmentUrl != null) {
-                        // Could launch URL in browser
-                      }
-                    },
+                    // Delivered documents open in whatever the phone uses for
+                    // that type (a PDF viewer, the browser's download). A
+                    // queued one has nothing on the server to open yet.
+                    onTap: !isPending && hasUrl
+                        ? () => _openDocument(context, message.attachmentUrl!)
+                        : null,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -3920,25 +4067,40 @@ class _MessageBubble extends StatelessWidget {
                     ),
                     if (message.isMe) ...[
                       const SizedBox(width: 4),
-                      if (message.status == 'failed')
-                        GestureDetector(
-                          onTap: onRetry,
-                          behavior: HitTestBehavior.opaque,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(AppIcons.error,
-                                  size: 13, color: Colors.white),
-                              const SizedBox(width: 3),
-                              Text(
-                                'Tap to retry',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
+                      if (message.status == OutboxStatus.failed)
+                        // States the fact first ("Couldn't send"), then the
+                        // way out. Never "sent", never silently gone.
+                        Semantics(
+                          button: true,
+                          label: "Couldn't send. Double tap to retry.",
+                          excludeSemantics: true,
+                          child: GestureDetector(
+                            onTap: onRetry,
+                            behavior: HitTestBehavior.opaque,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(AppIcons.error,
+                                    size: 13, color: Colors.white),
+                                const SizedBox(width: 3),
+                                Text(
+                                  "Couldn't send",
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                              ),
-                            ],
+                                const Text(
+                                  ' · Retry',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       else
@@ -3959,6 +4121,62 @@ class _MessageBubble extends StatelessWidget {
     ).animate().fadeIn(duration: 200.ms).slideX(
       begin: message.isMe ? 0.1 : -0.1,
       end: 0,
+    );
+  }
+}
+
+/// A photo that has not reached the server, drawn from its copy on this phone.
+///
+/// Dimmed, with the same vocabulary as the status tick: a clock while it waits
+/// for a network, a spinner only while an upload is genuinely open. It must
+/// never look like a delivered photo — the recipient does not have it yet. A
+/// failed one is shown undimmed; the "Couldn't send · Retry" chip below it
+/// carries that state.
+class _QueuedPhoto extends StatelessWidget {
+  final String path;
+  final String status;
+
+  const _QueuedPhoto({required this.path, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return SizedBox(
+      width: 220,
+      height: 180,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.file(
+            File(path),
+            fit: BoxFit.cover,
+            // Decoded at bubble size, not the photo's: a queue of photos must
+            // not hold full-resolution bitmaps in memory.
+            cacheWidth: (220 * dpr).round(),
+            errorBuilder: (_, __, ___) => ColoredBox(
+              color: AppColors.of(context).surfaceSunken,
+              child: const Center(child: Icon(AppIcons.imageBroken, size: 40)),
+            ),
+          ),
+          if (status != OutboxStatus.failed)
+            ColoredBox(
+              color: Colors.black.withValues(alpha: 0.28),
+              child: Center(
+                child: status == OutboxStatus.sending
+                    ? const SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Icon(AppIcons.messageSending,
+                        color: Colors.white, size: 30),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

@@ -1023,6 +1023,93 @@ class ChatServiceSupabase {
     return controller.stream;
   }
 
+  /// THE CONVERSATION-LIST PREVIEW FOR A MESSAGE, by type.
+  ///
+  /// The same words in two places: written to `chats.last_message` when a
+  /// message is sent, and shown on the Messages tab while it is still queued.
+  /// Single-sourced so an unsent photo does not read "Image" offline and
+  /// something else the moment it is delivered.
+  static String previewFor({required String type, required String content}) {
+    switch (type) {
+      case 'location':
+        return _truncate(content == 'Location' ? 'Location' : '📍 $content');
+      case 'location_request':
+        return '📍 Location requested';
+      default:
+        return _truncate(content);
+    }
+  }
+
+  /// The `content` an attachment row is written with: the caption when there
+  /// is one, else the type's own word. Shared with the outbox so a queued
+  /// photo renders exactly as its server row will.
+  static String attachmentContent(String type, String caption) {
+    final trimmed = caption.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+    return type == 'image' ? 'Image' : 'File';
+  }
+
+  /// Insert one `chat_messages` row — IDEMPOTENTLY when [clientMessageId] is
+  /// given.
+  ///
+  /// WHY THE CLIENT CHOOSES THE ID
+  /// -----------------------------
+  /// A queued message is retried, and a retry cannot know whether the previous
+  /// attempt landed: the insert may have committed and only its response been
+  /// lost to the network dropping, or the app may have been killed between the
+  /// insert and the outbox forgetting the message. Without an identity the
+  /// retry inserted a second row — the recipient saw the message twice.
+  ///
+  /// `chat_messages.id` is a uuid primary key whose default only applies when
+  /// none is supplied, so the outbox supplies the one it minted when the
+  /// message was composed. A second insert of the same message then fails on
+  /// the primary key (23505), and that failure IS the proof it already exists:
+  /// the row is read back and returned as this attempt's result. No schema
+  /// change, and RLS is untouched — the row is still only insertable by a
+  /// participant, and read back only if the caller may see it.
+  static Future<Map<String, dynamic>> _insertMessageRow(
+    Map<String, dynamic> insert, {
+    String? clientMessageId,
+  }) async {
+    if (clientMessageId == null) {
+      return await _client.from('chat_messages').insert(insert).select().single();
+    }
+    try {
+      final row = await _client
+          .from('chat_messages')
+          .insert({...insert, 'id': clientMessageId})
+          .select()
+          .single();
+      debugPrint('[OUTBOX][INSERT] stored id=${row['id']} client=$clientMessageId '
+          'type=${insert['type']}');
+      return row;
+    } on PostgrestException catch (e) {
+      if (e.code != '23505') rethrow;
+      final existing = await _client
+          .from('chat_messages')
+          .select()
+          .eq('id', clientMessageId)
+          .maybeSingle();
+      if (!isReplayOf(existing, insert)) rethrow;
+      debugPrint('[OUTBOX][IDEMPOTENT] id=$clientMessageId already stored — '
+          'treating the retry as delivered');
+      return existing!;
+    }
+  }
+
+  /// Whether [existing] — the row already stored under a retried message's id
+  /// — is that same message: same chat, same sender. Anything else is a
+  /// genuine conflict and must surface, never be adopted as "ours".
+  @visibleForTesting
+  static bool isReplayOf(
+    Map<String, dynamic>? existing,
+    Map<String, dynamic> insert,
+  ) {
+    if (existing == null) return false;
+    return existing['chat_id']?.toString() == insert['chat_id']?.toString() &&
+        existing['sender_id']?.toString() == insert['sender_id']?.toString();
+  }
+
   /// Send text message.
   static Future<Message> sendMessage({
     required String chatIdParam,
@@ -1031,6 +1118,7 @@ class ChatServiceSupabase {
     String? replyToId,
     String? replyToSender,
     String? replyToPreview,
+    String? clientMessageId,
   }) async {
     final text = content.trim();
     if (text.isEmpty) throw ChatServiceException('Message cannot be empty');
@@ -1044,11 +1132,10 @@ class ChatServiceSupabase {
         if (replyToSender  != null) 'reply_to_sender':  replyToSender,
         if (replyToPreview != null) 'reply_to_preview': replyToPreview,
       };
-      final res = await _client.from('chat_messages').insert(insert).select().single();
-      final row = res as Map<String, dynamic>;
+      final row = await _insertMessageRow(insert, clientMessageId: clientMessageId);
       debugPrint('[CHAT_NOTIFY][SEND] chat_id=$chatIdParam sender_id=$senderId');
       await _client.from('chats').update({
-        'last_message': _truncate(text),
+        'last_message': previewFor(type: 'text', content: text),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatIdParam);
       // Fire-and-forget push notification to recipient.
@@ -1067,10 +1154,11 @@ class ChatServiceSupabase {
     required String type,
     required String attachmentUrl,
     String caption = '',
+    String? clientMessageId,
   }) async {
     if (type != 'image' && type != 'file') throw ChatServiceException('Type must be image or file');
     try {
-      final content = caption.trim().isNotEmpty ? caption.trim() : (type == 'image' ? 'Image' : 'File');
+      final content = attachmentContent(type, caption);
       final insert = {
         'chat_id': chatIdParam,
         'sender_id': senderId,
@@ -1078,11 +1166,10 @@ class ChatServiceSupabase {
         'type': type,
         'attachment_url': attachmentUrl,
       };
-      final res = await _client.from('chat_messages').insert(insert).select().single();
-      final row = res as Map<String, dynamic>;
+      final row = await _insertMessageRow(insert, clientMessageId: clientMessageId);
       debugPrint('[CHAT_NOTIFY][SEND] attachment type=$type chat_id=$chatIdParam sender_id=$senderId');
       await _client.from('chats').update({
-        'last_message': content,
+        'last_message': previewFor(type: type, content: content),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatIdParam);
       unawaited(_notifyBackend(chatId: chatIdParam, senderId: senderId, preview: content));
@@ -1102,6 +1189,7 @@ class ChatServiceSupabase {
     required double latitude,
     required double longitude,
     String? label,
+    String? clientMessageId,
   }) async {
     final content = (label != null && label.trim().isNotEmpty) ? label.trim() : 'Location';
     try {
@@ -1113,11 +1201,10 @@ class ChatServiceSupabase {
         'latitude': latitude,
         'longitude': longitude,
       };
-      final res = await _client.from('chat_messages').insert(insert).select().single();
-      final row = res as Map<String, dynamic>;
+      final row = await _insertMessageRow(insert, clientMessageId: clientMessageId);
       debugPrint('ChatServiceSupabase sendLocation: inserted chat_message id=${row['id']} chat_id=$chatId sender_id=$senderId');
       await _client.from('chats').update({
-        'last_message': _truncate(content == 'Location' ? 'Location' : '📍 $content'),
+        'last_message': previewFor(type: 'location', content: content),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatId);
       // Fire-and-forget push to recipient (NestJS — same path as text/attachments).
@@ -1174,6 +1261,7 @@ class ChatServiceSupabase {
   static Future<Message> sendLocationRequest({
     required String chatId,
     required String senderId,
+    String? clientMessageId,
   }) async {
     try {
       final insert = {
@@ -1182,11 +1270,10 @@ class ChatServiceSupabase {
         'content': 'Location requested',
         'type': 'location_request',
       };
-      final res = await _client.from('chat_messages').insert(insert).select().single();
-      final row = res as Map<String, dynamic>;
+      final row = await _insertMessageRow(insert, clientMessageId: clientMessageId);
       debugPrint('ChatServiceSupabase sendLocationRequest: inserted chat_message id=${row['id']} chat_id=$chatId');
       await _client.from('chats').update({
-        'last_message': '📍 Location requested',
+        'last_message': previewFor(type: 'location_request', content: 'Location requested'),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatId);
       unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '📍 Location requested'));
