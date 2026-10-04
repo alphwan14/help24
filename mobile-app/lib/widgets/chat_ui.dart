@@ -6,22 +6,25 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/chat_presentation.dart';
 import '../models/post_model.dart';
+import '../services/chat_attachments.dart';
 import '../services/chat_service_supabase.dart';
 import 'primitives.dart';
 import '../theme/app_icons.dart';
-import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/time_utils.dart';
+import 'chat/chat_bubbles.dart';
 import 'job_status_card.dart';
 
 // =============================================================================
 // Chat UI kit — conversation command menu, job status sheet, in-conversation
-// search, and the message long-press context menu.
+// search, the message long-press context menu and message info.
 //
 // Everything here is presentation-only: data flows in via parameters and out
 // via callbacks, so messaging behavior (realtime, delivery, deletion rules)
-// stays owned by ChatScreen and the services.
+// stays owned by ChatScreen and the services. Colour comes from the token
+// layer; nothing here branches on brightness.
 // =============================================================================
 
 /// Actions offered by the conversation three-dot menu.
@@ -29,77 +32,60 @@ enum ChatMenuAction { viewPost, jobStatus, search, mute, clear, report }
 
 /// Builds the three-dot menu entries. Contextual actions (post, job) appear
 /// only when the chat is scoped to a post — no dead items, no clutter.
-List<PopupMenuEntry<ChatMenuAction>> buildChatMenuItems({
-  required bool isDark,
+List<PopupMenuEntry<ChatMenuAction>> buildChatMenuItems(
+  BuildContext context, {
   required bool hasPost,
   required bool isMuted,
 }) {
-  final divider = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+  final c = AppColors.of(context);
   return [
     if (hasPost) ...[
-      _menuItem(
-        ChatMenuAction.viewPost,
-        icon: AppIcons.fileDocument,
-        label: 'View post',
-        isDark: isDark,
-      ),
-      _menuItem(
-        ChatMenuAction.jobStatus,
-        icon: AppIcons.receipt,
-        label: 'Job status',
-        isDark: isDark,
-      ),
+      _menuItem(context, ChatMenuAction.viewPost,
+          icon: AppIcons.fileDocument, label: 'View post'),
+      _menuItem(context, ChatMenuAction.jobStatus,
+          icon: AppIcons.receipt, label: 'Job status'),
     ],
+    _menuItem(context, ChatMenuAction.search,
+        icon: AppIcons.search, label: 'Search conversation'),
     _menuItem(
-      ChatMenuAction.search,
-      icon: AppIcons.search,
-      label: 'Search conversation',
-      isDark: isDark,
-    ),
-    _menuItem(
+      context,
       ChatMenuAction.mute,
-      icon: isMuted
-          ? AppIcons.unmute
-          : AppIcons.mute,
+      icon: isMuted ? AppIcons.unmute : AppIcons.mute,
       label: isMuted ? 'Unmute notifications' : 'Mute notifications',
-      isDark: isDark,
     ),
-    PopupMenuDivider(height: 9, color: divider),
-    _menuItem(
-      ChatMenuAction.clear,
-      icon: AppIcons.clearChat,
-      label: 'Clear conversation',
-      isDark: isDark,
-      color: AppTheme.errorRed,
-    ),
-    _menuItem(
-      ChatMenuAction.report,
-      icon: AppIcons.report,
-      label: 'Report user',
-      isDark: isDark,
-      color: AppTheme.errorRed,
-    ),
+    PopupMenuDivider(height: 9, color: c.borderHairline),
+    _menuItem(context, ChatMenuAction.clear,
+        icon: AppIcons.clearChat,
+        label: 'Clear conversation',
+        color: c.criticalText),
+    _menuItem(context, ChatMenuAction.report,
+        icon: AppIcons.report, label: 'Report user', color: c.criticalText),
   ];
 }
 
 PopupMenuItem<ChatMenuAction> _menuItem(
+  BuildContext context,
   ChatMenuAction action, {
   required IconData icon,
   required String label,
-  required bool isDark,
   Color? color,
 }) {
-  final c = color ?? (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary);
+  final c = AppColors.of(context);
   return PopupMenuItem<ChatMenuAction>(
     value: action,
-    height: 44,
+    height: ChatGeometry.minTouch,
     child: Row(
       children: [
-        Icon(icon, size: 20, color: color ?? (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary)),
+        Icon(icon, size: 20, color: color ?? c.contentSecondary),
         const SizedBox(width: 12),
-        Text(
-          label,
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: c),
+        Flexible(
+          child: Text(
+            label,
+            style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: color ?? c.contentPrimary),
+          ),
         ),
       ],
     ),
@@ -143,16 +129,13 @@ class JobStatusSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
-    final border = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final tertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+    final c = AppColors.of(context);
     final maxH = MediaQuery.of(context).size.height * 0.82;
 
     return Container(
       constraints: BoxConstraints(maxHeight: maxH),
       decoration: BoxDecoration(
-        color: surface,
+        color: c.surface,
         borderRadius: AppRadius.sheetTop,
       ),
       child: SafeArea(
@@ -169,14 +152,11 @@ class JobStatusSheet extends StatelessWidget {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: AppTheme.primaryAccent.withValues(alpha: 0.12),
+                      color: c.accentSubtle,
                       borderRadius: AppRadius.mdAll,
                     ),
-                    child: const Icon(
-                      AppIcons.receipt,
-                      size: 20,
-                      color: AppTheme.primaryAccent,
-                    ),
+                    child:
+                        Icon(AppIcons.receipt, size: 20, color: c.accentText),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -185,17 +165,19 @@ class JobStatusSheet extends StatelessWidget {
                       children: [
                         Text(
                           'Job status',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                         ),
                         if (postTitle != null && postTitle!.isNotEmpty)
                           Text(
                             postTitle!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 12, color: tertiary),
+                            style: TextStyle(
+                                fontSize: 12, color: c.contentTertiary),
                           ),
                       ],
                     ),
@@ -208,14 +190,14 @@ class JobStatusSheet extends StatelessWidget {
                 ],
               ),
             ),
-            Divider(height: 1, thickness: 0.5, color: border),
+            Divider(height: 1, thickness: 0.5, color: c.borderHairline),
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(4, 10, 4, 16),
                 child: JobStatusCard(
                   postId: postId,
                   currentUserId: currentUserId,
-                  emptyPlaceholder: _EmptyJobState(isDark: isDark),
+                  emptyPlaceholder: const _EmptyJobState(),
                 ),
               ),
             ),
@@ -227,29 +209,31 @@ class JobStatusSheet extends StatelessWidget {
 }
 
 class _EmptyJobState extends StatelessWidget {
-  final bool isDark;
-  const _EmptyJobState({required this.isDark});
+  const _EmptyJobState();
 
   @override
   Widget build(BuildContext context) {
-    final secondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-    final tertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+    final c = AppColors.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(32, 36, 32, 28),
       child: Column(
         children: [
-          Icon(AppIcons.pending, size: 40, color: tertiary),
+          Icon(AppIcons.pending, size: 40, color: c.contentTertiary),
           const SizedBox(height: 14),
           Text(
             'No active job yet',
-            style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: secondary),
+            style: TextStyle(
+                fontSize: 15.5,
+                fontWeight: FontWeight.w700,
+                color: c.contentSecondary),
           ),
           const SizedBox(height: 6),
           Text(
             'Job tracking starts once a provider is selected for this post. '
             'Payment protection, completion and payout will appear here.',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12.5, height: 1.5, color: tertiary),
+            style: TextStyle(
+                fontSize: 12.5, height: 1.5, color: c.contentTertiary),
           ),
         ],
       ),
@@ -271,6 +255,7 @@ class ConversationSearchSheet extends StatefulWidget {
   final String currentUserId;
   final String partnerName;
   final bool Function(Message) isVisible;
+
   /// Called AFTER the sheet closes when the user taps a result.
   final void Function(Message message)? onResultTap;
 
@@ -307,7 +292,8 @@ class ConversationSearchSheet extends StatefulWidget {
   }
 
   @override
-  State<ConversationSearchSheet> createState() => _ConversationSearchSheetState();
+  State<ConversationSearchSheet> createState() =>
+      _ConversationSearchSheetState();
 }
 
 class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
@@ -353,19 +339,17 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
-    final border = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final tertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+    final c = AppColors.of(context);
     final height = MediaQuery.of(context).size.height * 0.88;
 
     return Padding(
       // Keep the sheet above the keyboard.
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
         height: height,
         decoration: BoxDecoration(
-          color: surface,
+          color: c.surface,
           borderRadius: AppRadius.sheetTop,
         ),
         child: Column(
@@ -381,14 +365,17 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
                 style: const TextStyle(fontSize: 15),
                 decoration: InputDecoration(
                   hintText: 'Search this conversation…',
-                  hintStyle: TextStyle(color: tertiary, fontSize: 15),
-                  prefixIcon: Icon(AppIcons.search, size: 21, color: tertiary),
+                  hintStyle: TextStyle(color: c.contentTertiary, fontSize: 15),
+                  prefixIcon:
+                      Icon(AppIcons.search, size: 21, color: c.contentTertiary),
                   suffixIcon: ValueListenableBuilder<TextEditingValue>(
                     valueListenable: _controller,
                     builder: (_, value, __) => value.text.isEmpty
                         ? const SizedBox.shrink()
                         : IconButton(
-                            icon: Icon(AppIcons.close, size: 19, color: tertiary),
+                            icon: Icon(AppIcons.close,
+                                size: 19, color: c.contentTertiary),
+                            tooltip: 'Clear search',
                             onPressed: () {
                               _controller.clear();
                               _onQueryChanged('');
@@ -397,32 +384,33 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
                   ),
                   isDense: true,
                   filled: true,
-                  fillColor: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  fillColor: c.surfaceSunken,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   border: OutlineInputBorder(
                     borderRadius: AppRadius.mdAll,
                     borderSide: BorderSide.none,
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: AppRadius.mdAll,
-                    borderSide: BorderSide(color: border, width: 0.5),
+                    borderSide: BorderSide(color: c.borderHairline, width: 0.5),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: AppRadius.mdAll,
-                    borderSide: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
+                    borderSide: BorderSide(color: c.accentText, width: 1.2),
                   ),
                 ),
               ),
             ),
-            Divider(height: 1, thickness: 0.5, color: border),
-            Expanded(child: _buildBody(isDark, tertiary, border)),
+            Divider(height: 1, thickness: 0.5, color: c.borderHairline),
+            Expanded(child: _buildBody(c)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildBody(bool isDark, Color tertiary, Color border) {
+  Widget _buildBody(AppColors c) {
     if (_searching) {
       return const Center(
         child: SizedBox(
@@ -436,8 +424,9 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
       return _hint(
         icon: AppIcons.search,
         title: 'Search messages',
-        subtitle: 'Find prices, addresses or anything said in this conversation.',
-        tertiary: tertiary,
+        subtitle:
+            'Find prices, addresses or anything said in this conversation.',
+        tertiary: c.contentTertiary,
       );
     }
     if (_results.isEmpty) {
@@ -445,7 +434,7 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
         icon: AppIcons.searchNoResults,
         title: 'No messages found',
         subtitle: 'Nothing in this conversation matches "$_lastQuery".',
-        tertiary: tertiary,
+        tertiary: c.contentTertiary,
       );
     }
     return ListView.separated(
@@ -456,7 +445,7 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
         thickness: 0.5,
         indent: 16,
         endIndent: 16,
-        color: border.withValues(alpha: 0.6),
+        color: c.borderHairline,
       ),
       itemBuilder: (context, index) {
         final m = _results[index];
@@ -464,7 +453,6 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
           message: m,
           partnerName: widget.partnerName,
           query: _lastQuery,
-          isDark: isDark,
           onTap: () {
             final onTap = widget.onResultTap;
             Navigator.of(context).pop();
@@ -492,10 +480,7 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
             Text(
               title,
               style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: tertiary,
-              ),
+                  fontSize: 15, fontWeight: FontWeight.w600, color: tertiary),
             ),
             const SizedBox(height: 4),
             Text(
@@ -514,22 +499,17 @@ class _SearchResultRow extends StatelessWidget {
   final Message message;
   final String partnerName;
   final String query;
-  final bool isDark;
   final VoidCallback onTap;
 
   const _SearchResultRow({
     required this.message,
     required this.partnerName,
     required this.query,
-    required this.isDark,
     required this.onTap,
   });
 
-  String _dateLabel(BuildContext context, DateTime t) =>
-      formatMessageStamp(context, t);
-
   /// Bolds every case-insensitive occurrence of [query] in [text].
-  TextSpan _highlight(String text, Color base) {
+  TextSpan _highlight(String text, Color base, Color mark) {
     final lower = text.toLowerCase();
     final q = query.toLowerCase();
     final spans = <TextSpan>[];
@@ -543,20 +523,18 @@ class _SearchResultRow extends StatelessWidget {
       if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
       spans.add(TextSpan(
         text: text.substring(idx, idx + q.length),
-        style: const TextStyle(
-          fontWeight: FontWeight.w700,
-          color: AppTheme.primaryAccent,
-        ),
+        style: TextStyle(fontWeight: FontWeight.w700, color: mark),
       ));
       start = idx + q.length;
     }
-    return TextSpan(style: TextStyle(fontSize: 13.5, height: 1.4, color: base), children: spans);
+    return TextSpan(
+        style: TextStyle(fontSize: 13.5, height: 1.4, color: base),
+        children: spans);
   }
 
   @override
   Widget build(BuildContext context) {
-    final primary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final tertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+    final c = AppColors.of(context);
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -574,23 +552,21 @@ class _SearchResultRow extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
-                      color: message.isMe
-                          ? AppTheme.primaryAccent
-                          : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+                      color: message.isMe ? c.accentText : c.contentSecondary,
                     ),
                   ),
                 ),
                 Text(
-                  _dateLabel(context, message.timestamp),
-                  style: TextStyle(fontSize: 11, color: tertiary),
+                  formatMessageStamp(context, message.timestamp),
+                  style: TextStyle(fontSize: 11, color: c.contentTertiary),
                 ),
               ],
             ),
             const SizedBox(height: 3),
-            RichText(
+            Text.rich(
+              _highlight(message.text, c.contentPrimary, c.accentText),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              text: _highlight(message.text, primary),
             ),
           ],
         ),
@@ -601,6 +577,66 @@ class _SearchResultRow extends StatelessWidget {
 
 // The report flow lives in widgets/report_sheet.dart (ReportSheet): one sheet
 // for accounts, listings, applications and messages.
+
+// ── Message info ─────────────────────────────────────────────────────────────
+
+/// The full record of one message: the date and time it was sent and, for
+/// your own, when it was delivered and read. Bubbles show only the clock; a
+/// dispute needs the rest, so long-press → Info always has it.
+Future<void> showMessageInfo(BuildContext context, Message message) {
+  final c = AppColors.of(context);
+  final use24 = MediaQuery.of(context).alwaysUse24HourFormat;
+  final state = message.isMe ? chatSendStateOf(message) : null;
+  String stamp(DateTime t) => chatInfoStamp(t, use24Hour: use24);
+  final rows = <(String, String)>[
+    (message.isMe ? 'Sent' : 'Received', stamp(message.timestamp)),
+    if (state == ChatSendState.queued) ('Status', 'Waiting to send'),
+    if (state == ChatSendState.failed) ('Status', 'Not sent'),
+    if (message.deliveredAt != null) ('Delivered', stamp(message.deliveredAt!)),
+    if (message.isMe && state == ChatSendState.sent) ('Delivered', 'Not yet'),
+    if (message.seenAt != null) ('Read', stamp(message.seenAt!)),
+    if (message.isMe && message.seenAt == null && state == ChatSendState.read)
+      ('Read', 'Yes'),
+  ];
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: c.surface,
+    shape: const RoundedRectangleBorder(borderRadius: AppRadius.sheetTop),
+    builder: (sheet) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Center(child: SheetHandle()),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 12),
+              child: Text('Message info',
+                  style: Theme.of(sheet).textTheme.titleLarge),
+            ),
+            for (final (label, value) in rows)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style: TextStyle(
+                            fontSize: 12.5, color: c.contentSecondary)),
+                    const SizedBox(height: 2),
+                    SelectableText(value,
+                        style:
+                            TextStyle(fontSize: 15, color: c.contentPrimary)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
 // ── Message long-press context menu ──────────────────────────────────────────
 
@@ -613,6 +649,7 @@ Future<void> showMessageContextMenu(
   required Rect bubbleRect,
   VoidCallback? onReply,
   VoidCallback? onCopy,
+  VoidCallback? onInfo,
   VoidCallback? onDeleteForMe,
   VoidCallback? onDeleteForEveryone,
   VoidCallback? onReport,
@@ -629,12 +666,14 @@ Future<void> showMessageContextMenu(
       bubbleRect: bubbleRect,
       onReply: onReply,
       onCopy: onCopy,
+      onInfo: onInfo,
       onDeleteForMe: onDeleteForMe,
       onDeleteForEveryone: onDeleteForEveryone,
       onReport: onReport,
     ),
     transitionBuilder: (_, animation, __, child) {
-      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+      final curved =
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
       return FadeTransition(opacity: curved, child: child);
     },
   );
@@ -645,6 +684,7 @@ class _MessageContextMenu extends StatelessWidget {
   final Rect bubbleRect;
   final VoidCallback? onReply;
   final VoidCallback? onCopy;
+  final VoidCallback? onInfo;
   final VoidCallback? onDeleteForMe;
   final VoidCallback? onDeleteForEveryone;
   final VoidCallback? onReport;
@@ -654,6 +694,7 @@ class _MessageContextMenu extends StatelessWidget {
     required this.bubbleRect,
     this.onReply,
     this.onCopy,
+    this.onInfo,
     this.onDeleteForMe,
     this.onDeleteForEveryone,
     this.onReport,
@@ -662,6 +703,7 @@ class _MessageContextMenu extends StatelessWidget {
   int get _actionCount => [
         onReply,
         onCopy,
+        onInfo,
         onDeleteForMe,
         onDeleteForEveryone,
         onReport,
@@ -669,7 +711,7 @@ class _MessageContextMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = AppColors.of(context);
     final media = MediaQuery.of(context);
     final screen = media.size;
     final topSafe = media.padding.top;
@@ -683,84 +725,97 @@ class _MessageContextMenu extends StatelessWidget {
     // Defensive: if rect capture ever failed, anchor to a sane center spot
     // instead of positioning off-screen.
     final anchor = bubbleRect == Rect.zero
-        ? Rect.fromLTWH(screen.width * 0.12, screen.height * 0.30, screen.width * 0.6, 48)
+        ? Rect.fromLTWH(
+            screen.width * 0.12, screen.height * 0.30, screen.width * 0.6, 48)
         : bubbleRect;
 
     // Anchor at the bubble's own position; clamp so preview + menu fit.
     final maxTop = screen.height - bottomSafe - menuH - gap - 120 - 12;
-    final top =
-        anchor.top.clamp(topSafe + 12, math.max(topSafe + 12, maxTop)).toDouble();
+    final top = anchor.top
+        .clamp(topSafe + 12, math.max(topSafe + 12, maxTop))
+        .toDouble();
     final maxPreviewH = screen.height - bottomSafe - top - menuH - gap - 24;
 
     // Horizontal alignment follows the bubble's side.
     final alignRight = message.isMe;
 
-    return Stack(
-      children: [
-        // Blur + dim everything behind (the chat stays recognizable).
-        Positioned.fill(
-          child: GestureDetector(
-            onTap: () => Navigator.of(context).pop(),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 7, sigmaY: 7),
-              child: Container(
-                color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.25),
+    final hasPrimary = onReply != null || onCopy != null || onInfo != null;
+    final hasDestructive = onDeleteForMe != null ||
+        onDeleteForEveryone != null ||
+        onReport != null;
+
+    // A dialog route brings no Material, so text in the lifted bubble fell
+    // back to the framework's error style (yellow underlines) on device.
+    return Material(
+      type: MaterialType.transparency,
+      child: Stack(
+        children: [
+          // Blur + dim everything behind (the chat stays recognizable). The dim
+          // is the media scrim's black, lighter: it darkens whatever is behind
+          // it, in either theme.
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () => Navigator.of(context).pop(),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 7, sigmaY: 7),
+                child: Container(
+                    color: ChatColors.of(context)
+                        .mediaScrim
+                        .withValues(alpha: 0.35)),
               ),
             ),
           ),
-        ),
-        Positioned(
-          top: top,
-          left: alignRight ? null : math.max(12, anchor.left),
-          right: alignRight ? math.max(12, screen.width - anchor.right) : null,
-          child: Column(
-            crossAxisAlignment:
-                alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // The "lifted" copy of the pressed bubble.
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: screen.width * 0.76,
-                  maxHeight: math.max(56, maxPreviewH),
+          Positioned(
+            top: top,
+            left: alignRight ? null : math.max(12, anchor.left),
+            right:
+                alignRight ? math.max(12, screen.width - anchor.right) : null,
+            child: Column(
+              crossAxisAlignment: alignRight
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // The "lifted" copy of the pressed bubble.
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: screen.width * 0.76,
+                    maxHeight: math.max(56, maxPreviewH),
+                  ),
+                  child: _BubblePreview(message: message),
                 ),
-                child: _BubblePreview(message: message, isDark: isDark),
-              ),
-              const SizedBox(height: gap),
-              _ActionsCard(
-                isDark: isDark,
-                width: menuWidth,
-                children: [
-                  if (onReply != null)
-                    _actionRow(context, AppIcons.reply, 'Reply', onReply!,
-                        isDark: isDark),
-                  if (onCopy != null)
-                    _actionRow(context, AppIcons.copy, 'Copy', onCopy!,
-                        isDark: isDark),
-                  if ((onReply != null || onCopy != null) &&
-                      (onDeleteForMe != null || onDeleteForEveryone != null || onReport != null))
-                    Divider(
-                      height: 1,
-                      thickness: 0.5,
-                      color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                    ),
-                  if (onDeleteForMe != null)
-                    _actionRow(context, AppIcons.delete, 'Delete for me',
-                        onDeleteForMe!,
-                        isDark: isDark, color: AppTheme.errorRed),
-                  if (onDeleteForEveryone != null)
-                    _actionRow(context, AppIcons.delete, 'Delete for everyone',
-                        onDeleteForEveryone!,
-                        isDark: isDark, color: AppTheme.errorRed),
-                  if (onReport != null)
-                    _actionRow(context, AppIcons.report, 'Report', onReport!,
-                        isDark: isDark, color: AppTheme.warningOrange),
-                ],
-              ),
-            ],
+                const SizedBox(height: gap),
+                _ActionsCard(
+                  width: menuWidth,
+                  children: [
+                    if (onReply != null)
+                      _actionRow(context, AppIcons.reply, 'Reply', onReply!),
+                    if (onCopy != null)
+                      _actionRow(context, AppIcons.copy, 'Copy', onCopy!),
+                    if (onInfo != null)
+                      _actionRow(
+                          context, AppIcons.messageInfo, 'Info', onInfo!),
+                    if (hasPrimary && hasDestructive)
+                      Divider(
+                          height: 1, thickness: 0.5, color: c.borderHairline),
+                    if (onDeleteForMe != null)
+                      _actionRow(context, AppIcons.delete, 'Delete for me',
+                          onDeleteForMe!,
+                          color: c.criticalText),
+                    if (onDeleteForEveryone != null)
+                      _actionRow(context, AppIcons.delete,
+                          'Delete for everyone', onDeleteForEveryone!,
+                          color: c.criticalText),
+                    if (onReport != null)
+                      _actionRow(context, AppIcons.report, 'Report', onReport!,
+                          color: c.cautionText),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -769,20 +824,17 @@ class _MessageContextMenu extends StatelessWidget {
     IconData icon,
     String label,
     VoidCallback onTap, {
-    required bool isDark,
     Color? color,
   }) {
-    final c = color ?? (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary);
-    final iconColor =
-        color ?? (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary);
+    final c = AppColors.of(context);
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();
         Navigator.of(context).pop();
         onTap();
       },
-      child: SizedBox(
-        height: 46,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 46),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
@@ -790,10 +842,13 @@ class _MessageContextMenu extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
-                  style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500, color: c),
+                  style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w500,
+                      color: color ?? c.contentPrimary),
                 ),
               ),
-              Icon(icon, size: 20, color: iconColor),
+              Icon(icon, size: 20, color: color ?? c.contentSecondary),
             ],
           ),
         ),
@@ -803,34 +858,21 @@ class _MessageContextMenu extends StatelessWidget {
 }
 
 class _ActionsCard extends StatelessWidget {
-  final bool isDark;
   final double width;
   final List<Widget> children;
 
-  const _ActionsCard({
-    required this.isDark,
-    required this.width,
-    required this.children,
-  });
+  const _ActionsCard({required this.width, required this.children});
 
   @override
   Widget build(BuildContext context) {
+    final c = AppColors.of(context);
     return Container(
       width: width,
       decoration: BoxDecoration(
-        color: isDark ? AppTheme.darkCard : AppTheme.lightSurface,
+        color: c.surface,
         borderRadius: AppRadius.lgAll,
-        border: Border.all(
-          color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-          width: 0.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.16),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        border: Border.all(color: c.borderHairline, width: 0.5),
+        boxShadow: AppElevation.floating(Theme.of(context).brightness),
       ),
       child: Material(
         color: Colors.transparent,
@@ -846,37 +888,38 @@ class _ActionsCard extends StatelessWidget {
 }
 
 /// Static copy of the pressed bubble shown above the blur. Text-first; media
-/// messages render a compact representation.
+/// messages render a compact representation. Same shape and paint as the
+/// bubble itself — [chatBubbleRadius], [ChatColors].
 class _BubblePreview extends StatelessWidget {
   final Message message;
-  final bool isDark;
 
-  const _BubblePreview({required this.message, required this.isDark});
+  const _BubblePreview({required this.message});
 
   @override
   Widget build(BuildContext context) {
+    final c = ChatColors.of(context);
     final mine = message.isMe;
-    final bg = mine
-        ? AppTheme.primaryAccent
-        : (isDark ? AppTheme.darkCard : AppTheme.lightCard);
-    final fg = mine
-        ? Colors.white
-        : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary);
+    final bg = mine ? c.outgoing : c.surface;
+    final fg = mine ? c.onOutgoing : c.text;
+    final muted = mine ? c.onOutgoingMuted : c.iconSecondary;
 
     Widget content;
     if (message.isImage && (message.attachmentUrl?.isNotEmpty ?? false)) {
       content = ClipRRect(
         borderRadius: AppRadius.mdAll,
         child: CachedNetworkImage(
-          imageUrl: message.attachmentUrl!,
+          // The same private, message-keyed entry the bubble itself drew.
+          imageUrl: ChatAttachments.urlFor(message.id).toString(),
+          cacheKey: ChatAttachments.cacheKeyFor(message.id),
+          cacheManager: ChatAttachmentCache.instance,
           width: 200,
           height: 150,
           fit: BoxFit.cover,
           errorWidget: (_, __, ___) => Container(
             width: 200,
             height: 150,
-            color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-            child: const Icon(AppIcons.imageBroken, size: 40),
+            color: c.surfaceRaised,
+            child: Icon(AppIcons.imageBroken, size: 40, color: c.iconSecondary),
           ),
         ),
       );
@@ -884,7 +927,7 @@ class _BubblePreview extends StatelessWidget {
       content = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(AppIcons.fileDocument, size: 22, color: mine ? Colors.white70 : AppTheme.primaryAccent),
+          Icon(AppIcons.fileDocument, size: 22, color: muted),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
@@ -900,11 +943,19 @@ class _BubblePreview extends StatelessWidget {
       content = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(AppIcons.location, size: 20, color: mine ? Colors.white70 : AppTheme.primaryAccent),
+          Icon(AppIcons.location, size: 20, color: muted),
           const SizedBox(width: 6),
-          Text(
-            message.isLiveLocation ? 'Live location' : 'Location',
-            style: TextStyle(color: fg, fontSize: 14.5),
+          Flexible(
+            child: Text(
+              message.isLiveLocation
+                  ? 'Live location'
+                  : (message.text.isNotEmpty && message.text != 'Location'
+                      ? message.text
+                      : 'Location'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: fg, fontSize: 14.5),
+            ),
           ),
         ],
       );
@@ -915,80 +966,20 @@ class _BubblePreview extends StatelessWidget {
           message.text,
           maxLines: 10,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: fg, fontSize: 15, height: 1.35),
+          style: TextStyle(
+              color: fg, fontSize: ChatGeometry.bodySize, height: 1.35),
         ),
       );
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: ChatGeometry.textPadding,
       decoration: BoxDecoration(
         color: bg,
         borderRadius: chatBubbleRadius(mine: mine),
-        border: mine
-            ? null
-            : Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.5,
-              ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.14),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        boxShadow: AppElevation.floating(Theme.of(context).brightness),
       ),
       child: content,
     );
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BUBBLE GEOMETRY
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// The flat corner that marks the LAST bubble in a run, pointing at the sender.
-///
-/// Deliberately below [AppRadius.sm]: it is not a rounding choice, it is the
-/// tail — the thing that says "this run ends here". The app radius scale covers
-/// surfaces; a component is allowed an internal geometry the scale does not
-/// name, as long as it is named HERE and not re-guessed per call site.
-const double _kBubbleTail = 4;
-
-/// The corner radii of one chat bubble, given where it sits in a sender run.
-///
-/// ── Why this is a function ──────────────────────────────────────────────
-/// It was written twice: once in `messages_screen` for the real bubble and
-/// once in [_BubblePreview] for the preview OF that bubble. The two had
-/// already drifted — the preview closed its run with a 6 px corner where the
-/// real thing used 4 — so the screen that exists to show you what a message
-/// looks like was showing you something slightly else.
-///
-/// Outer corners are [AppRadius.lg] and mid-run corners [AppRadius.sm], so
-/// the bubble sits on the same scale as every other surface. Only the tail is
-/// its own value.
-BorderRadius chatBubbleRadius({
-  required bool mine,
-  bool isFirstInGroup = true,
-  bool isLastInGroup = true,
-}) {
-  const outer = Radius.circular(AppRadius.lg);
-  const inner = Radius.circular(AppRadius.sm);
-  const tail = Radius.circular(_kBubbleTail);
-
-  if (mine) {
-    return BorderRadius.only(
-      topLeft: outer,
-      topRight: isFirstInGroup ? outer : inner,
-      bottomLeft: outer,
-      bottomRight: isLastInGroup ? tail : inner,
-    );
-  }
-  return BorderRadius.only(
-    topLeft: isFirstInGroup ? outer : inner,
-    topRight: outer,
-    bottomLeft: isLastInGroup ? tail : inner,
-    bottomRight: outer,
-  );
 }

@@ -11,7 +11,9 @@ import '../config/api_config.dart';
 import '../models/post_model.dart';
 import '../utils/time_utils.dart';
 import 'adaptive_poll.dart';
+import 'chat_attachments.dart';
 import 'chat_resolution.dart';
+import 'delivery_receipts.dart';
 import 'supabase_auth_bridge.dart';
 
 /// Outcome of a delete-for-everyone attempt. Distinct cases so the UI can show
@@ -377,6 +379,16 @@ class ChatServiceSupabase {
         if (controller.isClosed) return;
         hasDeliveredList = true;
         controller.add(list);
+        // Whatever is unread here has reached this phone: say so (the
+        // sender's second tick). Only chats whose newest message moved.
+        final arrived = list.where((c) => c.unreadCount > 0).toList();
+        if (arrived.isNotEmpty) {
+          unawaited(DeliveryReceipts.acknowledge(
+            uid: currentUserId,
+            chatIds: arrived.map((c) => c.id),
+            newest: {for (final c in arrived) c.id: c.lastMessageTime},
+          ));
+        }
       } catch (e) {
         debugPrint('ChatServiceSupabase watchConversations fetch: $e');
         if (controller.isClosed) return;
@@ -638,6 +650,10 @@ class ChatServiceSupabase {
       'created_at': toServerTime(createdAt),
       'status': (row['status'] ?? 'sent').toString(),
       if (row['seen_at'] != null) 'seen_at': row['seen_at'].toString(),
+      // Absent on a server without migration 120 — the message then simply
+      // stays at one tick.
+      if (row[DeliveryReceipts.column] != null)
+        DeliveryReceipts.column: row[DeliveryReceipts.column].toString(),
     };
     if (row['latitude'] != null) map['latitude'] = (row['latitude'] as num).toDouble();
     if (row['longitude'] != null) map['longitude'] = (row['longitude'] as num).toDouble();
@@ -1147,7 +1163,12 @@ class ChatServiceSupabase {
     }
   }
 
-  /// Send image or file message with attachment URL (upload to Storage first, then call this).
+  /// Write a photo or document message whose file is already stored.
+  ///
+  /// [attachmentUrl] must be the private reference the files endpoint returned
+  /// for THIS message (`chat-attachments/<chat>/<id>.<ext>`). A public storage
+  /// URL is refused here, so no path in the app can put a chat file back on a
+  /// public address — the database refuses it too (migration 118).
   static Future<Message> sendAttachmentMessage({
     required String chatIdParam,
     required String senderId,
@@ -1157,6 +1178,11 @@ class ChatServiceSupabase {
     String? clientMessageId,
   }) async {
     if (type != 'image' && type != 'file') throw ChatServiceException('Type must be image or file');
+    if (clientMessageId == null ||
+        !ChatAttachments.isPrivateRefFor(attachmentUrl,
+            chatId: chatIdParam, messageId: clientMessageId)) {
+      throw ChatServiceException('Attachment is not stored for this message');
+    }
     try {
       final content = attachmentContent(type, caption);
       final insert = {

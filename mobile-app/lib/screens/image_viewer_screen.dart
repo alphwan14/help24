@@ -14,6 +14,7 @@
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import '../theme/app_icons.dart';
 import '../theme/system_bars.dart';
 import '../widgets/zoomable_image.dart';
@@ -28,11 +29,20 @@ class ImageViewerScreen extends StatefulWidget {
   /// Caption shown over the image, if the sender wrote one.
   final String? caption;
 
+  /// Where the image is cached, and under what key. A private chat photo
+  /// passes its own cache (whose downloads carry the user's token) and the
+  /// message-keyed entry its thumbnail already filled; null is the app's
+  /// default cache, keyed by URL.
+  final String? cacheKey;
+  final BaseCacheManager? cacheManager;
+
   const ImageViewerScreen({
     super.key,
     required this.imageUrl,
     this.heroTag,
     this.caption,
+    this.cacheKey,
+    this.cacheManager,
   });
 
   @override
@@ -79,6 +89,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
     Widget image = CachedNetworkImage(
       imageUrl: widget.imageUrl,
+      cacheKey: widget.cacheKey,
+      cacheManager: widget.cacheManager,
       fit: BoxFit.contain,
       // Progressive: the cached thumbnail from the conversation is usually
       // already on disk, so the full image resolves over a spinner instead of

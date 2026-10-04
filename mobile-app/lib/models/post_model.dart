@@ -1178,9 +1178,16 @@ class Message {
   final double? longitude;
   final DateTime? liveUntil;
   final String? attachmentUrl;
-  /// 'sent' | 'seen'
+  /// The server's receipt: 'sent' | 'seen'. Before the server has the row the
+  /// outbox writes its own statuses here (see `OutboxStatus`).
   final String status;
   final DateTime? seenAt;
+
+  /// When the recipient's phone acknowledged the message — the second tick.
+  /// Null until a delivered receipt arrives (and on a server that has not got
+  /// the `delivered_at` column yet), so a sent message stays at one tick
+  /// until then. See `DeliveryReceipts`.
+  final DateTime? deliveredAt;
   /// True when the sender deleted this message for everyone.
   /// Row is kept in DB; UI renders a tombstone instead of the content.
   final bool deletedForEveryone;
@@ -1214,6 +1221,7 @@ class Message {
     this.attachmentUrl,
     this.status = 'sent',
     this.seenAt,
+    this.deliveredAt,
     this.deletedForEveryone = false,
     this.replyToId,
     this.replyToSender,
@@ -1246,6 +1254,7 @@ class Message {
     final attachmentUrl = json['attachment_url']?.toString();
     final status = (json['status'] ?? 'sent') as String;
     final seenAt = parseServerTimeOrNull(json['seen_at']);
+    final deliveredAt = parseServerTimeOrNull(json['delivered_at']);
     final deletedForEveryone = json['deleted_for_everyone'] as bool? ?? false;
     final replyToId      = json['reply_to_id']?.toString();
     final replyToSender  = json['reply_to_sender']?.toString();
@@ -1266,6 +1275,7 @@ class Message {
       attachmentUrl: attachmentUrl,
       status: status,
       seenAt: seenAt,
+      deliveredAt: deliveredAt,
       deletedForEveryone: deletedForEveryone,
       replyToId: replyToId,
       replyToSender: replyToSender,
@@ -1289,6 +1299,7 @@ class Message {
     String? attachmentUrl,
     String? status,
     DateTime? seenAt,
+    DateTime? deliveredAt,
     bool? deletedForEveryone,
     String? replyToId,
     String? replyToSender,
@@ -1310,6 +1321,7 @@ class Message {
       attachmentUrl: attachmentUrl ?? this.attachmentUrl,
       status: status ?? this.status,
       seenAt: seenAt ?? this.seenAt,
+      deliveredAt: deliveredAt ?? this.deliveredAt,
       deletedForEveryone: deletedForEveryone ?? this.deletedForEveryone,
       replyToId: replyToId ?? this.replyToId,
       replyToSender: replyToSender ?? this.replyToSender,
@@ -1350,6 +1362,7 @@ class Message {
       'type': type,
       'status': status,
       if (seenAt != null) 'seen_at': toServerTime(seenAt!),
+      if (deliveredAt != null) 'delivered_at': toServerTime(deliveredAt!),
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (liveUntil != null) 'live_until': toServerTime(liveUntil!),

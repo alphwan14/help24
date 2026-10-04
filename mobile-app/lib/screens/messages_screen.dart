@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io' show File;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderSliverMultiBoxAdaptor;
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' show Geolocator;
 import 'package:permission_handler/permission_handler.dart' as ph;
@@ -26,18 +26,35 @@ import '../services/cache_service.dart';
 import '../services/outbox_delivery.dart';
 import '../services/outbox_store.dart';
 import '../services/supabase_auth_bridge.dart';
-import '../services/storage_service.dart';
+import '../services/chat_attachments.dart';
+import '../services/chat_documents.dart';
 import 'post_detail_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../theme/app_theme.dart';
+import '../utils/error_mapper.dart';
 import '../theme/tokens.dart';
 import '../utils/time_utils.dart';
 import '../services/adaptive_poll.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/chat_ui.dart';
+import '../widgets/chat/chat_bubbles.dart';
+import '../widgets/chat/chat_chrome.dart';
+import '../models/chat_presentation.dart';
+import '../models/chat_job_stage.dart';
+import '../models/job_lifecycle.dart';
+import '../services/jobs_service.dart';
+import '../services/place_name_cache.dart';
+import '../services/profession_registry.dart';
+import '../services/user_profile_service.dart';
+import '../utils/format_utils.dart';
+import '../utils/payment_utils.dart';
+import '../utils/phone_utils.dart';
+import 'approve_or_dispute_screen.dart';
+import 'job_lifecycle_screen.dart';
+import 'mark_complete_screen.dart';
+import 'payment_screen.dart';
 import '../models/moderation.dart';
 import '../services/account_status_service.dart';
 import '../widgets/account_restriction.dart';
@@ -117,7 +134,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colors = AppColors.of(context);
 
     return SafeArea(
       top: false,
@@ -132,11 +149,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
               style: Theme.of(context).textTheme.headlineMedium,
             ),
           ),
-          Divider(
-            height: 1,
-            thickness: 0.5,
-            color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-          ),
+          Divider(height: 1, thickness: 0.5, color: colors.borderHairline),
 
           // Conversations List
           Expanded(
@@ -318,7 +331,7 @@ class _ConversationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colors = AppColors.of(context);
     final avatarUrl = conversation.userAvatar;
     final initial = conversation.userName.isNotEmpty
         ? conversation.userName.substring(0, 1).toUpperCase()
@@ -420,13 +433,7 @@ class _ConversationTile extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             if (ChatLocalPrefs.isMutedSync(conversation.id)) ...[
-                              Icon(
-                                AppIcons.mute,
-                                size: 13,
-                                color: isDark
-                                    ? AppTheme.darkTextTertiary
-                                    : AppTheme.lightTextTertiary,
-                              ),
+                              Icon(AppIcons.mute, size: 13, color: colors.contentTertiary),
                               const SizedBox(width: 4),
                             ],
                             Text(
@@ -458,11 +465,7 @@ class _ConversationTile extends StatelessWidget {
                                     ? AppIcons.error
                                     : AppIcons.messageSending,
                                 size: 13,
-                                color: hasFailure
-                                    ? AppTheme.errorRed
-                                    : (isDark
-                                        ? AppTheme.darkTextTertiary
-                                        : AppTheme.lightTextTertiary),
+                                color: hasFailure ? colors.criticalText : colors.contentTertiary,
                               ),
                               const SizedBox(width: 4),
                             ],
@@ -480,10 +483,10 @@ class _ConversationTile extends StatelessWidget {
                                   fontStyle:
                                       showCleared ? FontStyle.italic : FontStyle.normal,
                                   color: hasFailure
-                                      ? AppTheme.errorRed
+                                      ? colors.criticalText
                                       : showUnread
-                                          ? (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary)
-                                          : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+                                          ? colors.contentPrimary
+                                          : colors.contentSecondary,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -499,11 +502,7 @@ class _ConversationTile extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.w600,
-                                  color: hasFailure
-                                      ? AppTheme.errorRed
-                                      : (isDark
-                                          ? AppTheme.darkTextTertiary
-                                          : AppTheme.lightTextTertiary),
+                                  color: hasFailure ? colors.criticalText : colors.contentTertiary,
                                 ),
                               ),
                             ],
@@ -522,8 +521,9 @@ class _ConversationTile extends StatelessWidget {
                                 ),
                                 child: Text(
                                   conversation.unreadCount.toString(),
-                                  style: const TextStyle(
-                                    color: Colors.white,
+                                  style: TextStyle(
+                                    // The theme's own "on error" — the label for this fill.
+                                    color: Theme.of(context).colorScheme.onError,
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -541,7 +541,7 @@ class _ConversationTile extends StatelessWidget {
                               Icon(
                                 AppIcons.pinned,
                                 size: 12,
-                                color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                                color: colors.contentTertiary,
                               ),
                               const SizedBox(width: 4),
                               Expanded(
@@ -549,7 +549,7 @@ class _ConversationTile extends StatelessWidget {
                                   conversation.postTitle!,
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+                                    color: colors.contentTertiary,
                                     fontStyle: FontStyle.italic,
                                   ),
                                   maxLines: 1,
@@ -567,20 +567,15 @@ class _ConversationTile extends StatelessWidget {
             ),
           ),
         ),
-        Divider(
-          height: 1,
-          thickness: 0.5,
-          indent: 82,
-          endIndent: 0,
-          color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-        ),
+        Divider(height: 1, thickness: 0.5, indent: 82, endIndent: 0, color: colors.borderHairline),
       ],
     );
   }
 }
 
-/// Max height for chat input (~5 lines) so it scrolls internally beyond that.
-const double _kChatInputMaxHeight = 156.0;
+/// The thread's padding below the newest message (the reversed list's
+/// leading edge) — the sticky day pill reads the list in the same frame.
+const double _kListPaddingBottom = 8;
 
 class ChatScreen extends StatefulWidget {
   final Conversation conversation;
@@ -694,6 +689,30 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     'trusted_professional',
   };
 
+  /// The other person's `users.profession` (a registry key or legacy text),
+  /// read with their presence — the header's "Plumber · ★ 4.8 · 34 jobs".
+  String? _partnerProfession;
+
+  // ── Pinned job bar ──
+  // The lifecycle aggregate is the server's money-truth for this job (see
+  // chat_job_stage.dart). Memoised per post so reopening the chat paints the
+  // bar at once; refreshed on open, every 30 s while online, on resume, and
+  // after every action taken from the bar.
+  JobLifecycle? _lifecycle;
+  AdaptivePoll? _jobPoll;
+  static final Map<String, JobLifecycle> _lifecycleMemo = {};
+
+  // ── Thread presentation ──
+  /// The rows last built — the sticky day pill reads them on scroll.
+  List<ChatThreadEntry> _entries = const [];
+  final GlobalKey _listKey = GlobalKey();
+
+  /// The day of the message at the top of the viewport, pinned as a pill.
+  DateTime? _stickyDay;
+
+  /// Messages from the other person that arrived while scrolled up.
+  int _unseenBelow = 0;
+
   // Scroll-to-bottom FAB. In the reversed list "bottom" = offset 0.
   bool _isNearBottom = true;
 
@@ -774,6 +793,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final memo = CacheService.peekMessages(_chatId, widget.currentUserId);
     if (memo != null && memo.isNotEmpty && _messages.isEmpty) {
       _messages = List<Message>.from(memo);
+      ChatAttachmentCache.evictDeleted(_messages);
       _loadingMessages = false;
       _hasMoreOlder = memo.length >= 30;
       _loggedFirstPaint = true;
@@ -855,7 +875,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       _beginExistingChat();
       // The post context just changed under us; refresh what depends on it.
-      _ensureChatPost();
+      _ensureChatPost().then((_) => _refreshJob(postAlreadyFresh: true));
       // The outbox is keyed by chat id, which was unknown until now: show what
       // an earlier session queued here, then give anything composed while the
       // conversation was unresolved its place on disk. Load BEFORE persisting,
@@ -941,7 +961,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _primeViewerPosition();
     // Post context up-front (one deduped fetch): powers the context action
     // (roles), journey destination and picker centering from the first frame.
-    _ensureChatPost();
+    _ensureChatPost().then((_) => _refreshJob(postAlreadyFresh: true));
+    // The pinned job bar: the memo paints it at once, the poll keeps it
+    // honest. Parks while offline; one immediate refresh on reconnect.
+    final memoPost = _postId;
+    if (memoPost != null) _lifecycle = _lifecycleMemo[memoPost];
+    _jobPoll = AdaptivePoll(
+      interval: const Duration(seconds: 30),
+      onTick: () {
+        if (mounted) _refreshJob();
+      },
+      debugLabel: 'chat/job',
+      tickOnStart: false,
+    )..start();
     // 20s so watcher freshness ("Updated Xs ago") and the reconnecting phase
     // appear within a reasonable window of the 75s staleness threshold.
     _journeyUiTimer = Timer.periodic(const Duration(seconds: 20), (_) {
@@ -1004,6 +1036,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _realtimeSubscription = null;
     _startRealtimeMessages();
     _markSeenNow();
+    // Back from paying (or anywhere): the job may have moved on.
+    _refreshJob();
   }
 
   @override
@@ -1025,6 +1059,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _typingDebounce?.cancel();
     _typingClearTimer?.cancel();
     _onlineStatusPoll?.dispose();
+    _jobPoll?.dispose();
     // Deliberately NOT stopping the journey: it belongs to the engine and
     // keeps sharing while the user navigates elsewhere in the app.
     JourneyEngine.instance.listenable.removeListener(_onJourneyChanged);
@@ -1077,6 +1112,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _hydrateFromCache() async {
     final cached = await CacheService.loadMessages(_chatId, widget.currentUserId);
     if (!mounted || cached.isEmpty) return;
+    // A deletion that reached this device in an earlier session (or offline)
+    // still removes the local copy of its photo or document.
+    ChatAttachmentCache.evictDeleted(cached);
     if (_messages.isNotEmpty) return; // realtime already delivered
     setState(() {
       _messages = cached;
@@ -1134,6 +1172,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       // exactly, so this is a match, not a guess.
       final deliveredIds = {for (final m in messages) m.id};
       final queuedBefore = _pendingMessages.length;
+      // "Delete for everyone" arrives here as a realtime UPDATE (or in a fresh
+      // page after reconnecting): the attachment's local copies go with it.
+      ChatAttachmentCache.evictDeleted(messages);
       setState(() {
         _messages = merged;
         _loadingMessages = false;
@@ -1164,10 +1205,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _lastMessageCount = messages.length;
         _markSeenNow();
       } else if (hadNew) {
+        final arrived = messages.length - _lastMessageCount;
         _lastMessageCount = messages.length;
         // Follow along only when the user is already near the bottom — don't
-        // hijack their position while they read older messages.
-        if (_isNearBottom) _scrollToBottom();
+        // hijack their position while they read older messages. Up there,
+        // the scroll-down button counts what arrived instead.
+        if (_isNearBottom) {
+          _scrollToBottom();
+        } else if (messages.isNotEmpty && !messages.last.isMe) {
+          setState(() => _unseenBelow += arrived);
+        }
         _markSeenNow();
       }
     }, onError: (e) {
@@ -1312,10 +1359,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     try {
       final row = await Supabase.instance.client
           .from('users')
-          .select('is_online, last_seen')
+          .select('is_online, last_seen, profession')
           .eq('id', participantId)
           .maybeSingle();
       if (!mounted || row == null) return;
+      final profession = row['profession']?.toString().trim();
+      if (profession != _partnerProfession) {
+        setState(() => _partnerProfession = profession);
+      }
       final flaggedOnline = row['is_online'] as bool? ?? false;
       final lastSeen = parseServerTimeOrNull(row['last_seen']);
       // `is_online` alone cannot be trusted: it is a flag the other device
@@ -1339,63 +1390,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  /// Header subtitle: typing state wins, then presence · rating.
-  /// Typing lives here (not as a bubble above the composer) so it never
-  /// shifts the message list.
-  Widget _buildHeaderSubtitle(bool isDark) {
-    if (_otherIsTyping) {
-      return const Text(
-        'typing…',
-        key: ValueKey('typing'),
-        maxLines: 1,
-        style: TextStyle(
-          fontSize: 12,
-          color: AppTheme.primaryAccent,
-          fontWeight: FontWeight.w600,
-        ),
-      );
-    }
-    final secondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-    final tertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
-    final online = _onlineStatus == 'online';
-    final rep = _headerRep;
-    final hasRating = rep != null && rep.hasReviews;
-    if (_onlineStatus.isEmpty && !hasRating) {
-      return const SizedBox.shrink(key: ValueKey('empty'));
-    }
-    return Row(
-      key: ValueKey('status:$_onlineStatus:${hasRating ? rep.averageRating : ''}'),
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_onlineStatus.isNotEmpty)
-          Flexible(
-            child: Text(
-              _onlineStatus,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: online ? AppTheme.successGreen : tertiary,
-                fontWeight: online ? FontWeight.w600 : FontWeight.w400,
-              ),
-            ),
-          ),
-        if (_onlineStatus.isNotEmpty && hasRating)
-          Text('  ·  ', style: TextStyle(fontSize: 12, color: tertiary)),
-        if (hasRating) ...[
-          const Icon(AppIcons.reviewFilled, size: 13, color: AppTheme.warningOrange),
-          const SizedBox(width: 2),
-          Text(
-            rep.averageRating.toStringAsFixed(1),
-            style: TextStyle(
-              fontSize: 12,
-              color: secondary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ],
+  /// The header's second line: who this person is on Help24 — "Plumber ·
+  /// ★ 4.8 · 34 jobs" for a provider, "Customer · Bamburi, Mombasa" for the
+  /// customer — rather than when they last opened the app. Presence is the
+  /// fallback when none of that is known. ("typing…" is the header's own.)
+  String? _headerSubtitle() {
+    final presence = _onlineStatus.isEmpty ? null : _onlineStatus;
+    final role = chatPartnerRoleOf(
+      viewerId: widget.currentUserId,
+      partnerId: widget.conversation.participantId,
+      postAuthorId: _chatPost?.authorUserId,
+      postIsOffer: _chatPost?.type == PostType.offer,
+      partnerHasProfession: (_partnerProfession ?? '').isNotEmpty,
+      partnerCompletedJobs: _headerRep?.completedJobs ?? 0,
     );
+    final rep = _headerRep;
+    final line = chatPartnerLine(
+      role: role,
+      professionLabel: (_partnerProfession ?? '').isEmpty
+          ? null
+          : ProfessionRegistry.instance.labelFor(_partnerProfession),
+      rating: rep != null && rep.hasReviews ? rep.averageRating : null,
+      completedJobs: rep?.completedJobs ?? 0,
+      area: _chatPost?.location,
+    );
+    return line ?? presence;
   }
 
   void _onTypingChanged() {
@@ -1434,6 +1453,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       final existingIds = _messages.map((m) => m.id).toSet();
       final newOlder = result.messages.where((m) => !existingIds.contains(m.id)).toList();
+      ChatAttachmentCache.evictDeleted(newOlder);
       setState(() {
         _messages = newOlder + _messages;
         _hasMoreOlder = result.hasMore;
@@ -1454,9 +1474,60 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _loadOlderMessages();
     }
     final nearBottom = position.pixels < 200;
-    if (nearBottom != _isNearBottom) {
-      setState(() => _isNearBottom = nearBottom);
+    if (nearBottom != _isNearBottom || (nearBottom && _unseenBelow > 0)) {
+      setState(() {
+        _isNearBottom = nearBottom;
+        if (nearBottom) _unseenBelow = 0;
+      });
     }
+    _updateStickyDay();
+  }
+
+  /// Which day the message at the top of the viewport belongs to — the pill
+  /// pinned there while the thread scrolls.
+  ///
+  /// Read straight off the list's laid-out children: the reversed sliver puts
+  /// offset 0 at the bottom, so the top edge is `pixels + viewport`, and the
+  /// child spanning that offset names the row. Hidden when the row there is
+  /// the day's own pill, so the same label is never shown twice.
+  void _updateStickyDay() {
+    final root = _listKey.currentContext?.findRenderObject();
+    if (root == null || !_scrollController.hasClients || _entries.isEmpty) return;
+    RenderSliverMultiBoxAdaptor? sliver;
+    void find(RenderObject o) {
+      if (sliver != null) return;
+      if (o is RenderSliverMultiBoxAdaptor) {
+        sliver = o;
+        return;
+      }
+      o.visitChildren(find);
+    }
+
+    find(root);
+    final list = sliver;
+    if (list == null) return;
+    final pos = _scrollController.position;
+    DateTime? day;
+    if (pos.maxScrollExtent > 0) {
+      final top = pos.pixels + pos.viewportDimension - _kListPaddingBottom - 4;
+      var child = list.firstChild;
+      while (child != null) {
+        final start = list.childScrollOffset(child) ?? 0;
+        if (top >= start && top < start + child.size.height) {
+          final index = list.indexOf(child);
+          final row = index < _entries.length ? _entries[_entries.length - 1 - index] : null;
+          day = switch (row) {
+            ChatDayEntry() || null => null,
+            ChatMessageEntry(:final message) => localDay(message.timestamp),
+            ChatEventEntry(:final event) => localDay(event.at),
+            ChatOfferEntry(:final offer) => localDay(offer.at),
+          };
+          break;
+        }
+        child = list.childAfter(child);
+      }
+    }
+    if (day != _stickyDay) setState(() => _stickyDay = day);
   }
 
   /// In the reversed list the newest message sits at offset 0 — the list
@@ -1483,7 +1554,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       SnackBar(
         content: Text(msg),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: AppTheme.errorRed,
+        backgroundColor: AppColors.of(context).criticalFill,
       ),
     );
   }
@@ -1544,12 +1615,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty || _isSending) return;
+    await _sendText(text, fromComposer: true);
+  }
+
+  /// Every typed message — the composer, a quick reply, the arrival notice —
+  /// goes into the thread through the outbox, so all of them wait out an
+  /// outage the same way.
+  Future<void> _sendText(String text, {bool fromComposer = false}) async {
     // Explained up front; the server refuses it regardless (migration 116).
     if (!RestrictionGate.allows(context, Capability.message)) return;
 
-    // Capture reply state before clearing it.
-    final replyingTo = _replyToMessage;
-    _messageController.clear();
+    // Capture reply state before clearing it. Only what was typed answers the
+    // quoted message — a quick reply or the arrival notice is never a reply.
+    final replyingTo = fromComposer ? _replyToMessage : null;
+    if (fromComposer) _messageController.clear();
     _typingDebounce?.cancel();
     _typingClearTimer?.cancel();
     if (_chatId.isNotEmpty) {
@@ -1583,7 +1662,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ? replyingTo!.text.substring(0, replyingTo.text.length.clamp(0, 120))
           : null,
     );
-    setState(() => _replyToMessage = null); // clear reply preview immediately
+    if (fromComposer) setState(() => _replyToMessage = null); // clear reply preview immediately
     await _enqueue([optimistic]);
   }
 
@@ -1693,6 +1772,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _scheduleCacheSave(_messages);
       _scrollToBottom();
     } catch (e) {
+      final withdrawn = OutboxIds.serverIdOf(pending.id);
+      if (withdrawn != null && ChatUploads.isCancelled(withdrawn)) {
+        // Stopped by the user ([_cancelPending] already took it out of the
+        // queue). Not a failure, so no status and no retry.
+        debugPrint('[CHAT][SEND] ${pending.id} withdrawn by the user');
+        return;
+      }
       if (e is PostgrestException) {
         debugPrint('[CHAT][SEND] ${pending.type} postgrest code=${e.code} msg=${e.message}');
       } else {
@@ -1733,7 +1819,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// Manual retry from a failed message's "Couldn't send · Retry" chip. A
+  /// Stop sending a queued or uploading photo or document: its upload is
+  /// abandoned at the next chunk, it leaves the outbox, and its queued copy is
+  /// deleted. Only a message the server does not have yet can be stopped —
+  /// once its row is written it is delivered, and "delete for everyone" is
+  /// the way back.
+  void _cancelPending(Message m) {
+    final id = OutboxIds.serverIdOf(m.id);
+    if (id != null) ChatUploads.cancel(id);
+    setState(() => _pendingMessages.removeWhere((p) => p.id == m.id));
+    _persistOutbox();
+    unawaited(OutboxFiles.discard(m.localPath));
+    _showInfo(m.isImage ? 'Photo not sent.' : 'Document not sent.');
+  }
+
+  /// Manual retry from a failed message's "Not sent. Tap to retry". A
   /// deliberate retry gets a fresh transient budget.
   void _retryPending(Message m) {
     OutboxStore.instance.clearFailures(m.id);
@@ -1821,6 +1921,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     await _queueComposedImages(composed);
   }
 
+  /// The composer's camera: take a photo, review it in the same composer as a
+  /// picked one, then queue it. Like the gallery, nothing here needs a
+  /// network.
+  Future<void> _takePhoto() async {
+    if (_isSending) return;
+    XFile? shot;
+    try {
+      shot = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1024,
+        imageQuality: 85,
+      );
+    } catch (e) {
+      debugPrint('ChatScreen camera: $e');
+      if (mounted) _showError('Could not open the camera.');
+      return;
+    }
+    if (shot == null || !mounted) return;
+    final composed = await Navigator.of(context).push<ComposedImages>(
+      MaterialPageRoute(
+        builder: (_) => ImageComposerScreen(
+          initialFiles: [shot!],
+          partnerName: widget.conversation.userName,
+        ),
+      ),
+    );
+    if (composed == null || composed.files.isEmpty || !mounted) return;
+    await _queueComposedImages(composed);
+  }
+
   /// Each photo becomes its own queued message, so a failure part-way leaves
   /// the others delivered rather than holding the batch hostage — and the
   /// caption rides the first one, matching how every messenger treats a
@@ -1835,7 +1965,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final file = composed.files[i];
       final id = OutboxIds.create();
       try {
-        if (await file.length() > StorageService.maxChatAttachmentBytes) {
+        if (await file.length() > ChatAttachments.maxBytes) {
           skipped++;
           continue;
         }
@@ -1881,7 +2011,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         fullscreenDialog: true,
         builder: (_) => ImageViewerScreen(
-          imageUrl: url,
+          // The photo is read through the files endpoint, by message, from
+          // the same private cache the thumbnail filled.
+          imageUrl: ChatAttachments.urlFor(message.id).toString(),
+          cacheKey: ChatAttachments.cacheKeyFor(message.id),
+          cacheManager: ChatAttachmentCache.instance,
           heroTag: 'chat_image_${message.id}',
           caption: message.text == 'Image' ? null : message.text,
         ),
@@ -1914,7 +2048,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     // Refused here, not in the queue: a file over the limit can never be
     // sent, and queueing it would only fail later with less to say.
-    if (platformFile.size > StorageService.maxChatAttachmentBytes) {
+    if (platformFile.size > ChatAttachments.maxBytes) {
       _showError('This file is too large to send. The limit is 10 MB.');
       return;
     }
@@ -1951,10 +2085,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// (the composer keeps one button instead of two).
   void _showAttachmentOptions() {
     if (_isSending) return;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final chat = ChatColors.of(context);
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+      backgroundColor: AppColors.of(context).surface,
       shape: const RoundedRectangleBorder(
         borderRadius: AppRadius.sheetTop,
       ),
@@ -1978,7 +2112,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
               _AttachOption(
                 icon: AppIcons.gallery,
-                color: AppTheme.primaryAccent,
+                color: chat.accentText,
                 title: 'Photo',
                 subtitle: 'From your gallery',
                 onTap: () {
@@ -1988,7 +2122,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
               _AttachOption(
                 icon: AppIcons.fileGeneric,
-                color: AppTheme.secondaryAccent,
+                color: chat.accentText,
                 title: 'Document',
                 subtitle: 'PDF, Word or CV',
                 onTap: () {
@@ -1998,7 +2132,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
               _AttachOption(
                 icon: AppIcons.location,
-                color: AppTheme.successGreen,
+                color: chat.success,
                 title: 'Location',
                 subtitle: 'Share or request location',
                 onTap: () {
@@ -2427,19 +2561,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }) async {
     HapticFeedback.heavyImpact();
     if (!mounted) return;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colors = AppColors.of(context);
     final act = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: Icon(icon, size: 28, color: AppTheme.warningOrange),
+        icon: Icon(icon, size: 28, color: colors.cautionText),
         title: Text(title, textAlign: TextAlign.center),
         content: Text(
           body,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            height: 1.4,
-            color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-          ),
+          style: TextStyle(height: 1.4, color: colors.contentSecondary),
         ),
         actionsAlignment: MainAxisAlignment.center,
         actions: [
@@ -2498,16 +2629,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
     if (notify == true && mounted) {
-      try {
-        await ChatServiceSupabase.sendMessage(
-          chatIdParam: _chatId,
-          senderId: widget.currentUserId,
-          content: "🔔 I've arrived at the location.",
-        );
-        if (mounted) _scrollToBottom();
-      } catch (_) {
-        if (mounted) _showError('Could not send the arrival note.');
-      }
+      // Through the outbox like any message, so it survives a dead zone at
+      // the gate. The thread draws it as an "arrived" event pill.
+      await _sendText(kArrivalNoticeText);
     }
   }
 
@@ -2584,6 +2708,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       message: message,
       bubbleRect: bubbleRect,
       onReply: () => setState(() => _replyToMessage = message),
+      onInfo: () => showMessageInfo(context, message),
       onCopy: message.text.isNotEmpty
           ? () {
               Clipboard.setData(ClipboardData(text: message.text));
@@ -2669,11 +2794,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _confirmClearConversation() async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colors = AppColors.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? AppTheme.darkCard : AppTheme.lightSurface,
+        backgroundColor: colors.surface,
         shape: RoundedRectangleBorder(borderRadius: AppRadius.lgAll),
         title: const Text(
           'Clear conversation?',
@@ -2691,9 +2816,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
+            child: Text(
               'Clear',
-              style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600),
+              style: TextStyle(color: colors.criticalText, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -2760,6 +2885,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       message.id,
       message.timestamp,
     );
+    if (result == DeleteForEveryoneResult.success && (message.isImage || message.isFile)) {
+      // The sender's own copy goes too — even if this screen has closed.
+      unawaited(ChatAttachmentCache.evict(message.id));
+    }
     if (!mounted) return;
     if (result != DeleteForEveryoneResult.success) {
       // Revert the optimistic update.
@@ -2794,786 +2923,807 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  // ── Build flat display list (date dividers + grouped message items) ────────
+  // ── The pinned job bar ─────────────────────────────────────────────────────
 
-  /// Stable identity for each row — powers element reuse (findChildIndexCallback)
-  /// so inserts while scrolled up never visually shift the reader's position,
-  /// and reply-quote jumps (_scrollToMessage).
-  static String _itemKeyOf(_ChatListItem item) {
-    if (item is _ChatMessageItem) return 'm_${item.message.id}';
-    final d = (item as _ChatDateDivider).date;
-    return 'd_${d.year}-${d.month}-${d.day}';
+  bool _jobRefreshing = false;
+
+  /// Whether this chat is between the job's customer and its SELECTED
+  /// provider — the only pair the lifecycle belongs to.
+  bool get _chatIsTheJob {
+    final post = _chatPost;
+    if (post == null) return false;
+    final me = widget.currentUserId;
+    final partner = widget.conversation.participantId;
+    final selected = (post.selectedProviderUserId ?? '').trim();
+    return selected.isNotEmpty &&
+        ((post.authorUserId == me && partner == selected) ||
+            (me == selected && partner == post.authorUserId));
   }
 
-  List<_ChatListItem> _buildItemsList(List<Message> messages) {
-    final items = <_ChatListItem>[];
-    DateTime? lastDate;
-
-    for (int i = 0; i < messages.length; i++) {
-      final msg = messages[i];
-      final prevMsg = i > 0 ? messages[i - 1] : null;
-      final nextMsg = i < messages.length - 1 ? messages[i + 1] : null;
-
-      // Insert a date divider whenever the LOCAL calendar day changes. Using
-      // the raw (UTC) components split days at UTC midnight, which put evening
-      // messages under the wrong date header.
-      final msgDate = localDay(msg.timestamp);
-      if (lastDate == null || msgDate != lastDate) {
-        items.add(_ChatDateDivider(msgDate));
-        lastDate = msgDate;
+  /// Re-read the post (who is selected can change) and, when this chat is the
+  /// job's own pair, the lifecycle aggregate. A failure keeps what is shown —
+  /// the bar never goes blank because a poll missed.
+  Future<void> _refreshJob({bool postAlreadyFresh = false}) async {
+    final postId = _postId;
+    if (postId == null || postId.isEmpty || _jobRefreshing) return;
+    _jobRefreshing = true;
+    try {
+      if (!postAlreadyFresh) {
+        final fresh = await PostService.getPostById(postId);
+        if (!mounted) return;
+        if (fresh != null) setState(() => _chatPost = fresh);
       }
+      if (!_chatIsTheJob) {
+        if (_lifecycle != null && mounted) setState(() => _lifecycle = null);
+        return;
+      }
+      final lifecycle = await JobsService.getLifecycle(postId: postId, userId: widget.currentUserId);
+      if (!mounted) return;
+      _lifecycleMemo[postId] = lifecycle;
+      setState(() => _lifecycle = lifecycle);
+    } catch (e) {
+      debugPrint('[CHAT][JOB] refresh failed: $e');
+    } finally {
+      _jobRefreshing = false;
+    }
+  }
 
-      // Two messages are in the same group when: same sender, ≤2 minutes apart.
-      final isFirstInGroup = prevMsg == null ||
-          prevMsg.isMe != msg.isMe ||
-          msg.timestamp.difference(prevMsg.timestamp).inMinutes >= 2;
-      final isLastInGroup = nextMsg == null ||
-          nextMsg.isMe != msg.isMe ||
-          nextMsg.timestamp.difference(msg.timestamp).inMinutes >= 2;
+  /// When the provider arrived, from the thread: the newest arrival notice or
+  /// journey that ended "Arrived", sent by the selected provider after the
+  /// payment was secured (an arrival for a site visit before the price was
+  /// agreed is not this stage).
+  DateTime? _arrivedAt() {
+    final provider = (_chatPost?.selectedProviderUserId ?? '').trim();
+    if (provider.isEmpty) return null;
+    DateTime? paidAt;
+    for (final t in _lifecycle?.timeline ?? const <TimelineEvent>[]) {
+      if (t.type == 'payment_secured') paidAt = parseServerTimeOrNull(t.at);
+    }
+    DateTime? latest;
+    for (final m in [..._messages, ..._pendingMessages]) {
+      if (m.senderId != provider) continue;
+      final event = chatEventFromMessage(m, partnerName: '');
+      if (event == null || event.kind != ChatEventKind.arrived) continue;
+      if (paidAt != null && event.at.isBefore(paidAt)) continue;
+      if (latest == null || event.at.isAfter(latest)) latest = event.at;
+    }
+    return latest;
+  }
 
-      items.add(_ChatMessageItem(
-        message: msg,
-        isPending: msg.id.startsWith('pending_'),
-        isFirstInGroup: isFirstInGroup,
-        isLastInGroup: isLastInGroup,
+  ChatJobBarState? _jobBarState() {
+    final postId = _postId;
+    if (postId == null || postId.isEmpty) return null;
+    final post = _chatPost;
+    // The bar names a real post or does not render: never a pin with nothing
+    // next to it, never a name invented for a general chat. The fresh post's
+    // title wins over the one the chat row carried.
+    final hasTitle = _postTitle != null && _postTitle!.isNotEmpty;
+    final fresh = post?.title.trim() ?? '';
+    final title = fresh.isNotEmpty ? fresh : (hasTitle ? _postTitle!.trim() : '');
+    if (title.isEmpty) return null;
+    final arrived = _arrivedAt();
+    return deriveChatJobBar(ChatJobInputs(
+      viewerId: widget.currentUserId,
+      partnerId: widget.conversation.participantId,
+      partnerName: widget.conversation.userName,
+      title: title,
+      price: post?.price ?? 0,
+      authorId: post?.authorUserId ?? '',
+      selectedProviderId: post?.selectedProviderUserId,
+      offers: [
+        for (final a in post?.applications ?? const <Application>[])
+          ChatJobOffer(
+            applicantId: a.applicantUserId,
+            price: a.proposedPrice,
+            at: a.timestamp,
+            message: a.message,
+          ),
+      ],
+      lifecycle: _chatIsTheJob ? _lifecycle : null,
+      arrivedAt: arrived,
+      arrivalClock: arrived == null ? null : formatClockTime(context, arrived),
+    ));
+  }
+
+  /// The bar's button. Every route refreshes the bar on return.
+  Future<void> _onJobAction(ChatJobBarState state) async {
+    final postId = _postId;
+    if (postId == null || postId.isEmpty) return;
+    final title = state.title;
+    final me = widget.currentUserId;
+    switch (state.action) {
+      case ChatJobAction.review:
+        await _openPostFromChat(postId);
+      case ChatJobAction.view:
+      case ChatJobAction.details:
+        if (_chatIsTheJob) {
+          await Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => JobLifecycleScreen(postId: postId, postTitle: title),
+          ));
+        } else {
+          await _openPostFromChat(postId);
+        }
+      case ChatJobAction.pay:
+        await _payForJob(title);
+      case ChatJobAction.imArrived:
+        await _announceArrival();
+      case ChatJobAction.markComplete:
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => MarkCompleteScreen(postId: postId, postTitle: title, providerUserId: me),
+        ));
+      case ChatJobAction.approve:
+        final paid = _lifecycle?.payment?.amount;
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => ApproveOrDisputeScreen(
+            postId: postId,
+            postTitle: title,
+            clientUserId: me,
+            providerNote: _lifecycle?.completion?.providerNote,
+            amount: paid != null && paid > 0 ? paid : (_chatPost?.price ?? 0),
+          ),
+        ));
+      case ChatJobAction.rate:
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => ReviewSubmissionScreen(postId: postId, clientUserId: me, postTitle: title),
+        ));
+    }
+    if (mounted) unawaited(_refreshJob());
+  }
+
+  /// Pay into Help24's hold — the same path as the Job status sheet: the
+  /// saved M-Pesa number (or the sign-in phone), the platform fee, then the
+  /// payment screen.
+  Future<void> _payForJob(String title) async {
+    final post = _chatPost;
+    final postId = _postId;
+    if (post == null || postId == null) return;
+    String? raw = await UserProfileService.getMpesaPhone(widget.currentUserId);
+    if (!mounted) return;
+    if (raw == null || raw.isEmpty) {
+      final signIn = context.read<AuthProvider>().currentUser?.phoneNumber;
+      if (signIn != null && signIn.isNotEmpty) raw = signIn;
+    }
+    final phone = raw == null ? null : normalizeKenyanNumber(raw);
+    if (phone == null) {
+      _showInfo('Add a valid M-Pesa number in Profile → Payment Number.');
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => PaymentScreen(
+        postId: postId,
+        postTitle: title,
+        amount: post.price,
+        platformFee: calculatePlatformFee(post.price),
+        buyerUserId: widget.currentUserId,
+        buyerPhone: phone,
+      ),
+    ));
+  }
+
+  /// "I've arrived" from the bar: ends a live journey as arrived when there is
+  /// one (which offers the heads-up), otherwise sends the heads-up itself.
+  Future<void> _announceArrival() async {
+    if (_journey.isLive && (_journey.chatId == _chatId || _journey.chatId == null)) {
+      await _markArrived();
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    await _sendText(kArrivalNoticeText);
+  }
+
+  // ── Job events and offers in the thread ────────────────────────────────────
+
+  /// The stages the server recorded for this job (`lifecycle.timeline`), as
+  /// pills where they happened. Only real timeline entries; nothing inferred.
+  List<ChatEvent> _jobEvents() {
+    final lc = _lifecycle;
+    final post = _chatPost;
+    if (lc == null || post == null || !_chatIsTheJob) return const [];
+    final isClient = lc.isClient;
+    final name = widget.conversation.userName.trim();
+    final partner = name.isEmpty ? 'They' : name;
+    final paid = lc.payment?.amount;
+    final money = formatPriceDisplay(paid != null && paid > 0 ? paid : post.price);
+    final events = <ChatEvent>[];
+    for (final t in lc.timeline) {
+      final at = parseServerTimeOrNull(t.at);
+      if (at == null) continue;
+      final (ChatEventKind, String)? e = switch (t.type) {
+        'payment_secured' => (
+            ChatEventKind.paidHeld,
+            isClient ? 'You paid. $money is held by Help24' : '$partner paid. $money is held by Help24',
+          ),
+        'completion_requested' => (
+            ChatEventKind.completionRequested,
+            isClient ? '$partner marked the job complete' : 'You marked the job complete',
+          ),
+        'completion_approved' => (
+            ChatEventKind.completed,
+            isClient ? 'You approved the work' : '$partner approved the work',
+          ),
+        'dispute_opened' => (ChatEventKind.disputeOpened, 'Dispute opened. Payment on hold'),
+        'payout_released' => (
+            ChatEventKind.released,
+            isClient ? '$money released to $partner' : '$money released to you',
+          ),
+        _ => null,
+      };
+      if (e == null) continue;
+      events.add(ChatEvent(
+        kind: e.$1,
+        at: at,
+        label: e.$2,
+        sourceKey: 'lc_${t.type}_${at.millisecondsSinceEpoch}',
       ));
     }
-    return items;
+    return events;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return PopScope(
-      onPopInvokedWithResult: (_, __) {},
-      child: Scaffold(
-        resizeToAvoidBottomInset: true,
-        appBar: AppBar(
-          leadingWidth: 48,
-          titleSpacing: 0,
-          leading: IconButton(
-            icon: const Icon(AppIcons.back),
-            tooltip: 'Back',
-            onPressed: () => Navigator.of(context).pop(),
+  /// This pair's own application on the chat's post, shown as an offer card
+  /// where it was made.
+  List<ChatThreadOffer> _threadOffers() {
+    final post = _chatPost;
+    if (post == null) return const [];
+    final me = widget.currentUserId;
+    final partner = widget.conversation.participantId;
+    final viewerIsAuthor = post.authorUserId == me;
+    if (!viewerIsAuthor && post.authorUserId != partner) return const [];
+    final applicant = viewerIsAuthor ? partner : me;
+    final selected = (post.selectedProviderUserId ?? '').trim();
+    final name = widget.conversation.userName.trim();
+    return [
+      for (final a in post.applications)
+        if (a.applicantUserId == applicant && a.proposedPrice > 0)
+          ChatThreadOffer(
+            id: a.id,
+            mine: applicant == me,
+            price: a.proposedPrice,
+            at: a.timestamp,
+            message: a.message,
+            status: selected.isEmpty
+                ? ChatOfferStatus.pending
+                : (selected == applicant ? ChatOfferStatus.accepted : ChatOfferStatus.notSelected),
+            acceptedBy: applicant == me ? (name.isEmpty ? 'them' : name) : 'you',
           ),
-          title: Row(
-            children: [
-              _HeaderAvatar(
-                avatarUrl: widget.conversation.userAvatar,
-                initial: widget.conversation.userName.isNotEmpty
-                    ? widget.conversation.userName.substring(0, 1).toUpperCase()
-                    : 'U',
-                isOnline: _onlineStatus == 'online',
-                ringColor: isDark ? AppTheme.darkBackground : AppTheme.lightBackground,
+    ];
+  }
+
+  // ── Documents ──────────────────────────────────────────────────────────────
+
+  /// Open a delivered document in the phone's own viewer.
+  ///
+  /// Like a photo: the first open downloads it once through the files
+  /// endpoint with the user's own token (participant and deletion checked
+  /// there), every later open is the copy already on the phone — no network.
+  /// The bubble shows the download's progress from the moment it starts.
+  Future<void> _openDocument(String messageId) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await ChatDocuments.open(messageId);
+    final String? problem = switch (result) {
+      DocumentOpenResult.opened => null,
+      DocumentOpenResult.offline => "You're offline. Connect to download this file.",
+      DocumentOpenResult.gone => 'This file was deleted.',
+      DocumentOpenResult.unavailable => "This file isn't available any more.",
+      DocumentOpenResult.failed => "Couldn't open this file. Please try again.",
+      DocumentOpenResult.noViewer => null,
+    };
+    if (result == DocumentOpenResult.noViewer) {
+      // No installed app opens this type: fall back to the browser.
+      if (!mounted) return;
+      await _openInBrowser(messageId);
+      return;
+    }
+    if (problem != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(problem), behavior: SnackBarBehavior.floating),
+      );
+    }
+    // The size is known now that the copy is on the phone.
+    if (mounted) setState(() {});
+  }
+
+  /// The fallback when no viewer app is installed: a one-time link on
+  /// files.help24.co.ke (two minutes, single use) opened in the browser,
+  /// which trades it for access to this one file and nothing else.
+  Future<void> _openInBrowser(String messageId) async {
+    final messenger = ScaffoldMessenger.of(context);
+    String? problem;
+    try {
+      final link = await ChatAttachmentApi.browserLink(messageId);
+      if (!await launchUrl(link, mode: LaunchMode.externalApplication)) {
+        problem = "Couldn't open this file.";
+      }
+    } on ChatAttachmentException catch (e) {
+      debugPrint('ChatScreen open document: $e');
+      problem = e.isGone
+          ? 'This file was deleted.'
+          : e.statusCode == 404
+              ? "This file isn't available any more."
+              : "Couldn't open this file. Please try again.";
+    } catch (e) {
+      debugPrint('ChatScreen open document: $e');
+      problem = ErrorMapper.isConnectivityError(e)
+          ? "You're offline. Connect to open this file."
+          : "Couldn't open this file. Please try again.";
+    }
+    if (problem != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(problem), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
+  // ── The thread ─────────────────────────────────────────────────────────────
+
+  Widget _buildEntry(ChatThreadEntry entry) {
+    switch (entry) {
+      case ChatDayEntry(:final day):
+        return Padding(
+          padding: const EdgeInsets.only(top: 14, bottom: 6),
+          child: Center(child: ChatDayPill(label: chatDayLabel(day))),
+        );
+      case ChatEventEntry(:final event):
+        final m = event.message;
+        return Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 2),
+          child: Center(
+            child: Builder(
+              builder: (pillContext) => GestureDetector(
+                onTap: m != null && m.hasValidCoordinates ? () => _openFullScreenMap(m) : null,
+                onLongPress: m == null || OutboxIds.isPending(m.id)
+                    ? null
+                    : () => _showMessageActions(m, _rectOf(pillContext)),
+                child: ChatEventPill(event: event, time: chatBubbleTime(context, event.at)),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            widget.conversation.userName,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                        ),
-                        // Earned verification: only for backend-trusted tiers.
-                        if (_headerRep != null && _trustedTiers.contains(_headerRep!.tier)) ...[
-                          const SizedBox(width: 4),
-                          Icon(
-                            AppIcons.verifiedProvider,
-                            size: 15,
-                            color: tierColor(context, _headerRep!.tier),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 1),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      transitionBuilder: (child, anim) =>
-                          FadeTransition(opacity: anim, child: child),
-                      child: _buildHeaderSubtitle(isDark),
-                    ),
-                  ],
-                ),
+            ),
+          ),
+        );
+      case ChatOfferEntry(:final offer):
+        return Padding(
+          padding: const EdgeInsets.only(top: ChatGeometry.betweenGroupsGap),
+          child: Align(
+            alignment: offer.mine ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
+            child: ChatOfferCard(
+              offer: offer,
+              time: chatBubbleTime(context, offer.at),
+              onTap: _postId == null ? null : () => _openPostFromChat(_postId!),
+            ),
+          ),
+        );
+      case ChatMessageEntry(:final message, :final position):
+        return _buildMessageRow(message, position);
+    }
+  }
+
+  static Rect _rectOf(BuildContext context) {
+    final box = context.findRenderObject() as RenderBox?;
+    return (box != null && box.hasSize) ? box.localToGlobal(Offset.zero) & box.size : Rect.zero;
+  }
+
+  Widget _buildMessageRow(Message m, RunPosition position) {
+    final mine = m.isMe;
+    final pending = OutboxIds.isPending(m.id);
+    final state = mine ? chatSendStateOf(m) : null;
+    final time = chatBubbleTime(context, m.timestamp);
+    final hasUrl = m.attachmentUrl != null && m.attachmentUrl!.isNotEmpty;
+    // A queued attachment has no URL yet — only the copy on this phone. It is
+    // drawn from that copy, never from a server address it does not have.
+    final localFile = pending && m.localPath != null ? m.localPath : null;
+    final stoppable = pending && state != ChatSendState.failed;
+
+    Widget bubble;
+    if (m.deletedForEveryone) {
+      bubble = ChatTombstoneBubble(message: m, position: position, time: time);
+    } else if (m.isImage && (hasUrl || localFile != null)) {
+      bubble = ChatPhotoBubble(
+        message: m,
+        position: position,
+        time: time,
+        state: state,
+        localPath: localFile,
+        onOpen: pending ? null : () => _openImageViewer(m),
+        onCancel: stoppable ? () => _cancelPending(m) : null,
+      );
+    } else if (m.isFile && (hasUrl || localFile != null)) {
+      bubble = ChatFileBubble(
+        message: m,
+        position: position,
+        time: time,
+        state: state,
+        localPath: localFile,
+        onOpen: !pending && hasUrl ? () => _openDocument(m.id) : null,
+        onCancel: stoppable ? () => _cancelPending(m) : null,
+      );
+    } else if (m.isLocationRequest) {
+      bubble = ChatCardBubble(
+        message: m,
+        position: position,
+        time: time,
+        state: state,
+        child: RequestCard(
+          message: m,
+          partnerName: widget.conversation.userName,
+          onShareNow: mine ? null : _respondToLocationRequest,
+        ),
+      );
+    } else if (m.isLiveLocation && m.hasValidCoordinates) {
+      final owns = _journey.owns(m.id);
+      bubble = ChatCardBubble(
+        message: m,
+        position: position,
+        time: time,
+        state: state,
+        child: JourneyCard(
+          message: m,
+          width: ChatCardBubble.innerWidth(context),
+          viewerLat: _myLat,
+          viewerLng: _myLng,
+          isSharing: owns,
+          phase: _phaseFor(m),
+          lastEventAt: _journeyEventAt[m.id],
+          etaSeconds: owns ? _journey.etaSeconds : null,
+          remainingMeters: owns ? _journey.remainingMeters : null,
+          onStop: owns ? _stopLiveSharing : null,
+          onArrived: owns ? _markArrived : null,
+          onTap: () => _openFullScreenMap(m),
+        ),
+      );
+    } else if (m.isLocation && m.hasValidCoordinates) {
+      bubble = ChatLocationBubble(
+        message: m,
+        position: position,
+        time: time,
+        state: state,
+        viewerLat: _myLat,
+        viewerLng: _myLng,
+        onOpen: () => _openFullScreenMap(m),
+      );
+    } else {
+      bubble = ChatTextBubble(
+        message: m,
+        position: position,
+        time: time,
+        state: state,
+        onTapQuote: m.replyToId == null ? null : () => _scrollToMessage(m.replyToId!),
+      );
+    }
+
+    final canLongPress = !pending && !m.deletedForEveryone;
+    return ChatMessageRow(
+      mine: mine,
+      position: position,
+      state: state,
+      onLongPress: canLongPress ? (rect) => _showMessageActions(m, rect) : null,
+      onRetry: state == ChatSendState.failed ? () => _retryPending(m) : null,
+      bubble: bubble,
+    );
+  }
+
+  /// One empty or failed state of the thread: an icon, what is true, and the
+  /// way forward when there is one.
+  Widget _threadNotice({
+    required IconData icon,
+    required String title,
+    String? body,
+    VoidCallback? onRetry,
+  }) {
+    final c = ChatColors.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 52, color: c.iconSecondary),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: c.text),
+            ),
+            if (body != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                body,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.textSecondary),
               ),
             ],
-          ),
-          actions: [
-            PopupMenuButton<ChatMenuAction>(
-              icon: const Icon(AppIcons.more),
-              tooltip: 'Conversation options',
-              position: PopupMenuPosition.under,
-              color: isDark ? AppTheme.darkCard : AppTheme.lightSurface,
-              elevation: 8,
-              shadowColor: Colors.black.withValues(alpha: 0.3),
-              shape: RoundedRectangleBorder(
-                borderRadius: AppRadius.lgAll,
-                side: BorderSide(
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                  width: 0.5,
-                ),
+            if (onRetry != null) ...[
+              const SizedBox(height: 14),
+              OutlinedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(AppIcons.refresh, size: 18),
+                label: const Text('Try again'),
               ),
-              constraints: const BoxConstraints(minWidth: 220),
-              onSelected: _onMenuAction,
-              itemBuilder: (context) => buildChatMenuItems(
-                isDark: isDark,
-                hasPost: _postId != null &&
-                    _postId!.isNotEmpty,
-                isMuted: _isMuted,
-              ),
-            ),
-            const SizedBox(width: 4),
-          ],
-        ),
-        body: Column(
-          children: [
-            // Post context banner — lets the user always know what job this chat is about
-            if (_postTitle != null && _postTitle!.isNotEmpty)
-              _PostContextBanner(
-                postTitle: _postTitle!,
-                isDark: isDark,
-                busy: _openingPost,
-                onTap: _postId != null && _postId!.isNotEmpty
-                    ? () => _openPostFromChat(_postId!)
-                    : null,
-              ),
-            // Journey strip — narrates the journey as it evolves: on the way →
-            // nearby → reconnecting → arrived (brief), then leaves. One strip,
-            // phase-driven; tap opens the live map.
-            if (_stripJourney != null)
-              Builder(builder: (context) {
-                final journey = _stripJourney!;
-                final mine = journey.isMe;
-                final phase = _phaseFor(journey);
-                final name = widget.conversation.userName;
-                final String title;
-                switch (phase) {
-                  case JourneyPhase.nearby:
-                    title = mine ? "You're almost there" : '$name is nearby';
-                    break;
-                  case JourneyPhase.reconnecting:
-                    title = mine ? 'Reconnecting…' : "Waiting for $name's signal…";
-                    break;
-                  case JourneyPhase.arrived:
-                    title = mine ? "You've arrived" : '$name has arrived';
-                    break;
-                  case JourneyPhase.travelling:
-                  case JourneyPhase.ended:
-                    title = mine ? "You're sharing your journey" : '$name is on the way';
-                    break;
-                }
-                // ETA line: only the traveller's device computes a route, so
-                // only it can narrate one. Watchers keep the Phase 2 line.
-                final owns = _journey.owns(journey.id);
-                final subtitle = (owns && phase != JourneyPhase.arrived)
-                    ? [
-                        etaText(_journey.etaSeconds),
-                        remainingText(_journey.remainingMeters),
-                      ].whereType<String>().join(' · ')
-                    : null;
-                return JourneyStatusStrip(
-                  title: title,
-                  phase: phase,
-                  subtitle: (subtitle == null || subtitle.isEmpty) ? null : subtitle,
-                  onTap: journey.hasValidCoordinates ? () => _openFullScreenMap(journey) : null,
-                  onStop: mine && owns && _journey.isLive ? _stopLiveSharing : null,
-                );
-              }),
-            // Job/payment tracking moved to the three-dot menu (Job status
-            // sheet) — the conversation keeps its full height for messages.
-            // Messages: cache-hydrated instantly, then Supabase Realtime.
-            Expanded(
-              child: Stack(
-                children: [
-                Builder(
-                builder: (context) {
-                  final combined = mergeOutboxIntoThread(
-                    _messages.where(_isLocallyVisible).toList(),
-                    _pendingMessages,
-                  );
-
-                  // Still asking whether a conversation exists. Progress, never
-                  // an empty state — "Start the conversation" here was §D1.
-                  if (showsResolvingProgress(_resolution) && combined.isEmpty) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (_loadingMessages && combined.isEmpty) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (combined.isEmpty && _loadFailed) {
-                    _lastMessageCount = 0;
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              AppIcons.unreachable,
-                              size: 52,
-                              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              "Couldn't load messages",
-                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                    color: isDark
-                                        ? AppTheme.darkTextSecondary
-                                        : AppTheme.lightTextSecondary,
-                                  ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Check your connection and try again.',
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: isDark
-                                        ? AppTheme.darkTextTertiary
-                                        : AppTheme.lightTextTertiary,
-                                  ),
-                            ),
-                            const SizedBox(height: 14),
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                setState(() {
-                                  _loadFailed = false;
-                                  _loadingMessages = true;
-                                });
-                                _startRealtimeMessages();
-                              },
-                              icon: const Icon(AppIcons.refresh, size: 18),
-                              label: const Text('Try again'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-                  // We could not find out whether a conversation exists
-                  // (offline / error). Say exactly that. Offering to start one
-                  // here is how a user ends up with two parallel threads.
-                  if (combined.isEmpty && _resolution == ChatResolution.unresolved) {
-                    _lastMessageCount = 0;
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              AppIcons.unreachable,
-                              size: 52,
-                              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              "Couldn't open this conversation",
-                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                    color: isDark
-                                        ? AppTheme.darkTextSecondary
-                                        : AppTheme.lightTextSecondary,
-                                  ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Check your connection and try again.',
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: isDark
-                                        ? AppTheme.darkTextTertiary
-                                        : AppTheme.lightTextTertiary,
-                                  ),
-                            ),
-                            const SizedBox(height: 14),
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                setState(() {
-                                  _resolution = ChatResolution.resolving;
-                                  _loadingMessages = true;
-                                });
-                                unawaited(_resolveExistingChat());
-                              },
-                              icon: const Icon(AppIcons.refresh, size: 18),
-                              label: const Text('Try again'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-                  // Only a COMPLETED lookup that found nothing may say this.
-                  if (combined.isEmpty && showsStartConversation(_resolution)) {
-                    _lastMessageCount = 0;
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            AppIcons.chat,
-                            size: 52,
-                            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Start the conversation',
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Say hello 👋',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  if (combined.isEmpty) {
-                    // Existing conversation with genuinely no messages yet.
-                    _lastMessageCount = 0;
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            AppIcons.chat,
-                            size: 52,
-                            color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'No messages yet',
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  final showLoadMore = _hasMoreOlder || _loadingOlder;
-                  final items = _buildItemsList(combined);
-                  // Reversed presentation: ListView index 0 == the NEWEST item.
-                  // The list is anchored at offset 0 (the visual bottom), which
-                  // makes "open exactly on the latest message" a structural
-                  // property — layout timing, image sizes, keyboard insets and
-                  // pagination cannot affect it. The "load older" row lives
-                  // past the oldest item (the visual top).
-                  _itemIndexByKey.clear();
-                  for (int i = 0; i < items.length; i++) {
-                    _itemIndexByKey[_itemKeyOf(items[items.length - 1 - i])] = i;
-                  }
-                  return ListView.builder(
-                    controller: _scrollController,
-                    reverse: true,
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
-                    itemCount: items.length + (showLoadMore ? 1 : 0),
-                    findChildIndexCallback: (key) {
-                      if (key is! ValueKey<String>) return null;
-                      return _itemIndexByKey[key.value];
-                    },
-                    itemBuilder: (context, index) {
-                      if (showLoadMore && index == items.length) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Center(
-                            child: _loadingOlder
-                                ? const SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : TextButton.icon(
-                                    onPressed: _loadOlderMessages,
-                                    icon: const Icon(AppIcons.sendMessage, size: 18),
-                                    label: const Text('Load older messages'),
-                                  ),
-                          ),
-                        );
-                      }
-                      final item = items[items.length - 1 - index];
-                      if (item is _ChatDateDivider) {
-                        return KeyedSubtree(
-                          key: ValueKey<String>(_itemKeyOf(item)),
-                          child: _DateDivider(date: item.date),
-                        );
-                      }
-                      final msgItem = item as _ChatMessageItem;
-                      return KeyedSubtree(
-                        key: ValueKey<String>(_itemKeyOf(item)),
-                        child: _MessageBubble(
-                          message: msgItem.message,
-                          currentUserId: widget.currentUserId,
-                          senderAvatar: widget.conversation.userAvatar,
-                          senderInitial: widget.conversation.userName.isNotEmpty
-                              ? widget.conversation.userName.substring(0, 1).toUpperCase()
-                              : '?',
-                          isPending: msgItem.isPending,
-                          isFirstInGroup: msgItem.isFirstInGroup,
-                          isLastInGroup: msgItem.isLastInGroup,
-                          isLiveSharing: _journey.owns(msgItem.message.id),
-                          journeyPhase: msgItem.message.isLiveLocation
-                              ? _phaseFor(msgItem.message)
-                              : JourneyPhase.travelling,
-                          journeyLastEventAt: _journeyEventAt[msgItem.message.id],
-                          journeyEtaSeconds: _journey.owns(msgItem.message.id)
-                              ? _journey.etaSeconds
-                              : null,
-                          journeyRemainingMeters: _journey.owns(msgItem.message.id)
-                              ? _journey.remainingMeters
-                              : null,
-                          onStopLiveSharing: _journey.owns(msgItem.message.id) ? _stopLiveSharing : null,
-                          onMarkArrived: _journey.owns(msgItem.message.id) ? _markArrived : null,
-                          onTapLocation: msgItem.message.hasValidCoordinates ? () => _openFullScreenMap(msgItem.message) : null,
-                          onRespondToRequest:
-                              msgItem.message.isLocationRequest && !msgItem.message.isMe
-                                  ? _respondToLocationRequest
-                                  : null,
-                          partnerName: widget.conversation.userName,
-                          viewerLat: _myLat,
-                          viewerLng: _myLng,
-                          onLongPressMessage: msgItem.isPending || msgItem.message.deletedForEveryone
-                              ? null
-                              : _showMessageActions,
-                          onTapReplyQuote: _scrollToMessage,
-                          onTapImage: msgItem.isPending ? null : _openImageViewer,
-                          onRetry: msgItem.message.status == 'failed'
-                              ? () => _retryPending(msgItem.message)
-                              : null,
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-              // Scroll-to-bottom button — appears when scrolled away from latest messages
-              if (!_isNearBottom)
-                Positioned(
-                  bottom: 12,
-                  right: 12,
-                  child: GestureDetector(
-                    onTap: _scrollToBottom,
-                    child: Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryAccent,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.2),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        AppIcons.expand,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            ),
-            // (Typing indicator lives in the header subtitle — no layout shift.)
-            // Context action — the marketplace already knows who travels, who
-            // hosts, what was asked and where the journey stands; surface the
-            // single next action instead of making users dig through menus.
-            Builder(builder: (context) {
-              final action = _contextAction();
-              if (action == null) return const SizedBox.shrink();
-              return ContextActionBar(
-                icon: action.icon,
-                label: action.label,
-                onTap: action.onTap,
-              );
-            }),
-            // Reply preview bar — visible when user long-pressed a message to reply.
-            if (_replyToMessage != null)
-              _ReplyPreviewBar(
-                replyTo: _replyToMessage!,
-                isDark: isDark,
-                partnerName: widget.conversation.userName,
-                onCancel: () => setState(() => _replyToMessage = null),
-              ),
-            // Composer — enclosed rounded field with the attach entry inside,
-            // elevated above the background (theme convention: shadow, not
-            // Material elevation). resizeToAvoidBottomInset moves it with the
-            // keyboard; SafeArea covers the home-indicator gap.
-            // Messaging denied → the composer is replaced, so nobody writes a
-            // message the server will refuse. The status is explanation only;
-            // the database and backend still enforce.
-            ListenableBuilder(
-              listenable: AccountStatusStore.instance,
-              builder: (context, composer) => AccountStatusStore.instance.denies(Capability.message)
-                  ? const SafeArea(top: false, child: RestrictedComposerNotice())
-                  : composer!,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.05),
-                      blurRadius: 12,
-                      offset: const Offset(0, -2),
-                    ),
-                  ],
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Container(
-                            constraints: const BoxConstraints(
-                              maxHeight: _kChatInputMaxHeight,
-                              minHeight: 52,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isDark ? AppTheme.darkCard : AppTheme.lightBackground,
-                              borderRadius: AppRadius.pillAll,
-                              border: Border.all(
-                                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                                width: 0.5,
-                              ),
-                            ),
-                            child: Row(
-                              // Bottom-anchored so the attach button stays put
-                              // while the field grows upward; 4px offset centers
-                              // it optically inside the 52px resting height.
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 6, bottom: 4),
-                                  child: IconButton(
-                                    onPressed: _showAttachmentOptions,
-                                    tooltip: 'Attach',
-                                    icon: Icon(
-                                      AppIcons.addAttachment,
-                                      size: 26,
-                                      color: isDark
-                                          ? AppTheme.darkTextSecondary
-                                          : AppTheme.lightTextSecondary,
-                                    ),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                      minWidth: 44,
-                                      minHeight: 44,
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _messageController,
-                                    minLines: 1,
-                                    maxLines: 5,
-                                    textInputAction: TextInputAction.newline,
-                                    keyboardType: TextInputType.multiline,
-                                    textCapitalization: TextCapitalization.sentences,
-                                    decoration: InputDecoration(
-                                      hintText: 'Message…',
-                                      hintStyle: TextStyle(
-                                        color: isDark
-                                            ? AppTheme.darkTextTertiary
-                                            : AppTheme.lightTextTertiary,
-                                        fontSize: 15.5,
-                                      ),
-                                      border: InputBorder.none,
-                                      isDense: true,
-                                      contentPadding:
-                                          const EdgeInsets.fromLTRB(4, 15.5, 16, 15.5),
-                                    ),
-                                    style: const TextStyle(fontSize: 15.5, height: 1.4),
-                                    onSubmitted: (_) => _sendMessage(),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        // Send — enabled state follows the text live; stays
-                        // interactive while an attachment uploads elsewhere.
-                        ValueListenableBuilder<TextEditingValue>(
-                          valueListenable: _messageController,
-                          builder: (context, value, _) {
-                            final canSend =
-                                value.text.trim().isNotEmpty && !_isSending;
-                            return GestureDetector(
-                              onTap: canSend ? _sendMessage : null,
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 150),
-                                curve: Curves.easeOut,
-                                width: 52,
-                                height: 52,
-                                decoration: BoxDecoration(
-                                  color: canSend
-                                      ? AppTheme.primaryAccent
-                                      : (isDark
-                                          ? AppTheme.darkCard
-                                          : AppTheme.lightBackground),
-                                  shape: BoxShape.circle,
-                                  border: canSend
-                                      ? null
-                                      : Border.all(
-                                          color: isDark
-                                              ? AppTheme.darkBorder
-                                              : AppTheme.lightBorder,
-                                          width: 0.5,
-                                        ),
-                                  boxShadow: canSend
-                                      ? [
-                                          BoxShadow(
-                                            color: AppTheme.primaryAccent
-                                                .withValues(alpha: 0.35),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 3),
-                                          ),
-                                        ]
-                                      : null,
-                                ),
-                                child: _isSending
-                                    ? const Padding(
-                                        padding: EdgeInsets.all(14),
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor: AlwaysStoppedAnimation<Color>(
-                                              AppTheme.primaryAccent),
-                                        ),
-                                      )
-                                    : Icon(
-                                        AppIcons.sendMessage,
-                                        color: canSend
-                                            ? Colors.white
-                                            : (isDark
-                                                ? AppTheme.darkTextTertiary
-                                                : AppTheme.lightTextTertiary),
-                                        size: 24,
-                                      ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            ],
           ],
         ),
       ),
     );
   }
-}
 
-/// Banner at the top of the chat body showing which post this conversation is
-/// about. Tapping opens the FULL post detail screen (same as Discover).
-class _PostContextBanner extends StatelessWidget {
-  final String postTitle;
-  final bool isDark;
-  final bool busy;
-  final VoidCallback? onTap;
+  Widget _buildThread() {
+    final combined = mergeOutboxIntoThread(
+      _messages.where(_isLocallyVisible).toList(),
+      _pendingMessages,
+    );
 
-  const _PostContextBanner({
-    required this.postTitle,
-    required this.isDark,
-    this.busy = false,
-    this.onTap,
-  });
+    // Still asking whether a conversation exists. Progress, never an empty
+    // state — "Start the conversation" here was §D1.
+    if (showsResolvingProgress(_resolution) && combined.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_loadingMessages && combined.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (combined.isEmpty && _loadFailed) {
+      _lastMessageCount = 0;
+      return _threadNotice(
+        icon: AppIcons.unreachable,
+        title: "Couldn't load messages",
+        body: 'Check your connection and try again.',
+        onRetry: () {
+          setState(() {
+            _loadFailed = false;
+            _loadingMessages = true;
+          });
+          _startRealtimeMessages();
+        },
+      );
+    }
+    // We could not find out whether a conversation exists (offline / error).
+    // Say exactly that. Offering to start one here is how a user ends up with
+    // two parallel threads.
+    if (combined.isEmpty && _resolution == ChatResolution.unresolved) {
+      _lastMessageCount = 0;
+      return _threadNotice(
+        icon: AppIcons.unreachable,
+        title: "Couldn't open this conversation",
+        body: 'Check your connection and try again.',
+        onRetry: () {
+          setState(() {
+            _resolution = ChatResolution.resolving;
+            _loadingMessages = true;
+          });
+          unawaited(_resolveExistingChat());
+        },
+      );
+    }
+    // Only a COMPLETED lookup that found nothing may say this.
+    if (combined.isEmpty && showsStartConversation(_resolution)) {
+      _lastMessageCount = 0;
+      return _threadNotice(icon: AppIcons.chat, title: 'Start the conversation', body: 'Say hello 👋');
+    }
+    if (combined.isEmpty) {
+      // Existing conversation with genuinely no messages yet.
+      _lastMessageCount = 0;
+      return _threadNotice(icon: AppIcons.chat, title: 'No messages yet');
+    }
+
+    final showLoadMore = _hasMoreOlder || _loadingOlder;
+    final entries = buildChatThread(
+      combined,
+      extraEvents: _jobEvents(),
+      offers: _threadOffers(),
+      partnerName: widget.conversation.userName,
+    );
+    _entries = entries;
+    // Reversed presentation: ListView index 0 == the NEWEST row. The list is
+    // anchored at offset 0 (the visual bottom), which makes "open exactly on
+    // the latest message" a structural property — layout timing, image sizes,
+    // keyboard insets and pagination cannot affect it. The "load older" row
+    // lives past the oldest row (the visual top).
+    _itemIndexByKey.clear();
+    for (int i = 0; i < entries.length; i++) {
+      _itemIndexByKey[entries[entries.length - 1 - i].key] = i;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _updateStickyDay();
+    });
+    return ListView.builder(
+      key: _listKey,
+      controller: _scrollController,
+      reverse: true,
+      padding: const EdgeInsets.fromLTRB(
+        ChatGeometry.sidePadding, 8, ChatGeometry.sidePadding, _kListPaddingBottom,
+      ),
+      itemCount: entries.length + (showLoadMore ? 1 : 0),
+      findChildIndexCallback: (key) {
+        if (key is! ValueKey<String>) return null;
+        return _itemIndexByKey[key.value];
+      },
+      itemBuilder: (context, index) {
+        if (showLoadMore && index == entries.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: _loadingOlder
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : TextButton.icon(
+                      onPressed: _loadOlderMessages,
+                      icon: const Icon(AppIcons.refresh, size: 18),
+                      label: const Text('Load older messages'),
+                    ),
+            ),
+          );
+        }
+        final entry = entries[entries.length - 1 - index];
+        return KeyedSubtree(key: ValueKey<String>(entry.key), child: _buildEntry(entry));
+      },
+    );
+  }
+
+  /// Quick replies, for the provider whose journey to this job is live.
+  bool get _showQuickReplies =>
+      _journey.isLive && (_journey.chatId == _chatId) && _chatId.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final tertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+    final c = ChatColors.of(context);
+    final offline = context.select<ConnectivityProvider, bool>((p) => p.isOffline);
+    final jobBar = _jobBarState();
+    final rep = _headerRep;
 
-    return Material(
-      color: isDark
-          ? AppTheme.primaryAccent.withValues(alpha: 0.08)
-          : AppTheme.primaryAccent.withValues(alpha: 0.06),
-      child: InkWell(
-        onTap: busy ? null : onTap,
-        child: Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: borderColor, width: 0.5)),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          child: Row(
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryAccent.withValues(alpha: 0.14),
-                  borderRadius: AppRadius.smAll,
-                ),
-                child: const Icon(
-                  AppIcons.fileDocument,
-                  size: 16,
-                  color: AppTheme.primaryAccent,
+    return Scaffold(
+      backgroundColor: c.bg,
+      resizeToAvoidBottomInset: true,
+      body: Column(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: ChatHeader(
+              name: widget.conversation.userName,
+              avatarUrl: widget.conversation.userAvatar,
+              subtitle: _headerSubtitle(),
+              typing: _otherIsTyping,
+              online: _onlineStatus == 'online',
+              onBack: () => Navigator.of(context).pop(),
+              // Earned verification: only for backend-trusted tiers.
+              badge: rep != null && _trustedTiers.contains(rep.tier)
+                  ? Icon(AppIcons.verifiedProvider, size: 15, color: tierColor(context, rep.tier))
+                  : null,
+              menu: ChatMenuButton<ChatMenuAction>(
+                onSelected: _onMenuAction,
+                itemBuilder: (menuContext) => buildChatMenuItems(
+                  menuContext,
+                  hasPost: _postId != null && _postId!.isNotEmpty,
+                  isMuted: _isMuted,
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      postTitle,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (offline) const ChatOfflineBanner(),
+          if (jobBar != null)
+            ChatJobBar(
+              state: jobBar,
+              busy: _openingPost,
+              onOpen: _postId != null && _postId!.isNotEmpty ? () => _openPostFromChat(_postId!) : null,
+              onAction: () => _onJobAction(jobBar),
+            ),
+          // Journey strip — narrates the journey as it evolves: on the way →
+          // nearby → reconnecting → arrived (brief), then leaves. One strip,
+          // phase-driven; tap opens the live map.
+          if (_stripJourney != null)
+            Builder(builder: (context) {
+              final journey = _stripJourney!;
+              final mine = journey.isMe;
+              final phase = _phaseFor(journey);
+              final name = widget.conversation.userName;
+              final String title;
+              switch (phase) {
+                case JourneyPhase.nearby:
+                  title = mine ? "You're almost there" : '$name is nearby';
+                  break;
+                case JourneyPhase.reconnecting:
+                  title = mine ? 'Reconnecting…' : "Waiting for $name's signal…";
+                  break;
+                case JourneyPhase.arrived:
+                  title = mine ? "You've arrived" : '$name has arrived';
+                  break;
+                case JourneyPhase.travelling:
+                case JourneyPhase.ended:
+                  title = mine ? "You're sharing your journey" : '$name is on the way';
+                  break;
+              }
+              // ETA line: only the traveller's device computes a route, so
+              // only it can narrate one. Watchers keep the Phase 2 line.
+              final owns = _journey.owns(journey.id);
+              final subtitle = (owns && phase != JourneyPhase.arrived)
+                  ? [
+                      etaText(_journey.etaSeconds),
+                      remainingText(_journey.remainingMeters),
+                    ].whereType<String>().join(' · ')
+                  : null;
+              return JourneyStatusStrip(
+                title: title,
+                phase: phase,
+                subtitle: (subtitle == null || subtitle.isEmpty) ? null : subtitle,
+                onTap: journey.hasValidCoordinates ? () => _openFullScreenMap(journey) : null,
+                onStop: mine && owns && _journey.isLive ? _stopLiveSharing : null,
+              );
+            }),
+          // Messages: cache-hydrated instantly, then Supabase Realtime.
+          Expanded(
+            child: Stack(
+              children: [
+                _buildThread(),
+                // The current day, pinned while the thread scrolls.
+                if (_stickyDay != null)
+                  Positioned(
+                    top: 8,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: Center(child: ChatDayPill(label: chatDayLabel(_stickyDay!))),
                     ),
-                    if (onTap != null)
-                      Text(
-                        'Tap to view post details',
-                        style: TextStyle(fontSize: 11, color: tertiary),
-                      ),
-                  ],
-                ),
-              ),
-              if (onTap != null) ...[
-                const SizedBox(width: 6),
-                busy
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppTheme.primaryAccent,
-                        ),
-                      )
-                    : Icon(AppIcons.disclosure, size: 20, color: tertiary),
+                  ),
+                // Back to the latest: 12 above the composer, centred over Send
+                // and never on top of it.
+                if (!_isNearBottom)
+                  PositionedDirectional(
+                    end: ChatGeometry.sidePadding +
+                        (ChatGeometry.sendDiameter - ChatGeometry.minTouch) / 2,
+                    bottom: 12 - (ChatGeometry.minTouch - ChatGeometry.scrollButtonDiameter) / 2,
+                    child: ChatScrollToLatest(
+                      unread: _unseenBelow,
+                      onTap: () {
+                        _scrollToBottom();
+                        setState(() => _unseenBelow = 0);
+                      },
+                    ),
+                  ),
               ],
-            ],
+            ),
           ),
-        ),
+          // Context action — the marketplace already knows who travels, who
+          // hosts, what was asked and where the journey stands; surface the
+          // single next action instead of making users dig through menus.
+          Builder(builder: (context) {
+            final action = _contextAction();
+            if (action == null) return const SizedBox.shrink();
+            return ContextActionBar(
+              icon: action.icon,
+              label: action.label,
+              onTap: action.onTap,
+            );
+          }),
+          if (_showQuickReplies)
+            ChatQuickReplies(
+              replies: ChatQuickReplies.onTheWay,
+              onTap: (text) => _sendText(text),
+            ),
+          // Reply preview bar — visible when user long-pressed a message to reply.
+          if (_replyToMessage != null)
+            _ReplyPreviewBar(
+              replyTo: _replyToMessage!,
+              partnerName: widget.conversation.userName,
+              onCancel: () => setState(() => _replyToMessage = null),
+            ),
+          // Messaging denied → the composer is replaced, so nobody writes a
+          // message the server will refuse. The status is explanation only;
+          // the database and backend still enforce.
+          ListenableBuilder(
+            listenable: AccountStatusStore.instance,
+            builder: (context, composer) => AccountStatusStore.instance.denies(Capability.message)
+                ? const SafeArea(top: false, child: RestrictedComposerNotice())
+                : composer!,
+            child: SafeArea(
+              top: false,
+              child: ChatComposer(
+                controller: _messageController,
+                busy: _isSending,
+                onAttach: _showAttachmentOptions,
+                onCamera: _takePhoto,
+                onSend: _sendMessage,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3597,7 +3747,7 @@ class _AttachOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = AppColors.of(context);
     return InkWell(
       onTap: onTap,
       borderRadius: AppRadius.mdAll,
@@ -3613,24 +3763,14 @@ class _AttachOption extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: c.contentPrimary),
                   ),
                   const SizedBox(height: 1),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                    ),
-                  ),
+                  Text(subtitle, style: TextStyle(fontSize: 12, color: c.contentTertiary)),
                 ],
               ),
             ),
-            Icon(
-              AppIcons.disclosure,
-              size: 20,
-              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-            ),
+            Icon(AppIcons.disclosure, size: 20, color: c.contentTertiary),
           ],
         ),
       ),
@@ -3638,745 +3778,10 @@ class _AttachOption extends StatelessWidget {
   }
 }
 
-class _MessageBubble extends StatelessWidget {
-  final Message message;
-  final String currentUserId;
-  final String senderAvatar;
-  final String senderInitial;
-  final bool isPending;
-  final bool isLiveSharing;
-  final JourneyPhase journeyPhase;
-  final DateTime? journeyLastEventAt;
-  final int? journeyEtaSeconds;
-  final double? journeyRemainingMeters;
-  final VoidCallback? onStopLiveSharing;
-  final VoidCallback? onMarkArrived;
-  final VoidCallback? onTapLocation;
-  /// Recipient-side "Share now" on a location request card.
-  final VoidCallback? onRespondToRequest;
-  /// Other participant's display name (request card copy).
-  final String partnerName;
-  /// Viewer's last-known position — powers "2.1 km away" on location cards.
-  final double? viewerLat;
-  final double? viewerLng;
-  final bool isFirstInGroup;
-  final bool isLastInGroup;
-  /// Long-press with the bubble's global rect so the context menu can anchor
-  /// exactly where the message sits on screen.
-  final void Function(Message, Rect)? onLongPressMessage;
-  final void Function(String replyToId)? onTapReplyQuote;
-  /// Opens a photo fullscreen. Null disables tapping — a pending send has no
-  /// server URL yet, so there is nothing to open.
-  final void Function(Message message)? onTapImage;
-  /// Retry a failed outbound message. Non-null only when this message failed to
-  /// send; drives the "Tap to retry" chip.
-  final VoidCallback? onRetry;
+// ── Full-screen map ────────────────────────────────────────────────────────
 
-  const _MessageBubble({
-    required this.message,
-    required this.currentUserId,
-    this.senderAvatar = '',
-    this.senderInitial = '?',
-    this.isPending = false,
-    this.isLiveSharing = false,
-    this.journeyPhase = JourneyPhase.travelling,
-    this.journeyLastEventAt,
-    this.journeyEtaSeconds,
-    this.journeyRemainingMeters,
-    this.onStopLiveSharing,
-    this.onMarkArrived,
-    this.onTapLocation,
-    this.onRespondToRequest,
-    this.partnerName = '',
-    this.viewerLat,
-    this.viewerLng,
-    this.isFirstInGroup = true,
-    this.isLastInGroup = true,
-    this.onLongPressMessage,
-    this.onTapReplyQuote,
-    this.onTapImage,
-    this.onRetry,
-  });
-
-  // The geometry lives in chat_ui.dart, next to the preview that renders the
-  // same bubble — they had already drifted apart by 2 px on the tail corner.
-  BorderRadius _buildBorderRadius() => chatBubbleRadius(
-        mine: message.isMe,
-        isFirstInGroup: isFirstInGroup,
-        isLastInGroup: isLastInGroup,
-      );
-
-  /// Message-bubble stamp. Delegates to the canonical formatter so the time is
-  /// rendered in the device's zone and 12h/24h convention — reading
-  /// `time.hour` here rendered the UTC wall clock (3 h behind in EAT).
-  String _formatTime(BuildContext context, DateTime time) =>
-      formatMessageStamp(context, time);
-
-  /// Hand a delivered document to the phone. The bubble used to do nothing on
-  /// tap (`// Could launch URL in browser`), so a document could be sent but
-  /// never opened by either side.
-  static Future<void> _openDocument(BuildContext context, String url) async {
-    var opened = false;
-    try {
-      opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    } catch (e) {
-      debugPrint('ChatScreen open document: $e');
-    }
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Couldn't open this file."),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Widget _buildTombstone(BuildContext context, bool isDark) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: isLastInGroup ? 6 : 2),
-      child: Row(
-        mainAxisAlignment: message.isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (!message.isMe) const SizedBox(width: 32),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.darkCard.withValues(alpha: 0.6) : AppTheme.lightCard,
-              borderRadius: AppRadius.lgAll,
-              border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.5,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  AppIcons.blockUser,
-                  size: 13,
-                  color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  'This message was deleted',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontStyle: FontStyle.italic,
-                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (message.isMe) const SizedBox(width: 4),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Tombstone — replaces full bubble for deleted messages.
-    if (message.deletedForEveryone) {
-      return _buildTombstone(context, isDark).animate().fadeIn(duration: 200.ms);
-    }
-
-    final isLocation = message.isLocation && message.hasValidCoordinates;
-    final hasUrl = message.attachmentUrl != null && message.attachmentUrl!.isNotEmpty;
-    // A queued attachment has no URL yet — only the copy on this phone. It is
-    // drawn from that copy, never from a server address it does not have, and
-    // keeps drawing from it until the message is delivered (so a photo whose
-    // upload finished but whose row has not landed does not flash a download).
-    final localFile =
-        isPending && message.localPath != null ? message.localPath : null;
-    final isImage = message.isImage && (hasUrl || localFile != null);
-    final isFile = message.isFile && (hasUrl || localFile != null);
-
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: isLastInGroup ? 6 : 2,
-        top: isFirstInGroup ? 0 : 0,
-      ),
-      child: Row(
-        mainAxisAlignment:
-            message.isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          // Sender avatar — shown on the left for received messages
-          if (!message.isMe) ...[
-            SizedBox(
-              width: 28,
-              height: 28,
-              child: isLastInGroup
-                  ? CircleAvatar(
-                      radius: 14,
-                      backgroundColor: AppColors.of(context).surfaceSunken,
-                      backgroundImage: senderAvatar.isNotEmpty
-                          ? CachedNetworkImageProvider(senderAvatar)
-                          : null,
-                      child: senderAvatar.isEmpty
-                          ? Text(
-                              senderInitial,
-                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                            )
-                          : null,
-                    )
-                  : null,
-            ),
-            const SizedBox(width: 4),
-          ],
-          Builder(builder: (bubbleContext) => GestureDetector(
-            onLongPress: onLongPressMessage != null
-                ? () {
-                    final box = bubbleContext.findRenderObject() as RenderBox?;
-                    final rect = (box != null && box.hasSize)
-                        ? box.localToGlobal(Offset.zero) & box.size
-                        : Rect.zero;
-                    onLongPressMessage!(message, rect);
-                  }
-                : null,
-          child: Container(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.72,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: message.isMe
-                  ? AppTheme.primaryAccent
-                  : (isDark ? AppTheme.darkCard : AppTheme.lightCard),
-              borderRadius: _buildBorderRadius(),
-              border: message.isMe
-                  ? null
-                  : Border.all(
-                      color: isDark
-                          ? AppTheme.darkBorder
-                          : AppTheme.lightBorder.withValues(alpha: 0.8),
-                      width: 0.5,
-                    ),
-            ),
-            child: Column(
-              crossAxisAlignment: message.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Quoted reply block — shown when this message is a reply to another.
-                if (message.replyToId != null && message.replyToPreview != null) ...[
-                  GestureDetector(
-                    onTap: onTapReplyQuote != null ? () => onTapReplyQuote!(message.replyToId!) : null,
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: message.isMe
-                            ? Colors.white.withValues(alpha: 0.18)
-                            : (isDark
-                                ? AppTheme.darkSurface.withValues(alpha: 0.8)
-                                : AppTheme.lightBorder.withValues(alpha: 0.5)),
-                        borderRadius: AppRadius.smAll,
-                        border: Border(
-                          left: BorderSide(
-                            color: message.isMe
-                                ? Colors.white.withValues(alpha: 0.7)
-                                : AppTheme.primaryAccent,
-                            width: 3,
-                          ),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            message.replyToSender ?? 'Unknown',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                              color: message.isMe
-                                  ? Colors.white
-                                  : AppTheme.primaryAccent,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            message.replyToPreview!.length > 100
-                                ? '${message.replyToPreview!.substring(0, 100)}…'
-                                : message.replyToPreview!,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: message.isMe
-                                  ? Colors.white.withValues(alpha: 0.8)
-                                  : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-                if (isImage) ...[
-                  Semantics(
-                    button: localFile == null,
-                    label: localFile != null
-                        ? (message.status == OutboxStatus.failed
-                            ? "Photo. Couldn't send."
-                            : 'Photo. Not sent yet.')
-                        : message.text.isNotEmpty && message.text != 'Image'
-                            ? 'Photo: ${message.text}. Double tap to view fullscreen.'
-                            : 'Photo. Double tap to view fullscreen.',
-                    child: GestureDetector(
-                      onTap: onTapImage == null ? null : () => onTapImage!(message),
-                      child: Hero(
-                        // Message id is stable and unique, so the thumbnail
-                        // lifts into the viewer instead of cutting to it.
-                        tag: 'chat_image_${message.id}',
-                        child: ClipRRect(
-                          borderRadius: AppRadius.mdAll,
-                          child: localFile != null
-                              ? _QueuedPhoto(path: localFile, status: message.status)
-                              : CachedNetworkImage(
-                            imageUrl: message.attachmentUrl!,
-                            width: 220,
-                            height: 180,
-                            fit: BoxFit.cover,
-                            // Progressive: fade in rather than popping, so a
-                            // thread of photos settles instead of flashing.
-                            fadeInDuration: const Duration(milliseconds: 220),
-                            placeholder: (_, __) => Container(
-                              width: 220,
-                              height: 180,
-                              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                              child: const Center(
-                                  child: CircularProgressIndicator(strokeWidth: 2)),
-                            ),
-                            errorWidget: (_, __, ___) => Container(
-                              width: 220,
-                              height: 180,
-                              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                              child: const Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(AppIcons.imageBroken, size: 40),
-                                  SizedBox(height: 6),
-                                  Text("Couldn't load", style: TextStyle(fontSize: 12)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (message.text.isNotEmpty && message.text != 'Image') ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      message.text,
-                      style: TextStyle(
-                        color: message.isMe
-                            ? Colors.white
-                            : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                        fontSize: 15,
-                      ),
-                    ),
-                  ],
-                ] else if (isFile) ...[
-                  InkWell(
-                    // Delivered documents open in whatever the phone uses for
-                    // that type (a PDF viewer, the browser's download). A
-                    // queued one has nothing on the server to open yet.
-                    onTap: !isPending && hasUrl
-                        ? () => _openDocument(context, message.attachmentUrl!)
-                        : null,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          AppIcons.fileGeneric,
-                          size: 28,
-                          color: message.isMe ? Colors.white70 : AppTheme.primaryAccent,
-                        ),
-                        const SizedBox(width: 10),
-                        Flexible(
-                          child: Text(
-                            message.text.isNotEmpty ? message.text : 'File',
-                            style: TextStyle(
-                              color: message.isMe
-                                  ? Colors.white
-                                  : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                              fontSize: 15,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ] else if (message.isLocationRequest) ...[
-                  RequestCard(
-                    message: message,
-                    partnerName: partnerName,
-                    onShareNow: onRespondToRequest,
-                  ),
-                ] else if (isLocation && message.isLiveLocation) ...[
-                  JourneyCard(
-                    message: message,
-                    viewerLat: viewerLat,
-                    viewerLng: viewerLng,
-                    isSharing: isLiveSharing,
-                    phase: journeyPhase,
-                    lastEventAt: journeyLastEventAt,
-                    etaSeconds: journeyEtaSeconds,
-                    remainingMeters: journeyRemainingMeters,
-                    onStop: onStopLiveSharing,
-                    onArrived: onMarkArrived,
-                    onTap: onTapLocation,
-                  ),
-                ] else if (isLocation) ...[
-                  PlaceCard(
-                    message: message,
-                    viewerLat: viewerLat,
-                    viewerLng: viewerLng,
-                    onTap: onTapLocation,
-                  ),
-                ] else
-                  Text(
-                    message.text,
-                    style: TextStyle(
-                      color: message.isMe
-                          ? Colors.white
-                          : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary),
-                      fontSize: 15,
-                    ),
-                  ),
-                const SizedBox(height: 2),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _formatTime(context, message.timestamp),
-                      style: TextStyle(
-                        color: message.isMe
-                            ? Colors.white.withValues(alpha: 0.7)
-                            : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
-                        fontSize: 11,
-                      ),
-                    ),
-                    if (message.isMe) ...[
-                      const SizedBox(width: 4),
-                      if (message.status == OutboxStatus.failed)
-                        // States the fact first ("Couldn't send"), then the
-                        // way out. Never "sent", never silently gone.
-                        Semantics(
-                          button: true,
-                          label: "Couldn't send. Double tap to retry.",
-                          excludeSemantics: true,
-                          child: GestureDetector(
-                            onTap: onRetry,
-                            behavior: HitTestBehavior.opaque,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(AppIcons.error,
-                                    size: 13, color: Colors.white),
-                                const SizedBox(width: 3),
-                                Text(
-                                  "Couldn't send",
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const Text(
-                                  ' · Retry',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else
-                        _MessageStatusIcon(
-                          isPending: isPending,
-                          status: message.status,
-                        ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-          )), // GestureDetector + Builder
-          if (message.isMe) const SizedBox(width: 4),
-        ],
-      ),
-    ).animate().fadeIn(duration: 200.ms).slideX(
-      begin: message.isMe ? 0.1 : -0.1,
-      end: 0,
-    );
-  }
-}
-
-/// A photo that has not reached the server, drawn from its copy on this phone.
-///
-/// Dimmed, with the same vocabulary as the status tick: a clock while it waits
-/// for a network, a spinner only while an upload is genuinely open. It must
-/// never look like a delivered photo — the recipient does not have it yet. A
-/// failed one is shown undimmed; the "Couldn't send · Retry" chip below it
-/// carries that state.
-class _QueuedPhoto extends StatelessWidget {
-  final String path;
-  final String status;
-
-  const _QueuedPhoto({required this.path, required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    return SizedBox(
-      width: 220,
-      height: 180,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image.file(
-            File(path),
-            fit: BoxFit.cover,
-            // Decoded at bubble size, not the photo's: a queue of photos must
-            // not hold full-resolution bitmaps in memory.
-            cacheWidth: (220 * dpr).round(),
-            errorBuilder: (_, __, ___) => ColoredBox(
-              color: AppColors.of(context).surfaceSunken,
-              child: const Center(child: Icon(AppIcons.imageBroken, size: 40)),
-            ),
-          ),
-          if (status != OutboxStatus.failed)
-            ColoredBox(
-              color: Colors.black.withValues(alpha: 0.28),
-              child: Center(
-                child: status == OutboxStatus.sending
-                    ? const SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Icon(AppIcons.messageSending,
-                        color: Colors.white, size: 30),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Tick-style delivery/read indicator for sent messages.
-/// pending → spinner  |  sent → ✓  |  seen → ✓✓ (blue)
-/// State transitions are cross-faded via AnimatedSwitcher.
-class _MessageStatusIcon extends StatelessWidget {
-  final bool isPending;
-  final String status;
-
-  const _MessageStatusIcon({required this.isPending, required this.status});
-
-  Widget _icon() {
-    if (isPending) {
-      // A clock, not a spinner, while the message is merely QUEUED. Offline
-      // there is no request open, and an indeterminate spinner claims work that
-      // is not happening — the one thing an unsent message must not do is look
-      // like it is on its way. The spinner is kept for a real in-flight send.
-      if (status == OutboxStatus.queued) {
-        return Icon(
-          AppIcons.messageSending,
-          size: 13,
-          color: Colors.white.withValues(alpha: 0.75),
-          key: const ValueKey('queued'),
-        );
-      }
-      return SizedBox(
-        key: const ValueKey('pending'),
-        width: 12,
-        height: 12,
-        child: CircularProgressIndicator(
-          strokeWidth: 1.5,
-          valueColor: const AlwaysStoppedAnimation<Color>(Colors.white70),
-        ),
-      );
-    }
-    if (status == 'seen') {
-      return const Icon(
-        AppIcons.messageDelivered,
-        size: 14,
-        color: Colors.lightBlueAccent,
-        key: ValueKey('seen'),
-      );
-    }
-    return Icon(
-      AppIcons.messageSent,
-      size: 14,
-      color: Colors.white.withValues(alpha: 0.65),
-      key: const ValueKey('sent'),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      transitionBuilder: (child, animation) => FadeTransition(
-        opacity: animation,
-        child: ScaleTransition(scale: animation, child: child),
-      ),
-      child: _icon(),
-    );
-  }
-}
-
-/// Chat header avatar with a presence dot. Uses the cached image provider so
-/// reopening a chat never re-downloads the avatar.
-class _HeaderAvatar extends StatelessWidget {
-  final String avatarUrl;
-  final String initial;
-  final bool isOnline;
-  /// Ring around the presence dot — matches the AppBar background so the dot
-  /// reads as punched out of the avatar.
-  final Color ringColor;
-
-  const _HeaderAvatar({
-    required this.avatarUrl,
-    required this.initial,
-    required this.isOnline,
-    required this.ringColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 38,
-      height: 38,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          CircleAvatar(
-            radius: 19,
-            backgroundColor: AppColors.of(context).surfaceSunken,
-            backgroundImage:
-                avatarUrl.isNotEmpty ? CachedNetworkImageProvider(avatarUrl) : null,
-            child: avatarUrl.isEmpty
-                ? Text(
-                    initial,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  )
-                : null,
-          ),
-          if (isOnline)
-            Positioned(
-              right: -1,
-              bottom: -1,
-              child: Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: AppTheme.successGreen,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: ringColor, width: 2),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Chat list item types ───────────────────────────────────────────────────
-
-abstract class _ChatListItem {}
-
-class _ChatDateDivider extends _ChatListItem {
-  final DateTime date;
-  _ChatDateDivider(this.date);
-}
-
-class _ChatMessageItem extends _ChatListItem {
-  final Message message;
-  final bool isPending;
-  final bool isFirstInGroup;
-  final bool isLastInGroup;
-
-  _ChatMessageItem({
-    required this.message,
-    required this.isPending,
-    required this.isFirstInGroup,
-    required this.isLastInGroup,
-  });
-}
-
-// ── Date divider widget ────────────────────────────────────────────────────
-
-class _DateDivider extends StatelessWidget {
-  final DateTime date;
-
-  const _DateDivider({required this.date});
-
-  String _label() => formatDateSeparator(date);
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final dividerColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final labelBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final labelColor = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Row(
-        children: [
-          Expanded(child: Divider(color: dividerColor, height: 1)),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              decoration: BoxDecoration(
-                color: labelBg,
-                borderRadius: AppRadius.mdAll,
-                border: Border.all(color: dividerColor, width: 0.5),
-              ),
-              child: Text(
-                _label(),
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: labelColor,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ),
-          ),
-          Expanded(child: Divider(color: dividerColor, height: 1)),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Map preview helpers ────────────────────────────────────────────────────
-
+/// A shared place or a journey, full screen, in the theme's map style — with
+/// Directions and Copy address for either side of the conversation.
 class _FullScreenMapScreen extends StatefulWidget {
   final String conversationId;
   final Message message;
@@ -4402,12 +3807,19 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
   double? _myLng;
   bool _loadingMyPosition = true;
   GoogleMapController? _mapController;
+  String? _area;
 
   @override
   void initState() {
     super.initState();
     _message = widget.message;
     _loadMyPosition();
+    _area = PlaceNameCache.peek(_message.latitude!, _message.longitude!);
+    if (_area == null) {
+      PlaceNameCache.resolve(_message.latitude!, _message.longitude!).then((name) {
+        if (mounted && name != null) setState(() => _area = name);
+      });
+    }
     // Redraw when the engine publishes a new route/position for this journey.
     JourneyEngine.instance.listenable.addListener(_onEngine);
   }
@@ -4444,12 +3856,30 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
     }
   }
 
+  String get _label {
+    final t = _message.text.trim();
+    if (_message.isLiveLocation || t.isEmpty || t == 'Location') return '';
+    return t;
+  }
+
+  /// What "Copy address" puts on the clipboard: the sender's name for the
+  /// place, the area, and the coordinates — which every maps app can find.
+  String get _addressText {
+    final lat = _message.latitude!.toStringAsFixed(5);
+    final lng = _message.longitude!.toStringAsFixed(5);
+    return [
+      if (_label.isNotEmpty) _label,
+      if (_area != null && _area != _label) _area!,
+      '$lat, $lng',
+    ].join(', ');
+  }
+
   /// Route path for this journey, if the engine has one for THIS message.
   ///
   /// Identity-keyed on the route object: the polyline is only rebuilt when a
   /// genuinely new route arrives (every ~90 s), not on every position fix, so
   /// the line does not flicker as the marker moves.
-  Set<Polyline> _routePolylines() {
+  Set<Polyline> _routePolylines(Color color) {
     final journey = JourneyEngine.instance.snapshot;
     if (!journey.owns(_message.id)) return const {};
     final route = journey.route;
@@ -4461,7 +3891,7 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
           for (final p in _simplify(route.path)) LatLng(p.lat, p.lng),
         ],
         width: 5,
-        color: AppTheme.primaryAccent.withValues(alpha: 0.85),
+        color: color,
         startCap: Cap.roundCap,
         endCap: Cap.roundCap,
         geodesic: true,
@@ -4504,9 +3934,13 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final chat = ChatColors.of(context);
+    final app = AppColors.of(context);
     final lat = _message.latitude!;
     final lng = _message.longitude!;
+    final live = _message.isLiveLocation &&
+        _message.liveUntil != null &&
+        _message.liveUntil!.isAfter(DateTime.now());
 
     return Scaffold(
       appBar: AppBar(
@@ -4515,7 +3949,9 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
               ? 'Journey'
               : _message.isLiveLocation
                   ? (_message.text == 'Live location' ? 'Live location' : 'Journey')
-                  : 'Location',
+                  : (_label.isNotEmpty ? _label : 'Location'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
         actions: [
           if (widget.canStopSharing && widget.onStopSharing != null)
@@ -4528,107 +3964,165 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
             ),
         ],
       ),
-      body: Stack(
+      body: Column(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(target: LatLng(lat, lng), zoom: 15),
-            markers: {
-              Marker(
-                markerId: const MarkerId('shared'),
-                position: LatLng(lat, lng),
-                icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-              ),
-              if (_myLat != null && _myLng != null)
-                Marker(
-                  markerId: const MarkerId('me'),
-                  position: LatLng(_myLat!, _myLng!),
-                  icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
-                ),
-            },
-            // Actual driven route, not a straight line. Drawn only when this
-            // device owns the journey (only it computes routes) and the path
-            // is non-empty; otherwise the map is exactly as it was in Phase 2.
-            polylines: _routePolylines(),
-            onMapCreated: (controller) {
-              _mapController = controller;
-              if (_myLat != null && _myLng != null) _fitBounds();
-            },
-            myLocationButtonEnabled: true,
-            myLocationEnabled: !_loadingMyPosition,
-          ),
-          if (_message.isLiveLocation && _message.liveUntil != null && _message.liveUntil!.isAfter(DateTime.now()))
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: MediaQuery.of(context).padding.bottom + 24,
-              child: Material(
-                elevation: 4,
-                borderRadius: AppRadius.mdAll,
-                color: isDark ? AppTheme.darkCard : Colors.white,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
-                    children: [
-                      const LiveDot(size: 7),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Builder(builder: (context) {
-                          final journey = JourneyEngine.instance.snapshot;
-                          final owns = journey.owns(_message.id);
-                          final eta = owns ? etaText(journey.etaSeconds) : null;
-                          final remaining =
-                              owns ? remainingText(journey.remainingMeters) : null;
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                eta ?? 'Sharing live',
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              if (remaining != null)
-                                Text(
-                                  remaining,
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                            ],
-                          );
-                        }),
+          Expanded(
+            child: Stack(
+              children: [
+                GoogleMap(
+                  initialCameraPosition: CameraPosition(target: LatLng(lat, lng), zoom: 15),
+                  style: chat.mapStyle,
+                  markers: {
+                    Marker(
+                      markerId: const MarkerId('shared'),
+                      position: LatLng(lat, lng),
+                      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+                    ),
+                    if (_myLat != null && _myLng != null)
+                      Marker(
+                        markerId: const MarkerId('me'),
+                        position: LatLng(_myLat!, _myLng!),
+                        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
                       ),
-                    ],
+                  },
+                  // Actual driven route, not a straight line. Drawn only when
+                  // this device owns the journey (only it computes routes).
+                  polylines: _routePolylines(chat.accent),
+                  onMapCreated: (controller) {
+                    _mapController = controller;
+                    if (_myLat != null && _myLng != null) _fitBounds();
+                  },
+                  myLocationButtonEnabled: true,
+                  myLocationEnabled: !_loadingMyPosition,
+                ),
+                if (live)
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: AppRadius.mdAll,
+                      color: app.surface,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            const LiveDot(size: 7),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Builder(builder: (context) {
+                                final journey = JourneyEngine.instance.snapshot;
+                                final owns = journey.owns(_message.id);
+                                final eta = owns ? etaText(journey.etaSeconds) : null;
+                                final remaining = owns ? remainingText(journey.remainingMeters) : null;
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(eta ?? 'Sharing live', style: Theme.of(context).textTheme.titleSmall),
+                                    if (remaining != null)
+                                      Text(remaining, style: Theme.of(context).textTheme.bodySmall),
+                                  ],
+                                );
+                              }),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
+              ],
+            ),
+          ),
+          ColoredBox(
+            color: app.surface,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_label.isNotEmpty || _area != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          [if (_label.isNotEmpty) _label, if (_area != null && _area != _label) _area!].join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: app.contentPrimary),
+                        ),
+                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              launchDirections(lat, lng, label: _label);
+                            },
+                            // The theme's 24 px button padding wrapped "Copy address"
+                            // onto two lines at half the screen width (seen on device).
+                            style: FilledButton.styleFrom(
+                              backgroundColor: chat.accent,
+                              foregroundColor: chat.onAccent,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                            ),
+                            icon: const Icon(AppIcons.directions, size: 18),
+                            label: const Text('Directions', maxLines: 1, overflow: TextOverflow.ellipsis),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: _addressText));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Address copied'),
+                                  duration: Duration(seconds: 1),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                            ),
+                            icon: const Icon(AppIcons.copy, size: 18),
+                            label: const Text('Copy address', maxLines: 1, overflow: TextOverflow.ellipsis),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
   }
 }
 
-// ── Reply preview bar (shown above the text input when replying) ──────────────
+// ── Reply preview bar (shown above the composer when replying) ──────────────
 
 class _ReplyPreviewBar extends StatelessWidget {
   final Message replyTo;
-  final bool isDark;
   final String partnerName;
   final VoidCallback onCancel;
 
   const _ReplyPreviewBar({
     required this.replyTo,
-    required this.isDark,
     required this.partnerName,
     required this.onCancel,
   });
 
   @override
   Widget build(BuildContext context) {
-    const accentColor = AppTheme.primaryAccent;
-    final bg = isDark
-        ? AppTheme.darkCard.withValues(alpha: 0.95)
-        : AppTheme.lightCard;
-    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-
+    final c = ChatColors.of(context);
     final preview = replyTo.text.isNotEmpty
         ? replyTo.text.substring(0, replyTo.text.length.clamp(0, 120))
         : replyTo.isImage
@@ -4638,22 +4132,17 @@ class _ReplyPreviewBar extends StatelessWidget {
                 : 'Location';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsetsDirectional.fromSTEB(12, 6, 2, 6),
       decoration: BoxDecoration(
-        color: bg,
-        border: Border(
-          top: BorderSide(color: borderColor, width: 0.5),
-        ),
+        color: c.surfaceRaised,
+        border: Border(top: BorderSide(color: c.border)),
       ),
       child: Row(
         children: [
           Container(
             width: 3,
             height: 36,
-            decoration: BoxDecoration(
-              color: accentColor,
-              borderRadius: AppRadius.pillAll,
-            ),
+            decoration: BoxDecoration(color: c.accent, borderRadius: AppRadius.pillAll),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -4663,35 +4152,29 @@ class _ReplyPreviewBar extends StatelessWidget {
               children: [
                 Text(
                   replyTo.isMe ? 'You' : partnerName,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                    color: accentColor,
-                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: c.accentText),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   preview,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                  ),
+                  style: TextStyle(fontSize: 12, color: c.textSecondary),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          GestureDetector(
-            onTap: onCancel,
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: Icon(
-                AppIcons.close,
-                size: 18,
-                color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-              ),
+          IconButton(
+            onPressed: onCancel,
+            tooltip: 'Cancel reply',
+            icon: Icon(AppIcons.close, size: 18, color: c.iconSecondary),
+            constraints: const BoxConstraints.tightFor(
+              width: ChatGeometry.minTouch,
+              height: ChatGeometry.minTouch,
             ),
+            padding: EdgeInsets.zero,
           ),
         ],
       ),

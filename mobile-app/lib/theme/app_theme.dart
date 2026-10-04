@@ -339,7 +339,14 @@ class AppTheme {
       // The palette itself, so `AppColors.of(context)` works anywhere below
       // the MaterialApp — and so a theme switch INTERPOLATES rather than
       // snapping.
-      extensions: <ThemeExtension<dynamic>>[c],
+      //
+      // The chat's own palette rides alongside it (see ChatColors for why it
+      // is a separate set), chosen by the same brightness, so a conversation
+      // re-tones with the rest of the app — live, with no restart.
+      extensions: <ThemeExtension<dynamic>>[
+        c,
+        isDark ? ChatColors.dark : ChatColors.light,
+      ],
     );
   }
 }

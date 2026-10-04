@@ -28,6 +28,7 @@ import 'services/account_status_service.dart';
 import 'services/auth_service.dart';
 import 'services/cache_service.dart';
 import 'services/category_schema_service.dart';
+import 'services/chat_attachments.dart';
 import 'services/chat_service_supabase.dart';
 import 'services/feed_snapshot.dart';
 import 'services/location_registry.dart';
@@ -218,6 +219,9 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // and the record of which restrictions were already explained, reset
       // with the session like every other user-owned store.
       SessionScope.instance.register(AccountStatusStore.instance);
+      // Chat photos cached on disk are the conversation's own content: the
+      // next account on this phone must not find them.
+      SessionScope.instance.register(const ChatAttachmentScope());
       await SessionScope.instance.purgeForeignScopes(await _restoredUid());
 
       if (AppFirebase.isReady) {

@@ -4,9 +4,10 @@
 // Location is Help24's coordination layer, not an attachment. This module owns
 // every shared surface of the experience:
 //   • LocationIntents.show(...)  — ONE sheet, three user intents, role-ordered
-//   • PlaceCard / JourneyCard / RequestCard — purpose-built thread artifacts
+//   • JourneyCard / RequestCard — purpose-built thread artifacts (a shared
+//     place is the chat's location bubble, `ChatLocationBubble`)
 //   • JourneyStatusStrip — persistent "on the way" state at the top of a chat
-//   • MapThumbnail / LiveDot / distance + navigation helpers
+//   • MapThumbnail / LiveDot / distance + directions helpers
 //
 // Invariants:
 //   • Lite-mode map thumbnails are ALWAYS wrapped in AbsorbPointer — without it
@@ -14,8 +15,10 @@
 //     GestureDetector (open full screen) never fires.
 //   • Every action is a real button OUTSIDE the map surface (maps are invisible
 //     to screen readers); cards carry full text equivalents via Semantics.
-//   • No billable APIs: distance is client-side haversine, Navigate uses the
-//     free geo: intent.
+//   • No billable APIs: distance is client-side haversine, Directions hands
+//     off to the maps app.
+//   • Colour comes from ChatColors: the same widget in both themes, re-toned,
+//     never branched on brightness. The map takes the theme's style.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
@@ -27,7 +30,6 @@ import '../theme/app_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/post_model.dart';
-import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/time_utils.dart';
 
@@ -52,11 +54,11 @@ class LocationIntents {
     required VoidCallback onSendPlace,
     required VoidCallback onRequestLocation,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = ChatColors.of(context);
 
     final onMyWay = _IntentRow(
       icon: AppIcons.route,
-      color: AppTheme.primaryAccent,
+      color: c.accentText,
       title: 'On my way',
       subtitle: 'Share your journey to this job',
       onTap: () {
@@ -66,7 +68,7 @@ class LocationIntents {
     );
     final sendPlace = _IntentRow(
       icon: AppIcons.location,
-      color: AppTheme.successGreen,
+      color: c.success,
       title: 'Send a place',
       subtitle: 'Drop a pin — the gate, the building, the exact spot',
       onTap: () {
@@ -76,7 +78,7 @@ class LocationIntents {
     );
     final request = _IntentRow(
       icon: AppIcons.locationConfirmed,
-      color: AppTheme.secondaryAccent,
+      color: c.accentText,
       title: 'Request location',
       subtitle: 'Ask them to share where to go',
       onTap: () {
@@ -87,7 +89,7 @@ class LocationIntents {
 
     return showModalBottomSheet<void>(
       context: context,
-      backgroundColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+      backgroundColor: AppColors.of(context).surface,
       shape: const RoundedRectangleBorder(
         borderRadius: AppRadius.sheetTop,
       ),
@@ -136,7 +138,7 @@ class _IntentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = AppColors.of(context);
     return InkWell(
       onTap: onTap,
       borderRadius: AppRadius.mdAll,
@@ -155,25 +157,18 @@ class _IntentRow extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
+                      color: c.contentPrimary,
                     ),
                   ),
                   const SizedBox(height: 1),
                   Text(
                     subtitle,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                    ),
+                    style: TextStyle(fontSize: 12.5, color: c.contentSecondary),
                   ),
                 ],
               ),
             ),
-            Icon(
-              AppIcons.disclosure,
-              size: 20,
-              color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-            ),
+            Icon(AppIcons.disclosure, size: 20, color: c.contentTertiary),
           ],
         ),
       ),
@@ -186,7 +181,8 @@ class _IntentRow extends StatelessWidget {
 
 // ── Map thumbnail ────────────────────────────────────────────────────────────
 
-/// Static lite-mode map preview for thread cards.
+/// Static lite-mode map preview for thread cards, in the theme's map style
+/// (standard on light, night on dark — [ChatColors.mapStyle]).
 /// AbsorbPointer: without it the native map view claims the tap in the gesture
 /// arena and the enclosing GestureDetector (open full screen) never fires.
 class MapThumbnail extends StatelessWidget {
@@ -195,14 +191,26 @@ class MapThumbnail extends StatelessWidget {
 
   const MapThumbnail({super.key, required this.latitude, required this.longitude});
 
+  /// Stands in for the native map where no platform view can exist — the
+  /// widget tests that render the chat for screenshots and layout checks.
+  @visibleForTesting
+  static Widget Function(BuildContext context, double latitude, double longitude)?
+      debugBuilder;
+
   @override
   Widget build(BuildContext context) {
+    final stand = debugBuilder;
+    if (stand != null) return stand(context, latitude, longitude);
     return AbsorbPointer(
       child: GoogleMap(
+        // Keyed by style: a lite-mode map is a bitmap rendered once, so a
+        // theme switch must build a new one rather than restyle the old.
+        key: ValueKey(ChatColors.of(context).mapStyle == null ? 'map-std' : 'map-night'),
         initialCameraPosition: CameraPosition(
           target: LatLng(latitude, longitude),
           zoom: 15,
         ),
+        style: ChatColors.of(context).mapStyle,
         markers: {
           Marker(
             markerId: const MarkerId('loc'),
@@ -237,13 +245,23 @@ String? distanceAwayText({
   return '${km < 10 ? km.toStringAsFixed(1) : km.round()} km away';
 }
 
-/// Opens turn-by-turn in the Maps app via the free geo: intent; web fallback.
-Future<void> launchNavigation(double lat, double lng, {String label = ''}) async {
+/// Directions to a pin: Google Maps' directions screen when the app is
+/// installed, otherwise the phone's default maps app on the pin (geo:), and
+/// the web as the last resort.
+Future<void> launchDirections(double lat, double lng, {String label = ''}) async {
+  final directions = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$lat%2C$lng&travelmode=driving');
+  try {
+    if (await launchUrl(directions, mode: LaunchMode.externalNonBrowserApplication)) return;
+  } catch (_) {
+    // No app claims the link; fall through to the default maps app.
+  }
   final name = label.trim().isEmpty ? 'Shared location' : label.trim();
   final geo = Uri.parse('geo:$lat,$lng?q=$lat,$lng(${Uri.encodeComponent(name)})');
-  if (await canLaunchUrl(geo) && await launchUrl(geo)) return;
-  final web = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat%2C$lng');
-  await launchUrl(web, mode: LaunchMode.externalApplication);
+  try {
+    if (await canLaunchUrl(geo) && await launchUrl(geo)) return;
+  } catch (_) {}
+  await launchUrl(directions, mode: LaunchMode.externalApplication);
 }
 
 /// Journey/arrival clock stamp — device zone + device 12h/24h convention.
@@ -273,6 +291,7 @@ class _LiveDotState extends State<LiveDot> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final color = ChatColors.of(context).successBar;
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     if (reduceMotion) {
       _pulse.stop();
@@ -282,7 +301,7 @@ class _LiveDotState extends State<LiveDot> with SingleTickerProviderStateMixin {
     final dot = Container(
       width: widget.size,
       height: widget.size,
-      decoration: const BoxDecoration(color: AppTheme.successGreen, shape: BoxShape.circle),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
     if (reduceMotion) return dot;
     return SizedBox(
@@ -298,7 +317,7 @@ class _LiveDotState extends State<LiveDot> with SingleTickerProviderStateMixin {
               height: widget.size + (widget.size * 1.4 * _pulse.value),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppTheme.successGreen.withValues(alpha: 0.35 * (1 - _pulse.value)),
+                color: color.withValues(alpha: 0.35 * (1 - _pulse.value)),
               ),
             ),
           ),
@@ -309,129 +328,13 @@ class _LiveDotState extends State<LiveDot> with SingleTickerProviderStateMixin {
   }
 }
 
-// ── Place card ───────────────────────────────────────────────────────────────
-
-/// A shared place in the thread: label, thumbnail, distance, Navigate.
-/// This is a Help24 object — where the work happens — not a chat decoration.
-class PlaceCard extends StatelessWidget {
-  final Message message;
-  final double? viewerLat;
-  final double? viewerLng;
-  final VoidCallback? onTap;
-
-  const PlaceCard({
-    super.key,
-    required this.message,
-    this.viewerLat,
-    this.viewerLng,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final mine = message.isMe;
-    final lat = message.latitude!;
-    final lng = message.longitude!;
-    final hasLabel = message.text.isNotEmpty && message.text != 'Location';
-    final title = hasLabel ? message.text : 'Pinned location';
-    final distance = distanceAwayText(
-      fromLat: viewerLat, fromLng: viewerLng, toLat: lat, toLng: lng);
-
-    final titleColor = mine
-        ? Colors.white
-        : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary);
-    final subColor = mine
-        ? Colors.white70
-        : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary);
-
-    return Semantics(
-      label:
-          'Shared place: $title.${distance != null ? ' $distance.' : ''} Double tap to open the map.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GestureDetector(
-            onTap: onTap,
-            child: ClipRRect(
-              borderRadius: AppRadius.mdAll,
-              child: SizedBox(
-                width: 240,
-                height: 124,
-                child: MapThumbnail(latitude: lat, longitude: lng),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: 240,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(AppIcons.location, size: 15, color: mine ? Colors.white : AppTheme.successGreen),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        // The label IS the message ("Black gate, next to the
-                        // kiosk"); it carries the meaning the coordinates
-                        // cannot, so it leads at the card's largest weight.
-                        style: TextStyle(
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w700,
-                            color: titleColor),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (distance != null)
-                        Text(distance, style: TextStyle(fontSize: 12, color: subColor)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: 240,
-            // 44 rather than 34: Navigate is the card's only action and the one
-            // a provider taps while holding a phone in a moving vehicle. The
-            // old height sat under every accessible-target guideline.
-            height: 44,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                HapticFeedback.selectionClick();
-                launchNavigation(lat, lng, label: hasLabel ? message.text : '');
-              },
-              icon: const Icon(AppIcons.route, size: 16),
-              label: const Text('Navigate'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: mine ? Colors.white : AppTheme.primaryAccent,
-                side: BorderSide(
-                  color: mine
-                      ? Colors.white.withValues(alpha: 0.55)
-                      : AppTheme.primaryAccent.withValues(alpha: 0.55),
-                ),
-                padding: EdgeInsets.zero,
-                textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ── Journey card ─────────────────────────────────────────────────────────────
 
 /// A journey in the thread. Three states:
 ///   live     → thumbnail + LIVE + "since HH:mm" (+ Stop / I've arrived for the sharer)
-///   arrived  → mapless receipt: ✓ Arrived · HH:mm
+///   arrived  → mapless receipt: ✓ Arrived · HH:mm (the thread now shows an
+///              arrived journey as an event pill; the receipt is kept for any
+///              host that renders the card directly)
 ///   ended    → muted "Journey ended", map still openable
 /// How a journey should read RIGHT NOW. One continuous journey, one card that
 /// mutates through these phases — never additional cards (Phase 2 §journey
@@ -514,6 +417,9 @@ class JourneyCard extends StatelessWidget {
   final VoidCallback? onArrived;
   final VoidCallback? onTap;
 
+  /// The width the card lays itself out to — the bubble's inner width.
+  final double width;
+
   const JourneyCard({
     super.key,
     required this.message,
@@ -528,18 +434,15 @@ class JourneyCard extends StatelessWidget {
     this.onStop,
     this.onArrived,
     this.onTap,
+    this.width = 240,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = ChatColors.of(context);
     final mine = message.isMe;
-    final titleColor = mine
-        ? Colors.white
-        : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary);
-    final subColor = mine
-        ? Colors.white70
-        : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary);
+    final titleColor = mine ? c.onOutgoing : c.text;
+    final subColor = mine ? c.onOutgoingMuted : c.textSecondary;
 
     // ── Arrived receipt — the journey's permanent conclusion in the thread ──
     if (message.isJourneyArrived) {
@@ -554,61 +457,35 @@ class JourneyCard extends StatelessWidget {
               ? '${elapsed.inMinutes} min journey'
               : '${elapsed.inHours} h ${elapsed.inMinutes % 60} min journey')
           : null;
-      final onAccent = mine;
       return Semantics(
         label: 'Journey completed. Arrived at ${_clockTime(context, at)}.'
             '${durationText == null ? '' : ' $durationText.'}',
-        child: Container(
-          // A bordered, tinted block rather than a loose row: this is the
-          // permanent record that someone showed up, and it should look
-          // deliberate enough to be trusted months later.
-          padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
-          decoration: BoxDecoration(
-            color: AppTheme.successGreen.withValues(alpha: onAccent ? 0.20 : 0.10),
-            borderRadius: AppRadius.mdAll,
-            border: Border.all(
-              color: AppTheme.successGreen.withValues(alpha: onAccent ? 0.45 : 0.30),
-              width: 1,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(color: c.successTile, shape: BoxShape.circle),
+              child: Icon(AppIcons.check, size: 20, color: c.success),
             ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: AppTheme.successGreen
-                      .withValues(alpha: onAccent ? 0.40 : 0.18),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(AppIcons.check,
-                    size: 20,
-                    color: onAccent ? Colors.white : AppTheme.successGreen),
-              ),
-              const SizedBox(width: 11),
-              Column(
+            const SizedBox(width: 11),
+            Flexible(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text('Arrived',
-                      style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.1,
-                          color: titleColor)),
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: titleColor)),
                   const SizedBox(height: 1),
                   Text(
-                    [
-                      _clockTime(context, at),
-                      if (durationText != null) durationText,
-                    ].join(' · '),
+                    [_clockTime(context, at), if (durationText != null) durationText].join(' · '),
                     style: TextStyle(fontSize: 12, color: subColor),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
@@ -631,14 +508,16 @@ class JourneyCard extends StatelessWidget {
             children: [
               Icon(AppIcons.locationOff, size: 17, color: subColor),
               const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Journey ended',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: titleColor)),
-                  Text('Location no longer shared', style: TextStyle(fontSize: 12, color: subColor)),
-                ],
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Journey ended',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: titleColor)),
+                    Text('Location no longer shared', style: TextStyle(fontSize: 12, color: subColor)),
+                  ],
+                ),
               ),
             ],
           ),
@@ -705,23 +584,22 @@ class JourneyCard extends StatelessWidget {
             child: ClipRRect(
               borderRadius: AppRadius.mdAll,
               child: SizedBox(
-                width: 240,
-                height: 124,
+                width: width,
+                height: width * 124 / 240,
                 child: MapThumbnail(latitude: lat, longitude: lng),
               ),
             ),
           ),
           const SizedBox(height: 8),
           SizedBox(
-            width: 240,
+            width: width,
             child: Row(
               children: [
                 if (reconnecting)
                   Container(
                     width: 7,
                     height: 7,
-                    decoration: const BoxDecoration(
-                        color: AppTheme.warningOrange, shape: BoxShape.circle),
+                    decoration: BoxDecoration(color: c.accent, shape: BoxShape.circle),
                   )
                 else
                   const LiveDot(size: 7),
@@ -766,7 +644,7 @@ class JourneyCard extends StatelessWidget {
           if (isSharing) ...[
             const SizedBox(height: 8),
             SizedBox(
-              width: 240,
+              width: width,
               child: Row(
                 children: [
                   // 44 dp: these are pressed mid-journey, often one-handed and
@@ -775,7 +653,7 @@ class JourneyCard extends StatelessWidget {
                   // exception, and the hierarchy should say so.
                   Expanded(
                     child: SizedBox(
-                      height: 44,
+                      height: ChatGeometry.minTouch,
                       child: FilledButton.icon(
                         onPressed: onArrived == null
                             ? null
@@ -786,24 +664,25 @@ class JourneyCard extends StatelessWidget {
                         icon: const Icon(AppIcons.check, size: 17),
                         label: const Text("I've arrived"),
                         style: FilledButton.styleFrom(
-                          backgroundColor:
-                              mine ? Colors.white.withValues(alpha: 0.22) : AppTheme.successGreen,
-                          foregroundColor: Colors.white,
+                          backgroundColor: mine ? c.quoteOnOutgoing : c.accent,
+                          foregroundColor: mine ? c.onOutgoing : c.onAccent,
                           padding: EdgeInsets.zero,
-                          textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+                          textStyle: const TextStyle(
+                              fontFamily: AppTypeScale.family, fontSize: 13.5, fontWeight: FontWeight.w700),
                         ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   SizedBox(
-                    height: 44,
+                    height: ChatGeometry.minTouch,
                     child: TextButton(
                       onPressed: onStop,
                       style: TextButton.styleFrom(
-                        foregroundColor: mine ? Colors.white70 : AppTheme.errorRed,
+                        foregroundColor: mine ? c.onOutgoingMuted : c.danger,
                         padding: const EdgeInsets.symmetric(horizontal: 14),
-                        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        textStyle: const TextStyle(
+                            fontFamily: AppTypeScale.family, fontSize: 13, fontWeight: FontWeight.w600),
                       ),
                       child: const Text('Stop'),
                     ),
@@ -846,15 +725,11 @@ class _RequestCardState extends State<RequestCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = ChatColors.of(context);
     final mine = widget.message.isMe;
     final name = widget.partnerName.trim().isEmpty ? 'They' : widget.partnerName.trim();
-    final titleColor = mine
-        ? Colors.white
-        : (isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary);
-    final subColor = mine
-        ? Colors.white70
-        : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary);
+    final titleColor = mine ? c.onOutgoing : c.text;
+    final subColor = mine ? c.onOutgoingMuted : c.textSecondary;
 
     final body = mine ? 'You asked $name to share a location' : '$name asked for your location';
 
@@ -873,12 +748,11 @@ class _RequestCardState extends State<RequestCard> {
                 width: 30,
                 height: 30,
                 decoration: BoxDecoration(
-                  color: (mine ? Colors.white : AppTheme.secondaryAccent)
-                      .withValues(alpha: mine ? 0.22 : 0.14),
+                  color: mine ? c.quoteOnOutgoing : c.warningTile,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(AppIcons.locationConfirmed,
-                    size: 16, color: mine ? Colors.white : AppTheme.secondaryAccent),
+                    size: 16, color: mine ? c.onOutgoing : c.accentText),
               ),
               const SizedBox(width: 9),
               Flexible(
@@ -900,36 +774,35 @@ class _RequestCardState extends State<RequestCard> {
           ),
           if (!mine && !_deferred && widget.onShareNow != null) ...[
             const SizedBox(height: 8),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            Wrap(
+              spacing: 8,
               children: [
                 SizedBox(
                   // 44 dp — the responder's two choices must be comfortably
                   // tappable; 32 sat below every accessible-target guideline.
-                  height: 44,
+                  height: ChatGeometry.minTouch,
                   child: FilledButton(
                     onPressed: widget.onShareNow,
                     style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.primaryAccent,
-                      foregroundColor: Colors.white,
+                      backgroundColor: c.accent,
+                      foregroundColor: c.onAccent,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
-                      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                      textStyle: const TextStyle(
+                          fontFamily: AppTypeScale.family, fontSize: 13, fontWeight: FontWeight.w700),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                     child: const Text('Share now'),
                   ),
                 ),
-                const SizedBox(width: 8),
                 SizedBox(
-                  // 44 dp — the responder's two choices must be comfortably
-                  // tappable; 32 sat below every accessible-target guideline.
-                  height: 44,
+                  height: ChatGeometry.minTouch,
                   child: TextButton(
                     onPressed: () => setState(() => _deferred = true),
                     style: TextButton.styleFrom(
                       foregroundColor: subColor,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
-                      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                      textStyle: const TextStyle(
+                          fontFamily: AppTypeScale.family, fontSize: 13, fontWeight: FontWeight.w600),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                     child: const Text('Later'),
@@ -944,10 +817,8 @@ class _RequestCardState extends State<RequestCard> {
   }
 }
 
-// ── Journey status strip ─────────────────────────────────────────────────────
+// ── Context action + journey status strip ────────────────────────────────────
 
-/// Compact persistent strip under the post banner while a journey is active.
-/// Lightweight by design: one line, LIVE pill, Stop only for the sharer.
 /// Context-aware quick action above the composer: the ONE next thing this
 /// person is most likely here to do (answer a location request, start the
 /// journey, rate after arrival). Rendered only when the lifecycle says it
@@ -966,38 +837,40 @@ class ContextActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      width: double.infinity,
-      color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+    final c = ChatColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(ChatGeometry.sidePadding, 6, ChatGeometry.sidePadding, 0),
       child: Align(
-        alignment: Alignment.centerLeft,
+        alignment: AlignmentDirectional.centerStart,
         child: Semantics(
           button: true,
           label: label,
+          excludeSemantics: true,
           child: Material(
-            color: AppTheme.primaryAccent.withValues(alpha: isDark ? 0.16 : 0.10),
+            color: c.warningTile,
             borderRadius: AppRadius.pillAll,
             child: InkWell(
               borderRadius: AppRadius.pillAll,
               onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 16, color: AppTheme.primaryAccent),
-                    const SizedBox(width: 7),
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.primaryAccent,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: ChatGeometry.minTouch),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 16, color: c.accentText),
+                      const SizedBox(width: 7),
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: c.accentText),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1008,6 +881,8 @@ class ContextActionBar extends StatelessWidget {
   }
 }
 
+/// Compact persistent strip under the pinned bar while a journey is active.
+/// Lightweight by design: one line, LIVE pill, Stop only for the sharer.
 class JourneyStatusStrip extends StatelessWidget {
   final String title;
   /// Drives tint, badge and dot so the strip evolves with the journey:
@@ -1029,137 +904,120 @@ class JourneyStatusStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = ChatColors.of(context);
     final arrived = phase == JourneyPhase.arrived;
     final reconnecting = phase == JourneyPhase.reconnecting;
-    final accent = reconnecting ? AppTheme.warningOrange : AppTheme.successGreen;
+    final tint = reconnecting ? c.warningTile : c.successTile;
+    final accent = reconnecting ? c.accentText : c.success;
     return Semantics(
       label: '$title.'
           '${arrived ? ' Journey completed.' : reconnecting ? ' Reconnecting.' : ' Live journey.'}'
           '${onStop != null ? ' Stop sharing button available.' : ' Double tap to open the live map.'}',
-      child: Material(
-        color: accent.withValues(alpha: isDark ? 0.10 : 0.08),
-        child: InkWell(
-          onTap: onTap,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                  width: 0.5,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: 0.16),
-                    borderRadius: AppRadius.smAll,
-                  ),
-                  child: Icon(
-                    arrived ? AppIcons.check : AppIcons.route,
-                    size: 15,
-                    color: accent,
-                  ),
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  // Same reasoning as the journey card: overlaying two
-                  // different-width strings reads as garbled text, and the
-                  // strip's own colour/badge transitions already carry the
-                  // sense of change.
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: isDark
-                                ? AppTheme.darkTextPrimary
-                                : AppTheme.lightTextPrimary,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (subtitle != null && subtitle!.isNotEmpty)
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: Material(
+          color: c.surfaceRaised,
+          shape: RoundedRectangleBorder(
+            borderRadius: const BorderRadius.all(Radius.circular(ChatGeometry.jobBarRadius)),
+            side: BorderSide(color: c.border),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: ChatGeometry.minTouch),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: tint,
+                        borderRadius: const BorderRadius.all(Radius.circular(ChatGeometry.jobTileRadius)),
+                      ),
+                      child: Icon(arrived ? AppIcons.check : AppIcons.route, size: 15, color: accent),
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      // Same reasoning as the journey card: overlaying two
+                      // different-width strings reads as garbled text, and the
+                      // strip's own colour/badge transitions already carry the
+                      // sense of change.
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           Text(
-                            subtitle!,
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              color: isDark
-                                  ? AppTheme.darkTextSecondary
-                                  : AppTheme.lightTextSecondary,
-                            ),
+                            title,
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.text),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (arrived)
-                  const Icon(AppIcons.successFilled,
-                      size: 15, color: AppTheme.successGreen)
-                else if (reconnecting) ...[
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: const BoxDecoration(
-                        color: AppTheme.warningOrange, shape: BoxShape.circle),
-                  ),
-                  const SizedBox(width: 4),
-                  const Text(
-                    'RECONNECTING',
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.8,
-                      color: AppTheme.warningOrange,
-                    ),
-                  ),
-                ] else ...[
-                  const LiveDot(size: 6),
-                  const SizedBox(width: 4),
-                  const Text(
-                    'LIVE',
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.8,
-                      color: AppTheme.successGreen,
-                    ),
-                  ),
-                ],
-                if (onStop != null) ...[
-                  const SizedBox(width: 6),
-                  SizedBox(
-                    height: 30,
-                    child: TextButton(
-                      onPressed: onStop,
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppTheme.errorRed,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          if (subtitle != null && subtitle!.isNotEmpty)
+                            Text(
+                              subtitle!,
+                              style: TextStyle(fontSize: 11.5, color: c.textSecondary),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                        ],
                       ),
-                      child: const Text('Stop sharing'),
                     ),
-                  ),
-                ] else
-                  Icon(
-                    AppIcons.disclosure,
-                    size: 18,
-                    color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
-                  ),
-              ],
+                    const SizedBox(width: 8),
+                    if (arrived)
+                      Icon(AppIcons.successFilled, size: 15, color: c.success)
+                    else if (reconnecting) ...[
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(color: c.accentText, shape: BoxShape.circle),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'RECONNECTING',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.8,
+                          color: c.accentText,
+                        ),
+                      ),
+                    ] else ...[
+                      const LiveDot(size: 6),
+                      const SizedBox(width: 4),
+                      Text(
+                        'LIVE',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.8,
+                          color: c.success,
+                        ),
+                      ),
+                    ],
+                    if (onStop != null) ...[
+                      const SizedBox(width: 6),
+                      SizedBox(
+                        height: ChatGeometry.minTouch,
+                        child: TextButton(
+                          onPressed: onStop,
+                          style: TextButton.styleFrom(
+                            foregroundColor: c.danger,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            textStyle: const TextStyle(
+                                fontFamily: AppTypeScale.family, fontSize: 12.5, fontWeight: FontWeight.w700),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: const Text('Stop sharing'),
+                        ),
+                      ),
+                    ] else
+                      Icon(AppIcons.disclosure, size: 18, color: c.textSecondary),
+                  ],
+                ),
+              ),
             ),
           ),
         ),

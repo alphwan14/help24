@@ -1,14 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/post_model.dart';
+import 'chat_attachments.dart';
 import 'chat_service_supabase.dart';
-import 'storage_service.dart';
 import 'supabase_auth_bridge.dart';
 
 /// ONE WAY FOR A QUEUED MESSAGE TO REACH THE SERVER, WHATEVER IT CARRIES.
@@ -37,8 +35,10 @@ import 'supabase_auth_bridge.dart';
 ///   * the row is inserted under that same id, so a retry after the insert
 ///     already committed is answered by the primary key and adopts the row.
 ///
-/// Between the two, the uploaded URL is handed back through [onUploaded] for
-/// the caller to persist, so an ordinary retry does not even re-upload.
+/// Between the two, the stored file's reference is handed back through
+/// [onUploaded] for the caller to persist, so an ordinary retry does not even
+/// re-upload. Files go to the private bucket through the files endpoint
+/// (see `chat_attachments.dart`); the reference is not a public address.
 ///
 /// Nothing here decides authorisation. The insert is still subject to RLS
 /// (participants only) and to the Trust & Safety trigger exactly as before —
@@ -68,27 +68,40 @@ class OutboxDelivery {
     switch (message.type) {
       case 'image':
       case 'file':
-        var url = message.attachmentUrl;
-        if (url == null || url.isEmpty) {
+        // The file is stored under its message's id — that is what makes the
+        // upload safe to repeat and what the files endpoint serves it by. A
+        // message queued without one has nowhere it may be stored.
+        if (serverId == null) {
+          throw const OutboxPermanentFailure('attachment without a message id');
+        }
+        var ref = message.attachmentUrl;
+        // Anything but this message's own private reference is (re)uploaded:
+        // nothing yet, or a PUBLIC address recorded by a build that still
+        // uploaded to the public bucket — which is never written into a
+        // message now. The queued copy is still on the phone until delivery.
+        if (!ChatAttachments.isPrivateRefFor(ref, chatId: chatId, messageId: serverId)) {
           final path = message.localPath;
           if (path == null || !await File(path).exists()) {
             throw const OutboxPermanentFailure('attachment file missing');
           }
-          url = await t.upload(localPath: path, chatId: chatId, objectId: serverId);
-          onUploaded?.call(message.copyWith(attachmentUrl: url));
+          ref = await t.upload(localPath: path, chatId: chatId, messageId: serverId);
+          onUploaded?.call(message.copyWith(attachmentUrl: ref));
         }
+        // The user may have stopped it while the file was going up. The row
+        // is what makes it a message, so it is not written.
+        if (ChatUploads.isCancelled(serverId)) throw const ChatUploadCancelled();
         confirmed = await t.sendAttachment(
           chatId: chatId,
           senderId: senderId,
           type: message.type,
-          attachmentUrl: url,
+          attachmentUrl: ref!,
           caption: message.text,
           clientMessageId: serverId,
         );
         final local = message.localPath;
         if (local != null) {
           if (message.type == 'image') {
-            await t.rememberImage(url: url, localPath: local);
+            await t.rememberImage(messageId: serverId, localPath: local);
           }
           await OutboxFiles.discard(local);
         }
@@ -335,10 +348,12 @@ abstract class OutboxTransport {
 
   Future<void> ensureSession();
 
+  /// Store the file privately as [messageId]'s attachment; returns the
+  /// reference the message row carries.
   Future<String> upload({
     required String localPath,
     required String chatId,
-    String? objectId,
+    required String messageId,
   });
 
   Future<Message> sendText({
@@ -372,9 +387,10 @@ abstract class OutboxTransport {
     String? clientMessageId,
   });
 
-  /// Seed the image cache with a photo just delivered, under its server URL,
-  /// so the sender's bubble does not re-download what is already on the phone.
-  Future<void> rememberImage({required String url, required String localPath});
+  /// Seed the private image cache with a photo just delivered, under its
+  /// message, so the sender's bubble does not re-download what is already on
+  /// the phone.
+  Future<void> rememberImage({required String messageId, required String localPath});
 }
 
 class SupabaseOutboxTransport extends OutboxTransport {
@@ -387,10 +403,9 @@ class SupabaseOutboxTransport extends OutboxTransport {
   Future<String> upload({
     required String localPath,
     required String chatId,
-    String? objectId,
+    required String messageId,
   }) =>
-      StorageService.uploadChatAttachment(XFile(localPath), chatId,
-          objectId: objectId);
+      ChatAttachmentApi.upload(localPath: localPath, chatId: chatId, messageId: messageId);
 
   @override
   Future<Message> sendText({
@@ -459,20 +474,13 @@ class SupabaseOutboxTransport extends OutboxTransport {
 
   @override
   Future<void> rememberImage({
-    required String url,
+    required String messageId,
     required String localPath,
   }) async {
     try {
-      final bytes = await File(localPath).readAsBytes();
-      await DefaultCacheManager().putFile(
-        url,
-        bytes,
-        fileExtension: OutboxFiles.extensionOf(localPath).isEmpty
-            ? 'jpg'
-            : OutboxFiles.extensionOf(localPath),
-      );
+      await ChatAttachmentCache.remember(messageId: messageId, localPath: localPath);
     } catch (e) {
-      // Only a saved download is lost; the bubble fetches the URL instead.
+      // Only a saved download is lost; the bubble fetches the photo instead.
       debugPrint('[OUTBOX] image cache seed failed: $e');
     }
   }

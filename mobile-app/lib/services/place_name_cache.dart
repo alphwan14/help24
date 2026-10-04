@@ -34,6 +34,10 @@ class PlaceNameCache {
   /// Cached name if we already have one — synchronous, safe to call in build().
   static String? peek(double lat, double lng) => _names[_key(lat, lng)];
 
+  /// Tests have no platform geocoder; this stands in for its answer.
+  @visibleForTesting
+  static void debugSeed(double lat, double lng, String? name) => _names[_key(lat, lng)] = name;
+
   /// Resolves a place name, or null. Never throws, never blocks meaningfully.
   static Future<String?> resolve(double lat, double lng) {
     final key = _key(lat, lng);

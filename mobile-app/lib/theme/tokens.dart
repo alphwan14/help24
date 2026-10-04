@@ -366,6 +366,436 @@ class AppColors extends ThemeExtension<AppColors> {
   }
 }
 
+/// THE CHAT'S OWN PALETTE.
+///
+/// ── Why the chat does not simply read [AppColors] ─────────────────────────
+/// The approved chat redesign specifies its surfaces exactly, and several of
+/// them share a NAME with an [AppColors] role while differing in value: the
+/// chat ground is pure white on light (`page` is warm paper), an incoming
+/// bubble is `#EEF0F2` (`surface` is white), and on dark the pinned bar sits
+/// on `#15191D` where `surfaceRaised` is `#232930`. A conversation is read
+/// against those exact steps — a bubble that matches the paper behind it
+/// stops reading as a bubble — so the chat gets its own extension instead of
+/// bending the app-wide roles to fit one screen.
+///
+/// ── Every value was checked, in both themes ────────────────────────────────
+/// Text clears 4.5:1 and icons and progress bars clear 3:1 against the
+/// surface they sit on. The outgoing bubble is the deeper amber `#80560C` in
+/// BOTH themes (approved): white on it is 6.45:1, and the 78%-white meta line
+/// is 4.65:1. Light and dark differ in these values ONLY — every chat
+/// component's geometry is the same in both (see [ChatGeometry]), and no chat
+/// component may branch on brightness.
+@immutable
+class ChatColors extends ThemeExtension<ChatColors> {
+  const ChatColors({
+    required this.bg,
+    required this.surface,
+    required this.surfaceRaised,
+    required this.border,
+    required this.text,
+    required this.textSecondary,
+    required this.iconSecondary,
+    required this.iconDisabled,
+    required this.outgoing,
+    required this.onOutgoing,
+    required this.onOutgoingMuted,
+    required this.statusRead,
+    required this.accent,
+    required this.onAccent,
+    required this.accentText,
+    required this.progressCurrent,
+    required this.progressTrack,
+    required this.success,
+    required this.successBar,
+    required this.successTile,
+    required this.warningTile,
+    required this.onWarningTile,
+    required this.danger,
+    required this.dangerTile,
+    required this.dateChipFill,
+    required this.dateChipText,
+    required this.mediaScrim,
+    required this.onMedia,
+    required this.quoteOnOutgoing,
+    required this.filePage,
+    required this.filePageLines,
+    required this.fileBadgePdf,
+    required this.fileBadgeWord,
+    required this.fileBadgeOther,
+    required this.onFileBadge,
+    required this.mapStyle,
+  });
+
+  /// The conversation's ground.
+  final Color bg;
+
+  /// Incoming bubbles, the composer pill, the disabled send button and
+  /// secondary buttons.
+  final Color surface;
+
+  /// The pinned job bar, event pills, the scroll-down button, quick replies.
+  final Color surfaceRaised;
+
+  /// Hairlines: the pinned bar's and the pills' 1 px edge.
+  final Color border;
+
+  final Color text;
+
+  /// Incoming meta, subtitles, area lines.
+  final Color textSecondary;
+
+  /// Attach, camera and pin icons.
+  final Color iconSecondary;
+
+  /// The send arrow while there is nothing to send.
+  final Color iconDisabled;
+
+  /// Outgoing bubbles. The same in both themes.
+  final Color outgoing;
+  final Color onOutgoing;
+
+  /// Time and ticks on an outgoing bubble — white at 78%.
+  final Color onOutgoingMuted;
+
+  /// Read ticks, drawn on the outgoing amber.
+  final Color statusRead;
+
+  /// Send, Directions and primary buttons — a FILL, always under [onAccent].
+  final Color accent;
+  final Color onAccent;
+
+  /// Amber legible as TEXT in this theme: links, the job tile's icon.
+  final Color accentText;
+
+  final Color progressCurrent;
+  final Color progressTrack;
+
+  /// "Held" and "released" text and icons.
+  final Color success;
+
+  /// Completed progress segments.
+  final Color successBar;
+
+  /// The tile behind a success icon.
+  final Color successTile;
+
+  /// The job tile and the offline banner.
+  final Color warningTile;
+  final Color onWarningTile;
+
+  /// Failed sends and disputes.
+  final Color danger;
+  final Color dangerTile;
+
+  /// The day pill — translucent so a message scrolling under the pinned one
+  /// is still faintly there.
+  final Color dateChipFill;
+  final Color dateChipText;
+
+  /// The pill that carries the time over a photo or a map, and its label.
+  /// Black at 55% under white in both themes: it sits on a picture, not on
+  /// the chat ground, so it must not change with the theme.
+  final Color mediaScrim;
+  final Color onMedia;
+
+  /// The quoted-reply block inside an outgoing bubble.
+  final Color quoteOnOutgoing;
+
+  /// The drawn first page of a document thumbnail, and its type strip. A
+  /// document is white paper in both themes, so these do not change either.
+  final Color filePage;
+  final Color filePageLines;
+  final Color fileBadgePdf;
+  final Color fileBadgeWord;
+  final Color fileBadgeOther;
+  final Color onFileBadge;
+
+  /// The Google Maps style JSON for map thumbnails and the full-screen map:
+  /// null is the standard style (light), the night style on dark.
+  final String? mapStyle;
+
+  static ChatColors of(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.extension<ChatColors>() ??
+        (theme.brightness == Brightness.dark ? dark : light);
+  }
+
+  static const ChatColors light = ChatColors(
+    bg: Color(0xFFFFFFFF),
+    surface: Color(0xFFEEF0F2),
+    surfaceRaised: Color(0xFFF6F7F8),
+    border: Color(0xFFE3E6EA),
+    text: Color(0xFF14181C), //            15.62:1 on surface
+    textSecondary: Color(0xFF5F6B76), //   4.77:1 on surface
+    iconSecondary: Color(0xFF5F6B76),
+    iconDisabled: Color(0xFFA7AFB8),
+    outgoing: Color(0xFF80560C),
+    onOutgoing: Color(0xFFFFFFFF), //      6.45:1
+    onOutgoingMuted: Color(0xC7FFFFFF), // 4.65:1
+    statusRead: Color(0xFF8FE3FF), //      4.49:1 on outgoing
+    accent: Color(0xFFE5A63E),
+    onAccent: Color(0xFF1A1206),
+    accentText: Color(0xFF8A5A00),
+    progressCurrent: Color(0xFFB87A12),
+    progressTrack: Color(0xFFE3E6EA),
+    success: Color(0xFF157F4B),
+    successBar: Color(0xFF1F9D5F),
+    successTile: Color(0xFFE3F5EB),
+    warningTile: Color(0xFFFBF1DE),
+    onWarningTile: Color(0xFF6B4A0E),
+    danger: Color(0xFFC2392B),
+    dangerTile: Color(0xFFFBE9E6),
+    dateChipFill: Color(0xF0FFFFFF), //    white at 94%
+    dateChipText: Color(0xFF4A545E),
+    mediaScrim: Color(0x8C000000), //      black at 55%
+    onMedia: Color(0xFFFFFFFF),
+    quoteOnOutgoing: Color(0x2EFFFFFF),
+    filePage: Color(0xFFFFFFFF),
+    filePageLines: Color(0xFFC3C8CE),
+    fileBadgePdf: Color(0xFFD93B3B), //    4.53:1 under white
+    fileBadgeWord: Color(0xFF2B579A),
+    fileBadgeOther: Color(0xFF5F6B76),
+    onFileBadge: Color(0xFFFFFFFF),
+    mapStyle: null,
+  );
+
+  static const ChatColors dark = ChatColors(
+    bg: Color(0xFF0D1114),
+    surface: Color(0xFF1B2024),
+    surfaceRaised: Color(0xFF15191D),
+    border: Color(0xFF232A31),
+    text: Color(0xFFF2F4F5), //            14.89:1 on surface
+    textSecondary: Color(0xFF9AA3AD), //   6.43:1 on surface
+    iconSecondary: Color(0xFFAEB5BD),
+    iconDisabled: Color(0xFF5E6670),
+    outgoing: Color(0xFF80560C),
+    onOutgoing: Color(0xFFFFFFFF),
+    onOutgoingMuted: Color(0xC7FFFFFF),
+    statusRead: Color(0xFF8FE3FF),
+    accent: Color(0xFFE5A63E),
+    onAccent: Color(0xFF1A1206),
+    accentText: Color(0xFFE5A63E),
+    progressCurrent: Color(0xFFE5A63E),
+    progressTrack: Color(0xFF2B3036),
+    success: Color(0xFF5FD39B),
+    successBar: Color(0xFF4CC38A),
+    successTile: Color(0xFF12301F),
+    warningTile: Color(0xFF2A2311),
+    onWarningTile: Color(0xFFF3D9A4),
+    danger: Color(0xFFFF8A7A),
+    dangerTile: Color(0xFF3A1A17),
+    dateChipFill: Color(0xF01B2024), //    surface at 94%
+    dateChipText: Color(0xFFC9CED4),
+    mediaScrim: Color(0x8C000000),
+    onMedia: Color(0xFFFFFFFF),
+    quoteOnOutgoing: Color(0x2EFFFFFF),
+    filePage: Color(0xFFFFFFFF),
+    filePageLines: Color(0xFFC3C8CE),
+    fileBadgePdf: Color(0xFFD93B3B),
+    fileBadgeWord: Color(0xFF2B579A),
+    fileBadgeOther: Color(0xFF5F6B76),
+    onFileBadge: Color(0xFFFFFFFF),
+    mapStyle: _nightMapStyle,
+  );
+
+  /// Google's own night style, so a map on the dark chat does not glare.
+  static const String _nightMapStyle = '['
+      '{"elementType":"geometry","stylers":[{"color":"#242f3e"}]},'
+      '{"elementType":"labels.text.stroke","stylers":[{"color":"#242f3e"}]},'
+      '{"elementType":"labels.text.fill","stylers":[{"color":"#746855"}]},'
+      '{"featureType":"administrative.locality","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},'
+      '{"featureType":"poi","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},'
+      '{"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#263c3f"}]},'
+      '{"featureType":"poi.park","elementType":"labels.text.fill","stylers":[{"color":"#6b9a76"}]},'
+      '{"featureType":"road","elementType":"geometry","stylers":[{"color":"#38414e"}]},'
+      '{"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#212a37"}]},'
+      '{"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#9ca5b3"}]},'
+      '{"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#746855"}]},'
+      '{"featureType":"road.highway","elementType":"geometry.stroke","stylers":[{"color":"#1f2835"}]},'
+      '{"featureType":"road.highway","elementType":"labels.text.fill","stylers":[{"color":"#f3d19c"}]},'
+      '{"featureType":"transit","elementType":"geometry","stylers":[{"color":"#2f3948"}]},'
+      '{"featureType":"transit.station","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},'
+      '{"featureType":"water","elementType":"geometry","stylers":[{"color":"#17263c"}]},'
+      '{"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#515c6d"}]},'
+      '{"featureType":"water","elementType":"labels.text.stroke","stylers":[{"color":"#17263c"}]}'
+      ']';
+
+  @override
+  ChatColors copyWith({String? mapStyle}) => ChatColors(
+        bg: bg,
+        surface: surface,
+        surfaceRaised: surfaceRaised,
+        border: border,
+        text: text,
+        textSecondary: textSecondary,
+        iconSecondary: iconSecondary,
+        iconDisabled: iconDisabled,
+        outgoing: outgoing,
+        onOutgoing: onOutgoing,
+        onOutgoingMuted: onOutgoingMuted,
+        statusRead: statusRead,
+        accent: accent,
+        onAccent: onAccent,
+        accentText: accentText,
+        progressCurrent: progressCurrent,
+        progressTrack: progressTrack,
+        success: success,
+        successBar: successBar,
+        successTile: successTile,
+        warningTile: warningTile,
+        onWarningTile: onWarningTile,
+        danger: danger,
+        dangerTile: dangerTile,
+        dateChipFill: dateChipFill,
+        dateChipText: dateChipText,
+        mediaScrim: mediaScrim,
+        onMedia: onMedia,
+        quoteOnOutgoing: quoteOnOutgoing,
+        filePage: filePage,
+        filePageLines: filePageLines,
+        fileBadgePdf: fileBadgePdf,
+        fileBadgeWord: fileBadgeWord,
+        fileBadgeOther: fileBadgeOther,
+        onFileBadge: onFileBadge,
+        mapStyle: mapStyle ?? this.mapStyle,
+      );
+
+  /// Interpolates, so switching theme with a chat open fades rather than
+  /// snapping — the same as every other surface reading [AppColors].
+  @override
+  ChatColors lerp(ThemeExtension<ChatColors>? other, double t) {
+    if (other is! ChatColors) return this;
+    Color c(Color a, Color b) => Color.lerp(a, b, t)!;
+    return ChatColors(
+      bg: c(bg, other.bg),
+      surface: c(surface, other.surface),
+      surfaceRaised: c(surfaceRaised, other.surfaceRaised),
+      border: c(border, other.border),
+      text: c(text, other.text),
+      textSecondary: c(textSecondary, other.textSecondary),
+      iconSecondary: c(iconSecondary, other.iconSecondary),
+      iconDisabled: c(iconDisabled, other.iconDisabled),
+      outgoing: c(outgoing, other.outgoing),
+      onOutgoing: c(onOutgoing, other.onOutgoing),
+      onOutgoingMuted: c(onOutgoingMuted, other.onOutgoingMuted),
+      statusRead: c(statusRead, other.statusRead),
+      accent: c(accent, other.accent),
+      onAccent: c(onAccent, other.onAccent),
+      accentText: c(accentText, other.accentText),
+      progressCurrent: c(progressCurrent, other.progressCurrent),
+      progressTrack: c(progressTrack, other.progressTrack),
+      success: c(success, other.success),
+      successBar: c(successBar, other.successBar),
+      successTile: c(successTile, other.successTile),
+      warningTile: c(warningTile, other.warningTile),
+      onWarningTile: c(onWarningTile, other.onWarningTile),
+      danger: c(danger, other.danger),
+      dangerTile: c(dangerTile, other.dangerTile),
+      dateChipFill: c(dateChipFill, other.dateChipFill),
+      dateChipText: c(dateChipText, other.dateChipText),
+      mediaScrim: c(mediaScrim, other.mediaScrim),
+      onMedia: c(onMedia, other.onMedia),
+      quoteOnOutgoing: c(quoteOnOutgoing, other.quoteOnOutgoing),
+      filePage: c(filePage, other.filePage),
+      filePageLines: c(filePageLines, other.filePageLines),
+      fileBadgePdf: c(fileBadgePdf, other.fileBadgePdf),
+      fileBadgeWord: c(fileBadgeWord, other.fileBadgeWord),
+      fileBadgeOther: c(fileBadgeOther, other.fileBadgeOther),
+      onFileBadge: c(onFileBadge, other.onFileBadge),
+      mapStyle: t < 0.5 ? mapStyle : other.mapStyle,
+    );
+  }
+}
+
+/// THE CHAT'S GEOMETRY — identical in both themes, by construction.
+///
+/// Sizes are the design canvas's, for a 390-wide phone, and map 1:1 to dp.
+/// The radii here are component geometry, not rungs of [AppRadius]: a bubble
+/// is 18 because two of them meet at 6 along a run, and that pair is the
+/// bubble's shape, not a surface choice. They are named here — the one file
+/// allowed to give a radius its number — rather than re-guessed per widget.
+///
+/// Heights below are MINIMUMS. Anything holding text grows with the system
+/// text size instead of clipping it.
+class ChatGeometry {
+  const ChatGeometry._();
+
+  // ── Thread ──────────────────────────────────────────────────────────────
+  static const double sidePadding = 10;
+  static const double textMaxWidth = 288; //   ~74% of 390
+  static const double textMaxFraction = 0.74;
+  static const double mediaWidth = 264; //     ~68% of 390
+  static const double mediaMaxFraction = 0.68;
+  static const double offerCardWidth = 272;
+
+  /// A run: same sender, each message within this of the one before.
+  static const Duration groupWindow = Duration(minutes: 2);
+  static const double inGroupGap = 2;
+  static const double betweenGroupsGap = 8;
+
+  static const double bubbleRadius = 18;
+  static const double bubbleJoinRadius = 6;
+
+  // ── Text bubble ─────────────────────────────────────────────────────────
+  static const EdgeInsetsDirectional textPadding =
+      EdgeInsetsDirectional.fromSTEB(12, 7, 10, 7);
+  static const double bodySize = 15;
+  static const double bodyLine = 20;
+  static const double metaSize = 11.5;
+  static const double metaLine = 14;
+  static const double metaGap = 6; //          text → inline time
+  static const double tickSize = 14;
+  static const double doubleTickWidth = 17;
+  static const double statusSlotHeight = 16; // the double tick's own box
+
+  // ── Media ───────────────────────────────────────────────────────────────
+  static const double photoMinHeight = 132;
+  static const double photoMaxHeight = 330;
+  static const double mapHeight = 132;
+  static const double mediaPillHeight = 20;
+  static const double mediaPillRadius = 10;
+  static const double mediaPillInset = 8;
+  static const EdgeInsetsDirectional locationFooterPadding =
+      EdgeInsetsDirectional.fromSTEB(10, 8, 12, 9);
+  static const double pinIcon = 16;
+  static const double directionsDiameter = 36;
+
+  // ── File ────────────────────────────────────────────────────────────────
+  static const EdgeInsetsDirectional filePadding =
+      EdgeInsetsDirectional.fromSTEB(8, 8, 12, 8);
+  static const double fileThumbWidth = 34;
+  static const double fileThumbHeight = 42;
+  static const double fileThumbRadius = 5;
+
+  // ── Pills ───────────────────────────────────────────────────────────────
+  static const double datePillHeight = 24;
+  static const double datePillRadius = 12;
+  static const double eventPillHeight = 28;
+  static const double eventPillRadius = 14;
+
+  // ── Header, bars, composer ──────────────────────────────────────────────
+  static const double headerHeight = 56;
+  static const double headerAvatar = 38;
+  static const double jobBarRadius = 14;
+  static const double jobTile = 32;
+  static const double jobTileRadius = 9;
+  static const double jobButtonHeight = 34;
+  static const double jobButtonRadius = 17;
+  static const double progressHeight = 3;
+  static const double progressGap = 4;
+  static const double composerHeight = 46;
+  static const double composerRadius = 23;
+  static const double composerIcon = 38;
+  static const double sendDiameter = 46;
+  static const double scrollButtonDiameter = 40;
+  static const double quickReplyHeight = 34;
+  static const double quickReplyRadius = 17;
+  static const double bannerRadius = 12;
+
+  /// Every control's hit area, whatever its drawn size.
+  static const double minTouch = 44;
+}
+
 /// Spacing. 4 px base, one scale, one name each.
 ///
 /// Replaces 12 distinct `EdgeInsets.all` values, two of which (11 and 26) were

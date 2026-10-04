@@ -54,6 +54,17 @@ class ApiConfig {
   /// a laptop is obvious in the console instead of silently failing later.
   static const bool isOverridden = baseUrl != productionOrigin;
 
+  /// Where chat photos and documents are stored and read: the files endpoint
+  /// (a Cloudflare Worker, `workers/help24-files`), never storage directly.
+  /// Every attachment is private; this host checks that the caller is in the
+  /// conversation before it hands over a byte. See services/chat_attachments.dart.
+  ///
+  ///   flutter run --dart-define=HELP24_FILES_BASE_URL=http://10.0.2.2:8787
+  static const String filesBaseUrl = String.fromEnvironment(
+    'HELP24_FILES_BASE_URL',
+    defaultValue: 'https://files.help24.co.ke',
+  );
+
   /// Client bootstrap configuration: kill switches, maintenance notice, the
   /// minimum-version gate and the operational tunables. Public by design — it
   /// must be readable before sign-in, and during an incident it is the one

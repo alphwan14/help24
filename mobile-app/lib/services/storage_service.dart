@@ -1,9 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-// The SDK's own exception, named apart: this file declares a StorageException
-// of its own (at the bottom), which shadows the SDK's everywhere else in it.
-import 'package:supabase_flutter/supabase_flutter.dart' as sdk show StorageException;
 import 'package:uuid/uuid.dart';
 
 import '../utils/error_mapper.dart';
@@ -243,65 +240,11 @@ class StorageService {
     }
   }
 
-  /// Upload chat attachment (image or file) to post-images bucket. Path: chat_attachments/{chatId}/{uuid}.{ext}
-  /// Largest chat attachment accepted, checked when the file is PICKED so a
-  /// file that can never be sent is refused up front instead of queued.
-  static const int maxChatAttachmentBytes = maxFileSize * 2;
-
-  /// Upload a chat attachment and return its URL.
-  ///
-  /// [objectId] names the object, and the outbox passes the message's own id.
-  /// That makes the upload a RETRYABLE step: if an earlier attempt for the
-  /// same message already stored the file (the app was killed, or the network
-  /// dropped, after the upload but before the message row was written), the
-  /// second upload is refused as a duplicate — and that refusal proves the
-  /// file is there, so its URL is returned instead of storing a second copy.
-  static Future<String> uploadChatAttachment(
-    XFile file,
-    String chatId, {
-    String? objectId,
-  }) async {
-    final name = file.name.toLowerCase();
-    final path = file.path.toLowerCase();
-    String ext = 'jpg';
-    for (final e in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx']) {
-      if (name.endsWith('.$e') || path.endsWith('.$e')) { ext = e; break; }
-    }
-    final fileName = '${objectId ?? const Uuid().v4()}.$ext';
-    final filePath = 'chat_attachments/$chatId/$fileName';
-    try {
-      final bytes = await file.readAsBytes();
-      if (bytes.length > maxChatAttachmentBytes) {
-        throw StorageException('File too large. Maximum size is 10MB for attachments.');
-      }
-      final contentType = ext == 'pdf'
-          ? 'application/pdf'
-          : (ext == 'doc' || ext == 'docx' ? 'application/msword' : _getContentType(ext));
-      await _client.storage.from(_bucket).uploadBinary(
-        filePath,
-        bytes,
-        fileOptions: FileOptions(cacheControl: '3600', upsert: false, contentType: contentType),
-      );
-      return _client.storage.from(_bucket).getPublicUrl(filePath);
-    } catch (e) {
-      if (objectId != null && isAlreadyStored(e)) {
-        debugPrint('[OUTBOX][IDEMPOTENT] $filePath already uploaded — reusing it');
-        return _client.storage.from(_bucket).getPublicUrl(filePath);
-      }
-      if (e is StorageException) rethrow;
-      throw StorageException('Failed to upload attachment: $e');
-    }
-  }
-
-  /// Whether [error] is Storage refusing an upload because the object already
-  /// exists — the duplicate answer to `upsert: false`.
-  @visibleForTesting
-  static bool isAlreadyStored(Object error) {
-    if (error is! sdk.StorageException) return false;
-    return error.statusCode == '409' ||
-        error.error == 'Duplicate' ||
-        error.message.toLowerCase().contains('already exists');
-  }
+  // Chat photos and documents are NOT stored here. They used to go to this
+  // public bucket under chat_attachments/, which left every conversation's
+  // files downloadable and listable by anyone; they now go to the private
+  // `chat-attachments` bucket through the files endpoint — see
+  // services/chat_attachments.dart.
 
   /// Delete an image from storage by URL
   static Future<void> deleteImage(String imageUrl) async {

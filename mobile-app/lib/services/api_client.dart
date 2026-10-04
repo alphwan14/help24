@@ -66,13 +66,22 @@ class Help24ApiClient extends http.BaseClient {
   Future<String?>? _fetchInFlight;
 
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      sendWithTimeout(request, _defaultTimeout);
+
+  /// [send] with its own ceiling on the time to a response — for an upload,
+  /// whose response only starts once the whole body has gone up. Ten
+  /// megabytes on a slow mobile link takes far longer than [_defaultTimeout].
+  Future<http.StreamedResponse> sendWithTimeout(
+    http.BaseRequest request,
+    Duration timeout,
+  ) async {
     // Capture a replay copy BEFORE sending: a BaseRequest body is single-use.
     final replay = _replayFactory(request);
 
     http.StreamedResponse response;
     try {
-      response = await _sendOnce(request, forceFreshToken: false);
+      response = await _sendOnce(request, forceFreshToken: false, timeout: timeout);
     } catch (e) {
       // Same reasoning as HttpClientWithToken: a timeout or socket error is the
       // app's most reliable signal that the radio is up but carrying nothing.
@@ -98,12 +107,13 @@ class Help24ApiClient extends http.BaseClient {
 
     debugPrint('[API] 401 TOKEN_EXPIRED → refreshing Firebase token and replaying once');
     _invalidateToken();
-    return _sendOnce(replay(), forceFreshToken: true);
+    return _sendOnce(replay(), forceFreshToken: true, timeout: timeout);
   }
 
   Future<http.StreamedResponse> _sendOnce(
     http.BaseRequest request, {
     required bool forceFreshToken,
+    required Duration timeout,
   }) async {
     final token = await _idToken(forceRefresh: forceFreshToken);
     if (token != null && token.isNotEmpty) {
@@ -113,7 +123,7 @@ class Help24ApiClient extends http.BaseClient {
     // header, because the public surface — Discover, provider profiles, package
     // pricing — is meant to work for someone who has not signed up yet. The
     // server answers 401 if the route actually needed an identity.
-    return _inner.send(request).timeout(_defaultTimeout);
+    return _inner.send(request).timeout(timeout);
   }
 
   /// The current Firebase ID token, cached until shortly before it expires.

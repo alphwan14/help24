@@ -56,6 +56,20 @@
             android:name="flutterEmbedding"
             android:value="2" />
         <!--
+            Chat documents open in the phone's own viewer apps from the app's
+            private cache. Not exported: a viewer can read a document only
+            through the one-file read grant on the VIEW intent that opens it.
+        -->
+        <provider
+            android:name=".ChatDocumentProvider"
+            android:authorities="${applicationId}.documents"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/chat_document_paths" />
+        </provider>
+        <!--
             FCM default channel — CRITICAL for sound on Android 8+.
             Without this, FCM uses the system "miscellaneous" channel which
             is IMPORTANCE_DEFAULT (no sound). This must match:

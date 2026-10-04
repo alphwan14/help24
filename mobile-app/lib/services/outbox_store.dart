@@ -7,6 +7,7 @@ import '../models/post_model.dart';
 import '../providers/connectivity_provider.dart';
 import '../utils/error_mapper.dart';
 import 'cache_service.dart';
+import 'chat_attachments.dart' show ChatUploads;
 import 'outbox_delivery.dart';
 import 'session_scope.dart';
 
@@ -255,6 +256,13 @@ class OutboxStore extends ChangeNotifier implements SessionScoped {
       _removeAndPersist(uid, chatId, message.id);
       debugPrint('[OUTBOX] sent queued ${message.type} chat=$chatId');
     } catch (e) {
+      final serverId = OutboxIds.serverIdOf(message.id);
+      if (serverId != null && ChatUploads.isCancelled(serverId)) {
+        // Withdrawn by the user, not failed: it leaves the queue.
+        _removeAndPersist(uid, chatId, message.id);
+        unawaited(OutboxFiles.discard(message.localPath));
+        return;
+      }
       debugPrint('[OUTBOX] send failed chat=$chatId type=${message.type}: $e');
       _markAndPersist(uid, chatId, message.id, statusAfterFailure(message.id, e));
     } finally {

@@ -8,11 +8,11 @@ import 'package:help24/services/cache_service.dart';
 import 'package:help24/services/chat_service_supabase.dart';
 import 'package:help24/services/outbox_delivery.dart';
 import 'package:help24/services/outbox_store.dart';
-import 'package:help24/services/storage_service.dart';
+import 'package:help24/services/chat_attachments.dart';
 import 'package:http/http.dart' show ClientException;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as sdk
-    show PostgrestException, StorageException;
+    show PostgrestException;
 
 /// PHOTOS, DOCUMENTS AND PLACES CAN BE SENT OFFLINE.
 ///
@@ -29,7 +29,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' as sdk
 /// rule that makes retrying safe at all — is never stored on the server twice.
 void main() {
   const uid = 'uid-sender';
-  const chat = 'chat-1';
+  // A real uuid: a stored file's reference is chat-attachments/<chat>/<id>.<ext>.
+  const chat = '0c0c0c0c-0000-4000-8000-000000000001';
   late Directory root;
   late _FakeTransport transport;
 
@@ -166,11 +167,11 @@ void main() {
         onUploaded: (u) => uploaded = u,
       );
       expect(transport.calls, ['upload:$serverId', 'attachment:image:$serverId']);
-      expect(uploaded?.attachmentUrl, isNotNull,
-          reason: 'the URL must be handed back for persisting before the insert');
+      expect(uploaded?.attachmentUrl, 'chat-attachments/$chat/$serverId.jpg',
+          reason: 'the private reference is handed back for persisting before the insert');
       expect(confirmed.attachmentUrl, uploaded!.attachmentUrl);
       expect(transport.rows[serverId]!.text, 'Leak under the sink');
-      expect(transport.remembered, [uploaded!.attachmentUrl],
+      expect(transport.remembered, [serverId],
           reason: 'the sender should not re-download their own photo');
       expect(await File(m.localPath!).exists(), isFalse,
           reason: 'the queued copy is deleted once delivered');
@@ -237,6 +238,52 @@ void main() {
       final m = queuedText('old build').copyWith(id: 'pending_1759480000000');
       await OutboxDelivery.deliver(senderId: uid, chatId: chat, message: m);
       expect(transport.calls, ['text:null']);
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  group('PRIVATE STORAGE — no chat file is ever sent at a public address', () {
+    test('a photo an older build stored PUBLICLY is re-uploaded privately first', () async {
+      // v1.0.1 persisted the public URL on the queued message the moment its
+      // upload finished. If that message is still queued when 1.0.2 starts,
+      // the public address must not be written into the conversation.
+      final m = await queuedPhoto();
+      final serverId = OutboxIds.serverIdOf(m.id)!;
+      final stale = m.copyWith(
+          attachmentUrl: 'https://taohzhnvaitrpxcyjflq.supabase.co/storage/v1/object/public/'
+              'post-images/chat_attachments/$chat/$serverId.jpg');
+      final confirmed = await OutboxDelivery.deliver(senderId: uid, chatId: chat, message: stale);
+      expect(transport.calls, ['upload:$serverId', 'attachment:image:$serverId']);
+      expect(confirmed.attachmentUrl, 'chat-attachments/$chat/$serverId.jpg');
+    });
+
+    test("another message's private reference is never reused", () async {
+      final m = await queuedPhoto();
+      final serverId = OutboxIds.serverIdOf(m.id)!;
+      final borrowed = m.copyWith(
+          attachmentUrl: 'chat-attachments/$chat/0d0d0d0d-0000-4000-8000-000000000002.jpg');
+      final confirmed =
+          await OutboxDelivery.deliver(senderId: uid, chatId: chat, message: borrowed);
+      expect(transport.calls.first, 'upload:$serverId');
+      expect(confirmed.attachmentUrl, 'chat-attachments/$chat/$serverId.jpg');
+    });
+
+    test('an attachment queued without a message id cannot be stored — failed, not sent',
+        () async {
+      final m = (await queuedPhoto()).copyWith(id: 'pending_1759480000000');
+      await expectLater(
+        OutboxDelivery.deliver(senderId: uid, chatId: chat, message: m),
+        throwsA(isA<OutboxPermanentFailure>()),
+      );
+      expect(transport.calls, isEmpty);
+    });
+
+    test('a stored private reference skips the upload on retry', () async {
+      final m = await queuedPhoto();
+      final serverId = OutboxIds.serverIdOf(m.id)!;
+      final uploaded = m.copyWith(attachmentUrl: 'chat-attachments/$chat/$serverId.jpg');
+      await OutboxDelivery.deliver(senderId: uid, chatId: chat, message: uploaded);
+      expect(transport.calls, ['attachment:image:$serverId']);
     });
   });
 
@@ -316,26 +363,6 @@ void main() {
       );
     });
 
-    test('storage "already exists" is recognised, transport failures are not', () {
-      expect(
-        StorageService.isAlreadyStored(const sdk.StorageException(
-            'The resource already exists',
-            statusCode: '409',
-            error: 'Duplicate')),
-        isTrue,
-      );
-      expect(
-        StorageService.isAlreadyStored(const sdk.StorageException('x', statusCode: '400', error: 'Duplicate')),
-        isTrue,
-      );
-      expect(
-        StorageService.isAlreadyStored(const sdk.StorageException(
-            'ClientException with SocketException: Failed host lookup',
-            statusCode: '_ClientSocketException')),
-        isFalse,
-      );
-      expect(StorageService.isAlreadyStored(Exception('409')), isFalse);
-    });
 
     test('the screen and the store sending at once deliver a photo exactly once',
         () async {
@@ -404,6 +431,22 @@ void main() {
         OutboxStatus.failed,
       );
     });
+
+    test('the files endpoint: unavailable is retried, a refusal is failed at once', () {
+      expect(
+        OutboxStore.instance.statusAfterFailure(
+            'pending_a', const ChatAttachmentException(503, 'UNAVAILABLE')),
+        OutboxStatus.queued,
+      );
+      for (final refusal in const [
+        ChatAttachmentException(404, 'NOT_FOUND'),
+        ChatAttachmentException(413, 'TOO_LARGE'),
+        ChatAttachmentException(415, 'CONTENT_MISMATCH'),
+      ]) {
+        expect(OutboxStore.instance.statusAfterFailure('pending_b', refusal),
+            OutboxStatus.failed, reason: refusal.toString());
+      }
+    });
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -411,7 +454,8 @@ void main() {
     test('the outbox round-trips type, file, url and coordinates', () async {
       final photo = await queuedPhoto(caption: 'Meter reading');
       final doc = await queuedDocument();
-      final uploadedDoc = doc.copyWith(attachmentUrl: 'https://cdn.test/doc.pdf');
+      final uploadedDoc = doc.copyWith(
+          attachmentUrl: 'chat-attachments/$chat/${OutboxIds.serverIdOf(doc.id)}.pdf');
       final place = queuedPlace();
       await CacheService.saveOutbox(uid, chat, [photo, uploadedDoc, place]);
 
@@ -420,7 +464,7 @@ void main() {
       expect(loaded[0].localPath, photo.localPath);
       expect(loaded[0].text, 'Meter reading');
       expect(loaded[0].id, photo.id, reason: 'the id is the idempotency key');
-      expect(loaded[1].attachmentUrl, 'https://cdn.test/doc.pdf',
+      expect(loaded[1].attachmentUrl, uploadedDoc.attachmentUrl,
           reason: 'an upload already done is not repeated after restart');
       expect(loaded[2].latitude, -4.0435);
       expect(loaded[2].longitude, 39.6682);
@@ -678,8 +722,9 @@ Future<void> _settle() async {
 
 /// The server, as the outbox sees it. Behaves like the real one where it
 /// matters to these tests: an object name or row id that already exists is
-/// answered with what is already there (Storage's 409, Postgres' 23505 —
-/// adopted by StorageService and ChatServiceSupabase respectively).
+/// answered with what is already there (the files endpoint's "already
+/// stored", Postgres' 23505 — adopted by ChatAttachmentApi and
+/// ChatServiceSupabase respectively).
 class _FakeTransport extends OutboxTransport {
   final List<String> calls = [];
   final Map<String, Message> rows = {};
@@ -731,9 +776,9 @@ class _FakeTransport extends OutboxTransport {
   Future<String> upload({
     required String localPath,
     required String chatId,
-    String? objectId,
+    required String messageId,
   }) async {
-    calls.add('upload:$objectId');
+    calls.add('upload:$messageId');
     onUpload?.call();
     await _pause();
     final e = uploadError;
@@ -741,10 +786,11 @@ class _FakeTransport extends OutboxTransport {
       uploadError = null;
       throw e;
     }
-    final name = '$objectId.${OutboxFiles.extensionOf(localPath)}';
+    final ext = OutboxFiles.extensionOf(localPath);
+    final name = '$messageId.${ext == 'jpeg' ? 'jpg' : ext}';
     uploadedNames.add(name);
     storedObjects.add(name); // a second upload of the same name is a no-op
-    return 'https://cdn.test/$chatId/$name';
+    return 'chat-attachments/$chatId/$name';
   }
 
   @override
@@ -808,7 +854,7 @@ class _FakeTransport extends OutboxTransport {
   }
 
   @override
-  Future<void> rememberImage({required String url, required String localPath}) async {
-    remembered.add(url);
+  Future<void> rememberImage({required String messageId, required String localPath}) async {
+    remembered.add(messageId);
   }
 }

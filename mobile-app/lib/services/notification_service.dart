@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_firebase.dart';
 import 'auth_service.dart';
 import 'chat_local_prefs.dart';
+import 'delivery_receipts.dart';
 import 'notification_capability.dart';
 import 'user_profile_service.dart';
 
@@ -144,10 +145,18 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   if (type != 'chat_message' || chatId == null) return;
 
+  // The message is on this phone now: tell the sender (their second tick).
+  // Started first and awaited last, so it runs alongside the notification
+  // rather than delaying it — and is finished before this isolate may be
+  // torn down. A muted chat still acknowledges: muting hides the
+  // notification, not the fact that the message arrived.
+  final ack = DeliveryReceipts.acknowledgeFromPush(chatId);
+
   // Muted chats: honor the device-local mute even when the app is killed —
   // possible because chat pushes are data-only (we render, not the OS).
   if (await ChatLocalPrefs.isMuted(chatId)) {
     debugPrint('[CHAT_NOTIFY][MUTED] chatId=$chatId — notification suppressed');
+    await ack;
     return;
   }
 
@@ -191,6 +200,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     data:         Map<String, dynamic>.from(message.data),
   );
   debugPrint('[CHAT_NOTIFY][THREAD_REBUILT] chatId=$chatId totalMessages=${cache.length}');
+  await ack;
 }
 
 // ── Shared notification builder ───────────────────────────────────────────────
@@ -412,6 +422,13 @@ class NotificationService {
         // exclusively the background isolate's job. (Showing one here was the
         // original double-notification bug.)
         debugPrint('[FCM][AUTO_NOTIFICATION_BLOCKED] type=$type foreground=true — OS notification suppressed; in-app banner only');
+        // The push means the message reached this phone: the sender's
+        // second tick. (An open chat then marks it read on its own.)
+        final pushedChat = message.data['chat_id'] as String?;
+        final me = AuthService.currentUserId;
+        if (type == 'chat_message' && pushedChat != null && me != null) {
+          DeliveryReceipts.acknowledge(uid: me, chatIds: [pushedChat]);
+        }
         onForegroundMessage(message);
       }, onError: (e) => debugPrint('[FCM][FG][ERROR] $e'));
 

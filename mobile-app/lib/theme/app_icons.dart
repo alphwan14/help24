@@ -369,6 +369,26 @@ class AppIcons {
   static const IconData pinned = Icons.push_pin_rounded;
   static const IconData reply = Icons.reply_rounded;
 
+  /// A message the outbox gave up on. The messenger "!" in a circle, not
+  /// [error]'s ✕ — this is something to retry, not something that was refused.
+  static const IconData messageNotSent = Icons.error_outline_rounded;
+
+  /// The composer's attach control: a bare plus inside the pill, which
+  /// already supplies the round shape [addAttachment] drew for itself.
+  static const IconData attach = Icons.add_rounded;
+
+  /// Scroll the thread back to the newest message.
+  static const IconData jumpToLatest = Icons.keyboard_arrow_down_rounded;
+
+  /// The connection is gone — the offline banner.
+  static const IconData noConnection = Icons.wifi_off_rounded;
+
+  /// Turn-by-turn directions to a shared pin.
+  static const IconData directions = Icons.near_me_rounded;
+
+  /// Message info: when it was sent, delivered and read.
+  static const IconData messageInfo = Icons.info_outline_rounded;
+
   // ── Location ──────────────────────────────────────────────────────────
   static const IconData location = Iconsax.location;
   static const IconData locationConfirmed = Iconsax.location_tick;

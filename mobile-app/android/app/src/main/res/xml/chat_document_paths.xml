@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The ONLY directory ChatDocumentProvider may hand out: the private cache of
+  chat documents (Flutter's getApplicationSupportDirectory() is filesDir).
+  Nothing else in the app's storage can be turned into a content:// URI.
+-->
+<paths>
+    <files-path name="chat_documents" path="chat_documents/" />
+</paths>
