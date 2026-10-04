@@ -1,0 +1,14 @@
+{
+  "name": "help24-files",
+  "private": true,
+  "type": "module",
+  "description": "files.help24.co.ke — private chat attachments behind participant checks",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "serve:local": "node scripts/serve-local.mjs",
+    "security:live": "node scripts/live-security-test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

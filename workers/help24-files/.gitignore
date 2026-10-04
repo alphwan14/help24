@@ -1,0 +1,7 @@
+# Local secrets for `wrangler dev` / scripts/serve-local.mjs — never committed.
+.dev.vars
+.dev.vars.*
+.wrangler/
+node_modules/
+# Reports written by the security and migration scripts may name message ids.
+reports/

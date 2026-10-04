@@ -219,3 +219,6 @@ __pycache__/
 # and a `git add -A` here would commit it as a bare gitlink pointing at a
 # commit this repository cannot resolve.
 help24_website/
+
+# Chat-attachment migration reports (name message/chat id prefixes)
+scripts/storage/reports/
