@@ -7,6 +7,7 @@ import { AuditQueryDto, ListReportsQueryDto, RestrictedQueryDto } from './dto/mo
 import { OPEN_REPORT_STATUSES, referenceOf } from './moderation.constants';
 import { PgError, toHttpError } from './moderation-errors';
 import { ReportEvidenceService } from './report-evidence.service';
+import { ChatAttachmentLinksService } from './chat-attachment-links.service';
 
 // The Supabase client RETURNS errors rather than throwing them. Every read here
 // goes through `must`, so a failed query becomes an error the admin sees —
@@ -46,6 +47,7 @@ export class InvestigationService {
     private readonly supabase: SupabaseService,
     private readonly evidence: ReportEvidenceService,
     private readonly firebase: FirebaseAdminService,
+    private readonly attachments: ChatAttachmentLinksService,
   ) {}
 
   private get db() {
@@ -137,7 +139,7 @@ export class InvestigationService {
     const reportedId = report.reported_user_id as string;
     const reporterId = report.reporter_id as string;
 
-    const [people, admins, live, conversation, related, ledger, reported, reporterRecord, job, evidence] =
+    const [people, admins, live, conversation, related, ledger, reported, reporterRecord, job, evidence, snapshotAttachment] =
       await Promise.all([
         this.usersBrief([reporterId, reportedId]),
         this.adminsBrief([report.assigned_admin_id, report.resolved_by]),
@@ -149,6 +151,7 @@ export class InvestigationService {
         this.reporterRecord(reporterId),
         this.jobContext(report.post_id as string | null, reportedId),
         this.signEvidence(report.evidence),
+        this.snapshotAttachment(report),
       ]);
 
     return {
@@ -165,6 +168,10 @@ export class InvestigationService {
         type: report.target_type,
         id: report.target_id,
         snapshot: report.target_snapshot,
+        // The reported message's photo or document AS REPORTED, as a
+        // ten-minute signed link. The snapshot's own `attachment_url` is a
+        // storage reference, never something to open.
+        attachment_view_url: snapshotAttachment,
         live,
         changed_since_report: targetChanged(report.target_type, report.target_snapshot, live),
       },
@@ -454,7 +461,7 @@ export class InvestigationService {
         const { data } = await must<Row>(this.db.from('chat_messages')
           .select('id, chat_id, sender_id, content, type, attachment_url, created_at, deleted_for_everyone')
           .eq('id', id).maybeSingle());
-        return data;
+        return data ? { ...data, attachment_view_url: await this.attachments.viewUrl(data) } : null;
       }
       default:
         return null;
@@ -507,12 +514,28 @@ export class InvestigationService {
       chat_id: chatId,
       post_id: chat.post_id ?? null,
       basis: 'The reporter is a participant in this conversation.',
-      messages: messages.map((m) => ({
+      messages: await Promise.all(messages.map(async (m) => ({
         ...m,
         from: m.sender_id === reported ? 'reported' : m.sender_id === reporter ? 'reporter' : 'other',
         is_reported_message: m.id === report.message_id,
-      })),
+        attachment_view_url: m.attachment_url ? await this.attachments.viewUrl({ ...m, chat_id: chatId }) : null,
+      }))),
     };
+  }
+
+  /** A signed view link for the attachment the reported message had when it was reported. */
+  private async snapshotAttachment(report: Row): Promise<string | null> {
+    if (report.target_type !== 'message') return null;
+    const snap = (report.target_snapshot ?? {}) as Row;
+    if (!snap.attachment_url) return null;
+    return this.attachments.viewUrl({
+      id: report.message_id ?? report.target_id,
+      chat_id: report.chat_id,
+      // Migration 114 records the reported message's sender as reported_user_id.
+      sender_id: report.reported_user_id,
+      type: snap.type,
+      attachment_url: snap.attachment_url,
+    });
   }
 
   /** Other reports about the same account: the strongest signal there is. */

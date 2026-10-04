@@ -9,6 +9,7 @@ import { ReportsService } from './reports.service';
 import { ReportEvidenceService } from './report-evidence.service';
 import { ModerationService } from './moderation.service';
 import { InvestigationService } from './investigation.service';
+import { ChatAttachmentLinksService } from './chat-attachment-links.service';
 
 /**
  * Trust & Safety: reporting (users), investigation and moderation (admins).
@@ -22,6 +23,6 @@ import { InvestigationService } from './investigation.service';
 @Module({
   imports: [ModerationEnforcementModule, AdminAuthModule, NotificationsModule, FirebaseAdminModule],
   controllers: [ReportsController, ModerationAdminController],
-  providers: [ReportsService, ReportEvidenceService, ModerationService, InvestigationService],
+  providers: [ReportsService, ReportEvidenceService, ChatAttachmentLinksService, ModerationService, InvestigationService],
 })
 export class ModerationModule {}

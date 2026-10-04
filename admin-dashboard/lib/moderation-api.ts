@@ -179,7 +179,10 @@ export interface ConversationMessage {
   sender_id: string;
   content: string;
   type: string;
+  /** A storage REFERENCE, not an address — never render or link it. */
   attachment_url: string | null;
+  /** Ten-minute signed link to the photo or document, minted per view. */
+  attachment_view_url: string | null;
   created_at: string;
   deleted_for_everyone: boolean;
   from: "reported" | "reporter" | "other";
@@ -220,6 +223,8 @@ export interface ReportInvestigation {
     type: string;
     id: string;
     snapshot: Json;
+    /** Signed link to the reported message's attachment as reported (10 min). */
+    attachment_view_url?: string | null;
     live: Json | null;
     changed_since_report: boolean | null;
   };

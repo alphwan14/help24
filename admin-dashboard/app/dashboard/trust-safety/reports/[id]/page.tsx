@@ -279,11 +279,14 @@ function ConversationSection({
                   {m.deleted_for_everyone && <span className="badge bg-gray-100 text-gray-500 !text-[10.5px]">Removed for both</span>}
                 </div>
                 <p className="text-gray-800 mt-0.5 whitespace-pre-line break-words">{m.content || <span className="text-gray-400">({humanise(m.type)})</span>}</p>
-                {m.attachment_url && (
-                  <a href={m.attachment_url} target="_blank" rel="noopener noreferrer" className="text-[12px] text-info-700 hover:underline">
-                    Attachment
-                  </a>
-                )}
+                {m.attachment_url &&
+                  (m.attachment_view_url ? (
+                    <a href={m.attachment_view_url} target="_blank" rel="noopener noreferrer" className="text-[12px] text-info-700 hover:underline">
+                      {m.type === "image" ? "Photo" : "Document"} (link valid 10 min)
+                    </a>
+                  ) : (
+                    <span className="text-[12px] text-gray-400">Attachment unavailable</span>
+                  ))}
               </li>
             );
           })}

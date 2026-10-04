@@ -26,6 +26,10 @@ export type Resolver = (call: Call) => Answer;
 
 export function fakeSupabase(resolve: Resolver = () => ({ data: null })) {
   const calls: Call[] = [];
+  /** Every object a signed download link was minted for, with its bucket. */
+  const signed: Array<{ bucket: string; path: string }> = [];
+  /** Objects that do not exist: signing one fails the way Storage does. */
+  const missing = new Set<string>();
 
   const chain = (call: Call): unknown => {
     const proxy: unknown = new Proxy(
@@ -60,14 +64,18 @@ export function fakeSupabase(resolve: Resolver = () => ({ data: null })) {
       return chain(call);
     },
     storage: {
-      from: (_bucket: string) => ({
+      from: (bucket: string) => ({
         createSignedUploadUrl: async (path: string) => ({ data: { signedUrl: `https://upload.test/${path}`, token: 'tok' }, error: null }),
-        createSignedUrl: async (path: string) => ({ data: { signedUrl: `https://view.test/${path}` }, error: null }),
+        createSignedUrl: async (path: string) => {
+          if (missing.has(`${bucket}/${path}`)) return { data: null, error: { message: 'Object not found' } };
+          signed.push({ bucket, path });
+          return { data: { signedUrl: `https://view.test/${path}` }, error: null };
+        },
       }),
     },
   };
 
-  return { supabase: { client } as never, calls };
+  return { supabase: { client, url: 'https://ref.supabase.test' } as never, calls, signed, missing };
 }
 
 /** The arguments of the first recorded op with this name on a call. */

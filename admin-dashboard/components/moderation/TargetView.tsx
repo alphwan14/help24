@@ -98,11 +98,16 @@ export default function TargetView({
         <>
           <blockquote className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2.5 text-[13.5px] text-gray-900 whitespace-pre-line break-words">
             {str(snap.content) ?? <span className="text-gray-400">(no text)</span>}
-            {str(snap.attachment_url) && (
-              <a href={String(snap.attachment_url)} target="_blank" rel="noopener noreferrer" className="block mt-1.5 text-[12px] text-info-700 hover:underline">
-                Attachment ({humanise(str(snap.type) ?? "file")})
-              </a>
-            )}
+            {/* The snapshot keeps a storage reference, never an address: the
+                link is the backend's ten-minute signed one. */}
+            {str(snap.attachment_url) &&
+              (target.attachment_view_url ? (
+                <a href={target.attachment_view_url} target="_blank" rel="noopener noreferrer" className="block mt-1.5 text-[12px] text-info-700 hover:underline">
+                  Attachment ({humanise(str(snap.type) ?? "file")}) — link valid 10 min
+                </a>
+              ) : (
+                <span className="block mt-1.5 text-[12px] text-gray-400">Attachment unavailable</span>
+              ))}
           </blockquote>
           <p className="text-[12px] text-gray-500">Sent {fmtDateTime(str(snap.sent_at))}</p>
           {live && <MessageAction live={live} messageId={target.id} reportId={reportId} ownerId={reportedUserId} decisions={decisions} />}
