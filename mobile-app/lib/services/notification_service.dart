@@ -567,8 +567,8 @@ class NotificationService {
       if (uid != null) {
         final prefs = await UserProfileService.getNotificationPrefs(uid);
         if (prefs.notificationsEnabled) {
-          await UserProfileService.addFcmToken(uid, _currentToken!);
-          debugPrint('[FCM][TOKEN] saved for uid=$uid');
+          final saved = await UserProfileService.addFcmToken(uid, _currentToken!);
+          debugPrint('[FCM][TOKEN] ${saved ? 'saved' : 'NOT saved'} for uid=$uid');
         }
       }
     } catch (e) {
@@ -585,8 +585,8 @@ class NotificationService {
       if (uid == null || uid.isEmpty) return;
       final prefs = await UserProfileService.getNotificationPrefs(uid);
       if (!prefs.notificationsEnabled) return;
-      await UserProfileService.addFcmToken(uid, token);
-      debugPrint('[FCM][TOKEN_REFRESH] saved for uid=$uid');
+      final saved = await UserProfileService.addFcmToken(uid, token);
+      debugPrint('[FCM][TOKEN_REFRESH] ${saved ? 'saved' : 'NOT saved'} for uid=$uid');
     }, onError: (e) => debugPrint('[FCM][TOKEN_REFRESH][ERROR] $e'));
   }
 
@@ -602,8 +602,8 @@ class NotificationService {
       }
       final prefs = await UserProfileService.getNotificationPrefs(uid);
       if (prefs.notificationsEnabled) {
-        await UserProfileService.addFcmToken(uid, _currentToken!);
-        debugPrint('[FCM][LOGIN] token saved for uid=$uid');
+        final saved = await UserProfileService.addFcmToken(uid, _currentToken!);
+        debugPrint('[FCM][LOGIN] token ${saved ? 'saved' : 'NOT saved'} for uid=$uid');
       }
     } catch (e) {
       debugPrint('[FCM][LOGIN][ERROR] $e');
@@ -654,11 +654,19 @@ class NotificationService {
   /// stops receiving the account's pushes. Unlike [disableAndRemoveToken],
   /// the user's notifications PREFERENCE is left untouched — they get pushes
   /// again on their next login (which re-saves a token).
+  ///
+  /// The token is asked for when this process never got it: after an offline
+  /// launch FCM had nothing to give, and sign-out used to skip the removal
+  /// altogether, leaving the phone registered to the account that left. (The
+  /// next account's registration also reclaims the token — migration 121 — so
+  /// this is the first defence, not the only one.)
   static Future<void> removeTokenOnLogout(String uid) async {
     if (uid.isEmpty) return;
     try {
-      if (_currentToken != null) {
-        await UserProfileService.removeFcmToken(uid, _currentToken!);
+      final token = _currentToken ??
+          await _messaging.getToken().timeout(const Duration(seconds: 5));
+      if (token != null && token.isNotEmpty) {
+        await UserProfileService.removeFcmToken(uid, token);
         debugPrint('[FCM][LOGOUT] device token removed for uid=$uid');
       }
     } catch (e) {

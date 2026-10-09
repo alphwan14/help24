@@ -382,28 +382,45 @@ class UserProfileService {
     }
   }
 
-  /// Upsert FCM token and remove all stale tokens for this user+platform.
+  /// Register this device's FCM token for [uid] and remove all stale tokens
+  /// for this user+platform. Returns whether the token is now registered.
   ///
   /// Runs on every app launch. One device = one valid token; extras accumulate
   /// silently from reinstalls or FCM rotations. The backend sends to ALL tokens
-  /// for a user, so extras cause duplicate pushes. Upsert first (no zero-token
-  /// window), then wipe every other token for this platform.
-  static Future<void> addFcmToken(String uid, String token) async {
-    if (!_isAvailable || uid.isEmpty || token.isEmpty) return;
+  /// for a user, so extras cause duplicate pushes. Register first (no
+  /// zero-token window), then wipe every other token for this platform.
+  ///
+  /// THE TOKEN BELONGS TO WHOEVER IS SIGNED IN ON THE DEVICE NOW. Registration
+  /// goes through `register_fcm_token` (migration 121), which reassigns the
+  /// token to the caller. The direct upsert it replaces was refused by RLS
+  /// whenever the device's row still belonged to the account signed in before
+  /// — so the new account got no pushes and the old one kept getting them.
+  /// The upsert remains as the fallback for a server without the function.
+  static Future<bool> addFcmToken(String uid, String token) async {
+    if (!_isAvailable || uid.isEmpty || token.isEmpty) return false;
     try {
       final platform = _detectPlatform();
 
-      // Step 1: upsert current token so user always has at least one valid token.
-      debugPrint('[FCM][TOKEN_SAVE] upsert token for uid=$uid platform=$platform');
-      await _client.from('fcm_tokens').upsert(
-        {
-          'user_id':    uid,
-          'token':      token,
-          'platform':   platform,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        },
-        onConflict: 'token',
-      );
+      // Step 1: register the current token so the user always has one.
+      debugPrint('[FCM][TOKEN_SAVE] register token for uid=$uid platform=$platform');
+      try {
+        await _client.rpc('register_fcm_token', params: {
+          'p_token': token,
+          'p_platform': platform,
+        });
+      } on PostgrestException catch (e) {
+        if (!isMissingFunction(code: e.code, message: e.message)) rethrow;
+        debugPrint('[FCM][TOKEN_SAVE] register_fcm_token unavailable — direct upsert');
+        await _client.from('fcm_tokens').upsert(
+          {
+            'user_id':    uid,
+            'token':      token,
+            'platform':   platform,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+          },
+          onConflict: 'token',
+        );
+      }
 
       // Step 2: delete every OTHER token for this user+platform.
       // Runs unconditionally so pre-existing stale tokens are always purged,
@@ -421,9 +438,21 @@ class UserProfileService {
       }
 
       debugPrint('[FCM][TOKEN_SAVE] done uid=$uid');
+      return true;
     } catch (e) {
       debugPrint('[FCM][TOKEN_ERROR] addFcmToken: $e');
+      return false;
     }
+  }
+
+  /// PostgREST's answer when an RPC does not exist on the server (PGRST202),
+  /// or Postgres's (42883) — the function from migration 121 not applied.
+  @visibleForTesting
+  static bool isMissingFunction({String? code, String? message}) {
+    if (code == 'PGRST202' || code == '42883') return true;
+    final m = (message ?? '').toLowerCase();
+    return m.contains('register_fcm_token') &&
+        (m.contains('could not find') || m.contains('does not exist'));
   }
 
   static String _detectPlatform() {
