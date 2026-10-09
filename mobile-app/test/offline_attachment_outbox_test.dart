@@ -11,6 +11,8 @@ import 'package:help24/services/outbox_store.dart';
 import 'package:help24/services/chat_attachments.dart';
 import 'package:http/http.dart' show ClientException;
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/chat_store_harness.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as sdk
     show PostgrestException;
 
@@ -34,8 +36,13 @@ void main() {
   late Directory root;
   late _FakeTransport transport;
 
+  late Directory store;
+  tearDown(() => disposeTestChatStore(store));
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    // The outbox is a table of the chat database, beside the thread.
+    store = await useTestChatStore();
     NetworkHealth.resetForTest();
     OutboxStore.instance.resetForSignOut();
     root = await Directory.systemTemp.createTemp('outbox_test_');

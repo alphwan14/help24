@@ -206,6 +206,15 @@ class JobsService {
   static Future<JobLifecycle> getLifecycle({
     required String postId,
     required String userId,
+  }) async =>
+      JobLifecycle.fromJson(await getLifecycleJson(postId: postId, userId: userId));
+
+  /// The lifecycle exactly as the server sent it. The chat database keeps it
+  /// (`ChatStore.saveJobSnapshot`) so the pinned job bar can be drawn offline,
+  /// and `JobLifecycle.fromJson` reads it back unchanged.
+  static Future<Map<String, dynamic>> getLifecycleJson({
+    required String postId,
+    required String userId,
   }) async {
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/jobs/$postId/lifecycle?user_id=${Uri.encodeComponent(userId)}',
@@ -213,7 +222,7 @@ class JobsService {
     final response = await api.get(uri).timeout(_timeout);
 
     if (response.statusCode == 200) {
-      return JobLifecycle.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+      return jsonDecode(response.body) as Map<String, dynamic>;
     }
     throw _failure(response);
   }

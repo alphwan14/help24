@@ -8,11 +8,12 @@ import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/api_config.dart';
+import '../models/chat_person.dart';
 import '../models/post_model.dart';
 import '../utils/time_utils.dart';
-import 'adaptive_poll.dart';
 import 'chat_attachments.dart';
 import 'chat_resolution.dart';
+import 'chat_store.dart';
 import 'delivery_receipts.dart';
 import 'supabase_auth_bridge.dart';
 
@@ -46,7 +47,14 @@ enum ConversationEmission {
 ///
 /// The rule is stated here, as a pure function, because it is the load-bearing
 /// decision in the app's offline-first messaging promise and deserves to be
-/// checkable without a network.
+/// checkable without a network. `ChatSync` applies it: a failed sync writes
+/// nothing to the chat database, and is reported only while the database has
+/// never held a list for this account.
+///
+/// The same rule, one level down, is what the "?" names broke: a sync whose
+/// profile read failed is a PARTIAL answer, and a partial answer must not be
+/// stored as if it were whole. People who could not be read keep what the
+/// phone already knew.
 ConversationEmission conversationEmissionFor({
   required bool fetchSucceeded,
   required bool hasDeliveredList,
@@ -58,7 +66,8 @@ ConversationEmission conversationEmissionFor({
 }
 
 /// Supabase-only messaging: chats + chat_messages.
-/// Conversation list: polled (Realtime can't filter user1 OR user2).
+/// Conversation list: plain reads, written into `ChatStore` by `ChatSync`
+/// (polled + nudged by realtime, since Realtime can't filter user1 OR user2).
 /// Individual chat messages: Supabase Realtime channel (instant delivery).
 class ChatServiceSupabase {
   static SupabaseClient get _client => Supabase.instance.client;
@@ -187,7 +196,7 @@ class ChatServiceSupabase {
       }
 
       final otherId = u1 == currentUserId ? u2 : u1;
-      final profile = await _getUserProfile(otherId);
+      final profile = await _getUserProfile(otherId, currentUserId: currentUserId);
 
       return Conversation(
         id: chatId,
@@ -342,251 +351,98 @@ class ChatServiceSupabase {
     return '${s.substring(0, max)}…';
   }
 
-  /// Stream of conversations for current user.
-  ///
-  /// Hybrid sync: a periodic poll (Realtime postgres_changes can't express
-  /// user1 OR user2 in a single filter) plus a chats-table Realtime channel
-  /// with one binding per column. Any INSERT/UPDATE on one of my chat rows
-  /// (new message bumps last_message/updated_at/unread counts) nudges an
-  /// immediate refetch, so the list updates in ~instant time while the poll
-  /// degrades to a 60s safety net once Realtime is confirmed alive. If the
-  /// chats table isn't in the supabase_realtime publication the channel just
-  /// never fires and behavior is identical to the old 15s poll.
-  static Stream<List<Conversation>> watchConversations(String currentUserId) {
-    if (currentUserId.isEmpty) return Stream.value([]);
+  // ── Conversation list: plain reads, written into ChatStore by ChatSync ──────
+  //
+  // These used to be a self-polling stream (`watchConversations`) that built
+  // finished `Conversation`s — names included — and handed them to the UI,
+  // which saved whatever it was given. A failed profile lookup inside it
+  // became the name '?' on every row, on screen and on disk. The reads are now
+  // separate and honest: rows, and people, each of which either answers or
+  // THROWS. Deciding what an absent answer means is `ChatSync`'s job, and its
+  // answer is "keep what the phone already knew".
 
-    final controller = StreamController<List<Conversation>>.broadcast();
-    Timer? nudgeDebounce;
-    RealtimeChannel? channel;
-    var pollInterval = const Duration(seconds: 15);
-    var realtimeConfirmed = false;
-    var fetching = false;
-    var refetchQueued = false;
-
-    /// Whether this stream has ever delivered a real answer — the input to
-    /// [conversationEmissionFor], where the rule and its history are stated.
-    var hasDeliveredList = false;
-
-    Future<void> emit() async {
-      // Coalesce: a nudge landing mid-fetch queues exactly one follow-up.
-      if (fetching) {
-        refetchQueued = true;
-        return;
-      }
-      fetching = true;
-      try {
-        final list = await _fetchConversations(currentUserId);
-        if (controller.isClosed) return;
-        hasDeliveredList = true;
-        controller.add(list);
-        // Whatever is unread here has reached this phone: say so (the
-        // sender's second tick). Only chats whose newest message moved.
-        final arrived = list.where((c) => c.unreadCount > 0).toList();
-        if (arrived.isNotEmpty) {
-          unawaited(DeliveryReceipts.acknowledge(
-            uid: currentUserId,
-            chatIds: arrived.map((c) => c.id),
-            newest: {for (final c in arrived) c.id: c.lastMessageTime},
-          ));
-        }
-      } catch (e) {
-        debugPrint('ChatServiceSupabase watchConversations fetch: $e');
-        if (controller.isClosed) return;
-        final decision = conversationEmissionFor(
-          fetchSucceeded: false,
-          hasDeliveredList: hasDeliveredList,
-        );
-        // silence → the last good list stays on screen and on disk.
-        if (decision == ConversationEmission.error) controller.addError(e);
-      } finally {
-        fetching = false;
-        if (refetchQueued && !controller.isClosed) {
-          refetchQueued = false;
-          Future.microtask(emit);
-        }
-      }
-    }
-
-    // Parks itself while the app is offline and resumes with ONE immediate
-    // refetch on reconnect. This poll used to run through an outage at full
-    // cadence — every 15s, every tick failing — which was both a wasted radio
-    // wake-up on a metered connection and a steady supply of errors for
-    // `conversationEmissionFor` to have to defend against. A tick that cannot
-    // succeed is best not taken.
-    //
-    // `tickOnStart: false` because the explicit `poll.refreshNow()` below is the
-    // first fetch; letting start() also fire would double it.
-    final poll = AdaptivePoll(
-      interval: pollInterval,
-      onTick: emit,
-      debugLabel: 'conversations',
-      tickOnStart: false,
+  /// One `chats` row, as the conversation list needs it, for viewer [me].
+  /// Pure — shared with the background push path, which has no client.
+  static ChatRowSnapshot rowSnapshotOf(Map<String, dynamic> map, String me) {
+    final user1 = map['user1'] as String? ?? '';
+    final user2 = map['user2'] as String? ?? '';
+    final isUser1 = user1 == me;
+    final raw = map['updated_at']?.toString() ?? '';
+    return ChatRowSnapshot(
+      id: (map['id'] ?? '').toString(),
+      participantId: isUser1 ? user2 : user1,
+      lastMessage: map['last_message'] as String? ?? '',
+      updatedAt: parseServerTime(map['updated_at']),
+      serverUpdatedAt: raw,
+      // user1_unread_count / user2_unread_count come from migration 025.
+      unreadCount: ((isUser1 ? map['user1_unread_count'] : map['user2_unread_count']) as int?) ?? 0,
+      postId: postIdOf(map),
+      postTitle: postTitleOf(map),
     );
-
-    void nudge() {
-      if (!realtimeConfirmed) {
-        realtimeConfirmed = true;
-        // Realtime is alive, so the poll is only a safety net now.
-        pollInterval = const Duration(seconds: 60);
-        poll.interval = pollInterval;
-      }
-      // Debounce bursts (several rows updating at once) into one refetch.
-      nudgeDebounce?.cancel();
-      nudgeDebounce = Timer(const Duration(milliseconds: 400), emit);
-    }
-
-    poll.start();
-    // The first load is attempted regardless of the poll's schedule, but not
-    // while offline — AppProvider has already hydrated the cached list by then,
-    // and a doomed fetch would only produce an error for it to discard.
-    poll.refreshNow();
-
-    PostgresChangeFilter userFilter(String column) => PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: column,
-          value: currentUserId,
-        );
-    channel = _client.channel('chats_list:$currentUserId');
-    for (final event in [PostgresChangeEvent.insert, PostgresChangeEvent.update]) {
-      for (final column in ['user1', 'user2']) {
-        channel = channel!.onPostgresChanges(
-          event: event,
-          schema: 'public',
-          table: 'chats',
-          filter: userFilter(column),
-          callback: (_) => nudge(),
-        );
-      }
-    }
-    channel!.subscribe();
-
-    controller.onCancel = () {
-      poll.dispose();
-      nudgeDebounce?.cancel();
-      channel?.unsubscribe();
-    };
-
-    return controller.stream;
   }
 
-  static const int _conversationsPageSize = 20;
-
-  static Future<List<Conversation>> _fetchConversations(
-    String currentUserId, {
-    int limit = _conversationsPageSize,
+  /// A page of [me]'s conversations, most recently active first. THROWS on any
+  /// failure — a failed read is never an empty list (see
+  /// [conversationEmissionFor]).
+  ///
+  /// Only chats where a message has been sent (`last_message <> ''`): empty
+  /// rows are created ahead of a first send and are not conversations yet.
+  static Future<List<ChatRowSnapshot>> fetchConversationRows(
+    String me, {
+    int limit = 50,
     int offset = 0,
   }) async {
-    // Join posts(title) via the chats_post_id_fkey FK constraint.
-    // user1_unread_count / user2_unread_count come from migration 025.
-    // Filter: only return chats where a message has been sent (last_message != '').
-    // This hides empty/orphaned chat rows that were created before a message was sent.
+    if (me.isEmpty) return const [];
     final response = await _client
         .from('chats')
         .select(chatRowSelect)
-        .or('user1.eq.$currentUserId,user2.eq.$currentUserId')
+        .or('user1.eq.$me,user2.eq.$me')
         .neq('last_message', '')
         .order('updated_at', ascending: false)
         .range(offset, offset + limit - 1);
-
-    final rows = response as List;
-
-    // Collect all participant IDs, then fetch profiles in one batch query
-    // instead of N sequential queries (eliminates N+1 pattern).
-    final otherIds = <String>[];
-    for (final row in rows) {
-      final map = row as Map<String, dynamic>;
-      final user1 = map['user1'] as String? ?? '';
-      final user2 = map['user2'] as String? ?? '';
-      otherIds.add(user1 == currentUserId ? user2 : user1);
-    }
-    final profiles = await _getBatchUserProfiles(otherIds);
-
-    final list = <Conversation>[];
-    for (final row in rows) {
-      final map = row as Map<String, dynamic>;
-      final user1 = map['user1'] as String? ?? '';
-      final user2 = map['user2'] as String? ?? '';
-      final otherId = user1 == currentUserId ? user2 : user1;
-      final profile = profiles[otherId] ??
-          (name: '?', avatarUrl: '', isOnline: false, lastSeen: null);
-
-      // Determine this user's unread count from the correct column.
-      final int unreadCount;
-      if (user1 == currentUserId) {
-        unreadCount = (map['user1_unread_count'] as int?) ?? 0;
-      } else {
-        unreadCount = (map['user2_unread_count'] as int?) ?? 0;
-      }
-
-      list.add(Conversation(
-        id: (map['id'] ?? '').toString(),
-        participantId: otherId,
-        userName: profile.name,
-        userAvatar: profile.avatarUrl,
-        lastMessage: map['last_message'] as String? ?? '',
-        lastMessageTime: parseServerTime(map['updated_at']),
-        unreadCount: unreadCount,
-        postId: postIdOf(map),
-        postTitle: postTitleOf(map),
-        isOnline: profile.isOnline,
-        lastSeen: profile.lastSeen,
-      ));
-    }
-    return list;
+    return [
+      for (final row in response as List)
+        rowSnapshotOf(Map<String, dynamic>.from(row as Map), me),
+    ];
   }
 
-  /// Fetch profiles (incl. presence) for multiple user IDs in a single query.
-  /// Returns a map of userId → profile record.
-  static Future<Map<String, ({String name, String avatarUrl, bool isOnline, DateTime? lastSeen})>>
-      _getBatchUserProfiles(
-    List<String> userIds,
-  ) async {
-    final result = <String, ({String name, String avatarUrl, bool isOnline, DateTime? lastSeen})>{};
-    final uniqueIds = userIds.where((id) => id.isNotEmpty).toSet().toList();
-    if (uniqueIds.isEmpty) return result;
-    try {
-      final r = await _client
-          .from('users')
-          .select('id, name, email, avatar_url, profile_image, is_online, last_seen')
-          .inFilter('id', uniqueIds);
-      for (final row in r as List) {
-        final map = row as Map<String, dynamic>;
-        final id = map['id']?.toString() ?? '';
-        if (id.isEmpty) continue;
-        final name = map['name']?.toString().trim();
-        final email = map['email']?.toString().trim();
-        final displayName = (name != null && name.isNotEmpty)
-            ? name
-            : (email != null && email.isNotEmpty
-                ? (email.split('@').first.trim().isNotEmpty
-                    ? email.split('@').first.trim()
-                    : '?')
-                : '?');
-        final avatar = map['avatar_url']?.toString().trim();
-        final profileImage = map['profile_image']?.toString().trim();
-        result[id] = (
-          name: displayName,
-          avatarUrl: (avatar != null && avatar.isNotEmpty) ? avatar : (profileImage ?? ''),
-          isOnline: map['is_online'] as bool? ?? false,
-          lastSeen: map['last_seen'] != null
-              ? DateTime.tryParse(map['last_seen'].toString())
-              : null,
-        );
-      }
-    } catch (e) {
-      debugPrint('ChatServiceSupabase _getBatchUserProfiles: $e');
-    }
-    return result;
+  /// The columns a person is drawn from.
+  static const String personSelect =
+      'id, name, email, avatar_url, profile_image, profession, last_seen';
+
+  /// A `users` row as a [ChatPerson]. The name is the profile name, else the
+  /// email's local part — and otherwise ABSENT. Never '?'. Pure.
+  static ChatPerson personFromUserRow(Map<String, dynamic> map) {
+    final name = map['name']?.toString().trim() ?? '';
+    final email = map['email']?.toString().trim() ?? '';
+    final local = email.contains('@') ? email.split('@').first.trim() : '';
+    final avatar = map['avatar_url']?.toString().trim() ?? '';
+    final image = map['profile_image']?.toString().trim() ?? '';
+    final profession = map['profession']?.toString().trim() ?? '';
+    return ChatPerson(
+      id: map['id']?.toString() ?? '',
+      name: ChatPeople.knownOrNull(name.isNotEmpty ? name : local),
+      avatarUrl: avatar.isNotEmpty ? avatar : (image.isNotEmpty ? image : null),
+      profession: profession.isEmpty ? null : profession,
+      lastSeen: parseServerTimeOrNull(map['last_seen']),
+    );
   }
 
-  /// Fetch a page of conversations (for load more). Returns (list, hasMore).
-  static Future<({List<Conversation> list, bool hasMore})> getConversationsPage(
-    String currentUserId, {
-    int limit = _conversationsPageSize,
-    int offset = 0,
-  }) async {
-    final list = await _fetchConversations(currentUserId, limit: limit, offset: offset);
-    return (list: list, hasMore: list.length >= limit);
+  /// Profiles for [userIds], 100 per request. THROWS when any request fails:
+  /// the caller must be able to tell "this person has no photo" from "we could
+  /// not ask", and only the first may change what is stored.
+  static Future<Map<String, ChatPerson>> fetchProfiles(Iterable<String> userIds) async {
+    final unique = userIds.where((id) => id.isNotEmpty).toSet().toList();
+    final out = <String, ChatPerson>{};
+    for (var i = 0; i < unique.length; i += 100) {
+      final chunk = unique.sublist(i, i + 100 > unique.length ? unique.length : i + 100);
+      final rows = await _client.from('users').select(personSelect).inFilter('id', chunk);
+      for (final row in rows as List) {
+        final person = personFromUserRow(Map<String, dynamic>.from(row as Map));
+        if (person.id.isNotEmpty) out[person.id] = person;
+      }
+    }
+    return out;
   }
 
   static const int _messagesPageSize = 30;
@@ -600,28 +456,39 @@ class ChatServiceSupabase {
     int limit = _messagesPageSize,
     String? before,
   }) async {
-    if (chatIdParam.isEmpty) return (messages: <Message>[], hasMore: false);
     try {
-      var query = _client
-          .from('chat_messages')
-          .select()
-          .eq('chat_id', chatIdParam);
-      if (before != null && before.isNotEmpty) {
-        query = query.lt('created_at', before);
-      }
-      final res = await query
-          .order('created_at', ascending: false)
-          .limit(limit);
-      final rows = res as List;
-      final list = rows
-          .map((e) => _messageFromRow(e as Map<String, dynamic>, chatIdParam, currentUserId))
-          .toList();
-      list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      return (messages: list, hasMore: list.length >= limit);
+      return await fetchMessagesPage(chatIdParam, currentUserId, limit: limit, before: before);
     } catch (e) {
       debugPrint('ChatServiceSupabase getMessagesPage: $e');
       return (messages: <Message>[], hasMore: false);
     }
+  }
+
+  /// [getMessagesPage] that THROWS on failure — for sync, which must not
+  /// record "thread fetched" when nothing was.
+  static Future<({List<Message> messages, bool hasMore})> fetchMessagesPage(
+    String chatIdParam,
+    String currentUserId, {
+    int limit = _messagesPageSize,
+    String? before,
+  }) async {
+    if (chatIdParam.isEmpty) return (messages: <Message>[], hasMore: false);
+    var query = _client
+        .from('chat_messages')
+        .select()
+        .eq('chat_id', chatIdParam);
+    if (before != null && before.isNotEmpty) {
+      query = query.lt('created_at', before);
+    }
+    final res = await query
+        .order('created_at', ascending: false)
+        .limit(limit);
+    final rows = res as List;
+    final list = rows
+        .map((e) => messageFromRow(e as Map<String, dynamic>, chatIdParam, currentUserId))
+        .toList();
+    list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return (messages: list, hasMore: list.length >= limit);
   }
 
   /// Fetch messages for a single chat. Ordered by created_at ascending. No Realtime.
@@ -631,7 +498,7 @@ class ChatServiceSupabase {
     return result.messages;
   }
 
-  static Message _messageFromRow(Map<String, dynamic> row, String chatIdParam, String currentUserId) {
+  static Message messageFromRow(Map<String, dynamic> row, String chatIdParam, String currentUserId) {
     final id = (row['id'] ?? '').toString();
     final senderId = (row['sender_id'] ?? '').toString();
     final content = (row['content'] ?? row['message'] ?? '').toString();
@@ -691,7 +558,7 @@ class ChatServiceSupabase {
           .order('created_at', ascending: false)
           .limit(limit);
       return (res as List)
-          .map((e) => _messageFromRow(e as Map<String, dynamic>, chatId, currentUserId))
+          .map((e) => messageFromRow(e as Map<String, dynamic>, chatId, currentUserId))
           .toList();
     } catch (e) {
       debugPrint('ChatServiceSupabase searchMessages: $e');
@@ -912,7 +779,7 @@ class ChatServiceSupabase {
         // An UPDATE for a row we have not loaded yet (older page) is not worth
         // materialising; an INSERT always is.
         upsert(
-          _messageFromRow(row, chatId, currentUserId),
+          messageFromRow(row, chatId, currentUserId),
           insertIfMissing: isInsert,
         );
       } catch (e) {
@@ -1156,7 +1023,7 @@ class ChatServiceSupabase {
       }).eq('id', chatIdParam);
       // Fire-and-forget push notification to recipient.
       unawaited(_notifyBackend(chatId: chatIdParam, senderId: senderId, preview: text));
-      return _messageFromRow(row, chatIdParam, senderId);
+      return messageFromRow(row, chatIdParam, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendMessage: $e');
       rethrow;
@@ -1199,7 +1066,7 @@ class ChatServiceSupabase {
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatIdParam);
       unawaited(_notifyBackend(chatId: chatIdParam, senderId: senderId, preview: content));
-      return _messageFromRow(row, chatIdParam, senderId);
+      return messageFromRow(row, chatIdParam, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendAttachmentMessage: $e');
       rethrow;
@@ -1235,7 +1102,7 @@ class ChatServiceSupabase {
       }).eq('id', chatId);
       // Fire-and-forget push to recipient (NestJS — same path as text/attachments).
       unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '📍 $content'));
-      return _messageFromRow(row, chatId, senderId);
+      return messageFromRow(row, chatId, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendLocation: $e');
       rethrow;
@@ -1274,7 +1141,7 @@ class ChatServiceSupabase {
       }).eq('id', chatId);
       // Fire-and-forget push to recipient (NestJS — same path as text/attachments).
       unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '🚗 $content'));
-      return _messageFromRow(row, chatId, senderId);
+      return messageFromRow(row, chatId, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendLiveLocation: $e');
       rethrow;
@@ -1303,7 +1170,7 @@ class ChatServiceSupabase {
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', chatId);
       unawaited(_notifyBackend(chatId: chatId, senderId: senderId, preview: '📍 Location requested'));
-      return _messageFromRow(row, chatId, senderId);
+      return messageFromRow(row, chatId, senderId);
     } catch (e) {
       debugPrint('ChatServiceSupabase sendLocationRequest: $e');
       rethrow;
@@ -1394,33 +1261,26 @@ class ChatServiceSupabase {
     }
   }
 
-  static Future<({String name, String avatarUrl})> _getUserProfile(String userId) async {
-    if (userId.isEmpty) return (name: '?', avatarUrl: '');
+  /// The other participant of a chat being created: their profile when it can
+  /// be read, else whatever this phone already knows about them, else an
+  /// empty (unknown) name — never a stand-in that could be stored as a name.
+  static Future<({String name, String avatarUrl})> _getUserProfile(
+    String userId, {
+    required String currentUserId,
+  }) async {
+    if (userId.isEmpty) return (name: '', avatarUrl: '');
     try {
-      final r = await _client
-          .from('users')
-          .select('name, email, avatar_url, profile_image')
-          .eq('id', userId)
-          .maybeSingle();
-      if (r != null) {
-        final name = r['name']?.toString()?.trim();
-        final email = r['email']?.toString()?.trim();
-        String displayName = (name != null && name.isNotEmpty)
-            ? name
-            : (email != null && email.isNotEmpty
-                ? (email.split('@').first.trim().isNotEmpty ? email.split('@').first.trim() : '?')
-                : '?');
-        final avatar = r['avatar_url']?.toString()?.trim();
-        final profileImage = r['profile_image']?.toString()?.trim();
-        return (
-          name: displayName,
-          avatarUrl: (avatar != null && avatar.isNotEmpty) ? avatar : (profileImage ?? ''),
-        );
+      final profiles = await fetchProfiles([userId]);
+      final person = profiles[userId];
+      if (person != null) {
+        unawaited(ChatStore.instance.upsertPeople(currentUserId, [person]));
+        return (name: person.name ?? '', avatarUrl: person.avatarUrl ?? '');
       }
     } catch (e) {
       debugPrint('ChatServiceSupabase _getUserProfile: $e');
     }
-    return (name: '?', avatarUrl: '');
+    final known = await ChatStore.instance.person(currentUserId, userId);
+    return (name: known?.name ?? '', avatarUrl: known?.avatarUrl ?? '');
   }
 
   /// Fire-and-forget: tell the backend to push a notification to the

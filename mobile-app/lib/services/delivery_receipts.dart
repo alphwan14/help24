@@ -113,31 +113,21 @@ class DeliveryReceipts {
     String chatId, {
     @visibleForTesting http.Client? client,
     @visibleForTesting Future<({String uid, String idToken})?> Function()? identity,
+    /// A session the caller already started ([backgroundSession]) — so the
+    /// push that both acknowledges and stores its message pays for ONE token
+    /// exchange, not two.
+    Future<BackgroundSession?>? session,
   }) async {
     if (chatId.isEmpty) return;
     final http.Client c = client ?? http.Client();
     try {
       if (!await _enabled()) return;
-      final who = await (identity ?? _firebaseIdentity)();
-      if (who == null) return;
-
-      final exchange = await c
-          .post(
-            Uri.parse('${SupabaseConfig.supabaseUrl}/functions/v1/exchange-firebase-token'),
-            headers: _headers(SupabaseConfig.supabaseAnonKey),
-            body: jsonEncode({'id_token': who.idToken}),
-          )
-          .timeout(const Duration(seconds: 8));
-      if (exchange.statusCode != 200) {
-        debugPrint('[RECEIPTS][BG] exchange refused ${exchange.statusCode}');
-        return;
-      }
-      final jwt = (jsonDecode(exchange.body) as Map)['access_token'] as String?;
-      if (jwt == null || jwt.isEmpty) return;
+      final s = await (session ?? backgroundSession(client: c, identity: identity));
+      if (s == null) return;
 
       final response = await c
-          .patch(ackUri(chatId: chatId, uid: who.uid),
-              headers: {..._headers(jwt), 'Prefer': 'return=minimal'},
+          .patch(ackUri(chatId: chatId, uid: s.uid),
+              headers: {..._headers(s.jwt), 'Prefer': 'return=minimal'},
               body: jsonEncode({column: DateTime.now().toUtc().toIso8601String()}))
           .timeout(const Duration(seconds: 8));
       if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -164,6 +154,43 @@ class DeliveryReceipts {
       if (client == null) c.close();
     }
   }
+
+  /// A Supabase session for the FCM background isolate, which has no client
+  /// and no bridge token: Firebase ID token → `exchange-firebase-token`.
+  /// Bounded and never throws; null when there is no signed-in user or the
+  /// exchange is refused.
+  static Future<BackgroundSession?> backgroundSession({
+    http.Client? client,
+    Future<({String uid, String idToken})?> Function()? identity,
+  }) async {
+    final http.Client c = client ?? http.Client();
+    try {
+      final who = await (identity ?? _firebaseIdentity)();
+      if (who == null) return null;
+      final exchange = await c
+          .post(
+            Uri.parse('${SupabaseConfig.supabaseUrl}/functions/v1/exchange-firebase-token'),
+            headers: _headers(SupabaseConfig.supabaseAnonKey),
+            body: jsonEncode({'id_token': who.idToken}),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (exchange.statusCode != 200) {
+        debugPrint('[RECEIPTS][BG] exchange refused ${exchange.statusCode}');
+        return null;
+      }
+      final jwt = (jsonDecode(exchange.body) as Map)['access_token'] as String?;
+      if (jwt == null || jwt.isEmpty) return null;
+      return (uid: who.uid, jwt: jwt);
+    } catch (e) {
+      debugPrint('[RECEIPTS][BG] no session: $e');
+      return null;
+    } finally {
+      if (client == null) c.close();
+    }
+  }
+
+  /// Headers for a PostgREST call made with a [backgroundSession] token.
+  static Map<String, String> headersFor(String jwt) => _headers(jwt);
 
   /// The PATCH that marks [uid]'s received, unacknowledged messages in
   /// [chatId] as delivered. Exposed so the filter can be checked: it must
@@ -240,3 +267,7 @@ class DeliveryReceipts {
     writeOverride = null;
   }
 }
+
+/// A signed-in user and their Supabase token, minted in the FCM background
+/// isolate ([DeliveryReceipts.backgroundSession]).
+typedef BackgroundSession = ({String uid, String jwt});

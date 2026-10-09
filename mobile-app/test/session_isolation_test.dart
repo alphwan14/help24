@@ -1,8 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:help24/models/post_model.dart';
 import 'package:help24/services/cache_service.dart';
+import 'package:help24/services/chat_store.dart';
 import 'package:help24/services/session_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/chat_store_harness.dart';
 
 /// Regression suite for the cross-account data leak.
 ///
@@ -40,7 +45,15 @@ void main() {
         isMe: false,
       );
 
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  late Directory store;
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    // Conversations, threads and outboxes live in the chat database: one file
+    // per account, deleted at that account's sign-out.
+    store = await useTestChatStore();
+    SessionScope.instance.register(ChatStore.instance);
+  });
+  tearDown(() => disposeTestChatStore(store));
 
   group('Conversation cache is scoped to the account that wrote it', () {
     test('a list written as A is invisible to B and C', () async {

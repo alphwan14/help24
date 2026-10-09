@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 and below. Same rule as data_extraction_rules.xml: the chat
+  database, chat media and queued attachments are never backed up.
+-->
+<full-backup-content>
+    <exclude domain="database" path="." />
+    <exclude domain="file" path="chat_media" />
+    <exclude domain="file" path="chat_outbox" />
+</full-backup-content>

@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_firebase.dart';
 import 'auth_service.dart';
 import 'chat_local_prefs.dart';
+import 'chat_push_ingest.dart';
+import 'chat_sync.dart';
 import 'delivery_receipts.dart';
 import 'notification_capability.dart';
 import 'user_profile_service.dart';
@@ -150,13 +152,20 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // rather than delaying it — and is finished before this isolate may be
   // torn down. A muted chat still acknowledges: muting hides the
   // notification, not the fact that the message arrived.
-  final ack = DeliveryReceipts.acknowledgeFromPush(chatId);
+  //
+  // The same session also stores the message in the chat database, so the
+  // next launch — offline or not — shows what this push announced. One token
+  // exchange serves both.
+  final session = DeliveryReceipts.backgroundSession();
+  final ack = DeliveryReceipts.acknowledgeFromPush(chatId, session: session);
+  final stored = ChatPushIngest.ingest(chatId, session: session);
 
   // Muted chats: honor the device-local mute even when the app is killed —
   // possible because chat pushes are data-only (we render, not the OS).
   if (await ChatLocalPrefs.isMuted(chatId)) {
     debugPrint('[CHAT_NOTIFY][MUTED] chatId=$chatId — notification suppressed');
     await ack;
+    await stored;
     return;
   }
 
@@ -201,6 +210,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   );
   debugPrint('[CHAT_NOTIFY][THREAD_REBUILT] chatId=$chatId totalMessages=${cache.length}');
   await ack;
+  await stored;
 }
 
 // ── Shared notification builder ───────────────────────────────────────────────
@@ -428,6 +438,8 @@ class NotificationService {
         final me = AuthService.currentUserId;
         if (type == 'chat_message' && pushedChat != null && me != null) {
           DeliveryReceipts.acknowledge(uid: me, chatIds: [pushedChat]);
+          // And into the chat database now, not at the next poll.
+          ChatSync.instance.onPush(pushedChat);
         }
         onForegroundMessage(message);
       }, onError: (e) => debugPrint('[FCM][FG][ERROR] $e'));

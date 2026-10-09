@@ -35,6 +35,19 @@ abstract class SessionScoped {
   void resetForSignOut();
 }
 
+/// A store that keeps a user's data in FILES of its own (not SharedPreferences
+/// keys), so the key purge cannot reach it. [SessionScope.endSession] awaits
+/// [purgeOwner] after every member has reset.
+abstract class SessionPurgeable {
+  /// Delete what [uid] left on this device. A null or empty uid means the
+  /// owner is unknown: delete everything of this kind.
+  Future<void> purgeOwner(String? uid);
+
+  /// Startup: delete what belongs to anyone but [currentUid] (everything,
+  /// when nobody is signed in). Awaited by [SessionScope.purgeForeignScopes].
+  Future<void> purgeForeign(String? currentUid);
+}
+
 class SessionScope {
   SessionScope._();
   static final SessionScope instance = SessionScope._();
@@ -134,6 +147,13 @@ class SessionScope {
     // account reading the previous one's answers.
     ChatLocalPrefs.resetForSignOut();
     await _purgeKeys(ownedBy: uid, includeSessionWide: true);
+    for (final member in _members.whereType<SessionPurgeable>().toList()) {
+      try {
+        await member.purgeOwner(uid);
+      } catch (e) {
+        debugPrint('[SESSION] purge failed for ${member.runtimeType}: $e');
+      }
+    }
   }
 
   /// Startup hygiene, before any screen can read a cache.
@@ -153,6 +173,13 @@ class SessionScope {
       includeSessionWide: ownerChanged,
     );
     if (ownerChanged) ChatLocalPrefs.resetForSignOut();
+    for (final member in _members.whereType<SessionPurgeable>().toList()) {
+      try {
+        await member.purgeForeign(currentUid);
+      } catch (e) {
+        debugPrint('[SESSION] foreign purge failed for ${member.runtimeType}: $e');
+      }
+    }
   }
 
   /// Records [currentUid] as the owner of the device's session-wide state.

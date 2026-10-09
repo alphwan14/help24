@@ -23,6 +23,10 @@ dependencies:
   # seed the image cache with a photo the moment it is delivered.
   flutter_cache_manager: ^3.4.1
   path_provider: ^2.1.5
+  # The on-device chat database (lib/services/chat_store.dart). Already in the
+  # APK — flutter_cache_manager keeps its own index in it — so naming it here
+  # adds no native code, only the direct import.
+  sqflite: ^2.4.3
   supabase_flutter: ^2.3.0
   uuid: ^4.2.0
   shared_preferences: ^2.2.2
@@ -57,6 +61,9 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^3.0.1
   flutter_launcher_icons: ^0.14.3
+  # Runs the real chat database in `flutter test` against a desktop SQLite, so
+  # the repository and sync tests exercise actual SQL rather than a fake.
+  sqflite_common_ffi: ^2.3.4
 
 # THE FOREGROUND IS NOT THE TILE.
 # `image_path` is the full square tile, which is right for the legacy launcher

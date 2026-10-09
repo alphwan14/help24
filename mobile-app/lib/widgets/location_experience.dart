@@ -21,6 +21,8 @@
 //     never branched on brightness. The map takes the theme's style.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:geolocator/geolocator.dart';
@@ -32,6 +34,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/post_model.dart';
 import '../theme/tokens.dart';
 import '../utils/time_utils.dart';
+import '../providers/connectivity_provider.dart' show NetworkHealth;
+import '../services/chat_media_store.dart';
 
 /// Result of the Place Picker: a pin plus the user's own name for it.
 class PickedPlace {
@@ -185,7 +189,14 @@ class _IntentRow extends StatelessWidget {
 /// (standard on light, night on dark — [ChatColors.mapStyle]).
 /// AbsorbPointer: without it the native map view claims the tap in the gesture
 /// arena and the enclosing GestureDetector (open full screen) never fires.
-class MapThumbnail extends StatelessWidget {
+///
+/// OFFLINE, A MAP CARD IS STILL A MAP. A lite-mode map draws from Google's
+/// servers each time it is built, so offline it was an empty grey grid. Once
+/// the live map has drawn, it is snapshotted to this phone (ChatMediaStore,
+/// keyed by the pin and the theme), and from then on the card IS that image —
+/// online too, which also spares the thread a native view per card. A pin
+/// never seen online shows a quiet placeholder with the pin, not a blank grid.
+class MapThumbnail extends StatefulWidget {
   final double latitude;
   final double longitude;
 
@@ -198,23 +209,73 @@ class MapThumbnail extends StatelessWidget {
       debugBuilder;
 
   @override
+  State<MapThumbnail> createState() => _MapThumbnailState();
+}
+
+class _MapThumbnailState extends State<MapThumbnail> {
+  Timer? _snapshot;
+  int _attempts = 0;
+
+  @override
+  void dispose() {
+    _snapshot?.cancel();
+    super.dispose();
+  }
+
+  String _styleKey(BuildContext context) =>
+      ChatColors.of(context).mapStyle == null ? 'std' : 'night';
+
+  /// Lite mode has no "tiles loaded" callback, so wait, look, and keep only a
+  /// snapshot that has drawn (ChatMediaStore.looksDrawn) — three tries.
+  void _scheduleSnapshot(GoogleMapController controller, String style) {
+    _snapshot?.cancel();
+    _snapshot = Timer(Duration(milliseconds: 1500 + 1500 * _attempts), () async {
+      if (!mounted || NetworkHealth.isOffline) return;
+      _attempts++;
+      try {
+        final png = await controller.takeSnapshot();
+        if (png == null) return;
+        final saved = await ChatMediaStore.saveMapSnapshot(
+            widget.latitude, widget.longitude, style, png);
+        if (!saved && _attempts < 3 && mounted) _scheduleSnapshot(controller, style);
+      } catch (_) {
+        // A map that cannot be snapshotted stays live; nothing is lost.
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final stand = debugBuilder;
-    if (stand != null) return stand(context, latitude, longitude);
+    final stand = MapThumbnail.debugBuilder;
+    if (stand != null) return stand(context, widget.latitude, widget.longitude);
+    final style = _styleKey(context);
+    final stored = ChatMediaStore.mapSnapshotFor(widget.latitude, widget.longitude, style);
+    if (stored != null) {
+      return Image.file(
+        stored,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => const _MapPlaceholder(),
+      );
+    }
+    if (NetworkHealth.isOffline) return const _MapPlaceholder();
     return AbsorbPointer(
       child: GoogleMap(
         // Keyed by style: a lite-mode map is a bitmap rendered once, so a
         // theme switch must build a new one rather than restyle the old.
-        key: ValueKey(ChatColors.of(context).mapStyle == null ? 'map-std' : 'map-night'),
+        key: ValueKey(style == 'std' ? 'map-std' : 'map-night'),
+        onMapCreated: (controller) => _scheduleSnapshot(controller, style),
         initialCameraPosition: CameraPosition(
-          target: LatLng(latitude, longitude),
+          target: LatLng(widget.latitude, widget.longitude),
           zoom: 15,
         ),
         style: ChatColors.of(context).mapStyle,
         markers: {
           Marker(
             markerId: const MarkerId('loc'),
-            position: LatLng(latitude, longitude),
+            position: LatLng(widget.latitude, widget.longitude),
           ),
         },
         liteModeEnabled: true,
@@ -223,6 +284,23 @@ class MapThumbnail extends StatelessWidget {
         zoomGesturesEnabled: false,
         myLocationButtonEnabled: false,
         mapToolbarEnabled: false,
+      ),
+    );
+  }
+}
+
+/// A map card for a pin this phone has never seen drawn, while offline: the
+/// card keeps its shape and says what it is, with no grid pretending to load.
+class _MapPlaceholder extends StatelessWidget {
+  const _MapPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = ChatColors.of(context);
+    return ColoredBox(
+      color: c.surface,
+      child: Center(
+        child: Icon(AppIcons.location, size: 30, color: c.iconSecondary),
       ),
     );
   }

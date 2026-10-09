@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ backup and device-to-device transfer.
+
+  Chat stays on this phone. The chat database (databases/help24_chat_<uid>.db,
+  beside the image cache's own index) and the chat media folder hold message
+  bodies, addresses, phone numbers and photos; queued attachments wait in
+  chat_outbox. All of it is re-fetched from the server after a restore, so
+  nothing is lost by leaving it out, and nothing private is copied into a
+  cloud backup. See lib/services/chat_store.dart.
+
+  path="." is the domain's own folder: everything in it.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="." />
+        <exclude domain="file" path="chat_media" />
+        <exclude domain="file" path="chat_outbox" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="." />
+        <exclude domain="file" path="chat_media" />
+        <exclude domain="file" path="chat_outbox" />
+    </device-transfer>
+</data-extraction-rules>

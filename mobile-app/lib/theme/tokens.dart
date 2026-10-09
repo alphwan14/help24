@@ -707,6 +707,55 @@ class ChatColors extends ThemeExtension<ChatColors> {
   }
 }
 
+/// A PERSON WITHOUT A PHOTO STILL HAS A FACE.
+///
+/// The chat list used to draw every missing avatar as the same grey disc, and
+/// when even the name was missing it drew "?" — so a list of eight people read
+/// as eight copies of nobody. Each person now gets one of eight tints, chosen
+/// from their user id (see `ChatPeople.tintIndex`), so the same person is the
+/// same colour on every screen and every launch, and two people side by side
+/// can be told apart before their names are read.
+///
+/// Muted on purpose: an avatar we do not have is not a brand moment (the
+/// reason the old placeholder stopped being accent-filled). Text on every fill
+/// clears 4.5:1 in its own theme.
+@immutable
+class PersonTint {
+  const PersonTint(this.fill, this.text);
+
+  final Color fill;
+  final Color text;
+
+  static const List<PersonTint> light = [
+    PersonTint(Color(0xFFDCEFEC), Color(0xFF1F5F57)), // teal
+    PersonTint(Color(0xFFDFE8F6), Color(0xFF2A4F86)), // blue
+    PersonTint(Color(0xFFE8E2F4), Color(0xFF553C8A)), // violet
+    PersonTint(Color(0xFFF5E1E6), Color(0xFF8A3550)), // rose
+    PersonTint(Color(0xFFF6EBD7), Color(0xFF7A5413)), // amber
+    PersonTint(Color(0xFFE2F0DE), Color(0xFF36612B)), // green
+    PersonTint(Color(0xFFE4E8EC), Color(0xFF44505C)), // slate
+    PersonTint(Color(0xFFF3E4DC), Color(0xFF85462B)), // clay
+  ];
+
+  static const List<PersonTint> dark = [
+    PersonTint(Color(0xFF17302D), Color(0xFF8FD3C7)),
+    PersonTint(Color(0xFF1A2638), Color(0xFF9CB9E8)),
+    PersonTint(Color(0xFF261F37), Color(0xFFC2B1EA)),
+    PersonTint(Color(0xFF351C25), Color(0xFFEBA6BB)),
+    PersonTint(Color(0xFF33281A), Color(0xFFE5C28A)),
+    PersonTint(Color(0xFF1C2D1A), Color(0xFFA9D69C)),
+    PersonTint(Color(0xFF22282E), Color(0xFFB8C2CC)),
+    PersonTint(Color(0xFF36231B), Color(0xFFE5AE94)),
+  ];
+
+  /// The tint at [index] for the current theme. [index] is taken modulo the
+  /// palette, so any stable hash can be passed straight in.
+  static PersonTint of(BuildContext context, int index) {
+    final palette = Theme.of(context).brightness == Brightness.dark ? dark : light;
+    return palette[index.abs() % palette.length];
+  }
+}
+
 /// THE CHAT'S GEOMETRY — identical in both themes, by construction.
 ///
 /// Sizes are the design canvas's, for a 390-wide phone, and map 1:1 to dp.

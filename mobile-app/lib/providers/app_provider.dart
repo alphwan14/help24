@@ -9,7 +9,8 @@ import '../models/post_model.dart';
 import '../models/theme_preference.dart';
 import '../services/post_service.dart';
 import '../services/category_schema_service.dart';
-import '../services/chat_service_supabase.dart';
+import '../services/chat_store.dart';
+import '../services/chat_sync.dart';
 import '../services/filter_history_service.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
@@ -26,13 +27,13 @@ import '../utils/error_mapper.dart';
 import '../utils/feature_errors.dart';
 import '../utils/feed_scope.dart';
 import '../utils/proximity.dart';
+import 'connectivity_provider.dart' show NetworkHealth;
 
 class AppProvider extends ChangeNotifier implements SessionScoped {
   ThemePreference _themePreference = ThemePreference.system;
   List<PostModel> _posts = [];
   List<PostModel> _urgentPosts = [];
   List<Conversation> _conversations = [];
-  StreamSubscription<List<Conversation>>? _conversationStreamSubscription;
   
   // Loading states
   bool _isLoadingPosts = false;
@@ -492,17 +493,16 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// privacy gain.
   @override
   void resetForSignOut() {
-    _conversationStreamSubscription?.cancel();
-    _conversationStreamSubscription = null;
+    _chatStoreSubscription?.cancel();
+    _chatStoreSubscription = null;
+    _conversationReload?.cancel();
+    ChatSync.instance.firstLoadError.removeListener(_onFirstChatLoadError);
+    ChatSync.instance.stop();
     _conversationsUserId = '';
     _conversationsSubscribedUserId = '';
     _errors.clear(AppFeature.messages);
     _conversations = [];
-    _pagedConversationIds.clear();
-    _prefetchedThreads.clear();
-    _hasMoreConversations = true;
     _isLoadingConversations = false;
-    _loadingMoreConversations = false;
     _appliedPostIds = {};
     _archivedPostIds = const {};
     _createdPosts = const [];
@@ -1732,208 +1732,122 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// empty Messages tab. The two questions are now two fields.
   String _conversationsUserId = '';
 
-  /// Account the LIVE STREAM is subscribed for ('' = not subscribed).
+  /// Account the store subscription and [ChatSync] run for ('' = none).
   String _conversationsSubscribedUserId = '';
 
-  /// Ids appended by [loadMoreConversations] — i.e. conversations that exist
-  /// beyond the realtime stream's first page.
-  ///
-  /// This replaces a length comparison (`list + _conversations.sublist(...)`)
-  /// that tried to infer "these are paginated extras" from list SIZE. When the
-  /// incoming list belonged to a different, smaller account, that heuristic
-  /// re-installed the previous user's conversations instead — the mechanism
-  /// behind the cross-account leak. Tracking the ids we actually paginated
-  /// makes the distinction explicit and account-safe: an id nobody paged in for
-  /// THIS user can never be preserved.
-  final Set<String> _pagedConversationIds = {};
+  StreamSubscription<ChatChange>? _chatStoreSubscription;
+  Timer? _conversationReload;
 
-  /// Real-time chat list from Supabase, designed so the Messages tab paints
-  /// instantly:
+  /// THE MESSAGES TAB IS A VIEW OF THE CHAT DATABASE.
   ///
-  /// 1. Idempotent — the stream is started once (at app start / auth ready)
-  ///    and survives tab switches. Re-entering the tab is a no-op instead of
-  ///    a cancel-resubscribe-skeleton cycle.
-  /// 2. Stale-while-revalidate — cached conversations hydrate the list
-  ///    immediately (online too, not just offline); the live stream then
-  ///    refreshes silently. The skeleton only ever shows on a true first run.
-  /// 3. Avatars are pre-warmed into the image cache so tiles render without
-  ///    pop-in.
-  /// Chats whose thread this session has already warmed. Cleared on sign-out
-  /// with the rest of the conversation state.
-  final Set<String> _prefetchedThreads = {};
-
-  /// How many of the most recent conversations get their thread warmed.
+  /// It used to be the last emission of a network stream, hydrated from a
+  /// SharedPreferences snapshot of the emission before. Whatever that stream
+  /// published — including a list in which every name had become "?" because
+  /// one lookup failed — was shown and saved. Now:
   ///
-  /// Deliberately small. Opening the app is not a reason to download every
-  /// conversation the account has ever had; it is a reason to make the handful
-  /// the user is realistically about to tap open instantly.
-  static const int _prefetchThreadLimit = 5;
-
-  /// Warm the message cache for the most recent threads, so the FIRST open of
-  /// a conversation on a new install is instant instead of the measured 522 ms
-  /// spinner (Galaxy S20+, cold cache).
+  /// 1. The list is read from [ChatStore] FIRST: no auth refresh, socket or
+  ///    request stands in front of it, so a cold start on a plane paints the
+  ///    whole list, names and photos included.
+  /// 2. It is re-read whenever the store changes ([ChatStore.changes]) —
+  ///    a sync, a push written by the background isolate, a chat opened.
+  /// 3. [ChatSync] is started; it is the only writer from the network.
   ///
-  /// Bounded on every axis that could make this abusive:
-  ///  * at most [_prefetchThreadLimit] conversations PER SESSION, most recent
-  ///    first — the budget is `_prefetchedThreads.length`, not a per-call
-  ///    counter. This matters: the conversation stream emits on every poll and
-  ///    every realtime nudge, so a per-call counter would warm the next five
-  ///    each time and eventually download every thread the account has. That
-  ///    bug was real and was caught on device — position 7 turned up warm.
-  ///  * one existing 30-message page each — no history walk;
-  ///  * once per chat per session (`_prefetchedThreads`);
-  ///  * skipped entirely for threads already mirrored in memory, so it never
-  ///    duplicates work ChatScreen or a previous run already did;
-  ///  * sequential, so it cannot burst;
-  ///  * never runs offline — the caller only reaches here from a successful
-  ///    server emission, and each fetch failure simply leaves the cache cold.
-  ///
-  /// Failures are silent by design: this is an optimisation, and a chat that
-  /// fails to pre-warm just loads normally when opened.
-  Future<void> _prefetchRecentThreads(
-    String currentUserId,
-    List<Conversation> conversations,
-  ) async {
-    if (conversations.isEmpty) return;
-    if (_prefetchedThreads.length >= _prefetchThreadLimit) return;
-    var warmed = 0;
-    for (final conversation in conversations) {
-      // SESSION budget, not per-call. See the note above.
-      if (_prefetchedThreads.length >= _prefetchThreadLimit) break;
-      // The session may have ended, or switched account, mid-walk.
-      if (_conversationsUserId != currentUserId) return;
-      final chatId = conversation.id;
-      if (chatId.isEmpty) continue;
-      if (!_prefetchedThreads.add(chatId)) continue;
-      if (CacheService.peekMessages(chatId, currentUserId) != null) continue;
-      try {
-        final messages =
-            await ChatServiceSupabase.getMessages(chatId, currentUserId);
-        if (_conversationsUserId != currentUserId) return;
-        if (messages.isNotEmpty) {
-          await CacheService.saveMessages(currentUserId, chatId, messages);
-          warmed++;
-        }
-      } catch (_) {
-        // Leave it cold; opening the chat will load it the normal way. The id
-        // is released so a later emission may retry it, still inside budget.
-        _prefetchedThreads.remove(chatId);
-      }
-    }
-    if (warmed > 0) {
-      debugPrint(
-        '[CHAT][PREFETCH] warmed $warmed thread(s), '
-        'session budget ${_prefetchedThreads.length}/$_prefetchThreadLimit',
-      );
-    }
-  }
-
+  /// Idempotent per account, and survives tab switches.
   Future<void> loadConversations(String currentUserId) async {
     if (currentUserId.isEmpty) {
       resetForSignOut();
       return;
     }
-    if (_conversationsSubscribedUserId == currentUserId &&
-        _conversationStreamSubscription != null) {
-      return; // Already syncing for this user — nothing to do.
-    }
+    if (_conversationsSubscribedUserId == currentUserId) return;
     // Switching users: drop the outgoing account's list BEFORE anything can
     // paint. Previously this was left in place and merged against, so the new
     // account inherited whatever the old one had.
     if (_conversationsUserId != currentUserId) {
       _conversations = [];
-      _pagedConversationIds.clear();
-      _prefetchedThreads.clear();
     }
     _conversationsUserId = currentUserId;
+    _conversationsSubscribedUserId = currentUserId;
     // Hand the outbox its owner. It reads what a previous session left queued
     // on disk and drains it on every reconnect edge from here on — which is
     // what makes a message composed offline arrive without the user having to
     // re-open that exact conversation. Idempotent per uid; does not block.
     unawaited(OutboxStore.instance.start(currentUserId));
     _errors.clear(AppFeature.messages);
-    _hasMoreConversations = true;
-    _conversationStreamSubscription?.cancel();
-    _conversationStreamSubscription = null;
 
-    // Disk hydration first: whatever we knew last session shows instantly.
-    // Scoped to this uid, so the cache physically cannot hold another account's
-    // conversations. The post-await re-check also confirms the user has not
-    // changed again while the disk read was in flight.
-    if (_conversations.isEmpty) {
-      final cached = await CacheService.loadConversations(currentUserId);
-      if (_conversationsUserId == currentUserId &&
-          _conversations.isEmpty &&
-          cached.isNotEmpty) {
-        _conversations = cached;
-        _warmAvatarCache(cached);
-      }
-    }
+    _chatStoreSubscription?.cancel();
+    _chatStoreSubscription = ChatStore.instance.changes.listen((change) {
+      if (change.owner.isNotEmpty && change.owner != currentUserId) return;
+      if (!change.touchesList) return;
+      // Coalesce a burst of writes (a sync, then its avatars) into one read.
+      _conversationReload?.cancel();
+      _conversationReload = Timer(const Duration(milliseconds: 30), () {
+        unawaited(_reloadConversations(currentUserId, fromWrite: true));
+      });
+    });
+    ChatSync.instance.firstLoadError
+      ..removeListener(_onFirstChatLoadError)
+      ..addListener(_onFirstChatLoadError);
+
+    // The skeleton is for a true first run only: nothing stored, and a network
+    // that might answer. Offline with nothing stored is a different screen.
     _isLoadingConversations = _conversations.isEmpty;
-    notifyListeners();
-
-    final results = await Connectivity().checkConnectivity();
-    final offline = results.isEmpty || results.every((r) => r == ConnectivityResult.none);
-    if (offline) {
+    await ChatStore.instance.open(currentUserId);
+    if (_conversationsUserId != currentUserId) return;
+    await _reloadConversations(currentUserId);
+    if (_conversationsUserId != currentUserId) return;
+    if (_conversations.isNotEmpty || NetworkHealth.isOffline) {
       _isLoadingConversations = false;
-      // Not subscribed — a later call (tab tap, reconnect) retries. The OWNER
-      // id stays put: the cached conversations hydrated above belong to this
-      // account and must survive, which is the whole point of hydrating them.
-      _conversationsSubscribedUserId = '';
-      notifyListeners();
+    }
+    notifyListeners();
+    ChatSync.instance.start(currentUserId);
+  }
+
+  Future<void> _reloadConversations(String uid, {bool fromWrite = false}) async {
+    final list = await ChatStore.instance.loadConversations(uid);
+    if (_conversationsUserId != uid) return;
+    _conversations = list;
+    // A write is a sync (or a push) having answered: whatever it said,
+    // including "no conversations", is no longer loading.
+    if (fromWrite || list.isNotEmpty) _isLoadingConversations = false;
+    if (list.isNotEmpty) _errors.clear(AppFeature.messages);
+    _warmAvatarCache(list);
+    notifyListeners();
+  }
+
+  /// The first load failed with nothing stored — the one failure the Messages
+  /// tab should say out loud ("couldn't load", with a retry).
+  void _onFirstChatLoadError() {
+    final error = ChatSync.instance.firstLoadError.value;
+    if (error == null) {
+      if (_errors[AppFeature.messages] != null) {
+        _errors.clear(AppFeature.messages);
+        notifyListeners();
+      }
       return;
     }
+    if (_conversations.isNotEmpty) return;
+    _errors.set(AppFeature.messages,
+        ErrorMapper.toMessage(error, context: ErrorContext.loadContent));
+    _isLoadingConversations = false;
+    notifyListeners();
+  }
 
-    _conversationsSubscribedUserId = currentUserId;
-    _conversationStreamSubscription = ChatServiceSupabase.watchConversations(currentUserId).listen(
-      (list) {
-        // A stream started for a previous user can still deliver after the
-        // switch (cancel() does not retroactively drop an in-flight event).
-        // Anything not addressed to the current session is discarded.
-        if (_conversationsUserId != currentUserId) return;
-
-        // The stream is authoritative for its page. Only conversations we
-        // explicitly paginated in — for THIS user — are preserved beyond it.
-        final incomingIds = list.map((c) => c.id).toSet();
-        final pagedTail = _conversations
-            .where((c) =>
-                !incomingIds.contains(c.id) &&
-                _pagedConversationIds.contains(c.id))
-            .toList();
-        _conversations = [...list, ...pagedTail];
-
-        _isLoadingConversations = false;
-        _errors.clear(AppFeature.messages);
-        // Written unconditionally, including an empty list: "this account has
-        // no conversations" is a fact worth persisting. Skipping the write for
-        // empty results is what let one account's cached list outlive it and
-        // surface under the next.
-        //
-        // This is only safe because the stream no longer publishes a failed
-        // fetch as an empty list (see watchConversations): every `list` that
-        // reaches here is an answer from the server, so persisting an empty one
-        // records a fact rather than overwriting history with an outage.
-        CacheService.saveConversations(currentUserId, list);
-        if (list.isNotEmpty) _warmAvatarCache(list);
-        unawaited(_prefetchRecentThreads(currentUserId, list));
-        notifyListeners();
-      },
-      onError: (e) {
-        if (_conversationsUserId != currentUserId) return;
-        // Reached only before the first successful load — the stream withholds
-        // later failures rather than emitting them, so a blip can never clear
-        // conversations that are already on screen.
-        _errors.set(AppFeature.messages,
-            ErrorMapper.toMessage(e, context: ErrorContext.loadContent));
-        _isLoadingConversations = false;
-        notifyListeners();
-      },
-    );
+  /// Pull-to-refresh: ask the server now. The list is never cleared, so
+  /// nothing blinks — the store change repaints it.
+  Future<void> refreshConversations(String currentUserId) async {
+    if (currentUserId.isEmpty) return;
+    if (_conversationsSubscribedUserId != currentUserId) {
+      await loadConversations(currentUserId);
+      return;
+    }
+    await ChatSync.instance.syncNow();
   }
 
   void stopListeningToConversations() {
-    _conversationStreamSubscription?.cancel();
-    _conversationStreamSubscription = null;
+    _chatStoreSubscription?.cancel();
+    _chatStoreSubscription = null;
+    _conversationReload?.cancel();
+    ChatSync.instance.stop();
     // Stops the SYNC, not the ownership: the list stays readable and stays
     // attributed to the account it belongs to.
     _conversationsSubscribedUserId = '';
@@ -1961,7 +1875,9 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   void dispose() {
     _disposed = true;
     SessionScope.instance.unregister(this);
-    _conversationStreamSubscription?.cancel();
+    _chatStoreSubscription?.cancel();
+    _conversationReload?.cancel();
+    ChatSync.instance.firstLoadError.removeListener(_onFirstChatLoadError);
     _searchDebounce?.cancel();
     _viewerGraceTimer?.cancel();
     super.dispose();
@@ -2074,14 +1990,12 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     return completer.future;
   }
 
-  void _warmAvatarCache(List<Conversation> list) =>
-      _warmAvatarUrls(list.take(30).map((c) => c.userAvatar));
-
-  bool _hasMoreConversations = true;
-  bool _loadingMoreConversations = false;
-
-  bool get hasMoreConversations => _hasMoreConversations;
-  bool get loadingMoreConversations => _loadingMoreConversations;
+  /// Rows whose photo is already a file on this phone (ChatMediaStore) need
+  /// nothing from the image cache; the rest are warmed so they do not pop in.
+  void _warmAvatarCache(List<Conversation> list) => _warmAvatarUrls(list
+      .take(30)
+      .where((c) => c.userAvatarPath == null)
+      .map((c) => c.userAvatar));
 
   /// Sum of unread messages across all conversations.
   int get totalUnreadCount =>
@@ -2099,6 +2013,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     if (idx == -1 || _conversations[idx].unreadCount == 0) return;
     _conversations[idx] = _conversations[idx].copyWith(unreadCount: 0);
     notifyListeners();
+    // Kept at zero across a restart, not just for this session.
+    unawaited(ChatStore.instance.markRead(_conversationsUserId, chatId));
   }
 
   // ── Active chat tracking (for notification suppression) ──────────────────
@@ -2119,41 +2035,6 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     // No notifyListeners() — this is only read by the FCM handler.
   }
 
-  /// Load next page of conversations (lazy load). Call when user scrolls near bottom.
-  Future<void> loadMoreConversations(String currentUserId) async {
-    if (currentUserId.isEmpty || !_hasMoreConversations || _isLoadingConversations || _loadingMoreConversations) return;
-    if (_conversationsUserId != currentUserId) return;
-    _loadingMoreConversations = true;
-    notifyListeners();
-    try {
-      final result = await ChatServiceSupabase.getConversationsPage(
-        currentUserId,
-        offset: _conversations.length,
-      );
-      // The page was requested for a user who may have signed out while it was
-      // in flight; appending it now would repopulate a cleared list.
-      if (_conversationsUserId != currentUserId) return;
-      if (result.list.isEmpty) {
-        _hasMoreConversations = false;
-      } else {
-        final existingIds = _conversations.map((c) => c.id).toSet();
-        final newList = result.list.where((c) => !existingIds.contains(c.id)).toList();
-        _conversations = _conversations + newList;
-        // Remember these so a later realtime emission (which only covers page
-        // one) does not drop them.
-        _pagedConversationIds.addAll(newList.map((c) => c.id));
-        _hasMoreConversations = result.hasMore;
-      }
-      notifyListeners();
-    } catch (e) {
-      _hasMoreConversations = false;
-      notifyListeners();
-    } finally {
-      _loadingMoreConversations = false;
-      notifyListeners();
-    }
-  }
-
   // ensureConversationOnApply removed. It had NO callers — chats are created on
   // first send, by ChatScreen, through ChatServiceSupabase.createChat (see the
   // pending-Conversation pattern in post_flows). Its only live effect was to
@@ -2162,14 +2043,20 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   // contamination.
 
   /// Update a conversation in the local list
+  ///
+  /// A chat created on first send appears at once; one already in the list is
+  /// left as the database has it (see [ChatStore.upsertConversation] — a row
+  /// built on the send path must not roll back a newer preview or count). The
+  /// store write then repaints the list from the database.
   void updateConversation(Conversation conversation) {
     final index = _conversations.indexWhere((c) => c.id == conversation.id);
-    if (index != -1) {
-      _conversations[index] = conversation;
-    } else {
+    if (index == -1) {
       _conversations.insert(0, conversation);
+      notifyListeners();
     }
-    notifyListeners();
+    if (_conversationsUserId.isNotEmpty) {
+      unawaited(ChatStore.instance.upsertConversation(_conversationsUserId, conversation));
+    }
   }
 
   // ==================== THEME ====================

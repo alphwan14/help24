@@ -34,6 +34,8 @@ import 'services/feed_snapshot.dart';
 import 'services/location_registry.dart';
 import 'services/profession_registry.dart';
 import 'services/chat_local_prefs.dart';
+import 'services/chat_media_store.dart';
+import 'services/chat_store.dart';
 import 'services/diagnostic_service.dart';
 import 'services/journey_engine.dart';
 import 'services/launch_sequence.dart';
@@ -222,7 +224,20 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // Chat photos cached on disk are the conversation's own content: the
       // next account on this phone must not find them.
       SessionScope.instance.register(const ChatAttachmentScope());
-      await SessionScope.instance.purgeForeignScopes(await _restoredUid());
+      // The chat database and the chat media beside it: deleted at sign-out
+      // (and ONLY then — not on a 401, an expired token or an app update).
+      SessionScope.instance.register(ChatStore.instance);
+      final restoredUid = await _restoredUid();
+      // Includes another account's chat database and media (ChatStore is a
+      // SessionPurgeable), left by a sign-out the process did not live to
+      // finish — gone before anything can read them.
+      await SessionScope.instance.purgeForeignScopes(restoredUid);
+      await ChatMediaStore.init();
+      // Open (and, on the first launch after an update, migrate) this account's
+      // chat database now, so the Messages tab's first read does not pay for it.
+      if (restoredUid != null && restoredUid.isNotEmpty) {
+        unawaited(ChatStore.instance.open(restoredUid));
+      }
 
       if (AppFirebase.isReady) {
         await NotificationService.initialize();

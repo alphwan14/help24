@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_notification.dart';
 import '../models/post_model.dart';
+import 'chat_store.dart';
 import 'session_scope.dart';
 
 /// Registers the in-memory message mirror with [SessionScope] so it is dropped
@@ -25,11 +26,13 @@ class MessageMemoScope implements SessionScoped {
 /// stays device-global and survives a session change (a cold feed on every
 /// sign-in would cost real UX and protect nothing).
 ///
-/// Conversations, message threads and the outbox are USER-OWNED and are keyed
-/// by uid via [SessionKeys]. They previously shared one device-global key each,
-/// which is how account A's chat list rendered inside account C's session. The
-/// uid is now part of the key, so a read performed as C cannot address data
-/// written as A — the isolation is structural, not a filter applied afterwards.
+/// Conversations, message threads and the outbox are USER-OWNED. They live in
+/// the account's own chat database (`ChatStore`, one file per uid), and the
+/// methods below that touch them are a facade over it. Builds up to 1.0.2 kept
+/// them here under uid-scoped [SessionKeys]; `ChatStore` imports those once and
+/// deletes them. Either way the uid decides WHICH store is read, so a read
+/// performed as C cannot address data written as A — the isolation is
+/// structural, not a filter applied afterwards.
 class _Keys {
   static const String posts = 'help24_cache_posts';
   // 'help24_cache_jobs' was here, holding the parallel jobs corpus. Removed
@@ -118,19 +121,20 @@ class CacheService {
   // whenever the OS clears app data. Not worth a migration to delete.
 
   // ---------- Conversations (offline messages list) ----------
+  //
+  // Backed by the chat database (`ChatStore`) since the local-first rebuild.
+  // These two remain as the facade older call sites and tests use; the
+  // Messages tab itself reads ChatStore directly and ChatSync writes it.
 
+  /// Replace [userId]'s stored list with [list] — an empty list persists the
+  /// fact "this account has no conversations".
   static Future<void> saveConversations(
     String userId,
     List<Conversation> list,
   ) async {
     if (userId.isEmpty) return;
     try {
-      final prefs = await _instance;
-      final maps = list.map((c) => c.toCacheMap()).toList();
-      await prefs.setString(
-        SessionScope.scopedKey(SessionKeys.conversations, userId),
-        jsonEncode(maps),
-      );
+      await ChatStore.instance.replaceConversations(userId, list);
     } catch (e) {
       // Non-critical
     }
@@ -138,19 +142,7 @@ class CacheService {
 
   static Future<List<Conversation>> loadConversations(String userId) async {
     if (userId.isEmpty) return [];
-    try {
-      final prefs = await _instance;
-      final json = prefs
-          .getString(SessionScope.scopedKey(SessionKeys.conversations, userId));
-      if (json == null || json.isEmpty) return [];
-      final list = jsonDecode(json) as List<dynamic>?;
-      if (list == null || list.isEmpty) return [];
-      return list
-          .map((e) => Conversation.fromCacheMap(Map<String, dynamic>.from(e as Map)))
-          .toList();
-    } catch (e) {
-      return [];
-    }
+    return ChatStore.instance.loadConversations(userId);
   }
 
   // ---------- Notifications (offline notification centre) ----------
@@ -218,46 +210,66 @@ class CacheService {
 
   // ---------- Messages per chat (offline chat view) ----------
 
-  /// Message BODIES. The most sensitive thing the app caches, and previously
-  /// the most exposed: keyed by chat id alone, it would render one account's
-  /// private messages inside another account's session — and attribute them to
-  /// the wrong author, since `isMe` is resolved against whoever is reading.
+  /// Message BODIES — the most sensitive thing the app keeps. They live in the
+  /// account's own database file, so a read as one account cannot reach
+  /// another's (`ChatStore.fileNameFor`), and `isMe` is resolved against the
+  /// file's owner.
+  ///
+  /// UPSERT, not replace: a page of messages is a window onto the thread, and
+  /// writing it must never delete the older history the database already
+  /// holds. "Clear chat" is [clearMessages].
   static Future<void> saveMessages(
     String userId,
     String chatId,
     List<Message> messages,
   ) async {
-    if (userId.isEmpty || chatId.isEmpty) return;
+    if (userId.isEmpty || chatId.isEmpty || messages.isEmpty) return;
+    final key = SessionScope.scopedKey(SessionKeys.messages, userId, chatId);
+    _memMessages[key] = List<Message>.unmodifiable(
+      _mergeById(_memMessages[key] ?? const [], messages),
+    );
     try {
-      final prefs = await _instance;
-      final key = SessionScope.scopedKey(SessionKeys.messages, userId, chatId);
-      final maps = messages.map((m) => m.toCacheMap()).toList();
-      _memMessages[key] = List<Message>.unmodifiable(messages);
-      await prefs.setString(key, jsonEncode(maps));
+      await ChatStore.instance.upsertMessages(userId, chatId, messages);
     } catch (e) {
       // Non-critical
     }
   }
 
-  static Future<List<Message>> loadMessages(String chatId, String currentUserId) async {
-    if (chatId.isEmpty || currentUserId.isEmpty) return [];
+  /// Forget [chatId]'s stored thread on this device.
+  static Future<void> clearMessages(String userId, String chatId) async {
+    if (userId.isEmpty || chatId.isEmpty) return;
+    _memMessages.remove(SessionScope.scopedKey(SessionKeys.messages, userId, chatId));
     try {
-      final prefs = await _instance;
-      final key =
-          SessionScope.scopedKey(SessionKeys.messages, currentUserId, chatId);
-      final json = prefs.getString(key);
-      if (json == null || json.isEmpty) return [];
-      final list = jsonDecode(json) as List<dynamic>?;
-      if (list == null || list.isEmpty) return [];
-      final messages = list
-          .map((e) => Message.fromJson(Map<String, dynamic>.from(e as Map), currentUserId))
-          .toList();
-      // Memoise so the next open of this thread paints in the first frame.
-      _memMessages[key] = List<Message>.unmodifiable(messages);
-      return messages;
+      await ChatStore.instance.clearThread(userId, chatId);
     } catch (e) {
-      return [];
+      // Non-critical
     }
+  }
+
+  /// The newest stored messages of [chatId], oldest first.
+  static Future<List<Message>> loadMessages(
+    String chatId,
+    String currentUserId, {
+    int limit = 100,
+  }) async {
+    if (chatId.isEmpty || currentUserId.isEmpty) return [];
+    final messages = await ChatStore.instance.loadThread(currentUserId, chatId, limit: limit);
+    if (messages.isNotEmpty) {
+      // Memoise so the next open of this thread paints in the first frame.
+      _memMessages[SessionScope.scopedKey(SessionKeys.messages, currentUserId, chatId)] =
+          List<Message>.unmodifiable(messages);
+    }
+    return messages;
+  }
+
+  /// [a] with [b] merged in by id (b wins), chronological, newest 200 kept.
+  static List<Message> _mergeById(List<Message> a, List<Message> b) {
+    final byId = <String, Message>{for (final m in a) m.id: m};
+    for (final m in b) {
+      byId[m.id] = m;
+    }
+    final merged = byId.values.toList()..sort((x, y) => x.timestamp.compareTo(y.timestamp));
+    return merged.length > 200 ? merged.sublist(merged.length - 200) : merged;
   }
 
   // ---------- Outbox per chat (unsent messages, survive restart) ----------
@@ -265,6 +277,10 @@ class CacheService {
   /// Persist the queue of messages that have not yet reached the server, so a
   /// message composed offline is not lost when the user leaves the chat or the
   /// app restarts. Passing an empty list clears the outbox for [chatId].
+  ///
+  /// Kept in the SAME database as the thread, so a message can never be both
+  /// delivered (in `messages`) and queued (in `outbox`): writing the server
+  /// row removes its queued copy in the same batch.
   static Future<void> saveOutbox(
     String userId,
     String chatId,
@@ -272,14 +288,7 @@ class CacheService {
   ) async {
     if (userId.isEmpty || chatId.isEmpty) return;
     try {
-      final prefs = await _instance;
-      final key = SessionScope.scopedKey(SessionKeys.outbox, userId, chatId);
-      if (outbox.isEmpty) {
-        await prefs.remove(key);
-        return;
-      }
-      final maps = outbox.map((m) => m.toCacheMap()).toList();
-      await prefs.setString(key, jsonEncode(maps));
+      await ChatStore.instance.replaceOutbox(userId, chatId, outbox);
     } catch (e) {
       // Non-critical
     }
@@ -287,24 +296,19 @@ class CacheService {
 
   static Future<List<Message>> loadOutbox(String chatId, String currentUserId) async {
     if (chatId.isEmpty || currentUserId.isEmpty) return [];
-    try {
-      final prefs = await _instance;
-      final key =
-          SessionScope.scopedKey(SessionKeys.outbox, currentUserId, chatId);
-      final json = prefs.getString(key);
-      if (json == null || json.isEmpty) return [];
-      final list = jsonDecode(json) as List<dynamic>?;
-      if (list == null || list.isEmpty) return [];
-      return list.map((e) {
-        final m = Message.fromJson(Map<String, dynamic>.from(e as Map), currentUserId);
-        // 'sending' (OutboxStatus.sending) on disk means a request was open
-        // when this was written. A process reading it now has opened none, so
-        // the true state is queued — a spinner here would claim work that
-        // died with the previous process.
-        return m.status == 'sending' ? m.copyWith(status: 'queued') : m;
-      }).toList();
-    } catch (e) {
-      return [];
-    }
+    final queued = await ChatStore.instance.loadOutbox(currentUserId, chatId);
+    return [
+      // 'sending' (OutboxStatus.sending) on disk means a request was open
+      // when this was written. A process reading it now has opened none, so
+      // the true state is queued — a spinner here would claim work that
+      // died with the previous process.
+      for (final m in queued) m.status == 'sending' ? m.copyWith(status: 'queued') : m,
+    ];
+  }
+
+  /// Every chat [userId] has something queued in.
+  static Future<List<String>> outboxChatIds(String userId) async {
+    if (userId.isEmpty) return [];
+    return ChatStore.instance.outboxChatIds(userId);
   }
 }

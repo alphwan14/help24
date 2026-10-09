@@ -6,7 +6,6 @@ import 'package:geolocator/geolocator.dart' show Geolocator;
 import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:provider/provider.dart';
 import '../theme/app_icons.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../models/post_model.dart';
@@ -23,6 +22,8 @@ import '../services/chat_resolution.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/post_service.dart';
 import '../services/cache_service.dart';
+import '../services/chat_media_store.dart';
+import '../services/chat_store.dart';
 import '../services/outbox_delivery.dart';
 import '../services/outbox_store.dart';
 import '../services/supabase_auth_bridge.dart';
@@ -41,6 +42,9 @@ import '../widgets/loading_empty_offline.dart';
 import '../widgets/chat_ui.dart';
 import '../widgets/chat/chat_bubbles.dart';
 import '../widgets/chat/chat_chrome.dart';
+import '../widgets/chat/chat_sync_status.dart';
+import '../widgets/chat/person_avatar.dart';
+import '../models/chat_person.dart';
 import '../models/chat_presentation.dart';
 import '../models/chat_job_stage.dart';
 import '../models/job_lifecycle.dart';
@@ -119,17 +123,12 @@ class _MessagesScreenState extends State<MessagesScreen> {
     });
   }
 
+  /// Pull-to-refresh is the user asking for a sync NOW. The list is never
+  /// cleared, so nothing blinks: the database change repaints it.
   Future<void> _refreshConversations() async {
     final uid = _currentUserId;
     if (uid.isEmpty) return;
-    final app = context.read<AppProvider>();
-    // loadConversations is idempotent by design — it no-ops when a stream is
-    // already running. That is right for tab switches and wrong for a pull-to-
-    // refresh, which is the user asking for an attempt NOW. Dropping the
-    // subscription first makes the re-subscribe fetch immediately; the list
-    // itself is never cleared, so nothing blinks.
-    app.stopListeningToConversations();
-    await app.loadConversations(uid);
+    await context.read<AppProvider>().refreshConversations(uid);
   }
 
   @override
@@ -142,11 +141,21 @@ class _MessagesScreenState extends State<MessagesScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header
+          // The title, and under it the one line that says where chat stands
+          // with the server — "Waiting for network", "Connecting…" or
+          // nothing. Content below never waits on it.
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-            child: Text(
-              'Messages',
-              style: Theme.of(context).textTheme.headlineMedium,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Messages',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const ChatSyncStatusLine(),
+              ],
             ),
           ),
           Divider(height: 1, thickness: 0.5, color: colors.borderHairline),
@@ -157,26 +166,26 @@ class _MessagesScreenState extends State<MessagesScreen> {
               builder: (context, provider, connectivity, _) {
                 final conversations = provider.conversations;
 
-                if (provider.isLoadingConversations && conversations.isEmpty) {
-                  return const ConversationSkeletonList();
-                }
-
                 if (conversations.isEmpty) {
-                  // Offline with no cached conversations: show offline empty state.
+                  // Offline with nothing in the chat database: this phone has
+                  // never loaded this account's chats. Say what would fix it.
                   //
-                  // Reaching this while offline now means what it says — we have
-                  // never successfully loaded this account's chats on this
-                  // device. It used to be reachable with months of history on
-                  // disk, because a failed poll was published as an empty list
-                  // and overwrote both the list and its cache.
+                  // Checked BEFORE the skeleton: a skeleton offline promises a
+                  // load that cannot happen. And it is only reachable with
+                  // nothing stored — the list is read from the database first,
+                  // so any history at all is on screen instead.
                   if (connectivity.isOffline) {
                     return OfflineEmptyView(
-                      message: 'No internet connection',
+                      message: 'Connect to the internet to load your chats',
+                      detail: "Once they've loaded, they stay on this phone — even offline.",
                       onRetry: () {
                         connectivity.checkNow();
                         _refreshConversations();
                       },
                     );
+                  }
+                  if (provider.isLoadingConversations) {
+                    return const ConversationSkeletonList();
                   }
                   // "We couldn't load your chats" is not "you have no chats" —
                   // same distinction the Discover feed makes.
@@ -200,34 +209,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
                   );
                 }
 
-                final hasMore = provider.hasMoreConversations;
+                // Every conversation the database holds — sync pages the whole
+                // list in, so there is no "load more" to wait on.
                 return RefreshIndicator(
                   onRefresh: _refreshConversations,
                   child: ListView.builder(
                     padding: EdgeInsets.zero,
-                    itemCount: conversations.length + (hasMore ? 1 : 0),
+                    itemCount: conversations.length,
                     itemBuilder: (context, index) {
-                      if (hasMore && index == conversations.length) {
-                        final loadingMore = provider.loadingMoreConversations;
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          child: Center(
-                            child: loadingMore
-                                ? const SizedBox(
-                                    height: 24,
-                                    width: 24,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : TextButton.icon(
-                                    onPressed: () => provider.loadMoreConversations(
-                                      context.read<AuthProvider>().currentUserId ?? '',
-                                    ),
-                                    icon: const Icon(AppIcons.refresh, size: 18),
-                                    label: const Text('Load more conversations'),
-                                  ),
-                          ),
-                        );
-                      }
                       final conversation = conversations[index];
                       final uid = context.read<AuthProvider>().currentUserId ?? '';
                       final tile = _ConversationTile(
@@ -307,35 +296,9 @@ class _ConversationTile extends StatelessWidget {
     }
   }
 
-  // A PLACEHOLDER IS NOT A BRAND MOMENT.
-  //
-  // This was a solid accent-filled circle, so a conversation list where two
-  // people have no photo showed two large saturated discs — the loudest thing
-  // on a screen whose content is words. The accent marks selection; an avatar
-  // we do not have is the absence of information.
-  Widget _avatarPlaceholder(BuildContext context, String initial) {
-    final c = AppColors.of(context);
-    return CircleAvatar(
-      radius: 26,
-      backgroundColor: c.surfaceSunken,
-      child: Text(
-        initial,
-        style: TextStyle(
-          color: c.contentSecondary,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final avatarUrl = conversation.userAvatar;
-    final initial = conversation.userName.isNotEmpty
-        ? conversation.userName.substring(0, 1).toUpperCase()
-        : '?';
     // Device-local "clear conversation": when everything up to the last
     // message was cleared, the tile must not keep echoing the server-side
     // preview. A newer message than the watermark restores normal display.
@@ -386,32 +349,16 @@ class _ConversationTile extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
               child: Row(
                 children: [
-                  // Circular avatar
-                  SizedBox(
-                    width: 52,
-                    height: 52,
-                    child: avatarUrl.isNotEmpty
-                        ? CircleAvatar(
-                            radius: 26,
-                            backgroundColor: AppColors.of(context).surfaceSunken,
-                            child: ClipOval(
-                              // Never a visible load: cached images paint the
-                              // same frame (zero fade), uncached ones sit on
-                              // the initial-letter avatar — no spinner ever.
-                              child: CachedNetworkImage(
-                                imageUrl: avatarUrl,
-                                width: 52,
-                                height: 52,
-                                fit: BoxFit.cover,
-                                fadeInDuration: Duration.zero,
-                                fadeOutDuration: Duration.zero,
-                                placeholderFadeInDuration: Duration.zero,
-                                placeholder: (_, __) => _avatarPlaceholder(context, initial),
-                                errorWidget: (_, __, ___) => _avatarPlaceholder(context, initial),
-                              ),
-                            ),
-                          )
-                        : _avatarPlaceholder(context, initial),
+                  // The person, from this phone first: their photo as a
+                  // file, then the network, then their initials on their own
+                  // tint. A placeholder is not a brand moment, and it is
+                  // never "?" (see PersonAvatar).
+                  PersonAvatar(
+                    userId: conversation.participantId,
+                    name: conversation.userName,
+                    size: 52,
+                    avatarPath: conversation.userAvatarPath,
+                    avatarUrl: conversation.userAvatar,
                   ),
                   const SizedBox(width: 14),
                   // Content
@@ -423,7 +370,7 @@ class _ConversationTile extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                conversation.userName,
+                                ChatPeople.displayName(conversation.userName),
                                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -693,6 +640,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// read with their presence — the header's "Plumber · ★ 4.8 · 34 jobs".
   String? _partnerProfession;
 
+  /// The other person as the chat database knows them — name, photo file,
+  /// profession — read at open, so the header is right with no network.
+  ChatPerson? _partner;
+
+  /// The conversation's own copy of its participant's last known name: the
+  /// fallback that still names them when the person record has no name.
+  String? _storedPartnerName;
+
+  /// Who the other person is, for every place this screen names them. The
+  /// person record wins, then the entry point's name, then the conversation's
+  /// copy — and when none is known, `ChatPeople.unknownName`. Never "?".
+  String get _partnerName => ChatPeople.displayName(
+        _partner?.name ??
+            ChatPeople.knownOrNull(widget.conversation.userName) ??
+            _storedPartnerName,
+      );
+
+  /// Writes to the chat database by anyone else — a sync, a push the
+  /// background isolate stored — reach the open thread through this.
+  StreamSubscription<ChatChange>? _storeSub;
+  Timer? _storeMerge;
+
+  /// Offline and the database has nothing older: stop asking until a network
+  /// returns, instead of re-querying on every scroll event.
+  bool _olderExhaustedOffline = false;
+
   // ── Pinned job bar ──
   // The lifecycle aggregate is the server's money-truth for this job (see
   // chat_job_stage.dart). Memoised per post so reopening the chat paints the
@@ -802,6 +775,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Paint the cached thread instantly (no spinner), then let realtime
     // replace it silently with fresh data.
     _hydrateFromCache();
+    // The pinned job bar as it last stood, until the server says otherwise.
+    unawaited(_restoreJobSnapshot());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) context.read<AppProvider>().setActiveChatId(_chatId);
     });
@@ -809,6 +784,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _startChatRowRealtime();
     _typingPoll ??= _makeTypingPoll()..start();
     _markSeenNow();
+  }
+
+  /// Take [chatId] as this screen's conversation — found in the chat database
+  /// or by the server lookup; the two paths are the same code from here on.
+  Future<void> _adoptExistingChat(
+    String chatId, {
+    required String? postId,
+    required String? postTitle,
+  }) async {
+    setState(() {
+      _activeChatId = chatId;
+      _resolution = ChatResolution.existing;
+      // Adopting the thread's real post context keeps the post banner and the
+      // job-status card correct when Profile resolved to a post-scoped chat.
+      // `_postTitle` prefers what is adopted here over what the caller
+      // supplied, because the adopted thread is the one actually on screen.
+      _resolvedPostId = postId;
+      _resolvedPostTitle = postTitle;
+    });
+    _beginExistingChat();
+    unawaited(_loadPartner());
+    // The post context just changed under us; refresh what depends on it.
+    _ensureChatPost().then((_) => _refreshJob(postAlreadyFresh: true));
+    // The outbox is keyed by chat id, which was unknown until now: show what
+    // an earlier session queued here, then give anything composed while the
+    // conversation was unresolved its place on disk. Load BEFORE persisting,
+    // or the in-memory queue would overwrite the one on disk.
+    await _loadOutbox();
+    if (mounted && _pendingMessages.isNotEmpty) _persistOutbox();
   }
 
   /// Resolve "does a conversation already exist?" when the caller had no id.
@@ -825,6 +829,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _loadingMessages = false;
         });
       }
+      return;
+    }
+
+    // The chat database first. A conversation this phone already holds opens
+    // with no request at all — offline included — under the same identity
+    // rules the server lookup applies: this post's own thread, or the most
+    // recently active one for a profile entry point.
+    final local = await ChatStore.instance.findConversationFor(
+      widget.currentUserId,
+      otherId,
+      postId: widget.conversation.postId,
+      mostRecent: widget.resolveMostRecent,
+    );
+    if (!mounted) return;
+    if (local != null) {
+      debugPrint('[CHAT][RESOLVED] stored chatId=${local.id} '
+          'postId=${local.postId ?? 'null'} mostRecent=${widget.resolveMostRecent}');
+      await _adoptExistingChat(local.id, postId: local.postId, postTitle: local.postTitle);
       return;
     }
 
@@ -855,33 +877,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
 
     if (resolution == ChatResolution.existing) {
-      setState(() {
-        _activeChatId = foundId;
-        _resolution = ChatResolution.existing;
-        // Adopting the thread's real post context keeps the post banner and the
-        // job-status card correct when Profile resolved to a post-scoped chat.
-        //
-        // BOTH lookups now carry the join (ChatServiceSupabase.chatRowSelect),
-        // so this recovers the post name by itself instead of depending on the
-        // entry point to have brought one. `_postTitle` still prefers what is
-        // adopted here over what the caller supplied, because the adopted
-        // thread is the one actually on screen.
-        _resolvedPostId = ChatServiceSupabase.postIdOf(row);
-        _resolvedPostTitle = ChatServiceSupabase.postTitleOf(row);
-      });
       debugPrint(
         '[CHAT][RESOLVED] existing chatId=$foundId '
-        'postId=${_resolvedPostId ?? 'null'} mostRecent=${widget.resolveMostRecent}',
+        'postId=${ChatServiceSupabase.postIdOf(row) ?? 'null'} mostRecent=${widget.resolveMostRecent}',
       );
-      _beginExistingChat();
-      // The post context just changed under us; refresh what depends on it.
-      _ensureChatPost().then((_) => _refreshJob(postAlreadyFresh: true));
-      // The outbox is keyed by chat id, which was unknown until now: show what
-      // an earlier session queued here, then give anything composed while the
-      // conversation was unresolved its place on disk. Load BEFORE persisting,
-      // or the in-memory queue would overwrite the one on disk.
-      await _loadOutbox();
-      if (mounted && _pendingMessages.isNotEmpty) _persistOutbox();
+      // BOTH lookups carry the join (ChatServiceSupabase.chatRowSelect), so
+      // this recovers the post name by itself instead of depending on the
+      // entry point to have brought one.
+      await _adoptExistingChat(
+        foundId,
+        postId: ChatServiceSupabase.postIdOf(row),
+        postTitle: ChatServiceSupabase.postTitleOf(row),
+      );
       return;
     }
 
@@ -904,6 +911,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Read here, not in dispose(): the element is active now and defunct then.
     _appProvider = context.read<AppProvider>();
     _activeChatId = widget.conversation.id;
+    // The database first: who this is, and anything written by a sync or a
+    // push while the screen is open.
+    unawaited(_loadPartner());
+    _storeSub = ChatStore.instance.changes.listen(_onStoreChange);
     _scrollController.addListener(_onScroll);
     _messageController.addListener(_onTypingChanged);
     // Offline outbox: restore anything queued in a previous session and resend
@@ -1052,6 +1063,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // leaked. Measured on an A21s: five chats opened and closed left five live
     // watchMessages channel pairs, each still running its own backoff loop.
     _appProvider.setActiveChatId(null);
+    _storeSub?.cancel();
+    _storeMerge?.cancel();
     _realtimeSubscription?.cancel();
     _chatRowChannel?.unsubscribe();
     _typingExpireTimer?.cancel();
@@ -1104,6 +1117,111 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final cleared = _clearedBefore;
     if (cleared != null && !m.timestamp.isAfter(cleared)) return false;
     return true;
+  }
+
+  /// The other person from the chat database, and the conversation's own copy
+  /// of their name. Re-run when a sync or an avatar download changes them.
+  Future<void> _loadPartner() async {
+    final uid = widget.currentUserId;
+    final partnerId = widget.conversation.participantId;
+    if (uid.isEmpty || partnerId.isEmpty) return;
+    final person = await ChatStore.instance.person(uid, partnerId);
+    final stored = _chatId.isEmpty ? null : await ChatStore.instance.conversation(uid, _chatId);
+    if (!mounted) return;
+    setState(() {
+      _partner = person;
+      _storedPartnerName = ChatPeople.knownOrNull(stored?.userName);
+      final profession = person?.profession;
+      if ((_partnerProfession ?? '').isEmpty && profession != null && profession.isNotEmpty) {
+        _partnerProfession = profession;
+      }
+      final seen = person?.lastSeen;
+      if (_onlineStatus.isEmpty && seen != null) _onlineStatus = _lastSeenLabel(seen.toLocal());
+    });
+  }
+
+  void _onStoreChange(ChatChange change) {
+    if (!mounted) return;
+    if (change.owner.isNotEmpty && change.owner != widget.currentUserId) return;
+    if (change.people || change.all) unawaited(_loadPartner());
+    if (_chatId.isNotEmpty && change.touchesThread(_chatId)) {
+      // Coalesce a burst (a page, then its outbox clean-up) into one read.
+      _storeMerge?.cancel();
+      _storeMerge = Timer(const Duration(milliseconds: 60), () => unawaited(_mergeFromStore()));
+    }
+  }
+
+  /// Fold what the database holds for this thread into what is on screen —
+  /// messages a sync or a push stored while the screen was open. By id, so a
+  /// message already shown is only replaced when the stored copy differs.
+  Future<void> _mergeFromStore() async {
+    if (_chatId.isEmpty) return;
+    final stored = await ChatStore.instance.loadThread(
+      widget.currentUserId,
+      _chatId,
+      limit: _messages.length > 100 ? _messages.length : 100,
+    );
+    if (!mounted || stored.isEmpty) return;
+    final byId = {for (final m in _messages) m.id: m};
+    var changed = false;
+    for (final m in stored) {
+      final current = byId[m.id];
+      if (current == null || !_sameMessage(current, m)) {
+        byId[m.id] = m;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    final merged = byId.values.toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    ChatAttachmentCache.evictDeleted(merged);
+    setState(() {
+      _messages = merged;
+      _loadingMessages = false;
+      _loadFailed = false;
+    });
+  }
+
+  /// Whether two copies of one message would render the same.
+  static bool _sameMessage(Message a, Message b) =>
+      a.id == b.id &&
+      a.text == b.text &&
+      a.status == b.status &&
+      a.seenAt == b.seenAt &&
+      a.deliveredAt == b.deliveredAt &&
+      a.deletedForEveryone == b.deletedForEveryone &&
+      a.liveUntil == b.liveUntil &&
+      a.latitude == b.latitude &&
+      a.longitude == b.longitude &&
+      a.attachmentUrl == b.attachmentUrl;
+
+  /// The pinned job bar as the chat database last saw it — the post and its
+  /// lifecycle — so an offline open shows the real stage and price instead of
+  /// "No job agreed yet". The live refresh replaces it as soon as it can.
+  Future<void> _restoreJobSnapshot() async {
+    if (_chatId.isEmpty || (_lifecycle != null && _chatPost != null)) return;
+    final snapshot = await ChatStore.instance.jobSnapshot(widget.currentUserId, _chatId);
+    if (!mounted || snapshot == null) return;
+    final post = snapshot['post'];
+    final lifecycle = snapshot['lifecycle'];
+    setState(() {
+      if (_chatPost == null && post is Map) {
+        _chatPost = PostModel.fromJson(Map<String, dynamic>.from(post));
+      }
+      if (_lifecycle == null && lifecycle is Map) {
+        _lifecycle = JobLifecycle.fromJson(Map<String, dynamic>.from(lifecycle));
+      }
+    });
+  }
+
+  /// Keep what the job bar was drawn from, for the next offline open.
+  void _persistJobSnapshot({Map<String, dynamic>? lifecycleJson}) {
+    if (_chatId.isEmpty) return;
+    final post = _chatPost;
+    if (post == null && lifecycleJson == null) return;
+    unawaited(ChatStore.instance.saveJobSnapshot(widget.currentUserId, _chatId, {
+      if (post != null) 'post': post.toCacheMap(),
+      if (lifecycleJson != null) 'lifecycle': lifecycleJson,
+    }));
   }
 
   /// Instant open: hydrate the thread from the on-device cache written by
@@ -1280,8 +1398,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ..subscribe();
   }
 
-  /// Cap the cached thread: 60 newest messages cover instant-open plus a page
-  /// of scrollback without unbounded SharedPreferences growth.
+  /// Bound each write-through to the newest 60: older rows on screen came from
+  /// the database or from [_loadOlderMessages], which stores its own pages, so
+  /// re-writing them on every realtime burst would only cost time.
   static List<Message> _capForCache(List<Message> messages) =>
       messages.length > 60 ? messages.sublist(messages.length - 60) : messages;
 
@@ -1293,8 +1412,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final messages = _pendingCacheSave;
       _pendingCacheSave = null;
       if (messages != null && messages.isNotEmpty) {
-        CacheService.saveMessages(
-            widget.currentUserId, _chatId, _capForCache(messages));
+        final chatId = _chatId;
+        final uid = widget.currentUserId;
+        // Into the database, then make sure its photos have thumbnails on
+        // this phone — the copy an offline open draws.
+        CacheService.saveMessages(uid, chatId, _capForCache(messages)).then((_) {
+          if (!NetworkHealth.isOffline) {
+            unawaited(ChatMediaStore.ensureThumbs(uid, [chatId], limit: 30));
+          }
+        });
       }
     });
   }
@@ -1369,6 +1495,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       final flaggedOnline = row['is_online'] as bool? ?? false;
       final lastSeen = parseServerTimeOrNull(row['last_seen']);
+      // Remember what was learned, so the next offline open can say it.
+      final known = _partner;
+      if (known == null ||
+          (profession != null && profession.isNotEmpty && profession != known.profession) ||
+          (lastSeen != null && lastSeen != known.lastSeen)) {
+        unawaited(ChatStore.instance.upsertPeople(
+          widget.currentUserId,
+          [
+            ChatPerson(
+              id: participantId,
+              profession: (profession == null || profession.isEmpty) ? null : profession,
+              lastSeen: lastSeen,
+            ),
+          ],
+          profileKnown: false,
+        ));
+      }
       // `is_online` alone cannot be trusted: it is a flag the other device
       // wrote, and a crash / force-stop / lost network leaves it stuck true
       // forever. Treat it as authoritative only while the heartbeat behind it
@@ -1440,23 +1583,49 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Load older messages (cursor-based). Prepends to _messages.
+  ///
+  /// The database first — history this phone already has costs no network
+  /// and works on a plane — then the server, whose page is stored before it
+  /// is shown, so it is there next time too.
   Future<void> _loadOlderMessages() async {
     if (_chatId.isEmpty || _loadingOlder || !_hasMoreOlder || _messages.isEmpty) return;
+    final offline = NetworkHealth.isOffline;
+    if (offline && _olderExhaustedOffline) return;
+    if (!offline) _olderExhaustedOffline = false;
     _loadingOlder = true;
-    final before = _messages.first.timestamp.toUtc().toIso8601String();
+    final oldest = _messages.first.timestamp;
+    const page = 30;
     try {
-      final result = await ChatServiceSupabase.getMessagesPage(
-        _chatId,
-        widget.currentUserId,
-        before: before,
-      );
-      if (!mounted) return;
       final existingIds = _messages.map((m) => m.id).toSet();
-      final newOlder = result.messages.where((m) => !existingIds.contains(m.id)).toList();
-      ChatAttachmentCache.evictDeleted(newOlder);
+      final stored = await ChatStore.instance.loadThread(
+        widget.currentUserId,
+        _chatId,
+        limit: page,
+        before: oldest,
+      );
+      var older = stored.where((m) => !existingIds.contains(m.id)).toList();
+      var hasMore = true;
+      if (older.length < page && !NetworkHealth.isOffline) {
+        final result = await ChatServiceSupabase.fetchMessagesPage(
+          _chatId,
+          widget.currentUserId,
+          before: (older.isEmpty ? oldest : older.first.timestamp).toUtc().toIso8601String(),
+        );
+        await CacheService.saveMessages(widget.currentUserId, _chatId, result.messages);
+        final seen = {...existingIds, ...older.map((m) => m.id)};
+        older = [...result.messages.where((m) => !seen.contains(m.id)), ...older]
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        hasMore = result.hasMore;
+      } else if (older.length < page) {
+        // Offline, and the database has nothing older. The server may; ask
+        // again when a network is back.
+        _olderExhaustedOffline = true;
+      }
+      if (!mounted) return;
+      ChatAttachmentCache.evictDeleted(older);
       setState(() {
-        _messages = newOlder + _messages;
-        _hasMoreOlder = result.hasMore;
+        _messages = older + _messages;
+        _hasMoreOlder = hasMore;
         _loadingOlder = false;
       });
     } catch (e) {
@@ -1657,7 +1826,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       replyToId: replyingTo?.id,
       replyToSender: replyingTo == null
           ? null
-          : (replyingTo.isMe ? 'You' : widget.conversation.userName),
+          : (replyingTo.isMe ? 'You' : _partnerName),
       replyToPreview: replyingTo?.text.isEmpty == false
           ? replyingTo!.text.substring(0, replyingTo.text.length.clamp(0, 120))
           : null,
@@ -1913,7 +2082,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => ImageComposerScreen(
           initialFiles: picked,
-          partnerName: widget.conversation.userName,
+          partnerName: _partnerName,
         ),
       ),
     );
@@ -1943,7 +2112,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => ImageComposerScreen(
           initialFiles: [shot!],
-          partnerName: widget.conversation.userName,
+          partnerName: _partnerName,
         ),
       ),
     );
@@ -2255,7 +2424,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _recentlyArrivedJourney) {
       return (
         icon: AppIcons.reviewFilled,
-        label: 'Rate ${widget.conversation.userName}',
+        label: 'Rate ${_partnerName}',
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -2515,7 +2684,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           icon: AppIcons.locationOff,
           title: 'Location access is off',
           body: 'Help24 needs your location to share your journey with '
-              '${widget.conversation.userName.isEmpty ? 'them' : widget.conversation.userName}. '
+              '${_partnerName.isEmpty ? 'them' : _partnerName}. '
               'You can turn it on in Settings — nothing is shared until you start a journey.',
           actionLabel: 'Open settings',
           onAction: ph.openAppSettings,
@@ -2608,7 +2777,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // while the phone is in a pocket, so it deserves a distinct physical cue
     // rather than only a visual one.
     HapticFeedback.mediumImpact();
-    final partner = widget.conversation.userName.trim();
+    final partner = _partnerName.trim();
     final notify = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -2734,10 +2903,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _openReportSheet({Message? message}) {
     if (widget.conversation.participantId.isEmpty) return;
     final target = message != null && !message.isMe && !message.id.startsWith('pending_')
-        ? ReportTarget.message(messageId: message.id, senderName: widget.conversation.userName)
+        ? ReportTarget.message(messageId: message.id, senderName: _partnerName)
         : ReportTarget.user(
             userId: widget.conversation.participantId,
-            name: widget.conversation.userName,
+            name: _partnerName,
             chatId: _chatId.isNotEmpty ? _chatId : null,
             postId: _postId,
           );
@@ -2766,7 +2935,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           context,
           chatId: _chatId,
           currentUserId: widget.currentUserId,
-          partnerName: widget.conversation.userName,
+          partnerName: _partnerName,
           isVisible: _isLocallyVisible,
           onResultTap: _onSearchResultTap,
         );
@@ -2806,7 +2975,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
         content: Text(
           'Messages will be removed from this device only. '
-          '${widget.conversation.userName} keeps their copy.',
+          '${_partnerName} keeps their copy.',
           style: const TextStyle(fontSize: 13.5, height: 1.5),
         ),
         actions: [
@@ -2846,7 +3015,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _cacheSaveDebounce?.cancel();
     _cacheSaveDebounce = null;
     _pendingCacheSave = null;
-    await CacheService.saveMessages(widget.currentUserId, _chatId, []);
+    await CacheService.clearMessages(widget.currentUserId, _chatId);
     // Repaint the Messages tab so its tile stops echoing the old preview
     // the moment the user navigates back.
     if (mounted) context.read<AppProvider>().touchConversations();
@@ -2955,12 +3124,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       if (!_chatIsTheJob) {
         if (_lifecycle != null && mounted) setState(() => _lifecycle = null);
+        _persistJobSnapshot();
         return;
       }
-      final lifecycle = await JobsService.getLifecycle(postId: postId, userId: widget.currentUserId);
+      final json = await JobsService.getLifecycleJson(postId: postId, userId: widget.currentUserId);
+      final lifecycle = JobLifecycle.fromJson(json);
       if (!mounted) return;
       _lifecycleMemo[postId] = lifecycle;
       setState(() => _lifecycle = lifecycle);
+      _persistJobSnapshot(lifecycleJson: json);
     } catch (e) {
       debugPrint('[CHAT][JOB] refresh failed: $e');
     } finally {
@@ -3005,7 +3177,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return deriveChatJobBar(ChatJobInputs(
       viewerId: widget.currentUserId,
       partnerId: widget.conversation.participantId,
-      partnerName: widget.conversation.userName,
+      partnerName: _partnerName,
       title: title,
       price: post?.price ?? 0,
       authorId: post?.authorUserId ?? '',
@@ -3120,7 +3292,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final post = _chatPost;
     if (lc == null || post == null || !_chatIsTheJob) return const [];
     final isClient = lc.isClient;
-    final name = widget.conversation.userName.trim();
+    final name = _partnerName.trim();
     final partner = name.isEmpty ? 'They' : name;
     final paid = lc.payment?.amount;
     final money = formatPriceDisplay(paid != null && paid > 0 ? paid : post.price);
@@ -3170,7 +3342,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!viewerIsAuthor && post.authorUserId != partner) return const [];
     final applicant = viewerIsAuthor ? partner : me;
     final selected = (post.selectedProviderUserId ?? '').trim();
-    final name = widget.conversation.userName.trim();
+    final name = _partnerName.trim();
     return [
       for (final a in post.applications)
         if (a.applicantUserId == applicant && a.proposedPrice > 0)
@@ -3342,7 +3514,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         state: state,
         child: RequestCard(
           message: m,
-          partnerName: widget.conversation.userName,
+          partnerName: _partnerName,
           onShareNow: mine ? null : _respondToLocationRequest,
         ),
       );
@@ -3443,11 +3615,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildThread() {
+  /// Offline, with nothing of this thread on the phone. Not an error, and not
+  /// "No messages yet" — which would be a claim about a conversation this
+  /// phone simply has not seen. It says what will happen instead.
+  Widget _offlineThreadNotice() {
+    _lastMessageCount = 0;
+    return _threadNotice(
+      icon: AppIcons.noConnection,
+      title: 'Waiting for network',
+      body: "This chat's messages will appear here when you're back online.",
+    );
+  }
+
+  Widget _buildThread({required bool offline}) {
     final combined = mergeOutboxIntoThread(
       _messages.where(_isLocallyVisible).toList(),
       _pendingMessages,
     );
+
+    // Nothing stored and no network: no spinner can end, so none is shown.
+    if (offline && combined.isEmpty && _resolution != ChatResolution.absent) {
+      return _offlineThreadNotice();
+    }
 
     // Still asking whether a conversation exists. Progress, never an empty
     // state — "Start the conversation" here was §D1.
@@ -3506,7 +3695,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       combined,
       extraEvents: _jobEvents(),
       offers: _threadOffers(),
-      partnerName: widget.conversation.userName,
+      partnerName: _partnerName,
     );
     _entries = entries;
     // Reversed presentation: ListView index 0 == the NEWEST row. The list is
@@ -3576,23 +3765,30 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         children: [
           SafeArea(
             bottom: false,
-            child: ChatHeader(
-              name: widget.conversation.userName,
-              avatarUrl: widget.conversation.userAvatar,
-              subtitle: _headerSubtitle(),
-              typing: _otherIsTyping,
-              online: _onlineStatus == 'online',
-              onBack: () => Navigator.of(context).pop(),
-              // Earned verification: only for backend-trusted tiers.
-              badge: rep != null && _trustedTiers.contains(rep.tier)
-                  ? Icon(AppIcons.verifiedProvider, size: 15, color: tierColor(context, rep.tier))
-                  : null,
-              menu: ChatMenuButton<ChatMenuAction>(
-                onSelected: _onMenuAction,
-                itemBuilder: (menuContext) => buildChatMenuItems(
-                  menuContext,
-                  hasPost: _postId != null && _postId!.isNotEmpty,
-                  isMuted: _isMuted,
+            // The second line yields to "Waiting for network" / "Connecting…"
+            // while chat is not in touch with the server — the same small
+            // status the Messages tab shows under its title.
+            child: ChatSyncPhaseBuilder(
+              builder: (context, syncLabel) => ChatHeader(
+                name: _partnerName,
+                userId: widget.conversation.participantId,
+                avatarUrl: _partner?.avatarUrl ?? widget.conversation.userAvatar,
+                avatarPath: _partner?.avatarPath ?? widget.conversation.userAvatarPath,
+                subtitle: syncLabel ?? _headerSubtitle(),
+                typing: _otherIsTyping && syncLabel == null,
+                online: _onlineStatus == 'online' && syncLabel == null,
+                onBack: () => Navigator.of(context).pop(),
+                // Earned verification: only for backend-trusted tiers.
+                badge: rep != null && _trustedTiers.contains(rep.tier)
+                    ? Icon(AppIcons.verifiedProvider, size: 15, color: tierColor(context, rep.tier))
+                    : null,
+                menu: ChatMenuButton<ChatMenuAction>(
+                  onSelected: _onMenuAction,
+                  itemBuilder: (menuContext) => buildChatMenuItems(
+                    menuContext,
+                    hasPost: _postId != null && _postId!.isNotEmpty,
+                    isMuted: _isMuted,
+                  ),
                 ),
               ),
             ),
@@ -3613,7 +3809,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               final journey = _stripJourney!;
               final mine = journey.isMe;
               final phase = _phaseFor(journey);
-              final name = widget.conversation.userName;
+              final name = _partnerName;
               final String title;
               switch (phase) {
                 case JourneyPhase.nearby:
@@ -3651,7 +3847,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           Expanded(
             child: Stack(
               children: [
-                _buildThread(),
+                _buildThread(offline: offline),
                 // The current day, pinned while the thread scrolls.
                 if (_stickyDay != null)
                   Positioned(
@@ -3701,7 +3897,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           if (_replyToMessage != null)
             _ReplyPreviewBar(
               replyTo: _replyToMessage!,
-              partnerName: widget.conversation.userName,
+              partnerName: _partnerName,
               onCancel: () => setState(() => _replyToMessage = null),
             ),
           // Messaging denied → the composer is replaced, so nobody writes a

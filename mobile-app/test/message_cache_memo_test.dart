@@ -1,9 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:help24/models/post_model.dart';
 import 'package:help24/services/cache_service.dart';
+import 'package:help24/services/chat_store.dart';
 import 'package:help24/services/session_scope.dart';
+
+import 'support/chat_store_harness.dart';
 
 /// Stage 3 — the message cache must make an already-known conversation open
 /// without a network round trip, WITHOUT weakening the account isolation that
@@ -25,10 +30,12 @@ Message _msg(String id, String chatId, String senderId, String text) => Message(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
+  late Directory store;
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    CacheService.resetMessageMemo();
+    store = await useTestChatStore();
   });
+  tearDown(() => disposeTestChatStore(store));
 
   group('peekMessages — synchronous first paint', () {
     const uid = 'uid-A';
@@ -92,15 +99,21 @@ void main() {
       expect(const MessageMemoScope(), isA<SessionScoped>());
     });
 
-    test('the memo key is the SAME scoped key the disk uses', () async {
-      // A divergent key would let memory and disk disagree about ownership.
+    test("the thread is written to the OWNER's database file, not a shared one",
+        () async {
+      // Memory and disk must agree about ownership: the memo is keyed by the
+      // owner's scoped key, the disk copy lives in the owner's own file.
       await CacheService.saveMessages('uid-A', chat, [
         _msg('m1', chat, 'uid-A', 'x'),
       ]);
+      expect(File('${store.path}/${ChatStore.fileNameFor('uid-A')}').existsSync(), isTrue);
+      expect(File('${store.path}/${ChatStore.fileNameFor('uid-B')}').existsSync(), isFalse);
+      expect(ChatStore.fileNameFor('uid-A'), isNot(ChatStore.fileNameFor('uid-B')));
+      // Nothing of the thread is left in SharedPreferences, where every save
+      // used to rewrite one shared XML file.
       final prefs = await SharedPreferences.getInstance();
-      final expected =
-          SessionScope.scopedKey(SessionKeys.messages, 'uid-A', chat);
-      expect(prefs.getKeys(), contains(expected));
+      expect(prefs.getKeys().where((k) => k.startsWith(SessionKeys.messages)), isEmpty);
+      // Builds ≤1.0.2 wrote threads there; the startup purge still knows them.
       expect(SessionScope.uidScopedPrefixes, contains(SessionKeys.messages));
     });
   });
@@ -182,14 +195,38 @@ void main() {
       expect(restored.map((m) => m.text), ['first', 'second']);
     });
 
-    test('saving an empty list does not resurrect a stale thread', () async {
+    test('clearing a thread does not let it resurrect', () async {
       const uid = 'uid-A';
       const chat = 'chat-1';
       await CacheService.saveMessages(uid, chat, [_msg('m1', chat, 'o', 'hi')]);
-      await CacheService.saveMessages(uid, chat, const []);
+      await CacheService.clearMessages(uid, chat);
 
-      expect(CacheService.peekMessages(chat, uid), isEmpty);
+      expect(CacheService.peekMessages(chat, uid), isNull);
       expect(await CacheService.loadMessages(chat, uid), isEmpty);
+    });
+
+    test('a save is a WINDOW onto the thread: it never deletes older history',
+        () async {
+      // The old cache replaced the whole thread with each save, so the newest
+      // 60 were all a phone ever had. A page is now an upsert.
+      const uid = 'uid-A';
+      const chat = 'chat-1';
+      await CacheService.saveMessages(uid, chat, [_msg('old', chat, 'o', 'older')]);
+      await CacheService.saveMessages(uid, chat, [
+        Message(
+          id: 'new',
+          conversationId: chat,
+          senderId: 'o',
+          text: 'newer',
+          timestamp: DateTime.utc(2026, 8, 8, 13),
+          isMe: false,
+        ),
+      ]);
+      await CacheService.saveMessages(uid, chat, const []); // a no-op, never a wipe
+
+      await restartChatStore();
+      final restored = await CacheService.loadMessages(chat, uid);
+      expect(restored.map((m) => m.id), ['old', 'new']);
     });
   });
 }

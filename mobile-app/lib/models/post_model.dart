@@ -1384,8 +1384,16 @@ class Message {
 class Conversation {
   final String id;
   final String participantId;
+
+  /// The other person's last known name — EMPTY when this phone has never
+  /// learned it. Never a placeholder such as "?": render it through
+  /// `ChatPeople.displayName` (see chat_person.dart).
   final String userName;
   final String userAvatar;
+
+  /// The other person's photo as a file on this phone (see ChatMediaStore),
+  /// so the list and the header draw it with no network. Null until fetched.
+  final String? userAvatarPath;
   final String lastMessage;
   final DateTime lastMessageTime;
   final int unreadCount;
@@ -1405,6 +1413,7 @@ class Conversation {
     this.participantId = '',
     required this.userName,
     this.userAvatar = '',
+    this.userAvatarPath,
     required this.lastMessage,
     required this.lastMessageTime,
     this.unreadCount = 0,
@@ -1420,6 +1429,7 @@ class Conversation {
     String? participantId,
     String? userName,
     String? userAvatar,
+    String? userAvatarPath,
     String? lastMessage,
     DateTime? lastMessageTime,
     int? unreadCount,
@@ -1434,6 +1444,7 @@ class Conversation {
       participantId: participantId ?? this.participantId,
       userName: userName ?? this.userName,
       userAvatar: userAvatar ?? this.userAvatar,
+      userAvatarPath: userAvatarPath ?? this.userAvatarPath,
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       unreadCount: unreadCount ?? this.unreadCount,
@@ -1452,6 +1463,7 @@ class Conversation {
       'participant_id': participantId,
       'user_name': userName,
       'user_avatar': userAvatar,
+      if (userAvatarPath != null) 'user_avatar_path': userAvatarPath,
       'last_message': lastMessage,
       'last_message_time': lastMessageTime.toIso8601String(),
       'unread_count': unreadCount,
@@ -1469,6 +1481,7 @@ class Conversation {
       participantId: (map['participant_id'] ?? '').toString(),
       userName: (map['user_name'] ?? '').toString(),
       userAvatar: (map['user_avatar'] ?? '').toString(),
+      userAvatarPath: map['user_avatar_path']?.toString(),
       lastMessage: (map['last_message'] ?? '').toString(),
       lastMessageTime: parseServerTime(map['last_message_time']),
       unreadCount: (map['unread_count'] is int) ? map['unread_count'] as int : 0,

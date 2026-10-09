@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/post_model.dart';
 import '../providers/connectivity_provider.dart';
@@ -38,10 +37,11 @@ import 'session_scope.dart';
 ///
 /// WHAT IT DELIBERATELY IS NOT
 /// ---------------------------
-/// It is NOT a second store. The on-disk format is untouched — the same
-/// `CacheService.saveOutbox` / `loadOutbox` entries under the same uid-scoped
-/// key. This is the in-memory owner of that data plus the drain that was
-/// missing, so there is no new persistence to keep consistent with the old one.
+/// It is NOT a second store. What is on disk is whatever
+/// `CacheService.saveOutbox` / `loadOutbox` keep — since the local-first
+/// rebuild, the `outbox` table of the account's chat database. This is the
+/// in-memory owner of that data plus the drain that was missing, so there is
+/// no new persistence to keep consistent with it.
 ///
 /// TWO SENDERS WOULD MEAN TWO MESSAGES
 /// -----------------------------------
@@ -176,22 +176,16 @@ class OutboxStore extends ChangeNotifier implements SessionScoped {
 
   // ── Hydration ─────────────────────────────────────────────────────────────
 
-  /// Read every queue this account left on disk, in ONE pass over the keys.
+  /// Read every queue this account left on disk.
   ///
-  /// `SharedPreferences` holds its keys in memory, so this is a filter over a
-  /// map rather than N round trips — which is what makes it affordable to do at
-  /// startup rather than lazily per row.
+  /// The queues live in the chat database's `outbox` table (beside the thread
+  /// they belong to); one indexed query names the chats that have any, so this
+  /// stays affordable at startup rather than lazily per row.
   Future<void> hydrate(String uid) async {
     final owner = uid.trim();
     if (owner.isEmpty) return;
     try {
-      final prefix = SessionScope.scopedKey(SessionKeys.outbox, owner, '');
-      final prefs = await SharedPreferences.getInstance();
-      final chatIds = prefs
-          .getKeys()
-          .where((k) => k.startsWith(prefix) && k.length > prefix.length)
-          .map((k) => k.substring(prefix.length))
-          .toList();
+      final chatIds = await CacheService.outboxChatIds(owner);
       var changed = false;
       for (final chatId in chatIds) {
         if (_ownerUid != owner) return; // session moved on mid-read

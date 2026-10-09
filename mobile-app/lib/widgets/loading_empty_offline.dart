@@ -270,7 +270,16 @@ class OfflineEmptyView extends StatelessWidget {
   final String? message;
   final VoidCallback? onRetry;
 
-  const OfflineEmptyView({super.key, this.message, this.onRetry});
+  /// The line under [message]. Defaults to the generic one; a screen with
+  /// something more useful to say passes it.
+  final String detail;
+
+  const OfflineEmptyView({
+    super.key,
+    this.message,
+    this.onRetry,
+    this.detail = 'Connect to load content.',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -295,7 +304,7 @@ class OfflineEmptyView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Connect to load content.',
+              detail,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppColors.of(context).contentTertiary,
                   ),

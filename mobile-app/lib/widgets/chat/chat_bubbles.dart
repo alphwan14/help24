@@ -9,6 +9,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import '../../models/chat_presentation.dart';
 import '../../models/post_model.dart';
 import '../../services/chat_attachments.dart';
+import '../../services/chat_media_store.dart';
 import '../../services/chat_documents.dart';
 import '../../services/outbox_delivery.dart' show OutboxIds;
 import '../../services/place_name_cache.dart';
@@ -556,17 +557,31 @@ class _ChatPhotoBubbleState extends State<ChatPhotoBubble> {
     final stream = _provider(context).resolve(createLocalImageConfiguration(context));
     if (stream.key == _stream?.key) return;
     _unlisten();
-    _listener = ImageStreamListener((info, _) {
-      final w = info.image.width, h = info.image.height;
-      if (w <= 0 || h <= 0) return;
-      final aspect = w / h;
-      ChatPhotoAspects.remember(widget.message.id, aspect);
-      if (mounted && (_aspect == null || (_aspect! - aspect).abs() > 0.01)) {
-        setState(() => _aspect = aspect);
-      }
-    }, onError: (_, __) {});
+    _listener = ImageStreamListener(_onImage, onError: (_, __) {
+      // The full photo is out of reach (offline, or evicted from the image
+      // cache): take the shape from the thumbnail kept on this phone.
+      final thumb = _thumb;
+      if (thumb == null || _aspect != null) return;
+      FileImage(thumb)
+          .resolve(createLocalImageConfiguration(context))
+          .addListener(ImageStreamListener(_onImage, onError: (_, __) {}));
+    });
     _stream = stream..addListener(_listener!);
   }
+
+  void _onImage(ImageInfo info, bool _) {
+    final w = info.image.width, h = info.image.height;
+    if (w <= 0 || h <= 0) return;
+    final aspect = w / h;
+    ChatPhotoAspects.remember(widget.message.id, aspect);
+    if (mounted && (_aspect == null || (_aspect! - aspect).abs() > 0.01)) {
+      setState(() => _aspect = aspect);
+    }
+  }
+
+  /// The photo's thumbnail on this phone (ChatMediaStore) — what the bubble
+  /// shows while the full photo loads, and instead of it when it cannot.
+  File? get _thumb => widget.localPath != null ? null : ChatMediaStore.thumbFor(widget.message.id);
 
   void _unlisten() {
     final l = _listener;
@@ -590,6 +605,7 @@ class _ChatPhotoBubbleState extends State<ChatPhotoBubble> {
     final height = (width / aspect).clamp(ChatGeometry.photoMinHeight, ChatGeometry.photoMaxHeight);
     final caption = _hasCaption;
     final serverId = OutboxIds.serverIdOf(widget.message.id);
+    final thumb = _thumb;
 
     final photo = SizedBox(
       width: width,
@@ -607,11 +623,15 @@ class _ChatPhotoBubbleState extends State<ChatPhotoBubble> {
               gaplessPlayback: true,
               frameBuilder: (_, child, frame, sync) => sync || frame != null
                   ? child
-                  : ColoredBox(color: c.surface),
-              errorBuilder: (_, __, ___) => ColoredBox(
-                color: c.surface,
-                child: Center(child: Icon(AppIcons.imageBroken, size: 36, color: c.iconSecondary)),
-              ),
+                  : (thumb != null
+                      ? Image.file(thumb, fit: BoxFit.cover, gaplessPlayback: true)
+                      : ColoredBox(color: c.surface)),
+              errorBuilder: (_, __, ___) => thumb != null
+                  ? Image.file(thumb, fit: BoxFit.cover, gaplessPlayback: true)
+                  : ColoredBox(
+                      color: c.surface,
+                      child: Center(child: Icon(AppIcons.imageBroken, size: 36, color: c.iconSecondary)),
+                    ),
             ),
           ),
           if (!caption)

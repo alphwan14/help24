@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
@@ -8,6 +7,7 @@ import '../../models/chat_job_stage.dart';
 import '../../theme/app_icons.dart';
 import '../../theme/tokens.dart';
 import 'chat_bubbles.dart' show ChatHug;
+import 'person_avatar.dart';
 
 // =============================================================================
 // THE CHAT'S CHROME: header, pinned job bar, offline banner, composer, the
@@ -31,6 +31,8 @@ class ChatHeader extends StatelessWidget {
     required this.name,
     required this.avatarUrl,
     required this.onBack,
+    this.userId = '',
+    this.avatarPath,
     required this.menu,
     this.subtitle,
     this.typing = false,
@@ -38,8 +40,16 @@ class ChatHeader extends StatelessWidget {
     this.badge,
   });
 
+  /// The other person's name, already resolved for display — the caller
+  /// passes ChatPeople.displayName, so this is never empty and never "?".
   final String name;
   final String avatarUrl;
+
+  /// Their photo as a file on this phone, drawn before [avatarUrl].
+  final String? avatarPath;
+
+  /// Their user id: picks the tint behind their initials.
+  final String userId;
   final String? subtitle;
   final bool typing;
   final bool online;
@@ -54,7 +64,6 @@ class ChatHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = ChatColors.of(context);
-    final initial = name.trim().isEmpty ? '?' : name.trim().substring(0, 1).toUpperCase();
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: ChatGeometry.headerHeight),
       child: Padding(
@@ -75,7 +84,13 @@ class ChatHeader extends StatelessWidget {
                 padding: EdgeInsets.zero,
               ),
             ),
-            _Avatar(url: avatarUrl, initial: initial, online: online),
+            _Avatar(
+              userId: userId,
+              name: name,
+              url: avatarUrl,
+              path: avatarPath,
+              online: online,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Padding(
@@ -135,27 +150,24 @@ class ChatHeader extends StatelessWidget {
 }
 
 class _Avatar extends StatelessWidget {
-  const _Avatar({required this.url, required this.initial, required this.online});
+  const _Avatar({
+    required this.userId,
+    required this.name,
+    required this.url,
+    required this.path,
+    required this.online,
+  });
 
+  final String userId;
+  final String name;
   final String url;
-  final String initial;
+  final String? path;
   final bool online;
 
   @override
   Widget build(BuildContext context) {
     final c = ChatColors.of(context);
     const size = ChatGeometry.headerAvatar;
-    final placeholder = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: c.surface, shape: BoxShape.circle),
-      alignment: Alignment.center,
-      child: Text(
-        initial,
-        textScaler: TextScaler.noScaling, // fixed-size avatar, a glyph not text
-        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.textSecondary),
-      ),
-    );
     return ExcludeSemantics(
       child: SizedBox(
         width: size,
@@ -163,18 +175,12 @@ class _Avatar extends StatelessWidget {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            ClipOval(
-              child: url.isEmpty
-                  ? placeholder
-                  : CachedNetworkImage(
-                      imageUrl: url,
-                      width: size,
-                      height: size,
-                      fit: BoxFit.cover,
-                      fadeInDuration: Duration.zero,
-                      placeholder: (_, __) => placeholder,
-                      errorWidget: (_, __, ___) => placeholder,
-                    ),
+            PersonAvatar(
+              userId: userId,
+              name: name,
+              size: size,
+              avatarPath: path,
+              avatarUrl: url,
             ),
             if (online)
               PositionedDirectional(

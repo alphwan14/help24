@@ -11,6 +11,7 @@ import '../config/api_config.dart';
 import '../models/post_model.dart';
 import 'api_client.dart';
 import 'chat_documents.dart';
+import 'chat_media_store.dart';
 import 'session_scope.dart';
 
 /// PRIVATE CHAT ATTACHMENTS — every photo and document sent in a conversation.
@@ -400,6 +401,8 @@ class ChatAttachmentCache {
     } catch (e) {
       debugPrint('[ATTACHMENT] photo eviction failed: ${e.runtimeType}');
     }
+    // The thumbnail kept for offline is a copy of the photo too.
+    await ChatMediaStore.evictThumb(id);
     await ChatDocuments.evict(id);
   }
 
