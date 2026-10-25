@@ -2,6 +2,7 @@ import {
   IsEmail,
   IsIn,
   IsString,
+  IsUUID,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -31,6 +32,17 @@ export class AcceptInviteDto {
   @MinLength(8)
   @MaxLength(200)
   password: string;
+}
+
+/** Link a dashboard login to a Help24 person (super_admin only). */
+export class LinkDashboardLoginDto {
+  @IsUUID()
+  authSubject: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  help24UserId: string;
 }
 
 /** Change an admin's role (super_admin only). */

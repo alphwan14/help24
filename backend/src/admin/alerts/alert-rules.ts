@@ -39,6 +39,7 @@ export type AlertId =
   | 'dispute_awaiting_admin'
   | 'reports_urgent'
   | 'reports_untriaged'
+  | 'dashboard_login_unlinked'
   | 'completion_overdue'
   | 'paid_stalled'
   | 'urgent_unanswered'
@@ -223,6 +224,19 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     href: '/dashboard/trust-safety/queue?scope=new',
     action: 'Triage',
     title: (n) => `${plural(n, 'report', 'reports')} awaiting triage`,
+  },
+  // A staff member whose password works is being turned away, and nothing they
+  // can do will change that — only a super admin linking the login can. Before
+  // this existed it went unseen: 53 silent refusals in one evening (2026-10-25)
+  // and nobody told. MEDIUM, not high: high is kept for money and safety, and a
+  // locked-out colleague is a queue waiting on an admin. The control is the
+  // "Logins waiting to be linked" panel on Admin Roles (super admins only).
+  dashboard_login_unlinked: {
+    category: 'trust_safety',
+    priority: 'medium',
+    href: '/dashboard/users/admins#unlinked-logins',
+    action: 'Link the login in Admin Roles',
+    title: (n) => `${plural(n, 'dashboard login is', 'dashboard logins are')} waiting to be linked`,
   },
 
   // ── Marketplace health ───────────────────────────────────────────────────

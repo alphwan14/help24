@@ -117,6 +117,7 @@ export class AdminAlertsService {
       isolate('jobs', () => this.jobAlerts(now)),
       isolate('requests', () => this.requestAlerts(now)),
       isolate('promotions', () => this.promotionAlerts()),
+      isolate('access', () => this.accessAlerts()),
     ]);
 
     const alerts = sortAlerts(groups.flat().filter((a): a is AdminAlert => a !== null));
@@ -633,6 +634,26 @@ export class AdminAlertsService {
         amount_kes: c.price_kes ?? null,
         href: `/dashboard/promotion/${c.id}`,
       })), () => 'Paid for and waiting to go live.'),
+    ];
+  }
+
+  /**
+   * Dashboard logins nobody has linked to a Help24 person (migration 122). The
+   * middleware refuses them however correct the password, so each one is a
+   * staff member locked out with no way to fix it themselves.
+   */
+  private async accessAlerts(): Promise<Array<AdminAlert | null>> {
+    const { data } = await must<Row[]>(this.db.rpc('admin_unlinked_dashboard_logins', { p_days: 30 }));
+    return [
+      buildAlert('dashboard_login_unlinked', (data ?? []).map((l): AlertItem => ({
+        id: l.auth_subject as string,
+        label: (l.email as string | null) ?? 'Login with no email',
+        detail: l.last_sign_in_at
+          ? 'Signs in, then is turned away'
+          : 'Invitation accepted, never let in',
+        at: (l.last_sign_in_at as string | null) ?? (l.created_at as string | null),
+        href: '/dashboard/users/admins#unlinked-logins',
+      })), () => 'The password works, but the dashboard refuses the login until a super admin links it to a Help24 account.'),
     ];
   }
 

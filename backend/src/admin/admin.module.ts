@@ -11,6 +11,7 @@ import { AdminAuthModule } from './auth/admin-auth.module';
 import { AdminAuthService } from './auth/admin-auth.service';
 import { AdminAuthGuard } from './auth/admin-auth.guard';
 import { AdminInvitesService } from './auth/admin-invites.service';
+import { AdminIdentityLinksService } from './auth/admin-identity-links.service';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminInvitesPublicController } from './admin-invites-public.controller';
 import { DisputesService } from './disputes/disputes.service';
@@ -34,6 +35,7 @@ import { DisputesPublicController } from './disputes/disputes-public.controller'
     AdminService,
     // RBAC — AdminAuthService/AdminAuthGuard come from AdminAuthModule.
     AdminInvitesService,
+    AdminIdentityLinksService,
     // Arbitration
     DisputesService,
     DecisionsService,

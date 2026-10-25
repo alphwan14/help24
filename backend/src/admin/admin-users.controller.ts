@@ -9,8 +9,10 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
+import { AdminIdentityLinksService } from './auth/admin-identity-links.service';
 import { AdminAuthGuard } from './auth/admin-auth.guard';
 import { AdminAuth } from '../common/auth/auth.decorator';
 import { CurrentAdmin, Roles } from './auth/roles.decorator';
@@ -20,6 +22,7 @@ import { AdminInvitesService } from './auth/admin-invites.service';
 import { CreateAdminDto } from './disputes/dto/admin-user.dto';
 import {
   CreateInviteDto,
+  LinkDashboardLoginDto,
   UpdateAdminRoleDto,
 } from './disputes/dto/admin-invite.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
@@ -38,6 +41,7 @@ export class AdminUsersController {
   constructor(
     private readonly auth: AdminAuthService,
     private readonly invites: AdminInvitesService,
+    private readonly links: AdminIdentityLinksService,
   ) {}
 
   /**
@@ -121,5 +125,29 @@ export class AdminUsersController {
   @Roles('super_admin')
   list() {
     return this.auth.listAdmins();
+  }
+
+  // ── Identity links (super_admin) — see AdminIdentityLinksService ──────────
+
+  /** Dashboard logins that sign in but are refused, because nobody linked them. */
+  @Get('identity/unlinked')
+  @Roles('super_admin')
+  listUnlinkedLogins() {
+    return this.links.listUnlinked();
+  }
+
+  /** Find the Help24 person a login (or an invitation) is for. */
+  @Get('identity/people')
+  @Roles('super_admin')
+  searchPeople(@Query('q') q?: string) {
+    return this.links.searchPeople(q ?? '');
+  }
+
+  /** Link a login to a person. The super admin making the call is recorded. */
+  @Post('identity/links')
+  @Roles('super_admin')
+  @HttpCode(HttpStatus.CREATED)
+  linkLogin(@Body() dto: LinkDashboardLoginDto, @CurrentAdmin() admin: AdminContext) {
+    return this.links.link(dto.authSubject, dto.help24UserId, admin.email);
   }
 }

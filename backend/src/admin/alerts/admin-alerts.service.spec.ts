@@ -28,6 +28,9 @@ interface World {
   failReviews?: boolean;
   /** Listings the title lookup no longer finds (transactions.post_id has no foreign key). */
   orphanPosts?: string[];
+  /** Rows admin_unlinked_dashboard_logins returns (migration 122). */
+  unlinkedLogins?: Array<Record<string, unknown>>;
+  failUnlinked?: boolean;
 }
 
 /** One marketplace with exactly one instance of every condition, plus near-misses. */
@@ -77,6 +80,10 @@ function world(opts: World = {}) {
   const ACTIVE = new Set(['open', 'reviewing', 'under_review', 'escalated', 'awaiting_client_evidence', 'awaiting_provider_evidence', 'awaiting_admin_review']);
 
   const { supabase, calls } = fakeSupabase((call: Call) => {
+    if (call.rpc === 'admin_unlinked_dashboard_logins') {
+      if (opts.failUnlinked) return { error: { message: 'function admin_unlinked_dashboard_logins does not exist' } };
+      return { data: opts.unlinkedLogins ?? [] };
+    }
     switch (call.table) {
       case 'transactions':
         if (selected(call).includes('escrow(')) return { data: transactions };
@@ -262,6 +269,39 @@ describe('AdminAlertsService — trust & safety', () => {
     expect(alerts.has('payout_failed')).toBe(true);
     expect(JSON.stringify(res.unavailable)).not.toContain('severity'); // no schema detail leaks to the UI
   });
+
+  it('a dashboard login nobody has linked is an alert that opens the control that fixes it', async () => {
+    const res = await world({
+      unlinkedLogins: [
+        { auth_subject: 'login-retrying', email: 'staff@example.com', created_at: ago(90 * D), last_sign_in_at: ago(2 * H) },
+        { auth_subject: 'login-never-in', email: 'new.hire@example.com', created_at: ago(1 * D), last_sign_in_at: null },
+      ],
+    }).service.compute(NOW);
+    const alert = byId(res.alerts).get('dashboard_login_unlinked');
+
+    expect(alert?.priority).toBe('medium');
+    expect(alert?.category).toBe('trust_safety');
+    expect(alert?.title).toBe('2 dashboard logins are waiting to be linked');
+    expect(alert?.href).toBe('/dashboard/users/admins#unlinked-logins');
+    // Oldest first: the accepted-but-never-let-in invite, then the login that keeps trying.
+    expect(alert?.items.map((i) => [i.id, i.detail])).toEqual([
+      ['login-never-in', 'Invitation accepted, never let in'],
+      ['login-retrying', 'Signs in, then is turned away'],
+    ]);
+    // It asks for the last 30 days, not every login that ever existed.
+    expect(res.unavailable).toEqual([]);
+  });
+
+  it('no unlinked logins, no alert', async () => {
+    const alerts = byId((await world().service.compute(NOW)).alerts);
+    expect(alerts.has('dashboard_login_unlinked')).toBe(false);
+  });
+
+  it('when the unlinked-logins check cannot run, it is UNAVAILABLE — never a silent all-clear', async () => {
+    const res = await world({ failUnlinked: true }).service.compute(NOW);
+    expect(res.unavailable.map((u) => u.source)).toEqual(['access']);
+    expect(byId(res.alerts).has('payout_failed')).toBe(true);
+  });
 });
 
 describe('AdminAlertsService — marketplace health', () => {
@@ -355,7 +395,10 @@ describe('AdminAlertsService — the list as a whole', () => {
   it('it only reads', async () => {
     const { service, calls } = world();
     await service.compute(NOW);
-    const writes = calls.filter((c) => c.ops.some(([o]) => ['insert', 'update', 'upsert', 'delete'].includes(o)) || c.rpc);
+    // admin_unlinked_dashboard_logins is the one RPC a source may call: it is a
+    // STABLE read (migration 122). Any other RPC still counts as a write.
+    const READ_ONLY_RPCS = new Set(['admin_unlinked_dashboard_logins']);
+    const writes = calls.filter((c) => c.ops.some(([o]) => ['insert', 'update', 'upsert', 'delete'].includes(o)) || (c.rpc && !READ_ONLY_RPCS.has(c.rpc)));
     expect(writes).toEqual([]);
   });
 
