@@ -182,6 +182,25 @@ This was equally true before 099 — the email gate had nothing to match either.
 Either onboard them properly (§1 steps 2–3) or demote them, so the admin list
 reflects who can actually act.
 
+> **Adjudicated 2026-10-25 by the project owner.** This person's dashboard
+> credential is one of the §4 mirror addresses (its mirror row no longer
+> exists). The owner confirmed out of band that both are one person, and the logs
+> agree (app and dashboard backend last used six minutes apart on 2026-07-30).
+> Linked with the §3 insert, `linked_by` set. Middleware now resolves the
+> credential to the admin row.
+>
+> **Still blocked after linking:** the backend's `restoreSession` gates on
+> `public.users.role` **by session email**, and the dashboard credential's email
+> has no `public.users` row — so the shell lands on "Your session needs
+> refreshing". Linking is necessary but not sufficient while the backend gate is
+> email-based. Any admin whose dashboard email differs from their app email hits
+> the same wall.
+>
+> Same day: an invitation issued for another person was accepted on this
+> person's phone. That credential and its `admin_users` row (never signed in,
+> token never used) were deleted at the owner's request so a fresh invitation
+> can be issued; the spent invite row is kept as the record.
+
 ---
 
 ## 7. Admin passwords and auth email
