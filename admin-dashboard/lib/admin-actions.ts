@@ -8,6 +8,8 @@ import {
   adminRequest,
   type AdminRole,
   type CreateInviteResult,
+  type LinkCandidate,
+  type LinkResult,
 } from "./api";
 
 /**
@@ -42,6 +44,37 @@ export async function sendInvite(
     const data = await adminRequest<CreateInviteResult>("/admin/invite", {
       method: "POST",
       body: JSON.stringify({ email, role }),
+    });
+    revalidatePath("/dashboard/users/admins");
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ── super_admin: linking a dashboard login to a Help24 person ───────────────
+
+/** Find the Help24 person a login is for. The backend refuses non-super-admins. */
+export async function searchPeople(query: string): Promise<ActionResult<LinkCandidate[]>> {
+  const q = query.trim();
+  if (q.length < 2) return { ok: true, data: [] };
+  try {
+    const data = await adminRequest<LinkCandidate[]>(`/admin/identity/people?q=${encodeURIComponent(q)}`);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Link a login to a person; the backend records the acting super admin. */
+export async function linkDashboardLogin(
+  authSubject: string,
+  help24UserId: string,
+): Promise<ActionResult<LinkResult>> {
+  try {
+    const data = await adminRequest<LinkResult>("/admin/identity/links", {
+      method: "POST",
+      body: JSON.stringify({ authSubject, help24UserId }),
     });
     revalidatePath("/dashboard/users/admins");
     return { ok: true, data };

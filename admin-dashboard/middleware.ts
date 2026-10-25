@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMiddlewareClient } from "@/lib/supabase-middleware";
-import { resolveAdminIdentity } from "@/lib/admin-identity";
+import { resolveAdminAccess, resolveAdminIdentity, type AccessDenial } from "@/lib/admin-identity";
+
+/** The ?error= the login page explains for each refusal (app/login/page.tsx). */
+const DENIAL_PARAM: Record<AccessDenial, string> = {
+  unlinked: "not-linked",
+  not_admin: "unauthorized",
+  unavailable: "unavailable",
+};
 
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next({ request });
@@ -44,18 +51,16 @@ export async function middleware(request: NextRequest) {
   // Resolved from the session's auth.users id via user_auth_identities, NOT from
   // the session's email. The email path made one user-writable string decide who
   // is an admin; see lib/admin-identity.ts for the full reasoning.
-  const identity = await resolveAdminIdentity(user.id);
+  const access = await resolveAdminAccess(user.id);
 
-  console.log(
-    `[Admin Check] subject=${user.id} help24=${identity?.help24UserId ?? "unlinked"} ` +
-      `role=${identity?.role ?? "none"}`
-  );
-
-  if (identity?.role !== "admin") {
-    console.log(`[Admin Check] Access DENIED for subject ${user.id}`);
-    return NextResponse.redirect(new URL("/login?error=unauthorized", request.url));
+  if (!access.ok) {
+    console.log(`[Admin Check] Access DENIED for subject ${user.id} (${access.reason})`);
+    // Every reason denies. The query only chooses what the person is told:
+    // a correct password on an unlinked login is not "no admin privileges".
+    return NextResponse.redirect(new URL(`/login?error=${DENIAL_PARAM[access.reason]}`, request.url));
   }
 
+  const identity = access.identity;
   console.log(`[Admin Check] Access GRANTED for ${identity.help24UserId}`);
   return response;
 }

@@ -31,7 +31,8 @@ const ERIN = "erin@help24.test", ERIN_OLD = "Erin-old-pass-1", ERIN_PW = "Erin-n
 const FRANK = "frank@help24.test", FRANK_OLD = "Frank-old-pass-1", FRANK_PW = "Frank-new-pass-2";
 const GINA = "gina@help24.test", GINA_OLD = "Gina-old-pass-1", GINA_PW = "Gina-new-pass-2";
 const HANA = "hana@help24.test", HANA_OLD = "Hana-old-pass-1", HANA_PW = "Hana-new-pass-2";
-const SECRETS = [ALICE_PW1, ALICE_PW2, ALICE_PW3, ALICE_PW4, BOB_PW, CAROL_PW, DAVE_PW, ERIN_OLD, ERIN_PW, FRANK_OLD, FRANK_PW, GINA_OLD, GINA_PW, HANA_OLD, HANA_PW];
+const UMA = "uma@help24.test", UMA_PW = "Umas-pass-55"; // an admin whose login nobody has linked
+const SECRETS = [ALICE_PW1, ALICE_PW2, ALICE_PW3, ALICE_PW4, BOB_PW, CAROL_PW, DAVE_PW, ERIN_OLD, ERIN_PW, FRANK_OLD, FRANK_PW, GINA_OLD, GINA_PW, HANA_OLD, HANA_PW, UMA_PW];
 
 const results = [];
 function check(name, ok, detail = "") {
@@ -68,6 +69,7 @@ function person(email, password, role, { linked = true, arbitration = null } = {
 person(ALICE, ALICE_PW1, "admin", { arbitration: { name: "Alice Wanjiru", role: "super_admin" } });
 person(BOB, BOB_PW, "admin", { arbitration: { name: "Bob Kamau", role: "senior_admin" } });
 person(CAROL, CAROL_PW, "user");
+person(UMA, UMA_PW, "admin", { linked: false });
 person(DAVE, null, "user"); // uses the app; no dashboard login yet
 for (const [email, old] of [[ERIN, ERIN_OLD], [FRANK, FRANK_OLD], [GINA, GINA_OLD], [HANA, HANA_OLD]]) {
   person(email, old, "admin", { arbitration: { name: email.split("@")[0], role: "support_agent", active: false } });
@@ -154,6 +156,14 @@ try {
   await goto(`${APP}/dashboard/settings`);
   await waitFor(`location.pathname === '/login' && location.search.includes('unauthorized')`, "non-admin bounced");
   check("signed-in NON-admin: /dashboard/settings is refused", true);
+  await pg.clearCookies();
+  // A correct password on a login nobody has linked: refused, and told the truth.
+  await signIn(UMA, UMA_PW);
+  await waitFor(bodyHas("isn't connected to a Help24 account"), "unlinked login explained");
+  check("UNLINKED login: refused with 'not linked yet', not 'no admin privileges'", await evaluate(`!document.body.innerText.includes("does not have admin privileges")`));
+  await goto(`${APP}/dashboard/settings`);
+  await waitFor(`location.pathname === '/login' && location.search.includes('not-linked')`, "unlinked bounced");
+  check("UNLINKED login: /dashboard/settings is refused", true);
   await pg.clearCookies();
 
   /* ════════════════════════════════════════════════════════════════════ */

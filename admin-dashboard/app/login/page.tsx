@@ -14,6 +14,17 @@ const URL_MESSAGES: Record<string, { text: string; type: "info" | "error" }> = {
     text: "Access denied — your account does not have admin privileges.",
     type: "error",
   },
+  // Middleware sends this when the password was right but the login is not
+  // linked to a Help24 account. Saying "no privileges" here sent one admin
+  // through repeated sign-ins and password resets that could never help.
+  "not-linked": {
+    text: "Your password is correct, but this login isn't connected to a Help24 account yet. A super admin has been alerted — once they link it, sign in here again. There's no need to reset your password.",
+    type: "info",
+  },
+  unavailable: {
+    text: "We couldn't check your access just now, so you weren't let in. Please try again in a moment.",
+    type: "error",
+  },
   disabled: {
     text: "This account has been disabled. Contact a system administrator.",
     type: "error",

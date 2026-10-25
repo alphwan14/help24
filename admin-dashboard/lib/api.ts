@@ -337,6 +337,33 @@ export function getPendingInvites(): Promise<PendingInvite[]> {
   return adminRequest<PendingInvite[]>("/admin/invites");
 }
 
+// ── Identity links (migration 122) ──────────────────────────────────────────
+
+/** A dashboard login that signs in but is refused: nobody linked it to a person. */
+export type UnlinkedLogin = {
+  auth_subject: string;
+  email: string | null;
+  created_at: string;
+  last_sign_in_at: string | null;
+};
+
+/** A Help24 person a login (or an invitation) can be linked to. */
+export type LinkCandidate = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone_number: string | null;
+  role: string;
+  has_dashboard_login: boolean;
+};
+
+export type LinkResult = { login_email: string; person_role: string; can_sign_in: boolean };
+
+/** super_admin: logins waiting to be linked. */
+export function getUnlinkedLogins(): Promise<UnlinkedLogin[]> {
+  return adminRequest<UnlinkedLogin[]>("/admin/identity/unlinked");
+}
+
 
 /**
  * Returns the admin for the active (or supplied) token, or null if the token is

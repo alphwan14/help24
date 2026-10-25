@@ -3,8 +3,10 @@ import {
   getCurrentAdmin,
   getAdminUsers,
   getPendingInvites,
+  getUnlinkedLogins,
 } from "@/lib/api";
 import AdminsManager from "./AdminsManager";
+import UnlinkedLogins from "./UnlinkedLogins";
 
 // Admin management is served by the secured NestJS backend (single source of
 // truth). No direct Supabase access here.
@@ -31,19 +33,34 @@ export default async function AdminsPage() {
     );
   }
 
-  // 3. Load admins + pending invites from the backend.
-  const [admins, invites] = await Promise.all([
+  // 3. Load admins + pending invites + logins waiting to be linked. A failed
+  //    unlinked-logins check is said out loud, never shown as an empty list —
+  //    "nobody is waiting" and "could not check" are different facts.
+  const [admins, invites, unlinked] = await Promise.all([
     getAdminUsers(),
     getPendingInvites(),
+    getUnlinkedLogins().then(
+      (rows) => ({ ok: true as const, rows }),
+      () => ({ ok: false as const }),
+    ),
   ]);
 
   return (
-    <AdminsManager
-      currentAdminId={admin.id}
-      currentAdminEmail={admin.email}
-      currentAdminRole={admin.role}
-      admins={admins}
-      invites={invites}
-    />
+    <div className="space-y-6">
+      {unlinked.ok ? (
+        <UnlinkedLogins logins={unlinked.rows} />
+      ) : (
+        <div className="card p-4 text-sm text-amber-700 bg-amber-50 border-amber-200">
+          Couldn&apos;t check for dashboard logins waiting to be linked. Reload to try again.
+        </div>
+      )}
+      <AdminsManager
+        currentAdminId={admin.id}
+        currentAdminEmail={admin.email}
+        currentAdminRole={admin.role}
+        admins={admins}
+        invites={invites}
+      />
+    </div>
   );
 }

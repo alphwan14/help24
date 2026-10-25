@@ -40,6 +40,28 @@ function identityClient() {
 }
 
 /**
+ * Why a session was not let in. Every reason DENIES; the distinction exists
+ * only so the person can be told something true. "unlinked" is a correct
+ * password on a login nobody has connected to a Help24 account yet — telling
+ * that person "you do not have admin privileges" is what sent one admin
+ * through 53 refusals and two password resets in one evening.
+ */
+export type AccessDenial = "unlinked" | "not_admin" | "unavailable";
+
+export type AdminAccess =
+  | { ok: true; identity: AdminIdentity }
+  | { ok: false; reason: AccessDenial };
+
+/** Same gate as resolveAdminIdentity, but says which refusal it was. */
+export async function resolveAdminAccess(authSubject: string | undefined | null): Promise<AdminAccess> {
+  if (!authSubject) return { ok: false, reason: "not_admin" };
+  const result = await lookup(authSubject);
+  if (result === "unlinked" || result === "unavailable") return { ok: false, reason: result };
+  if (!result || result.role !== "admin") return { ok: false, reason: "not_admin" };
+  return { ok: true, identity: result };
+}
+
+/**
  * Resolve a dashboard session to its Help24 identity and role.
  *
  * Fails CLOSED at every step — a missing service key, a query error, an
@@ -50,11 +72,15 @@ export async function resolveAdminIdentity(
   authSubject: string | undefined | null
 ): Promise<AdminIdentity | null> {
   if (!authSubject) return null;
+  const result = await lookup(authSubject);
+  return result === "unlinked" || result === "unavailable" ? null : result;
+}
 
+async function lookup(authSubject: string): Promise<AdminIdentity | "unlinked" | "unavailable" | null> {
   const db = identityClient();
   if (!db) {
     console.error("[Admin Check] SUPABASE_SERVICE_ROLE_KEY missing — denying.");
-    return null;
+    return "unavailable";
   }
 
   const { data: identity, error: identityError } = await db
@@ -66,7 +92,7 @@ export async function resolveAdminIdentity(
 
   if (identityError) {
     console.error("[Admin Check] identity lookup failed:", identityError.message);
-    return null;
+    return "unavailable";
   }
 
   // A credential nobody has linked to a person. This is the expected result for
@@ -75,7 +101,7 @@ export async function resolveAdminIdentity(
   // it must not confer one either. See the admin onboarding runbook.
   if (!identity) {
     console.log(`[Admin Check] auth subject ${authSubject} is not linked to any Help24 identity.`);
-    return null;
+    return "unlinked";
   }
 
   const help24UserId = identity.help24_user_id as string;
@@ -88,7 +114,7 @@ export async function resolveAdminIdentity(
 
   if (personError) {
     console.error("[Admin Check] role lookup failed:", personError.message);
-    return null;
+    return "unavailable";
   }
 
   if (!person) {
