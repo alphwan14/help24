@@ -67,6 +67,32 @@ const nextConfig: NextConfig = {
   devIndicators: {
     position: "bottom-right",
   },
+
+  /**
+   * ONE PUBLIC ORIGIN: https://admin.help24.co.ke.
+   *
+   * The production deployment also answers on the project's stable Vercel
+   * alias, and anything served there is quietly broken: Supabase only honours
+   * a password-reset `redirectTo` on the Site URL's host (admin.help24.co.ke),
+   * so a reset asked for on the alias falls back to the Site URL root and loses
+   * its code; and the PKCE verifier lives in that origin's cookies, so the
+   * session would not carry across anyway. Older invite links were also issued
+   * on the alias (the backend's fallback, see admin-invites.service.ts).
+   *
+   * Only that one host moves. Per-deployment preview URLs and localhost keep
+   * working as themselves; the path and query (an invite token included) are
+   * carried over unchanged.
+   */
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "help24-admin-dashboard.vercel.app" }],
+        destination: "https://admin.help24.co.ke/:path*",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -9,7 +9,9 @@
     "build:clean": "Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue; next build",
     "start": "next start --port 3001",
     "lint": "next lint",
-    "test": "node --no-warnings --test lib/provider-matching.test.mjs"
+    "test": "node --no-warnings --test \"lib/*.test.mjs\"",
+    "test:e2e": "node e2e/run.mjs",
+    "emails:build": "node supabase-auth-emails/build.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",

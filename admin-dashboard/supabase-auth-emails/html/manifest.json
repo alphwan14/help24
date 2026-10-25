@@ -1,0 +1,73 @@
+[
+  {
+    "key": "recovery",
+    "dashboardName": "Reset password",
+    "subject": "Reset your Help24 admin password",
+    "file": "html/recovery.html",
+    "managementApi": {
+      "subject": "mailer_subjects_recovery",
+      "content": "mailer_templates_recovery_content"
+    }
+  },
+  {
+    "key": "invite",
+    "dashboardName": "Invite user",
+    "subject": "You've been invited to Help24 Admin",
+    "file": "html/invite.html",
+    "managementApi": {
+      "subject": "mailer_subjects_invite",
+      "content": "mailer_templates_invite_content"
+    }
+  },
+  {
+    "key": "reauthentication",
+    "dashboardName": "Reauthentication",
+    "subject": "Your Help24 verification code",
+    "file": "html/reauthentication.html",
+    "managementApi": {
+      "subject": "mailer_subjects_reauthentication",
+      "content": "mailer_templates_reauthentication_content"
+    }
+  },
+  {
+    "key": "magic_link",
+    "dashboardName": "Magic link",
+    "subject": "Your Help24 sign-in link",
+    "file": "html/magic_link.html",
+    "managementApi": {
+      "subject": "mailer_subjects_magic_link",
+      "content": "mailer_templates_magic_link_content"
+    }
+  },
+  {
+    "key": "email_change",
+    "dashboardName": "Change email address",
+    "subject": "Confirm your new Help24 email address",
+    "file": "html/email_change.html",
+    "managementApi": {
+      "subject": "mailer_subjects_email_change",
+      "content": "mailer_templates_email_change_content"
+    }
+  },
+  {
+    "key": "confirmation",
+    "dashboardName": "Confirm signup",
+    "subject": "Confirm your Help24 email address",
+    "file": "html/confirmation.html",
+    "managementApi": {
+      "subject": "mailer_subjects_confirmation",
+      "content": "mailer_templates_confirmation_content"
+    }
+  },
+  {
+    "key": "password_changed_notification",
+    "dashboardName": "Password changed (security notification)",
+    "subject": "Your Help24 admin password was changed",
+    "file": "html/password_changed_notification.html",
+    "managementApi": {
+      "subject": "mailer_subjects_password_changed_notification",
+      "content": "mailer_templates_password_changed_notification_content",
+      "enable": "mailer_notifications_password_changed_enabled"
+    }
+  }
+]

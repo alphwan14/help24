@@ -1,10 +1,15 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ApiError, getInvite } from "@/lib/api";
+import { requireAdminIdentity } from "@/lib/admin-identity";
+import { inviteErrorMessage, isCompletedInvite } from "@/lib/invite-acceptance";
+import { signInvitedEmail } from "@/lib/invite-email-binding";
+import { getSessionUser } from "@/lib/supabase-server";
 import AcceptInviteForm from "./AcceptInviteForm";
 
 export const dynamic = "force-dynamic";
 
-type PageProps = { searchParams: Promise<{ token?: string }> };
+type PageProps = { searchParams: Promise<{ token?: string; error?: string }> };
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -57,29 +62,41 @@ function titleFor(message: string): string {
 }
 
 export default async function AcceptInvitePage({ searchParams }: PageProps) {
-  const { token } = await searchParams;
+  const { token, error } = await searchParams;
 
   if (!token) {
     return <ErrorCard message="This link is missing its invite token." />;
   }
 
+  let invite;
   try {
-    const invite = await getInvite(token);
-    return (
-      <Shell>
-        <AcceptInviteForm
-          token={token}
-          email={invite.email}
-          role={invite.role}
-          expiresAt={invite.expires_at}
-        />
-      </Shell>
-    );
+    invite = await getInvite(token);
   } catch (err) {
+    // A used invitation opened by someone already signed in as an admin — most
+    // often the invitee refreshing right after accepting. The card would tell
+    // them to sign in when they already are, so take them in instead. Nothing
+    // about the invitation decides this: the same check middleware makes does.
+    if (err instanceof ApiError && isCompletedInvite(err)) {
+      const user = await getSessionUser();
+      if (user && (await requireAdminIdentity(user.id))) redirect("/dashboard");
+    }
     const message =
       err instanceof ApiError
         ? err.message
         : "This invitation could not be loaded. It may have expired.";
     return <ErrorCard message={message} />;
   }
+
+  return (
+    <Shell>
+      <AcceptInviteForm
+        token={token}
+        email={invite.email}
+        emailSignature={signInvitedEmail(token, invite.email) ?? ""}
+        role={invite.role}
+        expiresAt={invite.expires_at}
+        error={inviteErrorMessage(error)}
+      />
+    </Shell>
+  );
 }

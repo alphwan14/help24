@@ -29,9 +29,17 @@ dashboard to create one, and that is deliberate.
 
    No row → stop. Ask them to sign into the app first.
 
-2. Create their dashboard credential (Supabase Auth account) the usual way —
-   dashboard invite, or Supabase Studio → Authentication → Add user. Note the
-   resulting `auth.users.id`.
+2. Create their dashboard credential (Supabase Auth account) — the dashboard's
+   **Admin Roles → Invite an admin**, or Supabase Studio → Authentication →
+   **Add user** (with a password). Note the resulting `auth.users.id`. Do not use
+   Studio's **Invite user**: its link signs the person in without ever asking
+   for a password, and nothing in the dashboard handles that landing.
+
+   When they accept a dashboard invite, they choose their password and — until
+   step 3 is done — are signed straight back out and told a super admin still
+   has to finish activating the account (`/login?message=invite-pending`).
+   After step 3 they sign in with that password. A re-invited admin whose
+   credential is already linked goes straight to the dashboard.
 
 3. Link the credential to the person. **This is the step that grants nothing on
    its own** — it only says which person the credential belongs to:
@@ -173,3 +181,161 @@ data, and that needs a written plan, not a runbook step.
 This was equally true before 099 — the email gate had nothing to match either.
 Either onboard them properly (§1 steps 2–3) or demote them, so the admin list
 reflects who can actually act.
+
+---
+
+## 7. Admin passwords and auth email
+
+### How it works
+
+- **Changing a password** — sidebar footer → **Settings**. The browser proves the
+  current password to Supabase Auth and updates it there; no Help24 server sees
+  it. Supabase ends every *other* session of the account (GoTrue
+  `UpdatePassword` → `LogoutAllExceptMe`; access tokens already issued stay
+  cryptographically valid until they expire, but the dashboard checks the
+  session on every request, so other devices are out on their next click). The
+  dashboard then re-mints the arbitration token.
+- **Forgotten password** — **Forgot password?** on the sign-in page or **Email me
+  a reset link** in Settings. Supabase sends its own one-time link; it returns to
+  `/auth/callback`, then `/reset-password`. The link completes only in the browser
+  that asked for it (PKCE); elsewhere the page says so.
+- **Invitations** — see §1 step 2. The backend does not email invitations: the
+  super admin copies the link from **Admin Roles**. The Supabase "Invite user"
+  template below only exists so nothing Supabase-branded can ever go out.
+
+### Three separate things, three separate settings
+
+| What | Value | Where it is set |
+|---|---|---|
+| Who the email is **from** | `Help24 Security <security@help24.co.ke>` | Supabase SMTP settings + Resend domain |
+| The host in the email's **link** | the Supabase project host (`taohzhnvaitrpxcyjflq.supabase.co`), or a Supabase custom domain | Supabase (custom domain is optional) |
+| Where the link **returns** | `https://admin.help24.co.ke/auth/callback` | Supabase URL configuration |
+
+**`auth.help24.co.ke` cannot be used for Supabase.** Public DNS (2026-10-10):
+it is a CNAME to Firebase Hosting (`help24-24410.web.app`) carrying Firebase's
+verification TXT, its SPF (`include:_spf.firebasemail.com`), two Firebase DKIM
+CNAMEs and its own DMARC — it is Firebase's auth domain *and* the sender of the
+app's emails. A Supabase custom domain must itself be a CNAME, which cannot share
+a name with anything. If the link host must be Help24's, use a new name —
+`auth-admin.help24.co.ke` is unused — and leave `auth.help24.co.ke` alone.
+
+### Production checklist
+
+State: **A** implemented and locally verified · **B** needs production dashboard
+or provider access · **C** verified against production.
+
+| # | Item | State |
+|---|---|---|
+| 1 | Seven branded templates generated and tested (`admin-dashboard/supabase-auth-emails/html/`, subjects in `manifest.json`) | A |
+| 2 | Recovery flow, invitation hand-off, Settings — `npm test` and `npm run test:e2e` in `admin-dashboard` | A |
+| 3 | Supabase currently sends with its default mailer — auth log 2026-10-10 08:40 UTC: `mail.send`, `mail_from: noreply@mail.app.supabase.io` | C (current state, not the target) |
+| 4 | `auth.help24.co.ke` belongs to Firebase; `auth-admin.help24.co.ke` is free — public DNS | C |
+| 5 | No outbound provider exists for `@help24.co.ke` (apex: Cloudflare Email Routing only; no `send.` records, no `resend._domainkey`) — public DNS | C |
+| 6 | Resend account + domain `help24.co.ke` verified (DNS below) | B |
+| 7 | Cloudflare Email Routing rule `security@help24.co.ke` → the team inbox, so replies and "this wasn't me" reach someone | B |
+| 8 | Supabase custom SMTP (values below) | B |
+| 9 | Supabase Site URL and Redirect URLs (values below) — current values cannot be read from the repo | B |
+| 10 | Templates and subjects pasted into Supabase | B |
+| 11 | "Password changed" security notification enabled | B |
+| 12 | DMARC at the apex | B (recommended) |
+| 13 | Supabase custom domain `auth-admin.help24.co.ke` | B (optional, paid) |
+| 14 | Smoke test passed in production | B |
+
+**6 — Resend domain.** In Resend, add `help24.co.ke` (region `eu-west-1`, nearest
+the project). Copy the records Resend shows into Cloudflare DNS, **DNS only**
+(grey cloud). For a domain added before August 2026 Resend issues:
+
+```dns
+resend._domainkey.help24.co.ke.  TXT  "p=<DKIM public key from Resend>"
+send.help24.co.ke.               MX   10 feedback-smtp.eu-west-1.amazonses.com.
+send.help24.co.ke.               TXT  "v=spf1 include:amazonses.com ~all"
+```
+
+Newer domains may instead show two CNAMEs on `send` and `rsend` — use exactly
+what the dashboard shows. **Do not change** the apex MX or SPF (Cloudflare Email
+Routing) or anything under `auth.help24.co.ke`. Create an API key with
+*sending access* limited to `help24.co.ke`.
+
+**8 — Supabase → Authentication → Emails → SMTP Settings.**
+
+| Field | Value |
+|---|---|
+| Enable custom SMTP | on |
+| Sender email | `security@help24.co.ke` |
+| Sender name | `Help24 Security` |
+| Host | `smtp.resend.com` |
+| Port | `465` |
+| Username | `resend` |
+| Password | the Resend API key — paste it here only; never in the repo, a ticket or a chat |
+| Minimum interval per user | `60` seconds (default) |
+
+Turning SMTP on lifts Supabase's built-in limit (2 emails an hour, team members
+only) to 30 an hour (Authentication → Rate Limits). That is plenty for admins.
+
+**9 — Supabase → Authentication → URL Configuration.** Site URL
+`https://admin.help24.co.ke`. Redirect URLs: exactly
+`https://admin.help24.co.ke/auth/callback` — no wildcards. Supabase silently
+sends any link whose `redirectTo` is not allowed to the Site URL instead. For
+local development against production, add the exact
+`http://localhost:3001/auth/callback` only while needed.
+
+**10 — Templates.** Authentication → Emails → Templates. For each entry in
+`manifest.json`, set the subject and paste the matching `html/<key>.html`. Keys:
+`recovery`, `invite`, `reauthentication`, `magic_link`, `email_change`,
+`confirmation`, `password_changed_notification` (under security
+notifications). The same fields exist on the Management API
+(`PATCH /v1/projects/{ref}/config/auth`; names in `manifest.json`). Supabase
+sends HTML only — there is no plain-text part to set; each template prints its
+link as text so it still works with markup stripped. Do **not** add an `[auth]`
+section to `supabase/config.toml` to manage these: a later `supabase config push`
+would reset every unspecified auth setting to the CLI default.
+
+**12 — DMARC.** `_dmarc.help24.co.ke TXT "v=DMARC1; p=none; rua=mailto:dmarc@help24.co.ke"`
+(add a routing rule for `dmarc@`, or drop `rua`). Tighten to `quarantine` after a
+few clean weeks.
+
+**13 — Custom domain (optional).** A paid add-on (US$10/month, paid plans only),
+one per project, project-wide (REST and storage answer on it too). CNAME
+`auth-admin.help24.co.ke` → `taohzhnvaitrpxcyjflq.supabase.co.` plus the
+`_acme-challenge` TXT Supabase issues. Without it the email's link shows the
+Supabase project host; the sender, wording and return address are Help24's
+regardless.
+
+### Safe production smoke test
+
+Use **your own** admin account; never another admin's.
+
+1. After 6–10: sign out, **Forgot password?** with your address.
+2. In the email check: From `Help24 Security <security@help24.co.ke>`, subject
+   "Reset your Help24 admin password", Help24 layout. Gmail → *Show original*:
+   SPF, DKIM (`d=help24.co.ke`) and DMARC all **PASS**.
+3. Supabase → Logs → Auth: the `mail.send` line shows `mail_from: security@help24.co.ke`.
+4. Stop here for a zero-impact check — the unused link expires on its own. To
+   finish, open it **in the same browser**, set a new password, and confirm you
+   land in the dashboard and that an older session elsewhere is signed out.
+5. Optional invite check: invite an address you control, accept it, confirm the
+   "activation pending" message, then revoke it under **Admin Roles**.
+
+### Deployment order
+
+1. Resend domain + DNS (6); wait for **Verified**. Routing rule (7).
+2. Supabase URL configuration (9).
+3. Ship the dashboard: commit, push, then `npx vercel --prod --yes` from
+   `admin-dashboard/` — it does not auto-deploy, and it ships the working tree.
+4. Templates (10) and the password-changed notification (11).
+5. Custom SMTP (8) — last, once the domain is verified, so no mail goes out
+   from an unverified sender.
+6. Smoke test.
+
+### Rollback
+
+- **Email delivery fails** — turn custom SMTP off in Supabase. Mail falls back
+  to the built-in sender (team members only, 2 an hour); the Help24 templates
+  keep working with it. DNS records can stay — they are inert on their own.
+- **A template is wrong** — paste the previous content back, or "Reset to
+  default" on that template.
+- **Invitation acceptance or the reset flow misbehaves** — Vercel → the
+  `help24-admin-dashboard` project → Deployments → promote the previous
+  production deployment. That restores the old behaviour, including the old
+  reset link (which never set a password); leave Supabase settings as they are.
+- **Redirect URLs** — leave them; an exact callback URL is harmless if unused.

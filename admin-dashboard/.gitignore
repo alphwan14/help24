@@ -32,3 +32,6 @@ coverage/
 .DS_Store
 Thumbs.db
 *.log
+
+# ── e2e (npm run test:e2e) ─────────────────────────────────
+e2e/.artifacts/

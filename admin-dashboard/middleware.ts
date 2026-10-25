@@ -13,8 +13,13 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // ── Public routes ─────────────────────────────────────────────────────────
-  // Note: /accept-invite is public and intentionally NOT matched below, so it
-  // is reachable without a session (the invite token is the authorization).
+  // /accept-invite is public — the invite token is the authorization. It is
+  // matched only so the getUser() above can refresh and WRITE the session
+  // cookies: the page reads the session to send an already-signed-in admin
+  // past a used invitation, and a refresh it could not persist would spend
+  // the refresh token and get the session revoked on reuse.
+  if (pathname === "/accept-invite") return response;
+
   if (pathname === "/login") {
     // Redirect already-logged-in admins straight to dashboard
     if (user) {
@@ -56,5 +61,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login"],
+  matcher: ["/dashboard/:path*", "/login", "/accept-invite"],
 };

@@ -23,6 +23,26 @@ export async function getSessionUser() {
 }
 
 /**
+ * A session client that can WRITE cookies — for Route Handlers that establish a
+ * session (app/auth/callback). Server Components cannot set cookies, which is
+ * why the readers in this file pass a no-op `setAll`.
+ */
+export async function createSessionWriter() {
+  const cookieStore = await cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => cookieStore.getAll(),
+        setAll: (cookiesToSet) =>
+          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+      },
+    }
+  );
+}
+
+/**
  * Read the current Supabase access-token (JWT) from cookies, server-side. The
  * backend verifies it independently, so this is used to forward proof-of-session
  * when restoring arbitration access. Returns null when there is no session.

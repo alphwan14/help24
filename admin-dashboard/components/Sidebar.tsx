@@ -2,10 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import { useState, useEffect } from "react";
-import { clearArbitrationToken } from "@/lib/admin-actions";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import AlertsBell from "@/components/alerts/AlertsBell";
 import type { ArbitrationIdentity } from "@/lib/arbitration-client";
@@ -126,6 +125,8 @@ const NAV: NavItem[] = [
     ],
   },
 ];
+
+const SETTINGS_HREF = "/dashboard/settings";
 
 /* ─── Helpers ───────────────────────────────────────────── */
 function resolveActiveId(pathname: string): string | null {
@@ -255,6 +256,7 @@ function NavTree({
   showAlerts = false,
 }: NavTreeProps) {
   const isDev = process.env.NODE_ENV === "development";
+  const onSettings = pathname === SETTINGS_HREF || pathname.startsWith(SETTINGS_HREF + "/");
 
   return (
     <>
@@ -387,6 +389,23 @@ function NavTree({
           <DebugPanel supabaseEmail={supabaseEmail} arbitration={arbitration} />
         )}
 
+        {/* Your own account and password — the same "about you" group as
+            appearance and sign-out, so it lives here rather than in the nav. */}
+        <Link
+          href={SETTINGS_HREF}
+          onClick={onNavClick}
+          aria-current={onSettings ? "page" : undefined}
+          className={[
+            "flex items-center gap-2.5 px-2.5 py-1.5 w-full rounded-lg text-[12px] font-medium transition-colors min-h-[34px]",
+            onSettings
+              ? "text-white bg-white/[0.08]"
+              : "text-rail-500 hover:text-rail-200 hover:bg-white/[0.05]",
+          ].join(" ")}
+        >
+          <CogIcon className="w-[15px] h-[15px] shrink-0" />
+          Settings
+        </Link>
+
         <button
           onClick={onSignOut}
           disabled={signingOut}
@@ -411,7 +430,6 @@ export default function Sidebar({
   arbitration: ArbitrationState;
 }) {
   const pathname    = usePathname();
-  const router      = useRouter();
   const [openId,     setOpenId]     = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -445,18 +463,28 @@ export default function Sidebar({
   }
 
   /**
-   * Unified sign-out: clears the arbitration bearer cookie first (server action),
-   * then invalidates the Supabase Auth session. Both must be cleared — clearing
+   * Unified sign-out: clears the arbitration bearer cookie first, then
+   * invalidates the Supabase Auth session. Both must be cleared — clearing
    * only one leaves the other identity still active, causing split-brain state.
+   *
+   * Neither step goes through Next's router. The cookie used to be cleared by
+   * a Server Action and the page left with router.push + refresh; all three
+   * queue behind whatever navigation or refresh is pending, and "Signing out…"
+   * could hang for good (see app/api/admin/session/route.ts). A plain request,
+   * then a full page load — which also leaves nothing of the signed-in
+   * dashboard in memory.
    */
   async function handleSignOut() {
     setSigningOut(true);
     try {
-      await clearArbitrationToken();
+      await fetch("/api/admin/session", { method: "DELETE" });
+    } catch {
+      /* still end the Supabase session */
+    }
+    try {
       await getSupabaseBrowser().auth.signOut();
     } finally {
-      router.push("/login");
-      router.refresh();
+      window.location.assign("/login");
     }
   }
 
@@ -646,6 +674,15 @@ function XIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function CogIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   );
 }
