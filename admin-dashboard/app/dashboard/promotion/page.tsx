@@ -4,6 +4,7 @@ import RestoringAccess from "../disputes/RestoringAccess";
 import {
   getCurrentAdmin,
   getPromotionCampaigns,
+  startEarly,
   type PromotionCampaignItem,
 } from "@/lib/api";
 
@@ -43,13 +44,16 @@ function fmtDate(iso: string | null) {
 type PageProps = { searchParams: Promise<{ status?: string }> };
 
 export default async function PromotionCampaignsPage({ searchParams }: PageProps) {
-  const admin = await getCurrentAdmin();
-  if (!admin) return <RestoringAccess />;
-
+  // Runs alongside the access check; read only once access is confirmed.
   const { status } = await searchParams;
   const active =
     status && FILTERS.includes(status as (typeof FILTERS)[number]) ? status : undefined;
-  const campaigns = await getPromotionCampaigns(active);
+  const campaignsRequest = startEarly(getPromotionCampaigns(active));
+
+  const admin = await getCurrentAdmin();
+  if (!admin) return <RestoringAccess />;
+
+  const campaigns = await campaignsRequest;
 
   const columns = [
     {

@@ -29,10 +29,13 @@ export default async function AccountModerationPage({ params }: PageProps) {
   const id = decodeURIComponent(raw);
   if (!USER_ID.test(id)) notFound();
 
+  // Starts alongside the access check; read only once it passes.
+  const moderationRequest = settle(getUserModeration(id));
+
   const admin = await getCurrentAdmin();
   if (!admin) redirect(`${BASE}/queue`);
 
-  const res = await settle(getUserModeration(id));
+  const res = await moderationRequest;
   if (!res.ok) {
     if (res.status === 404 || res.status === 400) notFound();
     return <ErrorState message={res.error} />;

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import DataTable from "@/components/DataTable";
-import { getCurrentAdmin, getOpenDisputes, type DisputeListItem } from "@/lib/api";
+import { getCurrentAdmin, getOpenDisputes, startEarly, type DisputeListItem } from "@/lib/api";
 import {
   normalizeStatus,
   STATUS_STYLES,
@@ -24,10 +24,13 @@ function fmtKES(n: number) {
 }
 
 export default async function ResolvedDisputesPage() {
+  // Runs alongside the access check; read only once access is confirmed.
+  const disputesRequest = startEarly(getOpenDisputes("resolved"));
+
   const admin = await getCurrentAdmin();
   if (!admin) redirect("/dashboard/disputes");
 
-  const disputes = await getOpenDisputes("resolved");
+  const disputes = await disputesRequest;
 
   const columns = [
     {

@@ -21,10 +21,13 @@ export default async function RestrictedList({
   empty: { title: string; body: string };
   intro: string;
 }) {
+  // Starts alongside the access check; read only once it passes.
+  const listRequest = settle(kinds.length === 1 ? listRestricted(kinds[0]) : listRestricted());
+
   const admin = await getCurrentAdmin();
   if (!admin) return <RestoringAccess />;
 
-  const res = await settle(kinds.length === 1 ? listRestricted(kinds[0]) : listRestricted());
+  const res = await listRequest;
   if (!res.ok) return <ErrorState message={res.error} />;
   const rows = res.data.filter((r) => (kinds as string[]).includes(r.kind));
 

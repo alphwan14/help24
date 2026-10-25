@@ -16,12 +16,18 @@ const PATH = "/dashboard/trust-safety/reports";
 type PageProps = { searchParams: Promise<SearchParams> };
 
 export default async function ReportsPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+  const query = reportApiQuery(sp);
+
+  // Both reads start alongside the access check and are only read once access
+  // is confirmed. settle() never rejects, so a discarded one cannot surface.
+  const summaryRequest = settle(getModerationSummary());
+  const pageRequest = settle(listReports(query));
+
   const admin = await getCurrentAdmin();
   if (!admin) return <RestoringAccess />;
 
-  const sp = await searchParams;
-  const query = reportApiQuery(sp);
-  const [summary, page] = await Promise.all([settle(getModerationSummary()), settle(listReports(query))]);
+  const [summary, page] = await Promise.all([summaryRequest, pageRequest]);
 
   const values = reportFilterValues(sp);
   const filtered = Object.entries(values).some(([k, v]) => k !== "sort" && v) || !!query.reported_user_id || !!query.reporter_id;

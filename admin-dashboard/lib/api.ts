@@ -98,6 +98,9 @@ export async function adminRequest<T>(
   return json as T;
 }
 
+/** Run a read alongside the access check — see lib/start-early.ts. */
+export { startEarly } from "./start-early";
+
 /**
  * Unauthenticated request to the backend, for PUBLIC endpoints where the
  * authorization is something other than the admin bearer token (e.g. the

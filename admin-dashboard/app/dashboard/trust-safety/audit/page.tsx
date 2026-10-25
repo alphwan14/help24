@@ -21,9 +21,6 @@ type PageProps = { searchParams: Promise<SearchParams> };
  * edit made by going around the database's own rules is detectable.
  */
 export default async function AuditPage({ searchParams }: PageProps) {
-  const admin = await getCurrentAdmin();
-  if (!admin) return <RestoringAccess />;
-
   const sp = await searchParams;
   const actionType = param(sp, "action_type");
   const adminId = param(sp, "admin_id");
@@ -42,11 +39,21 @@ export default async function AuditPage({ searchParams }: PageProps) {
     limit: PAGE,
     offset: offsetOf(sp),
   };
+
+  // The log and the admin list are open to every admin, so they start
+  // alongside the access check and are only read once it passes. The integrity
+  // check is senior-only, so it still waits for the role — starting it early
+  // would send a request a support agent is not allowed to make.
+  const pageRequest = settle(listAudit(query));
+  const adminsRequest = settle(listModerationAdmins());
+
+  const admin = await getCurrentAdmin();
+  if (!admin) return <RestoringAccess />;
   const senior = roleAtLeast(admin.role, "senior_admin");
 
   const [page, admins, integrity] = await Promise.all([
-    settle(listAudit(query)),
-    settle(listModerationAdmins()),
+    pageRequest,
+    adminsRequest,
     senior ? settle(getAuditIntegrity()) : Promise.resolve(null),
   ]);
   const filtered = Object.entries(query).some(([k, v]) => !["limit", "offset"].includes(k) && v);

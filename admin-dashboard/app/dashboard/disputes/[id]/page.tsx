@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { ApiError, getCurrentAdmin, getDispute, getRecommendation } from "@/lib/api";
+import { ApiError, getCurrentAdmin, getDispute, getRecommendation, startEarly } from "@/lib/api";
 import type { DisputeRecommendation } from "@/lib/api";
 import DisputeDetailClient from "./DisputeDetailClient";
 import MoneyPanel from "./MoneyPanel";
@@ -12,6 +12,15 @@ type PageProps = { params: Promise<{ id: string }> };
 export default async function DisputeDetailPage({ params }: PageProps) {
   const { id } = await params;
 
+  // The case, its recommendation and its money are independent reads. They
+  // used to run one after another AFTER the access check — four backend round
+  // trips in series. All four now start together; nothing is read until access
+  // is confirmed (see startEarly in lib/api.ts), and each keeps its own
+  // handling below.
+  const disputeRequest = startEarly(getDispute(id));
+  const recommendationRequest = startEarly(getRecommendation(id));
+  const moneyRequest = startEarly(getDisputeMoney(id));
+
   // Authenticate against the backend; bounce to the queue (which shows the
   // connect gate) if no valid admin token.
   const admin = await getCurrentAdmin();
@@ -19,7 +28,7 @@ export default async function DisputeDetailPage({ params }: PageProps) {
 
   let dispute;
   try {
-    dispute = await getDispute(id);
+    dispute = await disputeRequest;
   } catch (err) {
     if (err instanceof ApiError && (err.status === 404 || err.status === 400)) notFound();
     throw err;
@@ -28,7 +37,7 @@ export default async function DisputeDetailPage({ params }: PageProps) {
   // Advisory recommendation is best-effort — never block the case view on it.
   let recommendation: DisputeRecommendation | null = null;
   try {
-    recommendation = await getRecommendation(id);
+    recommendation = await recommendationRequest;
   } catch {
     recommendation = null;
   }
@@ -38,7 +47,7 @@ export default async function DisputeDetailPage({ params }: PageProps) {
   // failure hides the panel, never the case.
   let money: DisputeMoney | null = null;
   try {
-    const m = await getDisputeMoney(id);
+    const m = await moneyRequest;
     money = m.dispute.closed ? m : null;
   } catch {
     money = null;

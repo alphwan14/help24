@@ -29,9 +29,6 @@ const SCOPES = [
 type PageProps = { searchParams: Promise<SearchParams> };
 
 export default async function QueuePage({ searchParams }: PageProps) {
-  const admin = await getCurrentAdmin();
-  if (!admin) return <RestoringAccess />;
-
   const sp = await searchParams;
   const scope = SCOPES.find((s) => s.key === param(sp, "scope")) ?? SCOPES[0];
   const query = reportApiQuery(sp, {
@@ -40,7 +37,15 @@ export default async function QueuePage({ searchParams }: PageProps) {
     sort: "queue",
   });
 
-  const [summary, page] = await Promise.all([settle(getModerationSummary()), settle(listReports(query))]);
+  // Both reads start alongside the access check and are only read once access
+  // is confirmed. settle() never rejects, so a discarded one cannot surface.
+  const summaryRequest = settle(getModerationSummary());
+  const pageRequest = settle(listReports(query));
+
+  const admin = await getCurrentAdmin();
+  if (!admin) return <RestoringAccess />;
+
+  const [summary, page] = await Promise.all([summaryRequest, pageRequest]);
   const values = reportFilterValues(sp);
   const filtered = !!(values.q || values.severity || values.category || values.target_type);
 

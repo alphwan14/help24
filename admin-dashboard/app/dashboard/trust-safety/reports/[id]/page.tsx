@@ -23,12 +23,17 @@ export default async function ReportInvestigationPage({ params }: PageProps) {
   const { id } = await params;
   if (!UUID.test(id)) notFound();
 
+  // The investigation starts alongside the access check and is read only once
+  // it passes. The assignable-admins list stays behind the role check: this
+  // page has only ever asked for it on a senior's behalf.
+  const invRequest = settle(getReportInvestigation(id));
+
   const admin = await getCurrentAdmin();
   if (!admin) redirect(`${BASE}/queue`);
 
   const senior = roleAtLeast(admin.role, "senior_admin");
   const [inv, admins] = await Promise.all([
-    settle(getReportInvestigation(id)),
+    invRequest,
     senior ? settle(listModerationAdmins()) : Promise.resolve(null),
   ]);
   if (!inv.ok) {
