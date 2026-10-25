@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -413,13 +414,22 @@ export class AdminAuthService implements OnModuleInit {
    * Restore an arbitration session from an authenticated Supabase session.
    *
    * Trust model: the dashboard cannot be trusted to assert "I am X". Instead we
-   * INDEPENDENTLY verify the Supabase access-token (JWT) against GoTrue, derive
-   * the email from the verified token, confirm that email is an admin in
-   * public.users (the same source of truth as the dashboard gate), and only
-   * then mint a fresh arbitration token for the matching active admin_users row.
+   * INDEPENDENTLY verify the Supabase access-token (JWT) against GoTrue, then
+   * resolve the verified credential to a Help24 person through
+   * `user_auth_identities` — the SAME gate the dashboard middleware uses
+   * (admin-dashboard/lib/admin-identity.ts) — and only then mint a fresh
+   * arbitration token for the matching active admin_users row.
    *
-   * This is what makes login automatically re-hydrate arbitration access with
-   * zero manual token handling — while remaining forge-proof.
+   * WHY NOT BY EMAIL
+   * This used to look up `public.users` by the session's email. That made the
+   * two gates disagree about who is an admin: an admin whose dashboard login
+   * uses a different address from their app account passed the middleware once
+   * linked, then failed here and sat on "Your session needs refreshing"
+   * forever. The verified `user.id` is the credential; the link says which
+   * person it belongs to; nothing user-writable takes part.
+   *
+   * Fails CLOSED at every step. A lookup that errors is a 503, never a "not an
+   * admin" — the two mean different things to whoever is reading the log.
    */
   async restoreSession(accessToken: string): Promise<{
     id: string;
@@ -431,22 +441,44 @@ export class AdminAuthService implements OnModuleInit {
     // 1. Verify the Supabase session JWT itself (not a claimed email).
     const { data, error } =
       await this.supabase.client.auth.getUser(accessToken);
+    const authSubject = data?.user?.id;
     const email = data?.user?.email?.toLowerCase();
-    if (error || !email) {
+    if (error || !authSubject || !email) {
       throw new UnauthorizedException('Your session could not be verified.');
     }
 
-    // 2. Confirm admin in public.users — same gate the dashboard middleware uses.
-    const { data: urow } = await this.supabase.client
+    // 2. Which Help24 person is this credential? Through the link, never email.
+    const { data: link, error: linkError } = await this.supabase.client
+      .from('user_auth_identities')
+      .select('help24_user_id')
+      .eq('provider', 'supabase')
+      .eq('subject', authSubject)
+      .maybeSingle();
+    if (linkError) {
+      this.logger.error(`[ADMIN_AUTH] identity lookup failed: ${linkError.message}`);
+      throw new ServiceUnavailableException('Could not verify admin access right now.');
+    }
+    if (!link) {
+      throw new ForbiddenException('This login is not linked to a Help24 account yet.');
+    }
+
+    // 3. Is that person an admin? Same question the middleware asks.
+    const { data: person, error: personError } = await this.supabase.client
       .from('users')
       .select('role')
-      .eq('email', email)
+      .eq('id', link.help24_user_id as string)
       .maybeSingle();
-    if (!urow || urow.role !== 'admin') {
+    if (personError) {
+      this.logger.error(`[ADMIN_AUTH] role lookup failed: ${personError.message}`);
+      throw new ServiceUnavailableException('Could not verify admin access right now.');
+    }
+    if (!person || person.role !== 'admin') {
       throw new ForbiddenException('This account does not have admin access.');
     }
 
-    // 3. Mint a fresh arbitration token for the active admin_users row.
+    // 4. Mint a fresh arbitration token for the active admin_users row. That
+    //    row belongs to the dashboard CREDENTIAL (it is what the invite was
+    //    issued to), so it is keyed by the verified session email.
     const result = await this.reissueTokenForAdmin(email);
     if (!result.ok || !result.token) {
       if (result.reason === 'inactive') {
