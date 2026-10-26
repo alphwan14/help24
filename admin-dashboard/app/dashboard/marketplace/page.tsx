@@ -2,6 +2,13 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { RequestsOffersChart } from "@/components/charts/RequestsOffersChart";
 import MetricCard from "@/components/MetricCard";
 
+// Platform-wide figures, the same for every admin: cached for 60 s and rebuilt
+// in the background. Without this the page was prerendered ONCE at deploy and
+// served unchanged until the next deploy. Nothing here reads the session, so
+// a shared cache cannot carry one admin's view to another; access is still
+// decided per request by middleware before the cache is consulted.
+export const revalidate = 60;
+
 async function getMarketplaceData() {
   const db = createServiceClient();
   const since30 = new Date(Date.now() - 30 * 86400_000).toISOString();

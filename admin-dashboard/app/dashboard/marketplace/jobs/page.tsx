@@ -3,6 +3,13 @@ import DataTable from "@/components/DataTable";
 import { PostStatusBadge, archivedRowClass } from "@/components/PostStatusBadge";
 import { jobSalaryLabel, schemasByName, smartAnswerLines, type Json } from "@/lib/post-display";
 
+// Platform-wide figures, the same for every admin: cached for 60 s and rebuilt
+// in the background. Without this the page was prerendered ONCE at deploy and
+// served unchanged until the next deploy. Nothing here reads the session, so
+// a shared cache cannot carry one admin's view to another; access is still
+// decided per request by middleware before the cache is consulted.
+export const revalidate = 60;
+
 // Hiring posts (type='job') — recruitment listings from the Smart Posting
 // job journey. Previously these had NO admin surface at all.
 
