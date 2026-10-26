@@ -1484,7 +1484,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (participantId.isEmpty) return;
     try {
       final row = await Supabase.instance.client
-          .from('users')
+          .from('public_profiles')
           .select('is_online, last_seen, profession')
           .eq('id', participantId)
           .maybeSingle();

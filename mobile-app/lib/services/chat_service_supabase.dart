@@ -408,7 +408,7 @@ class ChatServiceSupabase {
 
   /// The columns a person is drawn from.
   static const String personSelect =
-      'id, name, email, avatar_url, profile_image, profession, last_seen';
+      'id, name, avatar_url, profile_image, profession, last_seen';
 
   /// A `users` row as a [ChatPerson]. The name is the profile name, else the
   /// email's local part — and otherwise ABSENT. Never '?'. Pure.
@@ -436,7 +436,8 @@ class ChatServiceSupabase {
     final out = <String, ChatPerson>{};
     for (var i = 0; i < unique.length; i += 100) {
       final chunk = unique.sublist(i, i + 100 > unique.length ? unique.length : i + 100);
-      final rows = await _client.from('users').select(personSelect).inFilter('id', chunk);
+      // Other people come from public_profiles, never users (migration 123).
+      final rows = await _client.from('public_profiles').select(personSelect).inFilter('id', chunk);
       for (final row in rows as List) {
         final person = personFromUserRow(Map<String, dynamic>.from(row as Map));
         if (person.id.isNotEmpty) out[person.id] = person;

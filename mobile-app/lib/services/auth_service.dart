@@ -25,6 +25,16 @@ class ProfileUnavailableException implements Exception {
   String toString() => 'ProfileUnavailableException: $message';
 }
 
+/// The Firebase → Supabase token exchange did not produce a session, so a
+/// write to the user's own profile row was NOT sent — rather than sent as
+/// `anon`. Internal: [AuthService.ensureCurrentUserInSupabase] turns it into a
+/// [ProfileUnavailableException] the user can read.
+class ProfileSessionUnavailable implements Exception {
+  const ProfileSessionUnavailable();
+  @override
+  String toString() => 'ProfileSessionUnavailable: no Supabase session for a profile write';
+}
+
 /// User model for the app (messaging-ready: userId, name, phone, email, profileImage).
 class AppUser {
   final String id;
@@ -297,11 +307,27 @@ class AuthService {
         message: 'Sign in first, then you can add another way in.',
       ));
     }
+    return linkPhoneCredential(PhoneAuthProvider.credential(
+      verificationId: verificationId,
+      smsCode: smsCode.trim(),
+    ));
+  }
+
+  /// Attach an already-verified phone CREDENTIAL to the signed-in account —
+  /// the one path both a typed code ([linkPhone]) and Android's instant
+  /// verification use when the user is ADDING a phone. Instant verification
+  /// used to call `signInWithCredential` unconditionally, which for a number
+  /// that already has its own account would have SWITCHED the user into that
+  /// account instead of adding the phone to this one.
+  static Future<AuthResult> linkPhoneCredential(PhoneAuthCredential credential) async {
+    final user = currentFirebaseUser;
+    if (user == null) {
+      return AuthResult.failed(const AuthFailure(
+        title: 'Sign in to continue',
+        message: 'Sign in first, then you can add another way in.',
+      ));
+    }
     try {
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId,
-        smsCode: smsCode.trim(),
-      );
       final result = await user
           .linkWithCredential(credential)
           .timeout(_authTimeout);
@@ -823,6 +849,11 @@ class AuthService {
       '[AUTH][PROFILE] cannot create users row for ${firebaseUser.uid} — $detail',
     );
 
+    if (cause is ProfileSessionUnavailable) {
+      throw const ProfileUnavailableException(
+        "We couldn't confirm it's you. Check your connection and try again.",
+      );
+    }
     if (cause is PostgrestException && cause.code == '23505') {
       throw const ProfileUnavailableException(
         'Your account details are already registered to another profile. '
@@ -929,8 +960,16 @@ class AuthService {
   /// Note the ordering this fixes: `_onAuthStateChanged` starts the token
   /// exchange and the profile sync CONCURRENTLY, so before this guard the sync
   /// regularly won the race and ran anonymously.
+  ///
+  /// And it now REFUSES rather than falling back to anon. The result of the
+  /// exchange used to be ignored, so a failed or timed-out exchange sent the
+  /// profile write as `anon` — which only worked because `users` let anyone
+  /// insert any row. That policy is being closed (identity lockdown, 2026-10),
+  /// and an app that writes its own row anonymously would stop being able to
+  /// create one. No session, no write: the caller decides what that means.
   static Future<void> _upsertUserRow(Map<String, dynamic> row) async {
-    await SupabaseAuthBridge.ensureSessionForWriteAsync();
+    final ok = await SupabaseAuthBridge.ensureSessionForWriteAsync();
+    if (!ok) throw const ProfileSessionUnavailable();
     await _supabase.from('users').upsert(row, onConflict: 'id');
   }
 

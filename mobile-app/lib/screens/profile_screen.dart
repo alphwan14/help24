@@ -39,6 +39,8 @@ import '../widgets/auth_guard.dart';
 import '../widgets/profile_widgets.dart';
 import '../widgets/reputation_widgets.dart';
 import 'professional_profile_screen.dart';
+import 'sign_in_methods_screen.dart';
+import '../services/auth_service.dart';
 import 'promotion/promote_business_screen.dart';
 import 'provider/payout_destinations_screen.dart';
 import 'provider/provider_onboarding_screen.dart';
@@ -689,6 +691,21 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                     }),
                   );
                 }),
+                // Every way into this account (Google, email, phone) and a way
+                // to add the ones it lacks — linked onto this account, never a
+                // second one. See SignInMethodsScreen.
+                _SettingsTile(
+                  icon: AppIcons.locked,
+                  title: 'Sign-in methods',
+                  value: '${AuthService.signInMethods.length} added',
+                  trailing: const Icon(AppIcons.disclosure),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SignInMethodsScreen()),
+                  ).then((_) {
+                    if (mounted) setState(() {});
+                  }),
+                ),
                 // NOT a payout surface. This is the number the client PAYS
                 // FROM (buyer STK push) and the contact number that makes a
                 // provider hireable. Where earnings are SENT is Payout

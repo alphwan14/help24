@@ -425,7 +425,7 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
           // Same columns the chat list resolves avatars from (avatar_url with
           // profile_image fallback) — profile_picture_url does not exist.
           final userRow = await Supabase.instance.client
-              .from('users')
+              .from('public_profiles')
               .select('name, avatar_url, profile_image')
               .eq('id', participantId)
               .maybeSingle();

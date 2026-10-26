@@ -80,17 +80,38 @@ Map<String, dynamic> insertReturningRow({
 void main() {
   group('feedRowSelect is the one shape', () {
     test('joins the author, images and applications', () {
-      expect(PostService.feedRowSelect, contains('users!author_user_id'));
+      // People come from public_profiles, aliased back to `users` so the
+      // parser reads the same key (migration 123).
+      expect(PostService.feedRowSelect, contains('users:public_profiles!author_user_id'));
+      expect(PostService.feedRowSelect, contains('users:public_profiles!applicant_user_id'));
       expect(PostService.feedRowSelect, contains('post_images(image_url)'));
       expect(PostService.feedRowSelect, contains('applications('));
     });
 
     test('requests every field a card needs from the author', () {
-      // Name and avatar answer the '?'; phone_number drives the M-Pesa tag.
-      for (final column in ['name', 'avatar_url', 'profile_image', 'phone_number']) {
+      // Name and avatar answer the '?'; has_phone drives the M-Pesa tag.
+      for (final column in ['name', 'avatar_url', 'profile_image', 'has_phone']) {
         expect(PostService.feedRowSelect, contains(column),
             reason: 'a card reads $column from the author join');
       }
+    });
+
+    test('has_phone drives the M-Pesa tag; an explicit false is never overridden', () {
+      Map<String, dynamic> withAuthor(Map<String, dynamic> author) =>
+          {...insertReturningRow(), 'users': author};
+      expect(PostModel.fromJson(withAuthor({'name': 'Grace', 'has_phone': true})).authorHasPhone, isTrue);
+      expect(PostModel.fromJson(withAuthor({'name': 'Grace', 'has_phone': false})).authorHasPhone, isFalse);
+      // A row from an older server or cache still carrying the raw number reads the old way.
+      expect(PostModel.fromJson(withAuthor({'name': 'Grace', 'phone_number': '+254700000001'})).authorHasPhone, isTrue);
+    });
+
+    test('never asks for another person\'s email or phone number', () {
+      // The feed is served to everyone, guests included. It used to embed every
+      // author's and applicant's email and phone; a card needs neither.
+      expect(PostService.feedRowSelect, isNot(matches(RegExp(r'\bemail\b'))));
+      expect(PostService.feedRowSelect, isNot(contains('phone_number')));
+      expect(PostService.feedRowSelect, isNot(contains('users!')),
+          reason: 'people are embedded from public_profiles, never the users table');
     });
   });
 

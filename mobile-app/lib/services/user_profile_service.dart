@@ -49,6 +49,15 @@ class UserProfileService {
     await _client.from('users').update(changes).eq('id', uid);
   }
 
+  /// The signed-in user's OWN `users` row. Waits for the Supabase session
+  /// first: once `users` is readable only by its owner, a read sent as `anon`
+  /// does not fail — it quietly returns no row, which every caller here would
+  /// take to mean "this person has no profile".
+  static Future<Map<String, dynamic>?> _ownRow(String uid, [String columns = '*']) async {
+    await SupabaseAuthBridge.ensureSessionAsync();
+    return await _client.from('users').select(columns).eq('id', uid).maybeSingle();
+  }
+
   /// Create or ensure user row in Supabase on signup. Call after Firebase Auth user is created.
   static Future<void> createUserOnSignup({
     required String uid,
@@ -61,9 +70,16 @@ class UserProfileService {
       // Despite the name, this runs on every phone sign-in, not only the first
       // — so for a RETURNING user the upsert resolves to an UPDATE, which is
       // owner-scoped. Establish the session first or a returning phone user's
-      // sign-in would start failing. Best-effort: a first-time INSERT is still
-      // permitted anonymously, so a failed exchange must not block sign-up.
-      await SupabaseAuthBridge.ensureSessionForWriteAsync();
+      // sign-in would start failing.
+      //
+      // No session, no write. A first-time INSERT used to fall through as
+      // `anon`; that only worked because `users` let anyone insert any row,
+      // which is being closed. Deferring is safe: provisioning is guaranteed
+      // by ensureCurrentUserInSupabase before the first owned write.
+      if (!await SupabaseAuthBridge.ensureSessionForWriteAsync()) {
+        debugPrint('[PROFILE] createUserOnSignup deferred for $uid: no session yet');
+        return;
+      }
       final displayName = name?.trim() ?? (email.isNotEmpty ? email.split('@').first : '');
       await _client.from('users').upsert(
         UserRow.build(
@@ -117,8 +133,12 @@ class UserProfileService {
     String? phone,
   }) async {
     if (!_isAvailable || uid.isEmpty) return;
+    // Same rule as every profile write: never as `anon`. This repair is
+    // best-effort and the write path guarantees the row, so without a session
+    // there is simply nothing to do yet.
+    if (!await SupabaseAuthBridge.ensureSessionForWriteAsync()) return;
     try {
-      final existing = await _client.from('users').select('id').eq('id', uid).maybeSingle();
+      final existing = await _ownRow(uid, 'id');
       if (existing != null) return;
       final displayName = name?.trim() ?? (email.isNotEmpty ? email.split('@').first : '');
       await _client.from('users').insert(UserRow.build(
@@ -161,11 +181,29 @@ class UserProfileService {
     }
   }
 
-  /// Fetch just the phone_number for a user. Returns null if not set.
+  /// Whether ANOTHER user has an M-Pesa number on their profile — true/false,
+  /// or null when it could not be checked (never "no" on a failed request).
+  /// Read from public_profiles: their number itself is not readable by anyone
+  /// but them (migration 123 and the users-table lockdown).
+  static Future<bool?> hasMpesaPhone(String uid) async {
+    if (!_isAvailable || uid.isEmpty) return null;
+    try {
+      final r = await _client.from('public_profiles').select('has_phone').eq('id', uid).maybeSingle();
+      final flag = r?['has_phone'];
+      return flag is bool ? flag : null;
+    } catch (e) {
+      debugPrint('UserProfileService hasMpesaPhone: $e');
+      return null;
+    }
+  }
+
+  /// Fetch just the phone_number for the CURRENT user. Returns null if not set.
+  /// Only ever called with the signed-in user's own id; another person's number
+  /// is not readable (use [hasMpesaPhone]).
   static Future<String?> getMpesaPhone(String uid) async {
     if (!_isAvailable || uid.isEmpty) return null;
     try {
-      final r = await _client.from('users').select('phone_number').eq('id', uid).maybeSingle();
+      final r = await _ownRow(uid, 'phone_number');
       return r?['phone_number']?.toString();
     } catch (e) {
       debugPrint('UserProfileService getMpesaPhone: $e');
@@ -195,11 +233,11 @@ class UserProfileService {
 
     Future<void> fetch() async {
       try {
-        final r = await _client.from('users').select().eq('id', uid).maybeSingle();
+        final r = await _ownRow(uid);
         if (controller.isClosed) return;
         hasDelivered = true;
         if (r != null) {
-          controller.add(UserModel.fromSupabase(r as Map<String, dynamic>));
+          controller.add(UserModel.fromSupabase(r));
         } else {
           controller.add(null);
         }
@@ -230,8 +268,8 @@ class UserProfileService {
   static Future<UserModel?> getUser(String? uid) async {
     if (!_isAvailable || uid == null || uid.isEmpty) return null;
     try {
-      final r = await _client.from('users').select().eq('id', uid).maybeSingle();
-      if (r != null) return UserModel.fromSupabase(r as Map<String, dynamic>);
+      final r = await _ownRow(uid);
+      if (r != null) return UserModel.fromSupabase(r);
       return null;
     } catch (e) {
       debugPrint('UserProfileService getUser ($uid): $e');
@@ -311,21 +349,18 @@ class UserProfileService {
   /// The publicly visible profile of ANY user — powers the provider profile
   /// screen and the "View Profile" action on applicant cards.
   ///
-  /// Reads the same `users` row the feed already joins for author name/avatar,
-  /// so it needs no migration and no new grant. When the users-table PII
-  /// lockdown lands, this is the ONE call site to repoint at `public_profiles`
-  /// (which will need profession/bio/created_at added to the view).
+  /// Reads `public_profiles`, never `users` (migration 123 added profession,
+  /// bio and created_at to the view for exactly this call). Another person's
+  /// email is not part of their public profile; UserModel's email stays empty.
   static Future<UserModel?> getPublicProfile(String userId) async {
     if (!_isAvailable || userId.isEmpty) return null;
     try {
       final row = await _client
-          .from('users')
-          .select('id, name, email, profile_image, avatar_url, bio, profession, created_at')
+          .from('public_profiles')
+          .select('id, name, profile_image, avatar_url, bio, profession, created_at')
           .eq('id', userId)
           .maybeSingle();
       if (row == null) return null;
-      // Email is intentionally NOT surfaced by the provider profile UI; it is
-      // selected only because UserModel carries it for the owner's own screen.
       return UserModel.fromSupabase(row as Map<String, dynamic>);
     } catch (e) {
       debugPrint('UserProfileService getPublicProfile ($userId): $e');
@@ -481,7 +516,7 @@ class UserProfileService {
   static Future<({bool notificationsEnabled, List<String> fcmTokens})> getNotificationPrefs(String uid) async {
     if (!_isAvailable || uid.isEmpty) return (notificationsEnabled: true, fcmTokens: <String>[]);
     try {
-      final r = await _client.from('users').select('notifications_enabled, fcm_tokens').eq('id', uid).maybeSingle();
+      final r = await _ownRow(uid, 'notifications_enabled, fcm_tokens');
       if (r == null) return (notificationsEnabled: true, fcmTokens: <String>[]);
       final list = r['fcm_tokens'];
       final tokens = list is List ? list.map((e) => e.toString()).where((s) => s.isNotEmpty).toList() : <String>[];
@@ -551,7 +586,7 @@ class UserProfileService {
   static Future<String> getLanguage(String uid) async {
     if (!_isAvailable || uid.isEmpty) return 'en';
     try {
-      final r = await _client.from('users').select('language').eq('id', uid).maybeSingle();
+      final r = await _ownRow(uid, 'language');
       final code = r?['language']?.toString();
       if (code == 'sw') return 'sw';
       if (code == 'en') return 'en';
@@ -586,7 +621,7 @@ class UserProfileService {
       // value the user just changed away from — the defect this guard closes.
       final epochAtRequest = _prefsWriteEpoch;
       try {
-        final r = await _client.from('users').select('notifications_enabled, language').eq('id', uid).maybeSingle();
+        final r = await _ownRow(uid, 'notifications_enabled, language');
         if (controller.isClosed) return;
         if (preferenceReadIsStale(
           epochAtRequest: epochAtRequest,

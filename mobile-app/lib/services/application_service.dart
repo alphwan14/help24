@@ -17,7 +17,10 @@ import 'supabase_auth_bridge.dart';
 class ApplicationService {
   static SupabaseClient get _client => Supabase.instance.client;
 
-  static const _applicationsSelect = '*, users(name, email, profile_image, avatar_url, profession)';
+  // Applicants come from public_profiles, never users (migration 123); the alias
+  // keeps the JSON key `users` the parsers read.
+  static const _applicationsSelect =
+      '*, users:public_profiles!applicant_user_id(name, profile_image, avatar_url, profession)';
 
   // PostgreSQL unique-violation error code.
   static const _pgUniqueViolation = '23505';

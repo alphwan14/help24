@@ -143,7 +143,8 @@ void main() {
             200,
           );
         }
-        if (path.endsWith('/rest/v1/users')) {
+        // Other people are read from public_profiles, never users (migration 123).
+        if (path.endsWith('/rest/v1/public_profiles')) {
           return http.Response(
             jsonEncode([
               {'id': 'p1', 'name': 'Alphonse Lincoln', 'avatar_url': 'https://x/a.jpg'},

@@ -237,7 +237,11 @@ class KenyaLocation {
       .toList();
 }
 
-/// Parse display name from joined users row. Never "Unknown" or "Guest": use name, else email prefix, else single char for avatar.
+/// Parse display name from joined users row. Never "Unknown" or "Guest".
+///
+/// The email-prefix fallback is gone with the email: people now come from
+/// `public_profiles`, which never carries one (migration 123). It stays as a
+/// fallback only for rows from older servers or caches that still send it.
 String _userDisplayName(dynamic usersJson) {
   if (usersJson == null || usersJson is! Map) return '?';
   final name = usersJson['name']?.toString()?.trim();
@@ -259,8 +263,14 @@ String _userAvatarUrl(dynamic usersJson) {
 }
 
 /// Returns true if the author has a phone_number (M-Pesa) registered.
+///
+/// `has_phone` is what `public_profiles` sends; the raw number is no longer
+/// shared with other people. A row that still carries `phone_number` (an older
+/// server, a cached feed) is read the old way rather than shown as "no phone".
 bool _userHasPhone(dynamic usersJson) {
   if (usersJson == null || usersJson is! Map) return false;
+  final flag = usersJson['has_phone'];
+  if (flag is bool) return flag;
   final p = usersJson['phone_number']?.toString()?.trim();
   return p != null && p.isNotEmpty;
 }

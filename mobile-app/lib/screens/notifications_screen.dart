@@ -476,7 +476,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         participantId = (u1 == widget.userId) ? u2 : u1;
         if (participantId.isNotEmpty) {
           final userRow = await Supabase.instance.client
-              .from('users')
+              .from('public_profiles')
               .select('name, avatar_url, profile_image')
               .eq('id', participantId)
               .maybeSingle();

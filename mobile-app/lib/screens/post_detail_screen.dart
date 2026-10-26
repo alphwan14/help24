@@ -2109,9 +2109,11 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
       final providerUserId =
           widget.providerUserId ?? widget.post.selectedProviderUserId;
       if (providerUserId != null && providerUserId.isNotEmpty) {
-        final providerRaw = await UserProfileService.getMpesaPhone(providerUserId);
+        // Whether they HAVE a number is all this check needs — another
+        // person's number itself is no longer readable (migration 123).
+        final providerHasPhone = await UserProfileService.hasMpesaPhone(providerUserId);
         if (!mounted) return;
-        if (providerRaw == null || providerRaw.isEmpty) {
+        if (providerHasPhone == false) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Row(children: [

@@ -103,7 +103,7 @@ class ChatPushIngest {
       });
 
   @visibleForTesting
-  static Uri personUri(String base, String userId) => Uri.parse('$base/rest/v1/users').replace(
+  static Uri personUri(String base, String userId) => Uri.parse('$base/rest/v1/public_profiles').replace(
         queryParameters: {'select': _compact(ChatServiceSupabase.personSelect), 'id': 'eq.$userId'},
       );
 

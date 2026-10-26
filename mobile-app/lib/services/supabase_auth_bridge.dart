@@ -76,6 +76,18 @@ class SupabaseAuthBridge {
         DateTime.now().difference(_tokenExchangedAt!) < _tokenTtl) {
       return true;
     }
+    // Concurrent callers share ONE exchange. Sign-in starts the bridge, the
+    // profile sync and the first screen's reads at the same moment; each used
+    // to start its own cloud-function call, and the profile write could finish
+    // waiting on a different exchange from the one that eventually succeeded.
+    return _writeExchangeInFlight ??= _exchangeForWrite().whenComplete(() {
+      _writeExchangeInFlight = null;
+    });
+  }
+
+  static Future<bool>? _writeExchangeInFlight;
+
+  static Future<bool> _exchangeForWrite() async {
     final user = AuthService.currentFirebaseUser;
     if (user == null) return false;
     try {

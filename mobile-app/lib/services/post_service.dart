@@ -104,10 +104,17 @@ class PostService {
   /// Byte-identical to `FEED_ROW_SELECT` in backend/src/feed/feed.repository.ts,
   /// so a ranked row, a fallback row and a just-created row all parse through
   /// the same `PostModel.fromJson` into the same object.
+  ///
+  /// People come from `public_profiles`, never `users` (migration 123). The
+  /// feed used to embed every author's email and phone number into every card
+  /// it served — to guests too — when all it needed was a name and whether the
+  /// author has an M-Pesa number. The alias keeps the JSON key `users`, so
+  /// [PostModel.fromJson] reads the same shape; `has_phone` replaces the raw
+  /// number. Changing this means changing FEED_ROW_SELECT in the same commit.
   static const String feedRowSelect =
-      '*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), '
+      '*, users:public_profiles!author_user_id(name, profile_image, avatar_url, has_phone), '
       'post_images(image_url), '
-      'applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))';
+      'applications(*, users:public_profiles!applicant_user_id(name, profile_image, avatar_url, profession))';
 
   /// Batch-warm the reputation cache for every distinct author in [authorIds],
   /// so cards paint their trust line together with the rest of the card instead

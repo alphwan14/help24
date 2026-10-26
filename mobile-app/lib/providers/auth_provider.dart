@@ -202,7 +202,13 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
   ///
   /// [phoneNumber] must already be E.164 (`+254712345678`) — the phone field
   /// guarantees this, so a malformed number can no longer reach the provider.
-  Future<bool> sendOtp(String phoneNumber) async {
+  ///
+  /// [forLinking] is true when the user is ADDING this phone to the account
+  /// they are signed in to (Sign-in methods), not signing in with it. It
+  /// changes what Android's instant verification does with the credential:
+  /// link it to this account, never sign in with it — signing in would switch
+  /// the user into whichever account already owns the number.
+  Future<bool> sendOtp(String phoneNumber, {bool forLinking = false}) async {
     if (!isAuthAvailable) {
       _failure = AuthErrorMapper.toFailure(
         FirebaseAuthException(code: 'not-configured'),
@@ -216,6 +222,7 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     _verificationId = null;
     _resendToken = null;
     _pendingPhoneNumber = null;
+    _autoVerified = false; // a previous verification must not read as this one
     notifyListeners();
 
     final completer = Completer<bool>();
@@ -240,6 +247,21 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
         // Android instant verification: the SMS was read automatically and
         // there is no code for the user to type. Treated as a full success so
         // the OTP screen can skip straight through.
+        if (forLinking) {
+          final result = await AuthService.linkPhoneCredential(credential);
+          if (result.success) {
+            if (result.user != null) _currentUser = result.user;
+            _autoVerified = true;
+            _failure = null;
+          } else {
+            // e.g. the number already belongs to another account. Typing the
+            // code would fail the same way, so say so now.
+            _failure = result.failure;
+          }
+          if (!completer.isCompleted) completer.complete(result.success);
+          notifyListeners();
+          return;
+        }
         try {
           await FirebaseAuth.instance.signInWithCredential(credential);
           _autoVerified = true;
