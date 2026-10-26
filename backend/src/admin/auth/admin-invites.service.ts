@@ -5,10 +5,12 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { AdminAuthService } from './admin-auth.service';
+import { AdminIdentityLinksService } from './admin-identity-links.service';
 import { AdminRole } from './admin-role';
 import { assertAuthUuid } from './auth-identity';
 
@@ -56,6 +58,7 @@ export class AdminInvitesService {
     private readonly supabase: SupabaseService,
     private readonly auth: AdminAuthService,
     private readonly config: ConfigService,
+    private readonly links: AdminIdentityLinksService,
   ) {}
 
   /**
@@ -80,13 +83,45 @@ export class AdminInvitesService {
 
   // ── Create ─────────────────────────────────────────────────────────────────
 
-  /** Issue an invite. super_admin only (enforced at the controller). */
+  /**
+   * Issue an invite. super_admin only (enforced at the controller).
+   *
+   * The invite names the Help24 PERSON it is for (`help24UserId`), chosen by
+   * the super admin from the people who use the app. Accepting it then links
+   * the new login to that person in the same step — no hand-run SQL, no
+   * "activation pending". The login email may differ from the person's app
+   * email: it is the address they will sign in to the dashboard with.
+   */
   async createInvite(params: {
     email: string;
     role: AdminRole;
     createdBy: string;
+    help24UserId: string;
   }): Promise<{ inviteLink: string; email: string; role: AdminRole; expires_at: string }> {
     const email = params.email.trim().toLowerCase();
+
+    // The person must exist, and must not already have a dashboard login: the
+    // database allows one per person (UNIQUE help24_user_id, provider).
+    const { data: person, error: personError } = await this.supabase.client
+      .from('users')
+      .select('id')
+      .eq('id', params.help24UserId)
+      .maybeSingle();
+    if (personError) throw new ServiceUnavailableException('Could not check that Help24 account right now.');
+    if (!person) throw new NotFoundException('That Help24 account no longer exists.');
+
+    const { data: existingLink, error: linkError } = await this.supabase.client
+      .from('user_auth_identities')
+      .select('subject')
+      .eq('provider', 'supabase')
+      .eq('help24_user_id', params.help24UserId)
+      .maybeSingle();
+    if (linkError) throw new ServiceUnavailableException('Could not check that Help24 account right now.');
+    if (existingLink) {
+      throw new ConflictException(
+        'That person already has a dashboard login. Manage their role from the admins list instead of re-inviting.',
+      );
+    }
 
     // Already a (live or deactivated) admin? Don't re-invite — manage instead.
     const { data: existingAdmin } = await this.supabase.client
@@ -130,6 +165,7 @@ export class AdminInvitesService {
       status: 'pending',
       created_by: params.createdBy,
       expires_at: expiresAt,
+      help24_user_id: params.help24UserId,
     });
     if (error) {
       // Unique-violation race on the partial index → treat as duplicate.
@@ -234,12 +270,23 @@ export class AdminInvitesService {
     //    DASHBOARD CREDENTIAL and must never travel any further into the
     //    marketplace — binding a credential to a person is what
     //    `user_auth_identities` is for (migration 099).
-    await this.ensureAuthUser(email, params.password);
+    const authId = await this.ensureAuthUser(email, params.password);
 
-    // 3. Promote an EXISTING person to admin. Never creates one — see the note
-    //    on ensureAdminRole. `authUserId` is deliberately not passed any more:
-    //    a Supabase Auth UUID must never become a public.users primary key.
-    await this.ensureAdminRole(email);
+    // 3. Which person is this login for, and make them an admin.
+    if (invite.help24_user_id) {
+      //    The inviter CHOSE the person (migration 122): link the login to them
+      //    and promote that person, by id. Both are idempotent, so a retry of
+      //    a half-finished acceptance converges instead of failing.
+      await this.linkInvitedLogin(authId, invite.help24_user_id, invite.created_by);
+      await this.promotePerson(invite.help24_user_id);
+    } else {
+      //    An invitation issued before 122 names nobody: promote an EXISTING
+      //    person by email, as before, and leave the login waiting to be linked
+      //    (it shows up in Admin Roles → "Logins waiting to be linked").
+      //    `authUserId` is deliberately not passed: a Supabase Auth UUID must
+      //    never become a public.users primary key.
+      await this.ensureAdminRole(email);
+    }
 
     // 4. Arbitration RBAC identity + one-time bearer (idempotent on retry).
     const admin = await this.auth.createOrRotateAdmin({ email, name, role });
@@ -304,7 +351,7 @@ export class AdminInvitesService {
   private async findByToken(token: string) {
     const { data } = await this.supabase.client
       .from('admin_invites')
-      .select('id, email, role, status, expires_at')
+      .select('id, email, role, status, expires_at, help24_user_id, created_by')
       .eq('token', token)
       .maybeSingle();
     return data as
@@ -314,6 +361,9 @@ export class AdminInvitesService {
           role: AdminRole;
           status: InviteStatus;
           expires_at: string;
+          /** The Help24 person the inviter chose (migration 122); null on older invites. */
+          help24_user_id: string | null;
+          created_by: string | null;
         }
       | null;
   }
@@ -363,6 +413,55 @@ export class AdminInvitesService {
    * sign into the app, and an admin links and promotes them per
    * docs/runbooks/admin-onboarding-and-identity-linking.md.
    */
+  /**
+   * Link the accepting login to the person the inviter chose. The inviter is
+   * recorded as `linked_by` — the human decision was theirs. Already linked to
+   * this same person is success (a retried acceptance); linked to anyone else
+   * fails the acceptance before the invite is consumed.
+   */
+  private async linkInvitedLogin(authId: string, help24UserId: string, createdBy: string | null): Promise<void> {
+    const { data: existing, error: lookupError } = await this.supabase.client
+      .from('user_auth_identities')
+      .select('help24_user_id')
+      .eq('provider', 'supabase')
+      .eq('subject', authId)
+      .maybeSingle();
+    if (lookupError) throw new ServiceUnavailableException('Could not finish setting up your access. Please try again.');
+    if (existing) {
+      if (existing.help24_user_id === help24UserId) return;
+      throw new ConflictException('This login is already linked to a different Help24 account. Contact a super_admin.');
+    }
+
+    const linkedBy = await this.inviterLabel(createdBy);
+    try {
+      await this.links.link(authId, help24UserId, linkedBy);
+    } catch (err) {
+      this.logger.error(`[INVITE] link on acceptance failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (err instanceof ConflictException) {
+        throw new ConflictException('That Help24 account already has a dashboard login. Contact a super_admin.');
+      }
+      throw new ServiceUnavailableException('Could not finish setting up your access. Please try again.');
+    }
+  }
+
+  /** The inviter's email for `linked_by`; the invite id if the inviter is gone. */
+  private async inviterLabel(createdBy: string | null): Promise<string> {
+    if (createdBy) {
+      const { data } = await this.supabase.client.from('admin_users').select('email').eq('id', createdBy).maybeSingle();
+      if (data?.email) return `${data.email as string} (invite)`;
+    }
+    return 'invitation (inviter no longer an admin)';
+  }
+
+  /** Make the chosen person an admin, by id. A failure fails the acceptance. */
+  private async promotePerson(help24UserId: string): Promise<void> {
+    const { error } = await this.supabase.client.from('users').update({ role: 'admin' }).eq('id', help24UserId);
+    if (error) {
+      this.logger.error(`[INVITE] users role update failed for ${help24UserId}: ${error.message}`);
+      throw new ServiceUnavailableException('Could not finish setting up your access. Please try again.');
+    }
+  }
+
   private async ensureAdminRole(email: string): Promise<void> {
     const { data: existing, error: selErr } = await this.supabase.client
       .from('users')

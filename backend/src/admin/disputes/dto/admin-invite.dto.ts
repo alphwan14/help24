@@ -8,13 +8,23 @@ import {
 } from 'class-validator';
 import { ADMIN_ROLES, AdminRole } from '../../auth/admin-role';
 
-/** Issue an invite (super_admin only). */
+/**
+ * Issue an invite (super_admin only). `help24UserId` is REQUIRED: an invite
+ * always names the Help24 person it is for, so accepting it can link the new
+ * login to them. `email` is the address they will sign in to the dashboard with
+ * and may differ from their app email.
+ */
 export class CreateInviteDto {
   @IsEmail()
   email: string;
 
   @IsIn(ADMIN_ROLES as unknown as string[])
   role: AdminRole;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  help24UserId: string;
 }
 
 /** Accept an invite (public — the invite token is the authorization). */

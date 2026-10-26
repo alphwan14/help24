@@ -66,6 +66,7 @@ export class AdminUsersController {
       email: dto.email,
       role: dto.role,
       createdBy: admin.id,
+      help24UserId: dto.help24UserId,
     });
   }
 
