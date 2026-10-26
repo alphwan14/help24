@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart' as fb show User;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -43,57 +44,71 @@ class SupabaseAuthBridge {
   /// Concurrent callers share ONE exchange: a burst of 401s from parallel
   /// reads must not trigger a burst of cloud-function calls.
   static Future<bool> forceRefresh() {
-    return _refreshInFlight ??= _doForceRefresh().whenComplete(() {
-      _refreshInFlight = null;
-    });
-  }
-
-  static Future<bool>? _refreshInFlight;
-
-  static Future<bool> _doForceRefresh() async {
     final user = AuthService.currentFirebaseUser;
-    if (user == null) return false;
-    try {
-      // forceRefresh: true — a stale Firebase ID token would only buy us
-      // another expired Supabase JWT.
-      final idToken = await user.getIdToken(true).timeout(_idTokenTimeout);
-      if (idToken == null || idToken.isEmpty) return false;
-      return await setSupabaseSessionFromFirebase(idToken);
-    } catch (e) {
-      debugPrint('[AUTH][BRIDGE] forceRefresh failed: $e');
-      return false;
-    }
+    if (user == null) return Future.value(false);
+    return ensureSessionForUser(user, force: true);
   }
 
   /// Ensures we have a fresh Supabase JWT for RLS writes (chats, chat_messages).
   /// Re-exchanges only when the cached token is missing or older than [_tokenTtl].
   /// Returns true if a token is set, false if exchange failed (caller should not proceed with write).
-  static Future<bool> ensureSessionForWriteAsync() async {
-    // Re-use valid token — avoids a cloud function call on every write.
-    if (_accessToken != null &&
+  static Future<bool> ensureSessionForWriteAsync() {
+    final user = AuthService.currentFirebaseUser;
+    if (user == null) return Future.value(false);
+    return ensureSessionForUser(user);
+  }
+
+  /// Whose Firebase account the cached JWT was minted for. A token is only
+  /// ever reused for that same account; an account switch always exchanges.
+  static String? _tokenUid;
+
+  static Future<bool>? _exchangeInFlight;
+  static String? _exchangeUid;
+
+  /// THE one way to establish the session for [user].
+  ///
+  /// At startup the app used to exchange three times in ~1.2 s: AuthProvider's
+  /// init and its first auth-state event each called the exchange directly
+  /// (bypassing the cache), and a profile write that landed before either
+  /// finished started its own. Now a fresh token for this same account is
+  /// reused, an exchange already running for this account is joined, and only
+  /// otherwise does it exchange — once. [force] skips the reuse (the server
+  /// rejected the token) but still joins a running exchange: that one is fresh
+  /// too, and a burst of 401s must not become a burst of exchanges.
+  static Future<bool> ensureSessionForUser(fb.User user, {bool force = false}) {
+    if (!force &&
+        _tokenUid == user.uid &&
+        _accessToken != null &&
         _accessToken!.isNotEmpty &&
         _tokenExchangedAt != null &&
         DateTime.now().difference(_tokenExchangedAt!) < _tokenTtl) {
-      return true;
+      return Future.value(true);
     }
-    // Concurrent callers share ONE exchange. Sign-in starts the bridge, the
-    // profile sync and the first screen's reads at the same moment; each used
-    // to start its own cloud-function call, and the profile write could finish
-    // waiting on a different exchange from the one that eventually succeeded.
-    return _writeExchangeInFlight ??= _exchangeForWrite().whenComplete(() {
-      _writeExchangeInFlight = null;
+    final running = _exchangeInFlight;
+    if (running != null && _exchangeUid == user.uid) return running;
+
+    _exchangeUid = user.uid;
+    final exchange = _exchangeFor(user, forceIdToken: force);
+    _exchangeInFlight = exchange;
+    exchange.whenComplete(() {
+      if (identical(_exchangeInFlight, exchange)) {
+        _exchangeInFlight = null;
+        _exchangeUid = null;
+      }
     });
+    return exchange;
   }
 
-  static Future<bool>? _writeExchangeInFlight;
-
-  static Future<bool> _exchangeForWrite() async {
-    final user = AuthService.currentFirebaseUser;
-    if (user == null) return false;
+  static Future<bool> _exchangeFor(fb.User user, {required bool forceIdToken}) async {
     try {
-      final idToken = await user.getIdToken().timeout(_idTokenTimeout);
+      // forceIdToken after a rejection: a stale Firebase ID token would only
+      // buy another expired Supabase JWT.
+      final idToken = await user.getIdToken(forceIdToken).timeout(_idTokenTimeout);
       if (idToken == null || idToken.isEmpty) return false;
       final ok = await setSupabaseSessionFromFirebase(idToken);
+      // The account may have changed while this was in flight; only claim the
+      // token for [user] if it is still the signed-in account.
+      if (ok && AuthService.currentFirebaseUser?.uid == user.uid) _tokenUid = user.uid;
       return ok;
     } catch (e) {
       if (!_loggedExchangeUnavailable) {
@@ -163,6 +178,7 @@ class SupabaseAuthBridge {
   static void clearSupabaseSession() {
     _accessToken = null;
     _tokenExchangedAt = null;
+    _tokenUid = null;
     _loggedExchangeUnavailable = false;
     // Revert realtime to anon on logout.
     try {

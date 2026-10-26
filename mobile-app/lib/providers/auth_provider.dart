@@ -100,12 +100,9 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (firebaseUser != null) {
         _currentUser = AuthService.appUserFromFirebase(firebaseUser);
         notifyListeners();
-        try {
-          final idToken = await firebaseUser.getIdToken();
-          if (idToken != null && idToken.isNotEmpty) {
-            await SupabaseAuthBridge.setSupabaseSessionFromFirebase(idToken);
-          }
-        } catch (_) {}
+        // Through the shared, user-aware exchange (see ensureSessionForUser):
+        // the auth-state listener below fires for this same user at startup.
+        await SupabaseAuthBridge.ensureSessionForUser(firebaseUser);
         AuthService.getCurrentAppUser().then((u) {
           if (u != null) {
             _currentUser = u;
@@ -185,11 +182,9 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (AppFirebase.isReady) {
       NotificationService.onLogin(firebaseUser.uid);
     }
-    firebaseUser.getIdToken().then((idToken) async {
-      if (idToken != null && idToken.isNotEmpty) {
-        await SupabaseAuthBridge.setSupabaseSessionFromFirebase(idToken);
-      }
-    }).catchError((_) {});
+    // Joins (or reuses) the exchange init() already started for this user; a
+    // different user — an account switch — gets an exchange of its own.
+    unawaited(SupabaseAuthBridge.ensureSessionForUser(firebaseUser));
     AuthService.getCurrentAppUser().then((u) {
       if (u != null) {
         _currentUser = u;
