@@ -334,7 +334,12 @@ void main() {
     final ended = Message(
         id: 'f0f0f0f0-0000-4000-8000-000000000004', senderId: 'them', text: 'On my way', timestamp: t,
         isMe: false, type: 'live_location', latitude: -1.2, longitude: 36.8,
-        liveUntil: t.subtract(const Duration(minutes: 5)));
+        // ENDED relative to the real clock, not to `t`. `t` is 08:37 TODAY, so
+        // `t - 5 min` was in the future whenever the suite ran before 08:32:
+        // the share rendered as live, its LiveDot pulsed, and the light and
+        // dark captures caught the pulse at different sizes — this test failed
+        // every morning and passed every afternoon.
+        liveUntil: DateTime.now().subtract(const Duration(minutes: 5)));
     return Builder(
       builder: (context) => col([
         framed(mineGone, ChatTombstoneBubble(message: mineGone, position: alone, time: '8:37 AM')),
