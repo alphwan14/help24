@@ -16,8 +16,10 @@
 --   * The backend and admin dashboard use the service role (bypasses RLS).
 --   * No other table's policy, no view and no reachable invoker function
 --     reads users with the caller's rights (pre-flight query, 2026-10-26).
---   * Dry run: the policies below were applied inside a transaction, checked
---     as `authenticated` and `anon`, and rolled back, before this was applied.
+--   * After applying, check as `anon`: `select count(*) from public.users`
+--     returns 0 and an insert is refused; as a signed-in member, only their
+--     own row is visible. (A rehearsal inside a rolled-back transaction was
+--     prepared but not run — the tool permission prompt declined it.)
 --
 -- The JWT the app presents is minted by the exchange-firebase-token edge
 -- function: role `authenticated`, user_id = sub = the Firebase uid, which is
