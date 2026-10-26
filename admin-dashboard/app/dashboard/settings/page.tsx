@@ -4,7 +4,7 @@ import { requireAdminIdentity } from "@/lib/admin-identity";
 import { getCurrentAdmin, type AdminRole } from "@/lib/api";
 import { hasPasswordSignIn } from "@/lib/admin-password";
 import ChangePasswordForm from "./ChangePasswordForm";
-import RefreshWhenConnected from "./RefreshWhenConnected";
+import RefreshWhenConnected from "@/components/RefreshWhenConnected";
 import ResetLinkRequest from "./ResetLinkRequest";
 
 export const dynamic = "force-dynamic";

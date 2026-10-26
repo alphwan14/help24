@@ -475,6 +475,46 @@ try {
   section("screens");
   await signIn(ALICE, ALICE_PW4);
   await waitFor(`location.pathname.startsWith('/dashboard')`, "signed in");
+
+  /* ════════════════════════════════════════════════════════════════════ */
+  section("app controls");
+  {
+    const F = 'section[aria-label="Features"]';
+    await goto(`${APP}/dashboard/operations/controls`);
+    await waitFor(`${bodyHas("Change history")} && !!document.querySelector('${F}')`, "app controls");
+    check("App controls shows the four controls and the live values",
+      await evaluate(`["Features", "App version", "Maintenance banner", "Announcement"].every(t => !!document.querySelector('section[aria-label="' + t + '"]')) && document.querySelector('input[name="soft"]').value === "1.0.5"`));
+    check("the sidebar carries App Controls", await evaluate(`!!document.querySelector('nav a[href="/dashboard/operations/controls"]')`));
+
+    await click(`${F} button[aria-label="Payments"]`);
+    await waitFor(`!document.querySelector('${F} .btn-primary').disabled`, "review enabled");
+    check("nothing is sent by flipping a switch", !fake.log.some((l) => l.method === "PATCH"));
+    await click(`${F} .btn-primary`);
+    await waitFor(`!!document.querySelector('[role="dialog"]')`, "confirm dialog");
+    const dialog = await evaluate(`document.querySelector('[role="dialog"]').innerText`);
+    check("confirm names exactly what changes and what it stops",
+      dialog.includes("Payments: on → off") && dialog.includes("Nobody can start an M-Pesa payment") && !dialog.includes("Posting:"), dialog.slice(0, 200));
+    check("confirm is refused without a reason", await evaluate(`[...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.includes("Confirm")).disabled`));
+    await fill('[role="dialog"] textarea', "M-Pesa callbacks failing");
+    await shot("8-app-controls-confirm.png");
+    await clickText("Confirm change");
+    await waitFor(`!document.querySelector('[role="dialog"]') && ${bodyHas("1 off")}`, "saved", 15000);
+    const write = fake.log.filter((l) => l.method === "PATCH").at(-1);
+    const sent = JSON.parse(write?.body || "{}");
+    check("one PATCH /admin/config/ops.kill_switches with the value and the reason",
+      write?.path === "/admin/config/ops.kill_switches" && sent.value?.payments === false && sent.reason === "M-Pesa callbacks failing", write?.body);
+    check("the backend now serves payments off", fake.appConfig.ops.kill_switches.payments === false);
+    const last = fake.configHistory.at(-1);
+    check("the change is recorded with who and why", last?.admin_email === ALICE && last?.reason === "M-Pesa callbacks failing");
+    check("the history on the page reads the change back",
+      await evaluate(`document.querySelector('section[aria-label="Change history"]').innerText.includes("Payments: on → off")`));
+
+    await shot("9-app-controls.png", true);
+    await fill('input[name="hard"]', "1.0.6");
+    check("a required version above the suggested one is refused before review",
+      await evaluate(`${bodyHas("cannot be higher than the suggested one")} && document.querySelector('section[aria-label="App version"] .btn-primary').disabled`));
+    check("no other write went out", fake.log.filter((l) => l.method === "PATCH").length === 1);
+  }
   // Desktop: the shell is one screen tall and only <main> scrolls, so the rail
   // stays put. If anything on the page escapes that box the DOCUMENT scrolls
   // and carries the rail up with it.

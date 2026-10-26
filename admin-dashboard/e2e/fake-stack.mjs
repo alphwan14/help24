@@ -32,6 +32,18 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
   const outbox = [];
   const log = [];
   const restores = new Map();
+  // The app's live controls (backend/src/app-config/client-config.ts shape) and
+  // what migration 125's admin_set_app_setting would have recorded.
+  const appConfig = {
+    ops: {
+      kill_switches: { payments: true, promotions: true, posting: true, applications: true },
+      maintenance: { active: false, message: "" },
+      min_version: { soft: "1.0.5", hard: "1.0.4", message: "Update", store_url: "https://help24.co.ke/download" },
+      announcement: { id: "", active: false, message: "", url: "" },
+    },
+    tuning: { payments: { poll_interval_seconds: 5, poll_budget: 24 }, listings: { urgent_window_minutes: 60 } },
+  };
+  const configHistory = [];
 
   const recoveryTemplate = readFileSync(join(templatesDir, "recovery.html"), "utf8");
   const recoverySubject = JSON.parse(readFileSync(join(templatesDir, "manifest.json"), "utf8"))
@@ -232,6 +244,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
             })
           : []);
       }
+      if (table === "app_settings_history") return send(200, [...configHistory].reverse());
       if (table === "users") {
         const person = people.get(eq("id"));
         return send(200, person ? [{ role: person.role }] : []);
@@ -259,6 +272,25 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     if (req.method === "GET" && p === "/admin/alerts") {
       return adminByToken() ? send(200, { generated_at: new Date().toISOString(), alerts: [], unavailable: [] }) : apiFail(401, "Invalid admin token.");
     }
+    if (req.method === "GET" && p === "/admin/config") {
+      return adminByToken() ? send(200, { version: "fake", config: appConfig }) : apiFail(401, "Invalid admin token.");
+    }
+    if (req.method === "PATCH" && p.startsWith("/admin/config/")) {
+      const a = adminByToken();
+      if (!a) return apiFail(401, "Invalid admin token.");
+      if (a.role === "support_agent") return apiFail(403, "Insufficient role.");
+      const key = decodeURIComponent(p.slice("/admin/config/".length));
+      const [, section] = key.split(".");
+      if (!(section in appConfig.ops)) return apiFail(400, `Unknown config key '${key}'.`);
+      if (String(body.reason ?? "").trim().length < 5) return apiFail(400, "Give a reason for the change, in 5 to 500 characters.");
+      const previous = appConfig.ops[section];
+      appConfig.ops[section] = { ...previous, ...body.value };
+      configHistory.push({
+        id: randomUUID(), key, previous_value: previous, new_value: appConfig.ops[section], reason: body.reason.trim(),
+        admin_email: a.email, admin_role: a.role, created_at: new Date().toISOString(),
+      });
+      return send(200, { version: "fake", config: appConfig, recorded: true });
+    }
     if (req.method === "GET" && p === "/admin/users") {
       return adminByToken()
         ? send(200, [...admins.values()].map((a) => ({ id: a.id, email: a.email, name: a.name, role: a.role, active: a.active, created_at: "2026-06-01T08:00:00Z", last_login_at: null })))
@@ -283,7 +315,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
   await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
 
   return {
-    origin, server, log, outbox, restores, admins,
+    origin, server, log, outbox, restores, admins, appConfig, configHistory,
     addAuthUser(email, password) {
       const id = randomUUID();
       auth.set(id, { id, email, password });

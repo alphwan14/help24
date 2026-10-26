@@ -1,5 +1,6 @@
 import "server-only";
 import { cookies } from "next/headers";
+import type { ClientConfig } from "./app-controls";
 
 /**
  * Server-only API client for the NestJS arbitration backend.
@@ -389,6 +390,11 @@ export async function getCurrentAdmin(token?: string): Promise<AdminMe | null> {
   } catch {
     return null;
   }
+}
+
+/** The app's live controls, exactly as phones receive them (any admin may read). */
+export function getAppConfig(): Promise<{ version: string; config: ClientConfig }> {
+  return adminRequest<{ version: string; config: ClientConfig }>("/admin/config");
 }
 
 export function getOpenDisputes(status?: string): Promise<DisputeListItem[]> {
