@@ -149,7 +149,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
       label: "User",
       render: (r: EnrichedUser) => (
         <div>
-          <p className="font-medium text-gray-900">{r.name || "—"}</p>
+          <Link href={`/dashboard/users/${encodeURIComponent(r.id)}`} className="font-medium text-gray-900 hover:underline">{r.name || "—"}</Link>
           <p className="text-xs text-gray-400">{r.email || r.id.slice(0, 12)}</p>
         </div>
       ),

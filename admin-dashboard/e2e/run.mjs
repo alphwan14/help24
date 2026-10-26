@@ -515,6 +515,26 @@ try {
       await evaluate(`${bodyHas("cannot be higher than the suggested one")} && document.querySelector('section[aria-label="App version"] .btn-primary').disabled`));
     check("no other write went out", fake.log.filter((l) => l.method === "PATCH").length === 1);
   }
+
+  /* ════════════════════════════════════════════════════════════════════ */
+  section("member page");
+  {
+    const daveId = fake.idOf(DAVE);
+    await goto(`${APP}/dashboard/users/${daveId}`);
+    await waitFor(`${bodyHas("Trust & Safety record")} && ${bodyHas("Money for their work")}`, "member page");
+    await shot("10-member.png", true);
+    check("member page: activity, standing and push reach in the header",
+      await evaluate(`${bodyHas("Active today")} && ${bodyHas("Good standing")} && ${bodyHas("Reach 1 phone")}`));
+    check("member page: call, WhatsApp and email go to this member",
+      await evaluate(`!!document.querySelector('a[href="tel:+254712345678"]') && !!document.querySelector('a[href="https://wa.me/254712345678"]') && !!document.querySelector('a[href^="mailto:"]')`));
+    check("member page: Trust & Safety record links to the same member",
+      await evaluate(`!!document.querySelector('a[href="/dashboard/trust-safety/users/${daveId}"]')`));
+    check("member page: empty history reads as none, not as a failed read",
+      await evaluate(`${bodyHas("Has not posted anything.")} && !(${bodyHas("Could not be read just now")})`));
+    check("member page: the push token never reaches the page", !(await evaluate(`document.documentElement.outerHTML.includes("fcm-secret-token-e2e")`)));
+    await goto(`${APP}/dashboard/users/not a valid id`);
+    check("member page: a malformed id is a 404, not a query", await evaluate(`${bodyHas("404")} || ${bodyHas("could not be found")} || ${bodyHas("not found")}`));
+  }
   // Desktop: the shell is one screen tall and only <main> scrolls, so the rail
   // stays put. If anything on the page escapes that box the DOCUMENT scrolls
   // and carries the rail up with it.

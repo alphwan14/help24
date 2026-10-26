@@ -246,8 +246,16 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       }
       if (table === "app_settings_history") return send(200, [...configHistory].reverse());
       if (table === "users") {
+        // The member page reads the whole row; the gate and overview read role.
+        // fcm_tokens carries a recognisable value so a run can prove it never
+        // reaches the page.
         const person = people.get(eq("id"));
-        return send(200, person ? [{ role: person.role }] : []);
+        return send(200, person ? [{
+          id: person.id, role: person.role, email: person.email, name: person.email.split("@")[0],
+          phone_number: "0712 345 678", created_at: "2026-06-01T08:00:00Z", last_login: null,
+          last_seen: new Date(Date.now() - 3 * 3600e3).toISOString(), is_online: false,
+          notifications_enabled: true, fcm_tokens: ["fcm-secret-token-e2e"],
+        }] : []);
       }
       return send(200, [], { "Content-Range": "0-0/0" });
     }
@@ -343,6 +351,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     inviteStatus: (token) => invites.get(token)?.status,
     isLinked: (email) => links.some((l) => l.subject === byEmail(email)?.id),
     roleOf: (email) => personByEmail(email)?.role,
+    idOf: (email) => personByEmail(email)?.id,
     password: (email) => byEmail(email)?.password,
     credentialCount: (email) => [...auth.values()].filter((u) => u.email.toLowerCase() === email.toLowerCase()).length,
     signInDirect(email, password) {
