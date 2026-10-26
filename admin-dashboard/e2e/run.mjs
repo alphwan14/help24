@@ -475,6 +475,27 @@ try {
   section("screens");
   await signIn(ALICE, ALICE_PW4);
   await waitFor(`location.pathname.startsWith('/dashboard')`, "signed in");
+  // Desktop: the shell is one screen tall and only <main> scrolls, so the rail
+  // stays put. If anything on the page escapes that box the DOCUMENT scrolls
+  // and carries the rail up with it.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false });
+  await goto(`${APP}/dashboard/settings`);
+  await waitFor(`${bodyHas("Change password")} && !document.body.innerText.includes('Setting up your admin workspace')`, "settings desktop");
+  await sleep(400);
+  const desk = await evaluate(`(() => {
+    const doc = document.scrollingElement;
+    const main = document.querySelector("main");
+    main.scrollTop = main.scrollHeight;
+    window.scrollTo(0, 99999);
+    const escaping = [...document.body.querySelectorAll("*")]
+      .filter((el) => !main.contains(el) && el.getBoundingClientRect().bottom > innerHeight + 1 && getComputedStyle(el).position !== "fixed")
+      .slice(0, 6)
+      .map((el) => el.tagName.toLowerCase() + "." + String(el.className).split(" ").slice(0, 4).join(".") + " bottom=" + Math.round(el.getBoundingClientRect().bottom));
+    return JSON.stringify({ docOverflow: doc.scrollHeight - doc.clientHeight, windowScrollY: window.scrollY, escaping });
+  })()`);
+  const deskState = JSON.parse(desk);
+  check("desktop Settings: only <main> scrolls — the document never moves the rail",
+    deskState.docOverflow <= 0 && deskState.windowScrollY === 0, desk);
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await goto(`${APP}/dashboard/settings`);
   await waitFor(`${bodyHas("Change password")} && !document.body.innerText.includes('Setting up your admin workspace')`, "settings mobile");

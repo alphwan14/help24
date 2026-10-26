@@ -98,7 +98,13 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       <AlertsProvider enabled={status === "ready" && arbitration.connected}>
         <Sidebar supabaseEmail={supabaseEmail} arbitration={arbitration} />
       </AlertsProvider>
-      <main className="flex-1 min-w-0 overflow-y-auto pt-14 lg:pt-0">
+      {/* `relative` is load-bearing. Without a positioned <main>, an absolutely
+          positioned descendant with no positioned ancestor (every `sr-only`
+          span is one — Settings' password checklist has several) is placed
+          against the PAGE, escapes this scroll box, and makes the document
+          taller than the screen: the window then scrolls and drags the rail
+          up with it (33 px on Settings at 1366×768). */}
+      <main className="relative flex-1 min-w-0 overflow-y-auto pt-14 lg:pt-0">
         <div className="max-w-[1320px] mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 lg:py-8">
           {children}
         </div>
