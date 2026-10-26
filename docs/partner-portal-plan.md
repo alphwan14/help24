@@ -1,6 +1,6 @@
 # Partner portal — plan
 
-Status: agreed direction, 2026-10-26. Nothing built yet.
+Status: P1 (capture) and P2 (portal and admin Partners) built 2026-10-26. P3–P5 not started.
 Owner: Help24 team. Audience: everyone building or running the portal.
 
 ## What we are building, and for whom
@@ -108,3 +108,27 @@ Nothing is credited retroactively. Members who joined before P1 have no agent.
 2. Whether the 2-days-in-14 rule is the right bar, or posting or applying should be required.
 3. How agents are paid (M-Pesa B2C to a verified number?) and how often.
 4. Whether agents may see members who never qualified after the window closes.
+
+## Status and setup (2026-10-26)
+
+**Built:**
+- **P1:** migration 127, app 1.0.6, and the website's `/a/<CODE>` page with App Links.
+- **P2:** migration 128, the partner portal and the admin **Partners** section. Admins monitor agents from inside admin.help24.co.ke:
+  - a leaderboard of every agent;
+  - each agent's page, with members shown in full;
+  - what the agent sees in their portal;
+  - pause and invite controls, with a history of who did what.
+
+**Sign-in for partners:** an admin adds the agent and sends the one-time invitation link (WhatsApp works). The agent sets a password at `/accept`. A new invitation also resets a forgotten password. No email is sent, because Supabase's default mailer only delivers to project team members.
+
+**To switch the portal on (the team does these steps, not code):**
+1. Vercel → the admin-dashboard project → Domains → add `partners.help24.co.ke`.
+2. DNS: add a CNAME from `partners` to the target Vercel shows.
+
+No new environment variables are needed. `PARTNER_HOSTS` defaults to `partners.help24.co.ke` and `PARTNER_PORTAL_URL` to `https://partners.help24.co.ke`. Supabase Auth needs no change, because partners sign in with a password and are never redirected.
+
+**Still open:**
+- The amount per qualified member, and how agents are paid (P5).
+- Checking verified sign-in (phone or Google) before payment (P5).
+- Fraud flags (same phone or device).
+- The research view (P4) and marketing campaign links (P3).

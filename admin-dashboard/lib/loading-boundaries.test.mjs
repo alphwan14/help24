@@ -28,7 +28,7 @@ test("every dashboard section has a loading boundary", () => {
 
 test("dynamic detail routes have their own boundary", () => {
   // Under the section boundary these would flash a LIST skeleton for a detail page.
-  for (const route of ["disputes/[id]", "promotion/[id]", "marketplace/requests/[id]", "trust-safety/reports/[id]", "trust-safety/users/[id]", "users/[id]"]) {
+  for (const route of ["disputes/[id]", "promotion/[id]", "marketplace/requests/[id]", "trust-safety/reports/[id]", "trust-safety/users/[id]", "users/[id]", "partners/[id]"]) {
     assert.ok(existsSync(join(DASHBOARD, route, "loading.tsx")), `${route} has no loading.tsx`);
   }
 });

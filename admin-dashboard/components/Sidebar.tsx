@@ -113,6 +113,14 @@ const NAV: NavItem[] = [
     ],
   },
   {
+    id: "partners",
+    label: "Partners",
+    icon: UsersIcon,
+    children: [
+      { label: "Agents", href: "/dashboard/partners" },
+    ],
+  },
+  {
     id: "promotion",
     label: "Promotion",
     icon: MegaphoneIcon,

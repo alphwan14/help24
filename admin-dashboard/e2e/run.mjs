@@ -32,7 +32,7 @@ const FRANK = "frank@help24.test", FRANK_OLD = "Frank-old-pass-1", FRANK_PW = "F
 const GINA = "gina@help24.test", GINA_OLD = "Gina-old-pass-1", GINA_PW = "Gina-new-pass-2";
 const HANA = "hana@help24.test", HANA_OLD = "Hana-old-pass-1", HANA_PW = "Hana-new-pass-2";
 const UMA = "uma@help24.test", UMA_PW = "Umas-pass-55"; // an admin whose login nobody has linked
-const SECRETS = [ALICE_PW1, ALICE_PW2, ALICE_PW3, ALICE_PW4, BOB_PW, CAROL_PW, DAVE_PW, ERIN_OLD, ERIN_PW, FRANK_OLD, FRANK_PW, GINA_OLD, GINA_PW, HANA_OLD, HANA_PW, UMA_PW];
+const SECRETS = ["Partner-pass-31", ALICE_PW1, ALICE_PW2, ALICE_PW3, ALICE_PW4, BOB_PW, CAROL_PW, DAVE_PW, ERIN_OLD, ERIN_PW, FRANK_OLD, FRANK_PW, GINA_OLD, GINA_PW, HANA_OLD, HANA_PW, UMA_PW];
 
 const results = [];
 function check(name, ok, detail = "") {
@@ -93,6 +93,10 @@ const next = spawn(process.execPath, [join(ADMIN, "node_modules/next/dist/bin/ne
     BACKEND_URL: FAKE,
     NEXT_PUBLIC_BACKEND_URL: FAKE,
     NEXT_DIST_DIR: ".next-e2e",
+    // The partner portal gets its own origin: same server, another host name,
+    // so its cookies are separate from the admin's — as on production.
+    PARTNER_HOSTS: `127.0.0.1:${APP_PORT}`,
+    PARTNER_PORTAL_URL: `http://127.0.0.1:${APP_PORT}`,
     NEXT_TELEMETRY_DISABLED: "1",
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -517,6 +521,98 @@ try {
   }
 
   /* ════════════════════════════════════════════════════════════════════ */
+  section("partner portal");
+  {
+    const PARTNER = `http://127.0.0.1:${APP_PORT}`;
+    const AGENT_EMAIL = "wanjiru.agent@help24.test", AGENT_PW = "Partner-pass-31";
+    const onAdmin = await fetch(`${APP}/partners`, { redirect: "manual" });
+    check("the partner portal does not exist on the admin host", onAdmin.status === 404, String(onAdmin.status));
+    const signedOut = await fetch(`${PARTNER}/`, { redirect: "manual" });
+    check("partner host, signed out: sent to the partner sign-in",
+      signedOut.status === 307 && (signedOut.headers.get("location") ?? "").endsWith("/login"), signedOut.headers.get("location"));
+    const adminOnPartner = await fetch(`${PARTNER}/dashboard/overview`, { redirect: "manual" });
+    check("admin pages are not reachable from the partner host", adminOnPartner.status === 307 && (adminOnPartner.headers.get("location") ?? "").endsWith("/login"));
+
+    await goto(`${APP}/dashboard/partners`);
+    await waitFor(`!!document.querySelector('[data-testid="admin-partners"]')`, "admin partners");
+    await clickText("Add agent");
+    await waitFor(`!!document.querySelector('[role="dialog"]')`, "add agent dialog");
+    await fill('[role="dialog"] input', "Wanjiru Agent");
+    await fill('[role="dialog"] input[type="email"]', AGENT_EMAIL);
+    await clickText("Add agent", '[role="dialog"] button');
+    await waitFor(`!!document.querySelector('[data-testid="invite-link"]')`, "invite link", 15000);
+    const inviteUrl = await evaluate(`document.querySelector('[data-testid="invite-link"] .font-mono').textContent`);
+    const agent = fake.partnerAgentByEmail(AGENT_EMAIL);
+    check("adding an agent gives a code and a one-time invitation on the partner host",
+      !!agent && /^H24-[A-HJ-NP-Z2-9]{4}$/.test(agent.code) && inviteUrl.startsWith(`${PARTNER}/accept?token=`), inviteUrl.slice(0, 40));
+    check("the invitation token is not what the database keeps", !fake.log.some((l) => l.body.includes(inviteUrl.split("token=")[1])));
+    fake.creditToAgent(agent.id, DAVE, { active_days: 2 });
+    fake.creditToAgent(agent.id, CAROL, { active_days: 1, method: "qr" });
+    await clickText("Done", '[role="dialog"] button');
+    await waitFor(`location.pathname.startsWith('/dashboard/partners/') && ${bodyHas("Members credited to Wanjiru Agent")}`, "agent page");
+    check("admins see the agent's members whole, linked to each member page",
+      await evaluate(`${bodyHas("dave Kamau")} && ${bodyHas("0712 345 678")} && !!document.querySelector('a[href^="/dashboard/users/"]')`));
+    await shot("12-admin-partner.png", true);
+    check("and can see exactly what the agent sees, without signing in as them",
+      await evaluate(`${bodyHas("What Wanjiru Agent sees in the partner portal")}`));
+
+    await goto(inviteUrl);
+    await waitFor(bodyHas("Welcome, Wanjiru Agent"), "invitation page");
+    await fill('input[name="password"]', AGENT_PW);
+    await fill('input[name="confirm"]', AGENT_PW);
+    await clickText("Create my partner account");
+    await waitFor(`location.origin === ${JSON.stringify(PARTNER)} && location.pathname === "/" && !!document.querySelector('[data-testid="partner-code"]')`, "partner overview", 20000);
+    check("accepting the invitation signs the agent in to their own overview",
+      (await evaluate(`document.querySelector('[data-testid="partner-code"]').textContent`)) === agent.code);
+    // Each tile as label|value|hint, read paragraph by paragraph.
+    const tiles = await evaluate(`[...document.querySelectorAll('.card')].map(c => [...c.querySelectorAll('p')].map(x => x.textContent.trim()).join('|')).join(' || ')`);
+    check("overview: 2 credited, 1 qualified, 1 in progress",
+      /Members credited\|2\|/.test(tiles) && /Qualified\|1\|/.test(tiles) && /In progress\|1\|/.test(tiles), tiles.slice(0, 240));
+    check("the admin session on the admin host is untouched", !!(await pg.cookie(APP, "h24_admin_token")));
+
+    await goto(`${PARTNER}/members`);
+    await waitFor(`!!document.querySelector('[data-testid="partner-members"]')`, "partner members");
+    const list = await evaluate(`document.querySelector('[data-testid="partner-members"]').innerText`);
+    await shot("13-partner-members.png", true);
+    check("members: first names and the last 3 digits only",
+      list.includes("dave") && list.includes("•••• ••• 678") && !list.includes("Kamau") && !list.includes("0712 345 678"), list.slice(0, 160));
+    check("members: progress toward qualifying is spelled out",
+      list.includes("Qualified") && list.includes("In progress") && /Needs 1 more day/.test(list));
+    check("no member's email anywhere on the partner page",
+      !(await evaluate(`document.documentElement.outerHTML.includes(${JSON.stringify(DAVE)}) || document.documentElement.outerHTML.includes(${JSON.stringify(CAROL)})`)));
+    await goto(`${PARTNER}/dashboard/overview`);
+    check("a signed-in partner still cannot reach admin pages",
+      await waitFor(`${bodyHas("404")} || ${bodyHas("could not be found")}`, "404", 15000).then(() => true, () => false));
+
+    await goto(`${PARTNER}/`);
+    await waitFor(`!!document.querySelector('[data-testid="partner-code"]') && ${bodyHas("Members credited")}`, "overview again");
+    await sleep(800);
+    await shot("11-partner-overview.png", true);
+    await clickText("Sign out");
+    await waitFor(`location.pathname === "/login"`, "partner signed out");
+    await fill('input[name="email"]', ALICE);
+    await fill('input[name="password"]', ALICE_PW4);
+    await clickText("Sign in");
+    await waitFor(bodyHas("isn't a Help24 partner account"), "admin refused on partner host", 15000);
+    check("an admin login is refused by the partner portal", true);
+
+    await goto(`${APP}/dashboard/partners/${agent.id}`);
+    await clickText("Pause agent");
+    await waitFor(`!!document.querySelector('[role="dialog"] textarea')`, "pause dialog");
+    await fill('[role="dialog"] textarea', "Testing the pause");
+    await clickText("Confirm", '[role="dialog"] button');
+    await waitFor(bodyHas("Paused"), "paused", 15000);
+    check("pausing is recorded with who and why",
+      fake.partnerEvents.some((e) => e.agent_id === agent.id && e.action === "suspended" && e.reason === "Testing the pause" && e.admin_email === ALICE));
+    await goto(`${PARTNER}/login`);
+    await fill('input[name="email"]', AGENT_EMAIL);
+    await fill('input[name="password"]', AGENT_PW);
+    await clickText("Sign in");
+    await waitFor(bodyHas("partner account is paused"), "paused agent refused", 15000);
+    check("a paused agent can no longer sign in", true);
+  }
+
+  /* ════════════════════════════════════════════════════════════════════ */
   section("live operations board");
   {
     await goto(`${APP}/dashboard/operations/live`);
@@ -591,7 +687,9 @@ try {
   section("nothing secret where it does not belong");
   const tokens = fake.outbox.map((m) => m.token);
   const appRequests = pg.requests.filter((r) => r.url.startsWith(APP));
-  const misplaced = pg.requests.filter((r) => SECRETS.some((s) => r.postData.includes(s)) && !r.url.startsWith(`${FAKE}/auth/v1/`) && !r.url.startsWith(`${APP}/accept-invite`));
+  const misplaced = pg.requests.filter((r) => SECRETS.some((s) => r.postData.includes(s)) && !r.url.startsWith(`${FAKE}/auth/v1/`) && !r.url.startsWith(`${APP}/accept-invite`)
+    // The partner portal's own sign-in and invitation forms (server actions).
+    && !r.url.startsWith(`http://127.0.0.1:${APP_PORT}/accept`) && !r.url.startsWith(`http://127.0.0.1:${APP_PORT}/login`));
   check("passwords went only to the auth provider — or to the invite form's own server action", misplaced.length === 0, misplaced.map((r) => r.url).join(", "));
   check("no recovery token ever reached a Help24 URL or request body", !appRequests.some((r) => tokens.some((t) => r.url.includes(t) || r.postData.includes(t))));
   const logText = serverOutput.join("");

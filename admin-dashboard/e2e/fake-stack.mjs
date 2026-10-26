@@ -44,6 +44,14 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     tuning: { payments: { poll_interval_seconds: 5, poll_budget: 24 }, listings: { urgent_window_minutes: 60 } },
   };
   const configHistory = [];
+  // Partner portal (migrations 127/128): agents, their logins and invitations,
+  // credited members' progress rows, and the admin action log.
+  const partnerAgents = new Map(); // id → { id, code, kind, display_name, email, phone, status, created_at }
+  const partnerLogins = new Map(); // auth subject → agent id
+  const partnerInvites = []; // { agent_id, token_hash, expires_at, used_at }
+  const partnerProgress = []; // partner_member_progress rows
+  const partnerEvents = []; // { agent_id, action, reason, admin_email, created_at }
+  const sha256 = (v) => createHash("sha256").update(v).digest("hex");
 
   const recoveryTemplate = readFileSync(join(templatesDir, "recovery.html"), "utf8");
   const recoverySubject = JSON.parse(readFileSync(join(templatesDir, "manifest.json"), "utf8"))
@@ -146,6 +154,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       res.writeHead(status, { "Content-Type": "application/json", "X-Supabase-Api-Version": "2024-01-01", ...cors, ...headers });
       res.end(payload === undefined ? undefined : JSON.stringify(payload));
     };
+    const pgError = (status, message) => send(status, { code: "P0001", message, details: null, hint: null });
     const authFail = (status, code, msg = `fake gotrue: ${code}`, extra = {}) => send(status, { code, msg, ...extra });
     const apiFail = (status, message) => send(status, { statusCode: status, message });
     const redirect = (location) => { res.writeHead(303, { Location: location }); res.end(); };
@@ -227,6 +236,77 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       return redirect(target.href);
     }
 
+    // ── Supabase Auth admin API (service role) ───────────────────────────────
+    if (p === "/auth/v1/admin/users" && req.method === "POST") {
+      if (byEmail(body.email)) return authFail(422, "email_exists", "A user with this email address has already been registered");
+      const id = randomUUID();
+      auth.set(id, { id, email: body.email, password: body.password });
+      return send(200, userJson(auth.get(id)));
+    }
+    const adminUser = /^\/auth\/v1\/admin\/users\/([^/]+)$/.exec(p);
+    if (adminUser && req.method === "PUT") {
+      const u = auth.get(adminUser[1]);
+      if (!u) return authFail(404, "user_not_found");
+      if (body.password) setPassword(u, body.password, null);
+      if (body.email) u.email = body.email;
+      return send(200, userJson(u));
+    }
+    if (adminUser && req.method === "DELETE") {
+      auth.delete(adminUser[1]);
+      return send(200, {});
+    }
+
+    // ── Partner functions (migration 128), as PostgREST RPC ─────────────────
+    if (req.method === "POST" && p.startsWith("/rest/v1/rpc/")) {
+      const fn = p.slice("/rest/v1/rpc/".length);
+      const adminById = (id) => [...admins.values()].find((a) => a.id === id) ?? null;
+      const senior = (a) => a && (a.role === "senior_admin" || a.role === "super_admin");
+      const log = (agent_id, action, a, reason = null) =>
+        partnerEvents.push({ agent_id, action, reason, admin_email: a?.email ?? null, created_at: new Date().toISOString() });
+      if (fn === "admin_create_partner_agent") {
+        const a = adminById(body.p_admin_id);
+        if (!senior(a)) return pgError(403, "HELP24_PARTNER_FORBIDDEN: adding agents needs a senior admin");
+        const id = randomUUID();
+        const code = "H24-" + Array.from({ length: 4 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
+        partnerAgents.set(id, { id, code, kind: body.p_kind, display_name: body.p_display_name.trim(), email: body.p_email?.trim().toLowerCase() || null, phone: body.p_phone || null, status: "active", created_at: new Date().toISOString() });
+        log(id, "created", a);
+        return send(200, { id, code });
+      }
+      if (fn === "admin_issue_partner_invite") {
+        const a = adminById(body.p_admin_id);
+        if (!senior(a)) return pgError(403, "HELP24_PARTNER_FORBIDDEN: inviting agents needs a senior admin");
+        for (const i of partnerInvites) if (i.agent_id === body.p_agent_id && !i.used_at) i.expires_at = new Date().toISOString();
+        const expires_at = new Date(Date.now() + 72 * 3600e3).toISOString();
+        partnerInvites.push({ agent_id: body.p_agent_id, token_hash: body.p_token_hash, expires_at, used_at: null });
+        log(body.p_agent_id, "invite_issued", a);
+        return send(200, { expires_at });
+      }
+      if (fn === "admin_set_partner_status") {
+        const a = adminById(body.p_admin_id);
+        if (!senior(a)) return pgError(403, "HELP24_PARTNER_FORBIDDEN: suspending agents needs a senior admin");
+        const g = partnerAgents.get(body.p_agent_id);
+        g.status = body.p_status;
+        log(g.id, body.p_status === "suspended" ? "suspended" : "reactivated", a, body.p_reason);
+        return send(200, { status: g.status, changed: true });
+      }
+      const live = (h) => partnerInvites.find((i) => i.token_hash === h && !i.used_at && Date.parse(i.expires_at) > Date.now());
+      if (fn === "partner_invite_preview") {
+        const i = live(body.p_token_hash);
+        const g = i && partnerAgents.get(i.agent_id);
+        return send(200, g && g.status === "active" ? { valid: true, email: g.email, name: g.display_name, expires_at: i.expires_at } : { valid: false });
+      }
+      if (fn === "partner_accept_invite") {
+        const i = live(body.p_token_hash);
+        if (!i) return pgError(400, "HELP24_PARTNER_INVITE_INVALID: this invitation has expired or was already used — ask Help24 for a new one");
+        i.used_at = new Date().toISOString();
+        for (const [sub, aid] of partnerLogins) if (aid === i.agent_id) partnerLogins.delete(sub);
+        partnerLogins.set(body.p_auth_subject, i.agent_id);
+        log(i.agent_id, "login_linked", null);
+        return send(200, { agent_id: i.agent_id, email: partnerAgents.get(i.agent_id).email });
+      }
+      return send(404, { code: "PGRST202", message: `fake: no function ${fn}` });
+    }
+
     // ── PostgREST (service role) ────────────────────────────────────────────
     if (req.method === "GET" && p.startsWith("/rest/v1/")) {
       const table = p.slice("/rest/v1/".length);
@@ -245,6 +325,35 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
           : []);
       }
       if (table === "app_settings_history") return send(200, [...configHistory].reverse());
+      if (table === "partner_logins") {
+        const sub = eq("auth_subject"), aid = eq("agent_id");
+        const rows = [...partnerLogins].filter(([s2, a]) => (sub ? s2 === sub : true) && (aid ? a === aid : true));
+        return send(200, rows.map(([s2, a]) => ({ auth_subject: s2, agent_id: a, partner_agents: partnerAgents.get(a) ?? null })));
+      }
+      if (table === "partner_invites") {
+        const h = eq("token_hash"), aid = eq("agent_id");
+        const rows = partnerInvites.filter((i) => (h ? i.token_hash === h : true) && (aid ? i.agent_id === aid : true));
+        return send(200, [...rows].reverse());
+      }
+      if (table === "partner_agents") {
+        const id = eq("id");
+        return send(200, [...partnerAgents.values()].filter((g) => (id ? g.id === id : true)).reverse());
+      }
+      if (table === "partner_member_progress") {
+        const aid = eq("agent_id");
+        return send(200, partnerProgress.filter((r) => (aid ? r.agent_id === aid : true)));
+      }
+      if (table === "partner_admin_events") {
+        const aid = eq("agent_id");
+        return send(200, partnerEvents.filter((e) => e.agent_id === aid).reverse());
+      }
+      const inIds = /^in\.\((.*)\)$/.exec(url.searchParams.get("id") ?? "");
+      if (table === "users" && inIds) {
+        const ids = inIds[1].split(",").map((x) => x.replace(/^"|"$/g, ""));
+        return send(200, ids.map((id) => people.get(id)).filter(Boolean).map((person) => ({
+          id: person.id, name: person.email.split("@")[0] + " Kamau", phone_number: "0712 345 678", phone: null,
+        })));
+      }
       if (table === "users") {
         // The member page reads the whole row; the gate and overview read role.
         // fcm_tokens carries a recognisable value so a run can prove it never
@@ -352,6 +461,18 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     isLinked: (email) => links.some((l) => l.subject === byEmail(email)?.id),
     roleOf: (email) => personByEmail(email)?.role,
     idOf: (email) => personByEmail(email)?.id,
+    partnerAgentByEmail: (email) => [...partnerAgents.values()].find((g) => g.email === email) ?? null,
+    /** As if these members had entered the agent's code (migration 127), with this progress. */
+    creditToAgent(agentId, email, over = {}) {
+      const joined = Date.now() - 2 * 86400e3;
+      partnerProgress.push({
+        member_id: personByEmail(email).id, agent_id: agentId, method: "code",
+        claimed_at: new Date(joined).toISOString(), joined_at: new Date(joined).toISOString(),
+        window_ends_at: new Date(joined + 14 * 86400e3).toISOString(),
+        active_days: 0, posts_14d: 0, offers_14d: 0, account_status: "active", ...over,
+      });
+    },
+    partnerEvents,
     password: (email) => byEmail(email)?.password,
     credentialCount: (email) => [...auth.values()].filter((u) => u.email.toLowerCase() === email.toLowerCase()).length,
     signInDirect(email, password) {

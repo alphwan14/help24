@@ -2,6 +2,45 @@ import { NextRequest, NextResponse } from "next/server";
 import { createMiddlewareClient } from "@/lib/supabase-middleware";
 import { resolveAdminAccess, resolveAdminIdentity, type AccessDenial } from "@/lib/admin-identity";
 import { DASHBOARD_HOME } from "@/lib/routes";
+import { isPartnerHost } from "@/lib/partners/hosts";
+import { resolvePartnerAccess } from "@/lib/partners/access";
+
+/**
+ * The partner portal (partners.help24.co.ke) — the same app, a different
+ * host. Every path there is served from app/partners/* ("/members" →
+ * "/partners/members"), and nothing else in the app is reachable from it.
+ * Signed-in partners only, except the sign-in and invitation pages. Partner
+ * logins are linked in partner_logins, never given the admin role, so the
+ * admin gate below refuses them even on the admin host.
+ */
+const PARTNER_PUBLIC = new Set(["/login", "/accept"]);
+
+async function partnerMiddleware(request: NextRequest): Promise<NextResponse> {
+  let external = request.nextUrl.pathname;
+  if (external === "/partners" || external.startsWith("/partners/")) external = external.slice("/partners".length) || "/";
+  const internal = request.nextUrl.clone();
+  internal.pathname = external === "/" ? "/partners" : `/partners${external}`;
+
+  const response = NextResponse.rewrite(internal, { request });
+  const supabase = createMiddlewareClient(request, response);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (PARTNER_PUBLIC.has(external)) return response;
+  if (!user) return NextResponse.redirect(new URL("/login", request.url));
+  const access = await resolvePartnerAccess(user.id);
+  if (!access.ok) {
+    console.log(`[Partner Check] DENIED subject=${user.id} (${access.reason})`);
+    return NextResponse.redirect(new URL(`/login?error=${access.reason}`, request.url));
+  }
+  return response;
+}
+
+/** What the admin gate below has always covered; everything else passes. */
+function isAdminGated(pathname: string): boolean {
+  return pathname === "/login" || pathname === "/accept-invite" || pathname === "/dashboard" || pathname.startsWith("/dashboard/");
+}
 
 /** The ?error= the login page explains for each refusal (app/login/page.tsx). */
 const DENIAL_PARAM: Record<AccessDenial, string> = {
@@ -28,6 +67,12 @@ function withTiming<T extends NextResponse>(res: T, t: { start: number; auth?: n
 }
 
 export async function middleware(request: NextRequest) {
+  if (isPartnerHost(request.headers.get("host"))) return partnerMiddleware(request);
+  // The portal's pages never exist on the admin host.
+  const path = request.nextUrl.pathname;
+  if (path === "/partners" || path.startsWith("/partners/")) return new NextResponse("Not found", { status: 404 });
+  if (!isAdminGated(path)) return NextResponse.next();
+
   const timing: { start: number; auth?: number; gate?: number } = { start: performance.now() };
   const response = NextResponse.next({ request });
   const supabase = createMiddlewareClient(request, response);
@@ -89,5 +134,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login", "/accept-invite"],
+  // Every page and route — the partner host must see them all to keep the
+  // rest of the app unreachable from it. Static assets are left out.
+  matcher: ["/((?!_next/static|_next/image|.*\\.(?:png|svg|jpg|jpeg|webp|ico|txt)$).*)"],
 };

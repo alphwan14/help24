@@ -1,0 +1,93 @@
+import Link from "next/link";
+import { CreateAgent } from "@/components/partners/AdminPartnerControls";
+import { MethodSplit, SummaryTiles, WeeklyBars } from "@/components/partners/PartnerViews";
+import { getCurrentAdmin } from "@/lib/api";
+import { loadAgents, loadProgress } from "@/lib/partners/data";
+import { KIND_LABELS, summarise, weeklyCounts, type ProgressRow } from "@/lib/partners/rules";
+
+// Agents are paid on these numbers: read them fresh.
+export const dynamic = "force-dynamic";
+
+/**
+ * Partners, from inside the admin dashboard: every agent's results in one
+ * table, and the same views the agent sees, without signing in to the
+ * partner portal. Built on lib/partners — the portal's own readers and rules.
+ */
+export default async function PartnersPage() {
+  const [admin, agents, progress] = await Promise.all([getCurrentAdmin(), loadAgents(), loadProgress()]);
+  const now = Date.now();
+  const all = summarise(progress.data, now);
+  const byAgent = new Map<string, ProgressRow[]>();
+  for (const r of progress.data) byAgent.set(r.agent_id, [...(byAgent.get(r.agent_id) ?? []), r]);
+  const canManage = admin?.role === "senior_admin" || admin?.role === "super_admin";
+
+  const rows = agents.data
+    .map((a) => ({ agent: a, s: summarise(byAgent.get(a.id) ?? [], now), last: byAgent.get(a.id)?.[0]?.claimed_at ?? null }))
+    .sort((x, y) => y.s.qualified - x.s.qualified || y.s.credited - x.s.credited);
+
+  return (
+    <div className="space-y-5" data-testid="admin-partners">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[13px] text-gray-500">
+          {agents.failed ? "Agents could not be read just now." : `${agents.data.length} ${agents.data.length === 1 ? "agent" : "agents"}`} ·
+          members qualify on 2 days of use or a post or offer in their first 14 days.
+        </p>
+        {canManage && <CreateAgent />}
+      </div>
+
+      <SummaryTiles summary={all} failed={progress.failed} />
+
+      <section className="card overflow-x-auto" aria-label="Agents">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="text-left text-[11.5px] text-gray-500 border-b border-gray-100">
+              <th className="px-4 py-2.5 font-medium">Agent</th>
+              <th className="px-4 py-2.5 font-medium">Code</th>
+              <th className="px-4 py-2.5 font-medium text-right">Credited</th>
+              <th className="px-4 py-2.5 font-medium text-right">Qualified</th>
+              <th className="px-4 py-2.5 font-medium text-right">In progress</th>
+              <th className="px-4 py-2.5 font-medium text-right">Rate</th>
+              <th className="px-4 py-2.5 font-medium text-right">Last 7 days</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
+                  {agents.failed ? "Could not be read just now — reload to try again." : "No agents yet. Add the first one to give them a code."}
+                </td>
+              </tr>
+            ) : (
+              rows.map(({ agent: a, s, last }) => {
+                const decided = s.qualified + s.notQualified;
+                return (
+                  <tr key={a.id} className={a.status === "active" ? "" : "opacity-60"}>
+                    <td className="px-4 py-2.5">
+                      <Link href={`/dashboard/partners/${a.id}`} className="font-medium text-gray-900 hover:underline">{a.display_name}</Link>
+                      <p className="text-[11.5px] text-gray-400">
+                        {KIND_LABELS[a.kind] ?? a.kind}
+                        {a.status !== "active" && " · paused"}
+                        {last && ` · last credit ${new Date(last).toLocaleDateString("en-KE", { day: "2-digit", month: "short", timeZone: "Africa/Nairobi" })}`}
+                      </p>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono">{a.code}</td>
+                    <td className="px-4 py-2.5 text-right font-tabular">{s.credited}</td>
+                    <td className="px-4 py-2.5 text-right font-tabular font-semibold">{s.qualified}</td>
+                    <td className="px-4 py-2.5 text-right font-tabular">{s.inProgress}</td>
+                    <td className="px-4 py-2.5 text-right font-tabular">{decided ? `${Math.round((s.qualified / decided) * 100)}%` : "—"}</td>
+                    <td className="px-4 py-2.5 text-right font-tabular">{s.thisWeek}</td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
+        <WeeklyBars weeks={weeklyCounts(progress.data, 8, now)} />
+        <MethodSplit summary={all} />
+      </div>
+    </div>
+  );
+}

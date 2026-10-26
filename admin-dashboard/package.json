@@ -9,7 +9,7 @@
     "build:clean": "Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue; next build",
     "start": "next start --port 3001",
     "lint": "next lint",
-    "test": "node --no-warnings --test \"lib/*.test.mjs\"",
+    "test": "node --no-warnings --test \"lib/*.test.mjs\" \"lib/partners/*.test.mjs\"",
     "test:e2e": "node e2e/run.mjs",
     "emails:build": "node supabase-auth-emails/build.mjs"
   },
@@ -17,6 +17,7 @@
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.104.1",
     "next": "^15.1.0",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^2.13.3",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.20",
