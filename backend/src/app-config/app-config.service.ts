@@ -1,5 +1,8 @@
 import { createHash } from 'crypto';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { AdminContext } from '../admin/auth/admin-role';
+import { RequestContextStore } from '../common/request-context/request-context';
+import { toHttpError } from '../moderation/moderation-errors';
 import { SupabaseService } from '../supabase/supabase.service';
 import {
   CLIENT_CONFIG_KEYS,
@@ -35,6 +38,11 @@ import {
  */
 
 const CACHE_TTL_MS = 60_000;
+
+/** PostgREST's "no such function" (PGRST202), or Postgres's own (42883). */
+function isMissingFunction(error: { code?: string; message?: string }): boolean {
+  return error.code === 'PGRST202' || error.code === '42883';
+}
 
 export interface VersionedClientConfig {
   version: string;
@@ -115,6 +123,49 @@ export class AppConfigService {
 
     if (error) throw new Error(`Failed to update app settings '${key}': ${error.message}`);
     this.invalidate();
+  }
+
+  /**
+   * Admin: replace one settings document AND record who did it and why — in
+   * one transaction (migration 125's admin_set_app_setting), so a change can
+   * never land unrecorded.
+   *
+   * Until 125 is applied the function does not exist; the change still goes
+   * through as a plain upsert and `recorded: false` tells the dashboard the
+   * history is unavailable. Refusing instead would leave an operator unable to
+   * pull a kill switch during an incident because an audit table was missing.
+   * Any OTHER failure of the function is a refusal, never a silent fallback.
+   */
+  async adminSet(
+    admin: AdminContext,
+    key: ClientConfigKey,
+    value: Record<string, unknown>,
+    reason: string,
+  ): Promise<{ recorded: boolean }> {
+    const { error } = await this.supabase.client.rpc('admin_set_app_setting', {
+      p_admin_id: admin.id,
+      p_key: key,
+      p_value: value,
+      p_reason: reason,
+      p_request_id: RequestContextStore.requestId() ?? null,
+    });
+
+    if (!error) {
+      this.invalidate();
+      this.logger.log(`[CONFIG] ${key} changed by=${admin.email} (${admin.role})`);
+      return { recorded: true };
+    }
+    if (isMissingFunction(error)) {
+      this.logger.warn(`[CONFIG] admin_set_app_setting missing (migration 125) — ${key} written unrecorded by=${admin.email}`);
+      await this.adminUpdate(key, value);
+      return { recorded: false };
+    }
+    if (/HELP24_[A-Z_]+:/.test(error.message ?? '')) throw toHttpError(error);
+    this.logger.error(`[CONFIG] ${key} change failed: ${error.message}`);
+    throw new ServiceUnavailableException({
+      code: 'CONFIG_UNAVAILABLE',
+      message: 'App controls could not be saved just now. Nothing was changed — please try again.',
+    });
   }
 
   isClientKey(key: string): key is ClientConfigKey {

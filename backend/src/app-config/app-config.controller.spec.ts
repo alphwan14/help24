@@ -25,6 +25,7 @@ function fakeService(version = 'abc123'): AppConfigService {
     clientConfig: async () => ({ version, config: DEFAULT_CLIENT_CONFIG }),
     isClientKey: (key: string) => key === 'ops.maintenance',
     adminUpdate: async () => undefined,
+    adminSet: async () => ({ recorded: true }),
   } as unknown as AppConfigService;
 }
 
@@ -72,23 +73,57 @@ describe('AppConfigController — GET /config', () => {
 });
 
 describe('AppConfigAdminController', () => {
+  const admin = { id: 'a-1', email: 'ops@example.test', name: 'Ops', role: 'senior_admin' as const };
+  const reason = 'Raising the gate after 1.0.5 shipped';
+
   it('rejects a key outside the client contract', async () => {
     const controller = new AppConfigAdminController(fakeService());
-    await expect(controller.updateConfig('feed.weights', { distance: 1 })).rejects.toThrow(
+    await expect(controller.updateConfig('feed.weights', { value: { distance: 1 }, reason }, admin)).rejects.toThrow(
       /Unknown config key/,
     );
   });
 
   it('rejects a non-object value', async () => {
     const controller = new AppConfigAdminController(fakeService());
-    await expect(
-      controller.updateConfig('ops.maintenance', [] as unknown as Record<string, unknown>),
-    ).rejects.toThrow(/must be a JSON object/);
+    await expect(controller.updateConfig('ops.maintenance', { value: [], reason }, admin)).rejects.toThrow(
+      /must be a JSON object/,
+    );
   });
 
-  it('accepts a valid document and returns the merged result', async () => {
+  it('refuses a change without a reason', async () => {
     const controller = new AppConfigAdminController(fakeService());
-    const result = await controller.updateConfig('ops.maintenance', { active: true });
-    expect(result).toMatchObject({ version: 'abc123' });
+    await expect(controller.updateConfig('ops.maintenance', { value: { active: true } }, admin)).rejects.toThrow(
+      /reason/,
+    );
+    await expect(
+      controller.updateConfig('ops.maintenance', { value: { active: true }, reason: ' ok ' }, admin),
+    ).rejects.toThrow(/reason/);
+  });
+
+  it('refuses a version gate the app could not compare', async () => {
+    const service = fakeService();
+    (service as unknown as { isClientKey: (k: string) => boolean }).isClientKey = () => true;
+    const controller = new AppConfigAdminController(service);
+    await expect(
+      controller.updateConfig('ops.min_version', { value: { hard: '1.0', soft: '' }, reason }, admin),
+    ).rejects.toThrow(/min_version.hard/);
+    await expect(
+      controller.updateConfig('ops.min_version', { value: { soft: 'v1.0.5' }, reason }, admin),
+    ).rejects.toThrow(/min_version.soft/);
+  });
+
+  it('records the change with the admin and reason, and returns the merged result', async () => {
+    const calls: unknown[][] = [];
+    const service = fakeService();
+    (service as unknown as { adminSet: (...a: unknown[]) => Promise<{ recorded: boolean }> }).adminSet = async (
+      ...a: unknown[]
+    ) => {
+      calls.push(a);
+      return { recorded: true };
+    };
+    const controller = new AppConfigAdminController(service);
+    const result = await controller.updateConfig('ops.maintenance', { value: { active: true }, reason: `  ${reason} ` }, admin);
+    expect(result).toMatchObject({ version: 'abc123', recorded: true });
+    expect(calls).toEqual([[admin, 'ops.maintenance', { active: true }, reason]]);
   });
 });

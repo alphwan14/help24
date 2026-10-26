@@ -68,6 +68,11 @@ export function toHttpError(error: PgError): HttpException {
         return new ForbiddenException({ code, message: human });
       case 'FINANCE_INVALID':
         return new BadRequestException({ code, message: human });
+      // Migration 125 — app controls (admin_set_app_setting).
+      case 'CONFIG_FORBIDDEN':
+        return new ForbiddenException({ code, message: human });
+      case 'CONFIG_INVALID':
+        return new BadRequestException({ code, message: human });
     }
   }
 

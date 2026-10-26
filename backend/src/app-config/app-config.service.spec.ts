@@ -314,6 +314,71 @@ describe('AppConfigService — admin writes', () => {
     );
   });
 
+  const admin = { id: 'a-1', email: 'ops@example.test', name: 'Ops', role: 'senior_admin' as const };
+
+  function rpcSupabase(rpcError: { code?: string; message: string } | null, sink: { rpc?: unknown[]; upsert?: unknown }) {
+    return {
+      client: {
+        rpc: async (...args: unknown[]) => {
+          sink.rpc = args;
+          return { data: rpcError ? null : { history_id: 'h-1', changed: true }, error: rpcError };
+        },
+        from: () => ({
+          select: async () => ({ data: [], error: null }),
+          upsert: async (payload: unknown) => {
+            sink.upsert = payload;
+            return { error: null };
+          },
+        }),
+      },
+    } as unknown as SupabaseService;
+  }
+
+  it('writes the change and its history in one call to admin_set_app_setting', async () => {
+    const sink: { rpc?: unknown[]; upsert?: unknown } = {};
+    const service = new AppConfigService(rpcSupabase(null, sink));
+    const out = await service.adminSet(admin, 'ops.kill_switches', { payments: false }, 'M-Pesa callbacks failing');
+    expect(out).toEqual({ recorded: true });
+    expect(sink.rpc?.[0]).toBe('admin_set_app_setting');
+    expect(sink.rpc?.[1]).toMatchObject({
+      p_admin_id: 'a-1',
+      p_key: 'ops.kill_switches',
+      p_value: { payments: false },
+      p_reason: 'M-Pesa callbacks failing',
+    });
+    expect(sink.upsert).toBeUndefined();
+  });
+
+  it('still applies the change, unrecorded, before migration 125 exists', async () => {
+    const sink: { rpc?: unknown[]; upsert?: unknown } = {};
+    const service = new AppConfigService(
+      rpcSupabase({ code: 'PGRST202', message: 'Could not find the function public.admin_set_app_setting' }, sink),
+    );
+    const out = await service.adminSet(admin, 'ops.maintenance', { active: true, message: 'x' }, 'Planned upgrade');
+    expect(out).toEqual({ recorded: false });
+    expect(sink.upsert).toMatchObject({ key: 'ops.maintenance', value: { active: true } });
+  });
+
+  it('a refusal from the database is a refusal, never a silent fallback', async () => {
+    const sink: { rpc?: unknown[]; upsert?: unknown } = {};
+    const service = new AppConfigService(
+      rpcSupabase({ code: '42501', message: 'HELP24_CONFIG_FORBIDDEN: changing app controls needs a senior admin' }, sink),
+    );
+    await expect(service.adminSet(admin, 'ops.maintenance', { active: true }, 'Planned upgrade')).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(sink.upsert).toBeUndefined();
+  });
+
+  it('any other failure changes nothing and says so', async () => {
+    const sink: { rpc?: unknown[]; upsert?: unknown } = {};
+    const service = new AppConfigService(rpcSupabase({ code: '08006', message: 'connection reset' }, sink));
+    await expect(service.adminSet(admin, 'ops.maintenance', { active: true }, 'Planned upgrade')).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(sink.upsert).toBeUndefined();
+  });
+
   it('recognises exactly the contract keys', () => {
     const service = new AppConfigService(fakeSupabase({ rows: [] }));
     expect(service.isClientKey('ops.kill_switches')).toBe(true);
