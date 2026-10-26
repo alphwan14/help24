@@ -138,7 +138,7 @@ export default async function MarketplaceRequestPage({ params }: PageProps) {
   if (needsProvider && shortlist.length) {
     const ids = shortlist.map((c) => c.userId);
     const [told, devices, legacy] = await Promise.all([
-      db.from("notifications").select("user_id").eq("type", "request_match").eq("data->>post_id", post.id),
+      db.from("notifications").select("user_id").eq("type", "request_match").or(`data->>listing_id.eq.${post.id},data->>post_id.eq.${post.id}`),
       db.from("fcm_tokens").select("user_id").in("user_id", ids),
       db.from("users").select("id, fcm_tokens").in("id", ids),
     ]);

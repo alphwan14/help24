@@ -32,8 +32,9 @@ export type NotificationType =
   | 'promotion_rejected'         // moderation rejected the campaign
   | 'promotion_completed'        // campaign finished its purchased window
   // Request rescue (admin/marketplace): an admin told a matching provider about
-  // an open request. data = { post_id, sent_by }. Apps without a route for it
-  // open the notifications list, which shows the request's title.
+  // an open request. data = { listing_id, sent_by } — deliberately not post_id
+  // (see RequestRescueService). 1.0.7+ open the request; older apps open the
+  // notifications list.
   | 'request_match'
   // Trust & Safety. Deliberately generic copy and EMPTY data: the reason lives
   // on the in-app account-status screen, and a report confirmation never

@@ -41,6 +41,7 @@ import '../widgets/reputation_widgets.dart';
 import 'professional_profile_screen.dart';
 import 'sign_in_methods_screen.dart';
 import 'agent_code_screen.dart';
+import '../services/agent_code_service.dart';
 import '../services/auth_service.dart';
 import 'promotion/promote_business_screen.dart';
 import 'provider/payout_destinations_screen.dart';
@@ -542,12 +543,30 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
   late Stream<UserModel?> _stream = UserProfileService.watchUser(widget.uid);
   bool _ensureAttempted = false;
 
+  /// Whether "Who helped you join?" applies to this account — the SERVER's
+  /// answer (my_agent_credit.can_change: the first 3 days). Hidden until it
+  /// says yes, and for good after: past the window the row is clutter.
+  bool _agentCodesOpen = false;
+
+  Future<void> _loadAgentWindow() async {
+    final credit = await AgentCodeService.myCredit();
+    if (mounted) setState(() => _agentCodesOpen = credit?.canChange ?? false);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAgentWindow();
+  }
+
   @override
   void didUpdateWidget(covariant _LoggedInSections oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.uid != widget.uid) {
       _stream = UserProfileService.watchUser(widget.uid);
       _ensureAttempted = false;
+      _agentCodesOpen = false;
+      _loadAgentWindow();
     }
   }
 
@@ -708,8 +727,9 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                   }),
                 ),
                 // Agent credit (migration 127): add or correct the code of the
-                // agent who signed this member up, in their first 3 days.
-                _SettingsTile(
+                // agent who signed this member up — only in their first 3 days.
+                if (_agentCodesOpen)
+                  _SettingsTile(
                   icon: AppIcons.person,
                   title: 'Who helped you join?',
                   trailing: const Icon(AppIcons.disclosure),

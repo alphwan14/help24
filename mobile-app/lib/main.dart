@@ -558,8 +558,9 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // Sent from the admin dashboard to providers whose work matches an open
       // request (backend RequestRescueService). data = { post_id, sent_by }.
       case 'request_match':
-        if (postId != null && postId.isNotEmpty) {
-          await _openPost(context, postId: postId);
+        final listingId = (data['listing_id'] as String?) ?? postId;
+        if (listingId != null && listingId.isNotEmpty) {
+          await _openPost(context, postId: listingId);
         } else {
           _openNotificationsScreen(context);
         }

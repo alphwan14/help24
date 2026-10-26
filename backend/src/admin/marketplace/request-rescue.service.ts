@@ -32,7 +32,7 @@ const BLOCKED = new Set(['suspended', 'banned']);
  *     channel that nags is one people turn off.
  *
  * Each push is an ordinary notification row (type request_match, data
- * {post_id, sent_by}) — which is also the record of who was told, by whom,
+ * {listing_id, sent_by}) — which is also the record of who was told, by whom,
  * and when, and what the per-request and per-day limits are counted from.
  */
 @Injectable()
@@ -71,7 +71,12 @@ export class RequestRescueService {
       this.db.from('fcm_tokens').select('user_id').in('user_id', ids),
       this.db.from('moderation_account_state').select('user_id, account_status').in('user_id', ids),
       this.db.from('applications').select('applicant_user_id').eq('post_id', postId).in('applicant_user_id', ids),
-      this.db.from('notifications').select('user_id').eq('type', 'request_match').eq('data->>post_id', postId).in('user_id', ids),
+      this.db
+        .from('notifications')
+        .select('user_id')
+        .eq('type', 'request_match')
+        .or(`data->>listing_id.eq.${postId},data->>post_id.eq.${postId}`)
+        .in('user_id', ids),
       this.db.from('notifications').select('user_id').eq('type', 'request_match').gte('created_at', since).in('user_id', ids),
     ]);
     for (const [r, what] of [[users, 'members'], [devices, 'devices'], [states, 'account standing'], [applied, 'applications'], [forThisPost, 'earlier notices'], [today, 'today\'s notices']] as const) {
@@ -115,7 +120,10 @@ export class RequestRescueService {
         type: 'request_match' as const,
         title,
         body,
-        data: { post_id: postId, sent_by: admin.id },
+        // listing_id, not post_id: apps before 1.0.7 send an unknown type's
+        // post_id to the job-lifecycle screen, which refuses everyone but the
+        // client and the hired provider (a provider saw exactly that).
+        data: { listing_id: postId, sent_by: admin.id },
         androidTag: `request_match_${postId}`,
       })),
     );

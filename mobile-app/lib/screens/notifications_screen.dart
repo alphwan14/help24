@@ -7,6 +7,7 @@ import '../models/post_model.dart';
 import '../providers/connectivity_provider.dart';
 import '../services/chat_service_supabase.dart';
 import '../services/notification_store.dart';
+import '../services/post_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
@@ -22,6 +23,7 @@ import 'promotion/campaign_detail_screen.dart';
 import 'provider_profile_screen.dart';
 import 'review_submission_screen.dart';
 import 'messages_screen.dart';
+import 'post_detail_screen.dart';
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -411,6 +413,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // next, so there is nowhere further to go.
       case 'report_received':
         return;
+
+      // Request rescue: an open request that matches this provider's work.
+      // The listing itself, where they can send an offer — never the job
+      // lifecycle, which only the client and the hired provider may open.
+      case 'request_match':
+        final listingId = n.listingId;
+        if (listingId != null) await _openListing(listingId);
+        return;
     }
 
     // Everything money- and job-shaped — and every type this build has never
@@ -504,6 +514,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
       currentUserId: widget.userId,
     ));
+  }
+
+  Future<void> _openListing(String postId) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final post = await PostService.getPostById(postId).catchError((Object _) => null);
+    if (!mounted) return;
+    if (post == null) {
+      messenger.showSnackBar(const SnackBar(content: Text('This request is no longer available.')));
+      return;
+    }
+    await _push(PostDetailScreen(post: post));
   }
 
   void _openMessages() {

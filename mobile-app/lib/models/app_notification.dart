@@ -66,6 +66,10 @@ class AppNotification {
   /// The listing this notification is about, when it names one. Used for the
   /// subject line and as half of the grouping key.
   String? get postId => _string('post_id');
+  /// The listing a request_match names. Its own key, not post_id: apps before
+  /// 1.0.7 send any post_id they do not recognise to the job-lifecycle
+  /// screen, which refuses everyone but the client and the hired provider.
+  String? get listingId => _string('listing_id') ?? postId;
   String? get chatId => _string('chat_id');
   String? get disputeId => _string('dispute_id');
   String? get transactionId => _string('transaction_id');

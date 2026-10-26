@@ -18,11 +18,13 @@ class AgentClaimResult {
   final String? status;
   final String? agentName;
   final String? error;
+  /// The server's refusal, e.g. WINDOW_CLOSED or CODE_UNKNOWN (HELP24_AGENT_*).
+  final String? reason;
 
-  const AgentClaimResult._({required this.ok, this.status, this.agentName, this.error});
+  const AgentClaimResult._({required this.ok, this.status, this.agentName, this.error, this.reason});
   const AgentClaimResult.success(String status, String? agentName)
       : this._(ok: true, status: status, agentName: agentName);
-  const AgentClaimResult.failure(String error) : this._(ok: false, error: error);
+  const AgentClaimResult.failure(String error, [String? reason]) : this._(ok: false, error: error, reason: reason);
 }
 
 class AgentCredit {
@@ -138,14 +140,36 @@ class AgentCodeService {
     } catch (_) {}
   }
 
-  /// Claim a pending code, if there is one. A refusal that cannot change by
-  /// trying again (unknown code, own code, window closed) also clears it, so
-  /// it is not retried — and reported — on every launch.
-  static Future<AgentClaimResult?> claimPending() async {
+  static Future<AgentClaimResult?>? _claiming;
+
+  /// Claim a pending code, if there is one, and return what — if anything —
+  /// the member should be told. One claim at a time: the launch and a link
+  /// arriving together share it, so nobody is told twice.
+  ///
+  /// The SERVER decides whether agent codes apply to this account at all
+  /// (my_agent_credit.can_change — the first 3 days). Outside that window a
+  /// pending code is dropped without a word: an established member is never
+  /// told anything about agent codes. Also silent (null): no pending code; the
+  /// same agent already credited; Help24 unreachable or agent codes not live
+  /// yet — then the code is kept for a later launch.
+  static Future<AgentClaimResult?> claimPending() =>
+      _claiming ??= _claimPending().whenComplete(() => _claiming = null);
+
+  static Future<AgentClaimResult?> _claimPending() async {
     final p = await pending();
     if (p == null) return null;
+    final credit = await myCredit();
+    if (credit == null) return null; // could not ask: keep it, try on a later launch
+    if (!credit.canChange || credit.code == p.code) {
+      debugPrint('[AGENT] pending code dropped silently (window=${credit.canChange} sameCode=${credit.code == p.code})');
+      await _clearPending();
+      return null;
+    }
     final result = await claim(p.code, p.method);
-    if (result.ok || (result.error != _offline && result.error != _notYet)) await _clearPending();
+    if (!result.ok && (result.error == _offline || result.error == _notYet)) return null;
+    await _clearPending();
+    if (result.ok && result.status == 'unchanged') return null;
+    if (!result.ok && result.reason == 'WINDOW_CLOSED') return null;
     return result;
   }
 
@@ -168,7 +192,8 @@ class AgentCodeService {
       return AgentClaimResult.success(map['status'] as String? ?? 'credited', map['agent_name'] as String?);
     } on PostgrestException catch (e) {
       debugPrint('[AGENT] claim refused code=${e.code}');
-      return AgentClaimResult.failure(messageFor(e.code, e.message));
+      final reason = RegExp(r'HELP24_AGENT_([A-Z_]+):').firstMatch(e.message)?.group(1);
+      return AgentClaimResult.failure(messageFor(e.code, e.message), reason);
     } catch (e) {
       debugPrint('[AGENT] claim failed: ${e.runtimeType}');
       return const AgentClaimResult.failure(_offline);

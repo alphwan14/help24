@@ -35,6 +35,9 @@ class MainActivity : FlutterFragmentActivity() {
     private fun agentLink(intent: Intent?): String? {
         val data = intent?.data ?: return null
         if (intent.action != Intent.ACTION_VIEW || data.scheme != "https") return null
+        // Reopened from Recents: Android hands back the intent that first
+        // started the task — an old link, already handled. Not a new one.
+        if ((intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return null
         if (data.host != "help24.co.ke" || data.path?.startsWith("/a/") != true) return null
         return data.toString()
     }

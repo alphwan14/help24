@@ -15,6 +15,7 @@ function fakeDb(tables: Tables): SupabaseService {
         const q = {
           select: () => q,
           eq: (c: string, v: unknown) => (filters.push(['eq', c, v]), q),
+          or: (v: string) => (filters.push(['or', 'or', v]), q),
           in: (c: string, v: unknown) => (filters.push(['in', c, v]), q),
           gte: (c: string, v: unknown) => (filters.push(['gte', c, v]), q),
           maybeSingle: async () => {
@@ -45,7 +46,7 @@ function setup(over: Partial<Tables> = {}, post: Record<string, unknown> = openR
     moderation_account_state: () => ({ data: [{ user_id: 'p4', account_status: 'suspended' }], error: null }),
     applications: () => ({ data: [{ applicant_user_id: 'p2' }], error: null }),
     notifications: (f) =>
-      f.some(([, c]) => c === 'data->>post_id')
+      f.some(([op]) => op === 'or')
         ? { data: [{ user_id: 'p3' }], error: null }
         : { data: Array.from({ length: DAILY_CAP }, () => ({ user_id: 'p5' })), error: null },
     ...over,
@@ -80,7 +81,7 @@ describe('RequestRescueService', () => {
     expect(sent[0]).toMatchObject({
       type: 'request_match',
       body: 'Fix a leaking sink — Nyali. Open Help24 to send an offer.',
-      data: { post_id: POST, sent_by: 'adm-1' },
+      data: { listing_id: POST, sent_by: 'adm-1' },
     });
   });
 
