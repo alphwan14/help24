@@ -43,6 +43,8 @@ const _backendTypes = <String>[
   'promotion_live',
   'promotion_rejected',
   'promotion_completed',
+  // Request rescue (backend/src/admin/marketplace).
+  'request_match',
   // Trust & Safety (backend/src/moderation).
   'report_received',
   'account_warning',
@@ -98,6 +100,14 @@ void main() {
       expect(kind, same(NotificationKind.unknown));
       expect(kind.icon, isNotNull);
       expect(kind.category, NotificationCategory.system);
+    });
+
+    test('a request alert says what to do, and names its request', () {
+      final kind = NotificationKind.of('request_match');
+      expect(kind.action, 'Send an offer');
+      expect(kind.category, NotificationCategory.applications);
+      final a = _n('a', type: 'request_match');
+      expect(a.groupKey, startsWith('request_match::'));
     });
 
     test('no type is registered twice', () {

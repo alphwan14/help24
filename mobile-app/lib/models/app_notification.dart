@@ -93,7 +93,7 @@ class AppNotification {
   /// Three applications on one job collapse into one row; three applications
   /// across three jobs stay three rows, because they need three different
   /// decisions from the user.
-  String get groupKey => '$type::${postId ?? disputeId ?? chatId ?? id}';
+  String get groupKey => '$type::${listingId ?? disputeId ?? chatId ?? id}';
 }
 
 /// The sections of the notification centre.
@@ -236,6 +236,16 @@ class NotificationKind {
       icon: AppIcons.applicantWithdrawn,
       tone: NotificationTone.neutral,
       action: 'View applicants',
+    ),
+    // Request rescue: Help24 told this provider about an open request that
+    // matches their work. The next step is theirs — an offer.
+    NotificationKind._(
+      type: 'request_match',
+      category: NotificationCategory.applications,
+      priority: NotificationPriority.normal,
+      icon: AppIcons.postRequest,
+      tone: NotificationTone.accent,
+      action: 'Send an offer',
     ),
 
     // ── Jobs ────────────────────────────────────────────────────────────────
