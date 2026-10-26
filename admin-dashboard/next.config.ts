@@ -69,6 +69,30 @@ const nextConfig: NextConfig = {
   },
 
   /**
+   * REVISITS WITHIN 30 s ARE INSTANT.
+   *
+   * Next 15 keeps a dynamic page in the browser's router cache for 0 s, so
+   * going back to a page you left a moment ago refetched it from the server
+   * every time — 0.8–1.3 s per hop on production for Promotion ↔ Revenue ↔
+   * Packages (2026-10-26). 30 s turns those back-and-forths into memory reads.
+   *
+   * Why this is safe here:
+   *   - the cache is one tab's memory. Sign-out is a full page load
+   *     (Sidebar → window.location.assign), so it can never carry one admin's
+   *     pages to another;
+   *   - every server action that changes data calls revalidatePath, which
+   *     also clears this cache, and client components that mutate call
+   *     router.refresh() — your own changes show at once;
+   *   - authorization is unaffected: every action and every fresh render is
+   *     still checked on the server. The worst case is seeing a page up to
+   *     30 s old after ANOTHER admin changed something.
+   * A first visit, and any visit after 30 s, still renders fresh.
+   */
+  experimental: {
+    staleTimes: { dynamic: 30 },
+  },
+
+  /**
    * ONE PUBLIC ORIGIN: https://admin.help24.co.ke.
    *
    * The production deployment also answers on the project's stable Vercel

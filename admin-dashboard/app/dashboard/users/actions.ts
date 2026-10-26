@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { requireAdminIdentity, type AdminIdentity } from "@/lib/admin-identity";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { revalidatePath } from "next/cache";
 
 /** Resolve the calling admin from their session cookie, then confirm the DB
  *  still says they are an admin. Returns their Help24 identity, or an error to
@@ -69,6 +70,11 @@ export async function updateUserRole(
       return { ok: false, message: error.message };
     }
 
+    // The toggle shows the new role from its own state; this makes the PAGE
+    // agree. Without it, leaving Users and coming back inside the router's
+    // 30 s revisit window (next.config.ts staleTimes) showed the old role.
+    // A server action's revalidatePath also clears that client cache.
+    revalidatePath("/dashboard/users", "layout");
     return { ok: true };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : "Unknown error." };
