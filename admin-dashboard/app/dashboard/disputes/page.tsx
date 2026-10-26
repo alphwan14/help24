@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilterLink, FilterResults, FilterScope } from "@/components/FilterTransition";
 import DataTable from "@/components/DataTable";
 import RestoringAccess from "./RestoringAccess";
 import { getCurrentAdmin, getOpenDisputes, startEarly, type DisputeListItem } from "@/lib/api";
@@ -122,6 +123,7 @@ export default async function DisputesPage({ searchParams }: PageProps) {
   ];
 
   return (
+    <FilterScope>
     <div className="space-y-6">
       {/* Connected-admin bar */}
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -138,32 +140,30 @@ export default async function DisputesPage({ searchParams }: PageProps) {
 
       {/* Filter tabs */}
       <div className="flex gap-2 flex-wrap">
-        <Link
-          href="/dashboard/disputes"
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-            !active ? "bg-gray-900 text-on-action border-gray-900" : "bg-surface text-gray-600 border-gray-200"
-          }`}
-        >
+        <FilterLink href="/dashboard/disputes" active={!active} className="px-3 py-1.5 rounded-lg text-xs font-semibold border bg-surface text-gray-600 border-gray-200" activeClassName="px-3 py-1.5 rounded-lg text-xs font-semibold border bg-gray-900 text-on-action border-gray-900">
           Active queue
-        </Link>
+        </FilterLink>
         {FILTERS.map((f) => (
-          <Link
+          <FilterLink
             key={f}
             href={`/dashboard/disputes?status=${f}`}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize ${
-              active === f ? "bg-gray-900 text-on-action border-gray-900" : "bg-surface text-gray-600 border-gray-200"
-            }`}
+            active={active === f}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize bg-surface text-gray-600 border-gray-200"
+            activeClassName="px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize bg-gray-900 text-on-action border-gray-900"
           >
             {f}
-          </Link>
+          </FilterLink>
         ))}
       </div>
 
-      <p className="text-sm text-gray-500">
-        {disputes.length} {active ? `'${active}'` : "active"} dispute{disputes.length === 1 ? "" : "s"}
-      </p>
+      <FilterResults>
+        <p className="text-sm text-gray-500 mb-4">
+          {disputes.length} {active ? `'${active}'` : "active"} dispute{disputes.length === 1 ? "" : "s"}
+        </p>
 
-      <DataTable columns={columns} rows={disputes} emptyMessage="No disputes in this view." />
+        <DataTable columns={columns} rows={disputes} emptyMessage="No disputes in this view." />
+      </FilterResults>
     </div>
+    </FilterScope>
   );
 }

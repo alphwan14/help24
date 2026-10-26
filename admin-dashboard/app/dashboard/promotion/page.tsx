@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilterLink, FilterResults, FilterScope } from "@/components/FilterTransition";
 import DataTable from "@/components/DataTable";
 import RestoringAccess from "../disputes/RestoringAccess";
 import {
@@ -124,22 +125,22 @@ export default async function PromotionCampaignsPage({ searchParams }: PageProps
   ];
 
   return (
+    <FilterScope>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Link
-          href="/dashboard/promotion"
-          className={`badge ${!active ? "bg-gray-900 text-on-action" : "bg-gray-100 text-gray-600"}`}
-        >
+        <FilterLink href="/dashboard/promotion" active={!active} className="badge bg-gray-100 text-gray-600" activeClassName="badge bg-gray-900 text-on-action">
           All
-        </Link>
+        </FilterLink>
         {FILTERS.map((f) => (
-          <Link
+          <FilterLink
             key={f}
             href={`/dashboard/promotion?status=${f}`}
-            className={`badge ${active === f ? "bg-gray-900 text-on-action" : "bg-gray-100 text-gray-600"}`}
+            active={active === f}
+            className="badge bg-gray-100 text-gray-600"
+            activeClassName="badge bg-gray-900 text-on-action"
           >
             {f.replace(/_/g, " ")}
-          </Link>
+          </FilterLink>
         ))}
         <span className="flex-1" />
         <Link href="/dashboard/promotion/packages" className="text-sm text-blue-600 hover:underline">
@@ -149,7 +150,10 @@ export default async function PromotionCampaignsPage({ searchParams }: PageProps
           Revenue
         </Link>
       </div>
-      <DataTable columns={columns} rows={campaigns} emptyMessage="No campaigns found." />
+      <FilterResults>
+        <DataTable columns={columns} rows={campaigns} emptyMessage="No campaigns found." />
+      </FilterResults>
     </div>
+    </FilterScope>
   );
 }

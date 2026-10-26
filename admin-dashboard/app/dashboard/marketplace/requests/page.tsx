@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilterLink, FilterResults, FilterScope } from "@/components/FilterTransition";
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
 import { ErrorState } from "@/components/moderation/States";
@@ -199,20 +200,23 @@ export default async function MarketplaceRequestsPage({
   ];
 
   return (
+    <FilterScope>
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-gray-500 text-sm">{rows.length} results</p>
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
           {STATUS_FILTERS.map((f) => (
-            <a
+            // A client-side transition, not an <a>: the plain anchor reloaded
+            // the whole dashboard on every filter click.
+            <FilterLink
               key={f}
-              href={`?status=${f}`}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors capitalize ${
-                status === f ? "bg-surface shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"
-              }`}
+              href={`/dashboard/marketplace/requests?status=${f}`}
+              active={status === f}
+              className="px-4 py-1.5 rounded-md text-sm font-medium transition-colors capitalize text-gray-500 hover:text-gray-700"
+              activeClassName="px-4 py-1.5 rounded-md text-sm font-medium transition-colors capitalize bg-surface shadow-sm text-gray-900"
             >
               {f}
-            </a>
+            </FilterLink>
           ))}
         </div>
       </div>
@@ -222,16 +226,19 @@ export default async function MarketplaceRequestsPage({
           that, not because nobody can.
         </p>
       )}
-      {loadError ? (
-        <ErrorState message={`Requests could not be loaded: ${loadError}`} />
-      ) : (
-        <DataTable
-          columns={columns}
-          rows={rows}
-          emptyMessage="No requests found."
-          rowClassName={(r) => archivedRowClass(r.archived_at)}
-        />
-      )}
+      <FilterResults>
+        {loadError ? (
+          <ErrorState message={`Requests could not be loaded: ${loadError}`} />
+        ) : (
+          <DataTable
+            columns={columns}
+            rows={rows}
+            emptyMessage="No requests found."
+            rowClassName={(r) => archivedRowClass(r.archived_at)}
+          />
+        )}
+      </FilterResults>
     </div>
+    </FilterScope>
   );
 }
