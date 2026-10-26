@@ -31,6 +31,10 @@ export type NotificationType =
   | 'promotion_live'             // campaign approved and now serving
   | 'promotion_rejected'         // moderation rejected the campaign
   | 'promotion_completed'        // campaign finished its purchased window
+  // Request rescue (admin/marketplace): an admin told a matching provider about
+  // an open request. data = { post_id, sent_by }. Apps without a route for it
+  // open the notifications list, which shows the request's title.
+  | 'request_match'
   // Trust & Safety. Deliberately generic copy and EMPTY data: the reason lives
   // on the in-app account-status screen, and a report confirmation never
   // names what was reported. See moderation.service.ts.

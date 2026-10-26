@@ -21,6 +21,8 @@ import { DisputeSlaService } from './disputes/sla.service';
 import { DisputeStorageService } from './disputes/dispute-storage.service';
 import { DisputesController } from './disputes/disputes.controller';
 import { DisputesPublicController } from './disputes/disputes-public.controller';
+import { RequestRescueController } from './marketplace/request-rescue.controller';
+import { RequestRescueService } from './marketplace/request-rescue.service';
 
 @Module({
   imports: [SupabaseModule, NotificationsModule, MpesaModule, EventsModule, AdminAuthModule],
@@ -30,6 +32,7 @@ import { DisputesPublicController } from './disputes/disputes-public.controller'
     AdminInvitesPublicController,
     DisputesPublicController,
     DisputesController,
+    RequestRescueController,
   ],
   providers: [
     AdminService,
@@ -42,6 +45,8 @@ import { DisputesPublicController } from './disputes/disputes-public.controller'
     DisputeRecommendationService,
     DisputeSlaService,
     DisputeStorageService,
+    // Marketplace operations
+    RequestRescueService,
   ],
   // Re-exported so feature modules (e.g. PromotionsModule) can guard their own
   // admin controllers with the same RBAC instead of duplicating it. Importers

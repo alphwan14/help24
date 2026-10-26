@@ -94,7 +94,7 @@ export type MemberProfile = {
   payments: Section<MemberPayment>;
   earnings: Section<MemberEarning>;
   disputes: Section<MemberDispute>;
-  /** Phones the app can push to — a count, never the tokens. */
+  /** Phones the app can push to — a count, never the tokens (fcm_tokens rows, else the legacy column). */
   pushDevices: number;
 };
 
@@ -116,7 +116,7 @@ function section<T>(res: Res<T[]>, what: string): Section<T> {
 export async function loadMember(id: string): Promise<MemberProfile | null> {
   const db = createServiceClient();
 
-  const [user, state, rep, reports, posted, hired, applications, payments, earnings] = await Promise.all([
+  const [user, devices, state, rep, reports, posted, hired, applications, payments, earnings] = await Promise.all([
     db
       .from("users")
       .select(
@@ -124,6 +124,9 @@ export async function loadMember(id: string): Promise<MemberProfile | null> {
       )
       .eq("id", id)
       .maybeSingle(),
+    // Where the backend's push sender looks first (migration 121); the legacy
+    // users.fcm_tokens column is its fallback, and ours. Counted, never read.
+    db.from("fcm_tokens").select("id", { count: "exact", head: true }).eq("user_id", id),
     db.from("moderation_account_state").select("account_status").eq("user_id", id).maybeSingle(),
     db
       .from("provider_reputation")
@@ -186,6 +189,6 @@ export async function loadMember(id: string): Promise<MemberProfile | null> {
     payments: { ...paymentsSection, rows: paymentRows },
     earnings: section(earnings as Res<MemberEarning[]>, "earnings"),
     disputes: section(disputes as Res<MemberDispute[]>, "disputes"),
-    pushDevices: Array.isArray(tokens) ? tokens.length : 0,
+    pushDevices: (devices.error ? 0 : (devices.count ?? 0)) || (Array.isArray(tokens) ? tokens.length : 0),
   };
 }

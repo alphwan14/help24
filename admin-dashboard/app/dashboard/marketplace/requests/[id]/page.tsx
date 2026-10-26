@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase-server";
 import { PostStatusBadge } from "@/components/PostStatusBadge";
-import { CandidateRow, PersonCard, PhoneLink, StandingBadges, accountHref } from "@/components/marketplace/People";
+import { CandidateRow, PersonCard, PhoneLink, StandingBadges, TIER_LABELS, accountHref } from "@/components/marketplace/People";
+import NotifyProviders, { type NotifyCandidate } from "@/components/marketplace/NotifyProviders";
 import { CANNOT_TAKE_WORK, loadMatchingData, loadPeople, type Person } from "@/lib/marketplace-people";
 import { candidatesFor, countByTier, type Candidate } from "@/lib/provider-matching";
 import { requestBudgetLabel, schemasByName, smartAnswerLines, type Json } from "@/lib/post-display";
@@ -128,6 +129,39 @@ export default async function MarketplaceRequestPage({ params }: PageProps) {
   }
 
   const applied = new Set(applications.map((a) => a.applicant_user_id).filter(Boolean));
+
+  // Request rescue: who has already been told about THIS request, and who has
+  // a phone registered for push. Shown to the admin; the backend re-checks both.
+  const shortlist = candidates.slice(0, 25);
+  let notifyList: NotifyCandidate[] = [];
+  let alreadyNotified = 0;
+  if (needsProvider && shortlist.length) {
+    const ids = shortlist.map((c) => c.userId);
+    const [told, devices, legacy] = await Promise.all([
+      db.from("notifications").select("user_id").eq("type", "request_match").eq("data->>post_id", post.id),
+      db.from("fcm_tokens").select("user_id").in("user_id", ids),
+      db.from("users").select("id, fcm_tokens").in("id", ids),
+    ]);
+    const toldIds = new Set((told.data ?? []).map((n) => n.user_id as string));
+    alreadyNotified = toldIds.size;
+    const reachable = new Set([
+      ...(devices.data ?? []).map((d) => d.user_id as string),
+      ...(legacy.data ?? []).filter((u) => Array.isArray(u.fcm_tokens) && u.fcm_tokens.length > 0).map((u) => u.id as string),
+    ]);
+    notifyList = shortlist.map((c) => {
+      const person = people.get(c.userId);
+      const note = applied.has(c.userId) ? "Already applied" : toldIds.has(c.userId) ? "Already told about this request" : undefined;
+      return {
+        userId: c.userId,
+        name: person?.name ?? "Unnamed provider",
+        tierLabel: TIER_LABELS[c.tier],
+        eligible: !note && !told.error,
+        note: told.error ? "Could not check who was already told" : note,
+        // Pushes are counted from the device tables; a failed read only hides the hint.
+        reachable: reachable.has(c.userId),
+      };
+    });
+  }
   const urgent = post.urgency === "urgent" || post.is_urgent === true;
   const authorLabel = post.type === "request" ? "Client" : post.type === "offer" ? "Provider (their offer)" : "Posted by";
 
@@ -175,13 +209,20 @@ export default async function MarketplaceRequestPage({ params }: PageProps) {
                 <SupplyGap category={post.category} location={post.location} />
               ) : (
                 <>
-                  <p className="mt-1 text-[12.5px] text-gray-500">{summary(candidates)} Call them — the dashboard can&apos;t message users.</p>
+                  <p className="mt-1 text-[12.5px] text-gray-500">{summary(candidates)} Call them, or tell them in the app below.</p>
                   <ul className="mt-2 divide-y divide-gray-100">
                     {candidates.slice(0, 25).map((c) => (
                       <CandidateRow key={c.userId} candidate={c} person={people.get(c.userId)} applied={applied.has(c.userId)} />
                     ))}
                   </ul>
                   {candidates.length > 25 && <p className="mt-2 text-[11.5px] text-gray-400">Showing the best 25 of {candidates.length}.</p>}
+                  <NotifyProviders
+                    postId={post.id}
+                    title={post.title}
+                    location={post.location}
+                    candidates={notifyList}
+                    alreadyNotified={alreadyNotified}
+                  />
                 </>
               )}
               {!matchError && (
