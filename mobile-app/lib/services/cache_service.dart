@@ -88,10 +88,18 @@ class CacheService {
     )];
   }
 
+  /// How much of the feed the next cold start opens on.
+  ///
+  /// The cache is the launch placeholder — a screenful or two — not a copy of
+  /// the feed. Discover pages without limit now, and writing every post the
+  /// reader scrolled through into one SharedPreferences string would make
+  /// launch slower the more someone browsed.
+  static const int maxCachedPosts = 50;
+
   static Future<void> savePosts(List<PostModel> posts) async {
     try {
       final prefs = await _instance;
-      final list = posts.map((p) => p.toCacheMap()).toList();
+      final list = posts.take(maxCachedPosts).map((p) => p.toCacheMap()).toList();
       final json = jsonEncode(list);
       await prefs.setString(_Keys.posts, json);
     } catch (e) {

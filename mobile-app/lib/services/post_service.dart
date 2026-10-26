@@ -72,6 +72,25 @@ class PostFilters {
       );
 }
 
+/// A position in the chronological feed — `(created_at, id)`, the keyset
+/// [PostService.probeFeedKeys] orders by.
+@immutable
+class FeedKey {
+  final String id;
+
+  /// The server's string, verbatim. See [PostService.probeFeedKeys].
+  final String createdAt;
+
+  const FeedKey({required this.id, required this.createdAt});
+
+  @override
+  bool operator ==(Object other) =>
+      other is FeedKey && other.id == id && other.createdAt == createdAt;
+
+  @override
+  int get hashCode => Object.hash(id, createdAt);
+}
+
 /// Exception for post service errors
 class PostServiceException implements Exception {
   final String message;
@@ -140,6 +159,73 @@ class PostService {
            error is SocketException;
   }
 
+  /// Apply [filters] to a `posts` query — every rule a browsing read shares.
+  ///
+  /// One definition for [fetchPosts] and [fetchTailPage], because the two must
+  /// never disagree about what belongs in a feed: the tail continues a page this
+  /// one (or the engine) started, and a filter applied to one but not the other
+  /// would show rows below the fold that the head of the same feed excluded.
+  static dynamic _applyFilters(dynamic query, PostFilters? filters) {
+    if (filters == null) return query;
+    // Type filter — a LIST, so this path can express exactly what
+    // fn_feed_candidates expresses (see FeedScope). A single type could
+    // not describe Discover's "requests and offers, but not jobs".
+    if (filters.types != null && filters.types!.isNotEmpty) {
+      query = query.inFilter('type', filters.types!);
+    }
+
+    // Lifecycle filter. fn_feed_candidates has always restricted the ranked
+    // feed to `status = 'open'`; this path never did, so the SAME tab showed
+    // assigned, completed and disputed listings whenever ranking was down.
+    if (filters.statuses != null && filters.statuses!.isNotEmpty) {
+      query = query.inFilter('status', filters.statuses!);
+    }
+
+    // Category filter
+    if (filters.categories != null && filters.categories!.isNotEmpty) {
+      query = query.inFilter('category', filters.categories!);
+    }
+
+    // Location filter (city)
+    if (filters.city != null && filters.city!.isNotEmpty) {
+      query = query.ilike('location', '%${filters.city}%');
+    }
+
+    // Location filter (area)
+    if (filters.area != null && filters.area!.isNotEmpty) {
+      query = query.ilike('location', '%${filters.area}%');
+    }
+
+    // Urgency filter
+    if (filters.urgency != null && filters.urgency!.isNotEmpty) {
+      query = query.eq('urgency', filters.urgency!);
+    }
+
+    // Difficulty filter
+    if (filters.difficulty != null && filters.difficulty!.isNotEmpty) {
+      query = query.eq('difficulty', filters.difficulty!);
+    }
+
+    // Price range filter
+    if (filters.minPrice != null) {
+      query = query.gte('price', filters.minPrice!);
+    }
+    if (filters.maxPrice != null) {
+      query = query.lte('price', filters.maxPrice!);
+    }
+
+    // Search query (title, description, or category — the category match is
+    // what makes CUSTOM services like "TV Repair Technician" discoverable
+    // by search; the client-side instant filter already matched category
+    // names, so this only aligns the server result set with it)
+    if (filters.searchQuery != null && filters.searchQuery!.isNotEmpty) {
+      query = query.or(
+        'title.ilike.%${filters.searchQuery}%,description.ilike.%${filters.searchQuery}%,category.ilike.%${filters.searchQuery}%',
+      );
+    }
+    return query;
+  }
+
   /// Fetch posts with optional filters
   /// Returns list of PostModel with images and applications
   static Future<List<PostModel>> fetchPosts({PostFilters? filters}) async {
@@ -149,65 +235,7 @@ class PostService {
           .select(feedRowSelect)
           .filter('archived_at', 'is', null); // hide archived (soft-deleted) posts
 
-      // Apply filters
-      if (filters != null) {
-        // Type filter — a LIST, so this path can express exactly what
-        // fn_feed_candidates expresses (see FeedScope). A single type could
-        // not describe Discover's "requests and offers, but not jobs".
-        if (filters.types != null && filters.types!.isNotEmpty) {
-          query = query.inFilter('type', filters.types!);
-        }
-
-        // Lifecycle filter. fn_feed_candidates has always restricted the ranked
-        // feed to `status = 'open'`; this path never did, so the SAME tab showed
-        // assigned, completed and disputed listings whenever ranking was down.
-        if (filters.statuses != null && filters.statuses!.isNotEmpty) {
-          query = query.inFilter('status', filters.statuses!);
-        }
-
-        // Category filter
-        if (filters.categories != null && filters.categories!.isNotEmpty) {
-          query = query.inFilter('category', filters.categories!);
-        }
-
-        // Location filter (city)
-        if (filters.city != null && filters.city!.isNotEmpty) {
-          query = query.ilike('location', '%${filters.city}%');
-        }
-
-        // Location filter (area)
-        if (filters.area != null && filters.area!.isNotEmpty) {
-          query = query.ilike('location', '%${filters.area}%');
-        }
-
-        // Urgency filter
-        if (filters.urgency != null && filters.urgency!.isNotEmpty) {
-          query = query.eq('urgency', filters.urgency!);
-        }
-
-        // Difficulty filter
-        if (filters.difficulty != null && filters.difficulty!.isNotEmpty) {
-          query = query.eq('difficulty', filters.difficulty!);
-        }
-
-        // Price range filter
-        if (filters.minPrice != null) {
-          query = query.gte('price', filters.minPrice!);
-        }
-        if (filters.maxPrice != null) {
-          query = query.lte('price', filters.maxPrice!);
-        }
-
-        // Search query (title, description, or category — the category match is
-        // what makes CUSTOM services like "TV Repair Technician" discoverable
-        // by search; the client-side instant filter already matched category
-        // names, so this only aligns the server result set with it)
-        if (filters.searchQuery != null && filters.searchQuery!.isNotEmpty) {
-          query = query.or(
-            'title.ilike.%${filters.searchQuery}%,description.ilike.%${filters.searchQuery}%,category.ilike.%${filters.searchQuery}%',
-          );
-        }
-      }
+      query = _applyFilters(query, filters);
 
       // Order by created_at descending and apply pagination
       final response = await query
@@ -243,6 +271,75 @@ class PostService {
       }
       throw PostServiceException('Failed to load posts. Please try again.');
     }
+  }
+
+  /// One keyset step through the browsable corpus, newest first — ids and
+  /// creation instants only, never the full row.
+  ///
+  /// This is how Discover reaches posts the ranking engine never sees. The
+  /// engine considers a bounded window (`maxCandidates`, 400 by default); the
+  /// tail beyond it is walked here, `(created_at, id)` descending, resuming
+  /// strictly after [after]. Keyset rather than OFFSET so the cost of page 500
+  /// is the cost of page 1 — an OFFSET makes Postgres count past every row it
+  /// skips, which is fine at 40 posts and a wall at a million.
+  ///
+  /// Narrow on purpose: most of the first probe is posts the reader has already
+  /// seen in the ranked window, and fetching full rows (images, applications,
+  /// applicant profiles) only to throw them away is the expensive part.
+  ///
+  /// [FeedKey.createdAt] is the server's own string, quoted back verbatim — a
+  /// round trip through DateTime would have to agree with Postgres about time
+  /// zones and sub-millisecond precision, and a cursor that is off by one
+  /// microsecond skips or repeats a row.
+  static Future<List<FeedKey>> probeFeedKeys({
+    required PostFilters filters,
+    FeedKey? after,
+    int limit = 200,
+  }) async {
+    var query = _client
+        .from('posts')
+        .select('id, created_at')
+        .filter('archived_at', 'is', null);
+    query = _applyFilters(query, filters);
+    if (after != null) {
+      final at = '"${after.createdAt}"';
+      query = query.or(
+        'created_at.lt.$at,and(created_at.eq.$at,id.lt."${after.id}")',
+      );
+    }
+    final rows = await query
+        .order('created_at', ascending: false)
+        .order('id', ascending: false)
+        .limit(limit);
+    return [
+      for (final row in rows as List)
+        FeedKey(id: row['id'].toString(), createdAt: row['created_at'].toString()),
+    ];
+  }
+
+  /// Full feed rows for [ids], returned in the order given.
+  ///
+  /// The hydration half of [probeFeedKeys]. Postgres owes nothing to the order
+  /// of an `IN` list, so the order is re-applied here; an id that no longer
+  /// comes back (archived in the moment between probe and hydrate) is dropped,
+  /// which is the same decision the engine makes in its own hydration.
+  static Future<List<PostModel>> fetchFeedRowsByIds(List<String> ids) async {
+    if (ids.isEmpty) return const [];
+    final rows = await _client
+        .from('posts')
+        .select(feedRowSelect)
+        .inFilter('id', ids)
+        .filter('archived_at', 'is', null);
+    final byId = <String, PostModel>{
+      for (final row in rows as List)
+        row['id'].toString(): PostModel.fromJson(Map<String, dynamic>.from(row)),
+    };
+    final posts = [
+      for (final id in ids)
+        if (byId[id] != null) byId[id]!,
+    ];
+    await _warmReputations(posts.map((p) => p.authorUserId));
+    return posts;
   }
 
   // NOTE: the previous _attachSettlement() read the RLS-locked `escrow` table

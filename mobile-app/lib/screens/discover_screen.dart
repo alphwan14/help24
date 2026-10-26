@@ -71,10 +71,16 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   /// that lands unannounced moves what is under their thumb.
   static const double _engagedOffset = 160;
 
+  /// How close to the end of the list the next page is requested — a few
+  /// cards' worth, so on an ordinary scroll the page has landed before the
+  /// reader reaches the footer and the feed simply keeps going.
+  static const double _prefetchExtent = 1600;
+
   @override
   void initState() {
     super.initState();
     _feedScroll.addListener(_reportEngagement);
+    _feedScroll.addListener(_loadMoreNearEnd);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       // At cold start the filter is already 'All' and AppProvider's constructor
@@ -116,9 +122,24 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     if (!engaged && held != null) _applySlots(held);
   }
 
+  /// Ask for the next page while the reader is still a few cards from the end.
+  ///
+  /// Discover stopped at twenty posts because nothing ever asked for page two.
+  /// The provider ignores this when a page is already in flight, the feed is
+  /// exhausted, or the last attempt failed (that one waits for the footer's
+  /// retry), so calling it on every scroll frame costs nothing.
+  void _loadMoreNearEnd() {
+    if (!mounted || !_feedScroll.hasClients) return;
+    if (_feedScroll.position.extentAfter > _prefetchExtent) return;
+    final provider = context.read<AppProvider>();
+    if (provider.loadMorePostsFailed) return;
+    unawaited(provider.loadMorePosts());
+  }
+
   @override
   void dispose() {
     _feedScroll.removeListener(_reportEngagement);
+    _feedScroll.removeListener(_loadMoreNearEnd);
     _slotsDebounce?.cancel();
     // Flush any queued impressions/clicks before the screen goes away.
     PromotionTracker.instance.flush();
@@ -720,7 +741,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           // reader where they were.
           FeedPresentation.content => KeyedSubtree(
               key: ValueKey('feed-${provider.feedGeneration}'),
-              child: _buildFeedList(provider.filteredPosts),
+              child: _buildFeedList(provider.filteredPosts, provider),
             ),
         });
       },
@@ -758,7 +779,62 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
-  Widget _buildFeedList(List<PostModel> posts) {
+  /// The foot of the feed: the next page arriving, a retry, or the end.
+  ///
+  /// Building the footer is itself a request for the next page. A feed shorter
+  /// than the screen never scrolls, so [_loadMoreNearEnd] would never fire —
+  /// and a filtered feed of eight matches out of thousands must still reach the
+  /// ninth.
+  Widget _buildFeedFooter(AppProvider provider) {
+    final c = AppColors.of(context);
+    if (provider.loadMorePostsFailed) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpace.md),
+        child: Center(
+          child: TextButton.icon(
+            onPressed: provider.loadMorePosts,
+            icon: const Icon(AppIcons.refresh, size: 18),
+            label: const Text("Couldn't load more. Tap to retry"),
+          ),
+        ),
+      );
+    }
+    if (provider.feedHasMore) {
+      if (!provider.isLoadingMorePosts) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || provider.loadMorePostsFailed) return;
+          unawaited(provider.loadMorePosts());
+        });
+      }
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpace.md),
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    if (provider.feedExhausted) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpace.md),
+        child: Center(
+          child: Text(
+            "You're all caught up",
+            style: AppTypeScale.meta.copyWith(
+              fontFamily: AppTypeScale.family,
+              color: c.contentTertiary,
+            ),
+          ),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildFeedList(List<PostModel> posts, AppProvider provider) {
     // Business Promotion: interleave sponsored offer cards per the
     // server-configured cadence (pure composition — organic order is
     // never changed, sponsored cards never cluster).
@@ -774,8 +850,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         controller: _feedScroll,
         padding: const EdgeInsets.fromLTRB(AppSpace.gutter, 0, AppSpace.gutter,
             AppSpace.fabClearance),
-        itemCount: entries.length,
+        // +1: the footer — the next page loading, a retry, or the end.
+        itemCount: entries.length + 1,
         itemBuilder: (context, index) {
+          if (index == entries.length) return _buildFeedFooter(provider);
           final entry = entries[index];
           final post = entry.post;
 

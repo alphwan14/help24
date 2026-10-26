@@ -55,6 +55,19 @@ class FeedSignalBreakdown {
       '$label ${points >= 0 ? '+' : ''}${points.toStringAsFixed(1)}';
 }
 
+/// A ranked page after the first could not be served.
+///
+/// Thrown instead of degrading — see [FeedService.fetchFeed]. The first page
+/// falls back to the chronological read; a later page has nothing sensible to
+/// fall back to except continuing the feed, which is [FeedPager]'s decision.
+class FeedPageUnavailable implements Exception {
+  final String reason;
+  const FeedPageUnavailable(this.reason);
+
+  @override
+  String toString() => 'FeedPageUnavailable($reason)';
+}
+
 /// One ranked page of `T` (PostModel for Discover, JobModel for Jobs).
 class FeedResult<T> {
   final List<T> items;
@@ -222,6 +235,9 @@ class FeedService {
       final response = await api.get(uri).timeout(_timeout);
       final wireMs = watch.elapsedMilliseconds;
       if (response.statusCode != 200) {
+        if (page > 0) {
+          throw FeedPageUnavailable('HTTP ${response.statusCode}');
+        }
         debugPrint('[FEED][REQ $seq] HTTP ${response.statusCode} +${wireMs}ms — falling back');
         return _degrade(fallback);
       }
@@ -242,6 +258,14 @@ class FeedService {
 
       return result;
     } catch (e) {
+      // A later page has no fallback of its own. Degrading here would answer
+      // "page 3" with the chronological FIRST page — twenty cards the reader has
+      // already scrolled past, appended again below themselves. FeedPager owns
+      // what happens next: the direct read continues where the engine stopped.
+      if (page > 0) {
+        debugPrint('[FEED] ranked page $page failed ($e)');
+        throw e is FeedPageUnavailable ? e : FeedPageUnavailable('$e');
+      }
       debugPrint('[FEED] ranked feed failed ($e) — falling back');
       return _degrade(fallback);
     }

@@ -15,6 +15,7 @@ import '../services/filter_history_service.dart';
 import '../services/application_service.dart';
 import '../services/auth_service.dart';
 import '../services/cache_service.dart';
+import '../services/feed_pager.dart';
 import '../services/feed_service.dart';
 import '../services/feed_snapshot.dart';
 import '../services/interaction_tracker.dart';
@@ -107,6 +108,20 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// optimistic insert, an archive, an "Applied" badge flipping) rebuilds the
   /// existing list and keeps its scroll position.
   int _feedGeneration = 0;
+
+  /// Bumped on EVERY install, visible or not — unlike [_feedGeneration], which
+  /// only moves when the head of the feed changes. A next page fetched for one
+  /// ranking must never be appended to another, and an install that changes
+  /// nothing above the fold still starts a new feed with its own cursor.
+  int _installSeq = 0;
+
+  /// A next page is being fetched. One at a time: Discover asks on every frame
+  /// the reader spends near the end of the list.
+  bool _isLoadingMorePosts = false;
+
+  /// The last next-page fetch failed. Shown as a retry at the foot of the feed,
+  /// never as [discoverError] — the posts above it are perfectly good.
+  bool _loadMorePostsFailed = false;
 
 
   /// Whether Discover is the visible tab. A rebuild that arrives while the user
@@ -226,6 +241,20 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   List<PostModel> get urgentPosts => _urgentPosts;
   List<Conversation> get conversations => _conversations;
   bool get isLoadingPosts => _isLoadingPosts;
+
+  /// Whether the feed on screen continues past its last card. False for a
+  /// placeholder (disk, re-scoped tab) — the real page that replaces it brings
+  /// its own cursor.
+  bool get feedHasMore => _installed?.hasMore ?? false;
+  bool get isLoadingMorePosts => _isLoadingMorePosts;
+  bool get loadMorePostsFailed => _loadMorePostsFailed;
+
+  /// The reader has reached the genuine end of the marketplace for this
+  /// question — a live feed whose cursor is spent, not a placeholder.
+  bool get feedExhausted {
+    final installed = _installed;
+    return installed != null && !installed.fromCache && !installed.hasMore;
+  }
   bool get isLoadingUrgentPosts => _isLoadingUrgentPosts;
   bool get isLoadingConversations => _isLoadingConversations;
   bool get isPosting => _isPosting;
@@ -1276,6 +1305,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     final previous = _installed;
     _installed = snapshot;
     _posts = [...snapshot.posts];
+    _installSeq++;
+    _loadMorePostsFailed = false;
     _rememberCategoryNames(snapshot.posts.map((p) => p.category.name));
 
     // THE GENERATION MEANS "WHAT THE READER IS LOOKING AT CHANGED" — NOTHING
@@ -1339,6 +1370,87 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _posts = next;
     final installed = _installed;
     if (installed != null) _installed = installed.withPosts(next);
+  }
+
+  /// Append the next page of the feed on screen.
+  ///
+  /// Discover used to stop at the engine's first page — twenty posts, however
+  /// many the marketplace held. This continues the SAME feed: the engine's
+  /// ranked pages for the identity the head was ranked under, then every other
+  /// browsable post newest-first ([FeedPager]). Called by Discover as the reader
+  /// nears the end of the list; a no-op when nothing more exists, when a page is
+  /// already in flight, or when the feed on screen no longer answers the
+  /// question being asked (its replacement is on the way and brings its own
+  /// cursor).
+  ///
+  /// Appending is an EDIT, not an install: the generation does not move, so the
+  /// list keeps its scroll position and nothing crossfades.
+  Future<void> loadMorePosts() async {
+    final installed = _installed;
+    final cursor = installed?.cursor;
+    if (installed == null || cursor == null || _isLoadingMorePosts) return;
+    final scope = _scopeForFilter;
+    final filters = _currentFilters;
+    if (installed.identity.queryKey != FeedIdentity.describeQuery(scope, filters)) {
+      return;
+    }
+
+    final install = _installSeq;
+    final identity = installed.identity;
+    _isLoadingMorePosts = true;
+    _loadMorePostsFailed = false;
+    notifyListeners();
+    final watch = Stopwatch()..start();
+    try {
+      final seen = {for (final p in _posts) p.id};
+      final page = await (debugNextPage?.call(cursor, seen) ??
+          FeedPager.next(
+            cursor: cursor,
+            seen: seen,
+            // Ranked under the identity the HEAD was ranked under, not the live
+            // one: a GPS update between pages must not splice a differently-ordered
+            // ranking onto this one. The live identity moving is maybeRefreshFeed's
+            // business.
+            ranked: (n) => FeedService.fetchFeed(
+              userId: identity.userId,
+              latitude: identity.latitude,
+              longitude: identity.longitude,
+              scope: scope,
+              filters: filters,
+              page: n,
+            ),
+            probe: (after, limit) => PostService.probeFeedKeys(
+              filters: filters.forScope(scope),
+              after: after,
+              limit: limit,
+            ),
+            hydrate: PostService.fetchFeedRowsByIds,
+          ));
+      // Replaced while this was in flight — the page belongs to a feed that is
+      // no longer on screen.
+      if (install != _installSeq) return;
+      final current = _installed!;
+      // Re-checked against what is on screen NOW: a splice (the reader's own
+      // new post) may have landed while the page was in flight.
+      final onScreen = {for (final p in _posts) p.id};
+      final more = [
+        for (final p in page.posts)
+          if (!onScreen.contains(p.id)) p,
+      ];
+      _installed = current.appended(more, page.next);
+      _posts = [..._installed!.posts];
+      _remember(_installed!);
+      _rememberCategoryNames(more.map((p) => p.category.name));
+      _warmPostMedia(more);
+      debugPrint('[FEED][PAGE] +${watch.elapsedMilliseconds}ms '
+          'appended=${more.length} total=${_posts.length} next=${page.next}');
+    } catch (e) {
+      if (install == _installSeq) _loadMorePostsFailed = true;
+      debugPrint('[FEED][PAGE] next page failed: $e');
+    } finally {
+      _isLoadingMorePosts = false;
+      notifyListeners();
+    }
   }
 
   /// Discover tab → the one scope definition (engine parameter AND fallback
@@ -2343,8 +2455,37 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     return _selectedCategoriesFoldedCache;
   }
 
+  /// [filteredPosts]' last answer, and the inputs it was computed from.
+  ///
+  /// The getter is read several times per frame (presentation state, the result
+  /// count, the list itself) and now runs over every post the reader has paged
+  /// through — thousands, not twenty. Every input is replaced rather than
+  /// mutated (`_posts` by [_install], [_splice] and [loadMorePosts]; the
+  /// category set by its setters), so identity is a sound cache key.
+  List<PostModel>? _filteredMemo;
+  _FilterInputs? _filteredMemoKey;
+
   /// Get filtered posts (local filtering for instant UI)
   List<PostModel> get filteredPosts {
+    final key = _FilterInputs(
+      posts: _posts,
+      searchQuery: _searchQuery,
+      tab: _selectedFilter,
+      categories: _selectedCategories,
+      city: _selectedCity,
+      area: _selectedArea,
+      priceRange: _priceRange,
+      urgency: _selectedUrgency,
+    );
+    final memo = _filteredMemo;
+    if (memo != null && key.sameAs(_filteredMemoKey)) return memo;
+    final result = _computeFilteredPosts();
+    _filteredMemo = result;
+    _filteredMemoKey = key;
+    return result;
+  }
+
+  List<PostModel> _computeFilteredPosts() {
     final filtered = _posts.where((post) {
       // Search query filter (also done server-side, but good for instant UI)
       if (_searchQuery.isNotEmpty) {
@@ -2454,6 +2595,12 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   @visibleForTesting
   FeedSnapshot? get debugInstalled => _installed;
 
+  /// Replaces the network half of [loadMorePosts], so the append contract (no
+  /// generation bump, no append onto a replaced feed) is testable on its own.
+  @visibleForTesting
+  static Future<FeedPage> Function(FeedCursor cursor, Set<String> seen)?
+      debugNextPage;
+
   @visibleForTesting
   FeedSnapshot? get debugPending => _pending;
 
@@ -2477,4 +2624,40 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     }
     notifyListeners();
   }
+}
+
+/// Everything [AppProvider.filteredPosts] reads, compared the way each input
+/// changes: the post list and the category set by identity (both are replaced,
+/// never mutated), the rest by value.
+class _FilterInputs {
+  final List<PostModel> posts;
+  final String searchQuery;
+  final String tab;
+  final Set<String> categories;
+  final String city;
+  final String area;
+  final RangeValues priceRange;
+  final Urgency? urgency;
+
+  const _FilterInputs({
+    required this.posts,
+    required this.searchQuery,
+    required this.tab,
+    required this.categories,
+    required this.city,
+    required this.area,
+    required this.priceRange,
+    required this.urgency,
+  });
+
+  bool sameAs(_FilterInputs? other) =>
+      other != null &&
+      identical(posts, other.posts) &&
+      identical(categories, other.categories) &&
+      searchQuery == other.searchQuery &&
+      tab == other.tab &&
+      city == other.city &&
+      area == other.area &&
+      priceRange == other.priceRange &&
+      urgency == other.urgency;
 }

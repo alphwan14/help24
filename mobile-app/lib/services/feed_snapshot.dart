@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/post_model.dart';
 import '../utils/feed_scope.dart';
 import '../utils/proximity.dart';
+import 'feed_pager.dart';
 import 'feed_service.dart';
 import 'post_service.dart';
 
@@ -67,6 +68,15 @@ class FeedSnapshot {
   /// the disk is. See [FeedPresentation.empty].
   final bool fromCache;
 
+  /// Where this feed continues, or null when there is nothing more to fetch.
+  ///
+  /// Null for every placeholder — a page off the disk or another tab's
+  /// re-scoped is not a feed anyone may page through; the real snapshot that
+  /// replaces it brings its own cursor. See [FeedPager].
+  final FeedCursor? cursor;
+
+  bool get hasMore => cursor != null;
+
   /// Frozen on the way in, on EVERY path.
   ///
   /// The unmodifiable copy is not defensive-programming habit: `_install` hands
@@ -84,6 +94,7 @@ class FeedSnapshot {
     Map<String, List<FeedSignalBreakdown>> signals = const {},
     bool personalised = false,
     bool fromCache = false,
+    FeedCursor? cursor,
   }) =>
       FeedSnapshot._(
         posts: List.unmodifiable(posts),
@@ -95,6 +106,7 @@ class FeedSnapshot {
         signals: signals,
         personalised: personalised,
         fromCache: fromCache,
+        cursor: fromCache ? null : cursor,
       );
 
   const FeedSnapshot._({
@@ -107,6 +119,7 @@ class FeedSnapshot {
     this.signals = const {},
     this.personalised = false,
     this.fromCache = false,
+    this.cursor,
   });
 
   /// Build a snapshot from a freshly fetched page.
@@ -124,6 +137,7 @@ class FeedSnapshot {
         scores: result.scores,
         signals: result.signals,
         personalised: result.personalised,
+        cursor: FeedCursor.after(result),
       );
 
   bool get isRanked => source == FeedSource.ranked;
@@ -225,6 +239,23 @@ class FeedSnapshot {
         signals: signals,
         personalised: personalised,
         fromCache: fromCache,
+        cursor: cursor,
+      );
+
+  /// This feed with the next page appended and the cursor moved on. The
+  /// ranking above the fold is untouched — appending is an edit, not a
+  /// replacement, so the reader keeps their place and nothing crossfades.
+  FeedSnapshot appended(List<PostModel> more, FeedCursor? next) => FeedSnapshot(
+        posts: [...posts, ...more],
+        source: source,
+        identity: identity,
+        generatedAt: generatedAt,
+        rankingEpoch: rankingEpoch,
+        scores: scores,
+        signals: signals,
+        personalised: personalised,
+        fromCache: fromCache,
+        cursor: next,
       );
 }
 
