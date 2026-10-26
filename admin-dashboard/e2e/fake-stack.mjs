@@ -220,7 +220,17 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       const table = p.slice("/rest/v1/".length);
       const eq = (k) => url.searchParams.get(k)?.replace(/^eq\./, "");
       if (table === "user_auth_identities") {
-        return send(200, eq("provider") === "supabase" ? links.filter((l) => l.subject === eq("subject")).map((l) => ({ help24_user_id: l.help24 })) : []);
+        // Honours the `users(role)` embed the gate asks for (lib/admin-identity.ts),
+        // as PostgREST does through the help24_user_id → users.id foreign key.
+        const embedRole = (url.searchParams.get("select") ?? "").includes("users(");
+        return send(200, eq("provider") === "supabase"
+          ? links.filter((l) => l.subject === eq("subject")).map((l) => {
+              const person = people.get(l.help24);
+              return embedRole
+                ? { help24_user_id: l.help24, users: person ? { role: person.role } : null }
+                : { help24_user_id: l.help24 };
+            })
+          : []);
       }
       if (table === "users") {
         const person = people.get(eq("id"));

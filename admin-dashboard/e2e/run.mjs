@@ -168,8 +168,15 @@ try {
 
   /* ════════════════════════════════════════════════════════════════════ */
   section("settings and changing a password");
+  const gateMark = fake.log.length;
   await signIn(ALICE, ALICE_PW1);
   await waitFor(`location.pathname.startsWith('/dashboard')`, "admin lands in dashboard");
+  // The admin gate resolves link AND role in ONE query (users(role) embed); a
+  // separate users lookup means a round trip crept back onto every request.
+  const gateCalls = fake.log.slice(gateMark);
+  check("admin gate: identity + role in one round trip, no separate users lookup",
+    gateCalls.some((l) => l.path === "/rest/v1/user_auth_identities") && !gateCalls.some((l) => l.path === "/rest/v1/users"),
+    `${gateCalls.filter((l) => l.path === "/rest/v1/users").length} users lookups`);
   // The sign-in page reaches the dashboard by a client-side navigation too; Sign
   // out must work from there without a page load in between.
   await waitFor(`!document.body.innerText.includes('Setting up your admin workspace')`, "shell ready", 30000).catch(() => {});

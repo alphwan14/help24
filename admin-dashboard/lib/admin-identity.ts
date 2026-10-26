@@ -83,9 +83,13 @@ async function lookup(authSubject: string): Promise<AdminIdentity | "unlinked" |
     return "unavailable";
   }
 
+  // ONE round trip: the link and the person's role together, through the
+  // user_auth_identities.help24_user_id → users.id foreign key. This runs on
+  // every dashboard request (prefetches included), and used to be two queries
+  // in series after the session check. Same answers, same refusals.
   const { data: identity, error: identityError } = await db
     .from("user_auth_identities")
-    .select("help24_user_id")
+    .select("help24_user_id, users(role)")
     .eq("provider", "supabase")
     .eq("subject", authSubject)
     .maybeSingle();
@@ -105,17 +109,9 @@ async function lookup(authSubject: string): Promise<AdminIdentity | "unlinked" |
   }
 
   const help24UserId = identity.help24_user_id as string;
-
-  const { data: person, error: personError } = await db
-    .from("users")
-    .select("role")
-    .eq("id", help24UserId)
-    .maybeSingle();
-
-  if (personError) {
-    console.error("[Admin Check] role lookup failed:", personError.message);
-    return "unavailable";
-  }
+  // A to-one embed; normalise in case the client types it as an array.
+  const embedded = (identity as { users?: unknown }).users;
+  const person = (Array.isArray(embedded) ? embedded[0] : embedded) as { role?: string | null } | null | undefined;
 
   if (!person) {
     console.error(`[Admin Check] identity ${help24UserId} has no users row — denying.`);
