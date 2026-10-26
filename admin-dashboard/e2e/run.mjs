@@ -582,7 +582,7 @@ try {
       !(await evaluate(`document.documentElement.outerHTML.includes(${JSON.stringify(DAVE)}) || document.documentElement.outerHTML.includes(${JSON.stringify(CAROL)})`)));
     await goto(`${PARTNER}/dashboard/overview`);
     check("a signed-in partner still cannot reach admin pages",
-      await waitFor(`${bodyHas("404")} || ${bodyHas("could not be found")}`, "404", 15000).then(() => true, () => false));
+      await waitFor(`${bodyHas("404")} || ${bodyHas("could not be found")} || ${bodyHas("This page doesn't exist")}`, "404", 15000).then(() => true, () => false));
 
     await goto(`${PARTNER}/`);
     await waitFor(`!!document.querySelector('[data-testid="partner-code"]') && ${bodyHas("Members credited")}`, "overview again");
@@ -645,7 +645,7 @@ try {
     check("member page: the push token never reaches the page", !(await evaluate(`document.documentElement.outerHTML.includes("fcm-secret-token-e2e")`)));
     await goto(`${APP}/dashboard/users/not a valid id`);
     check("member page: a malformed id is a 404, not a query",
-      await waitFor(`${bodyHas("404")} || ${bodyHas("could not be found")} || ${bodyHas("not found")}`, "404", 15000).then(() => true, () => false),
+      await waitFor(`${bodyHas("404")} || ${bodyHas("could not be found")} || ${bodyHas("This page doesn't exist")} || ${bodyHas("not found")}`, "404", 15000).then(() => true, () => false),
       await evaluate("document.body.innerText.slice(0, 160)"));
   }
   // Desktop: the shell is one screen tall and only <main> scrolls, so the rail

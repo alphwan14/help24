@@ -24,6 +24,20 @@ export default async function PartnerOverviewPage() {
           </p>
         ) : (
           <>
+            {!progress.failed && summary.credited === 0 && (
+              <section className="card p-5" aria-label="How it works">
+                <h2 className="text-[15px] font-semibold text-gray-900">How it works</h2>
+                <ol className="mt-3 space-y-2 text-[13.5px] text-gray-700 list-decimal pl-5">
+                  <li>Share your code, your link or your QR code with people who need help or offer services.</li>
+                  <li>
+                    They download Help24 and enter your code when they set up their profile — or open your link, which fills it in.
+                    They have 3 days after joining to add it.
+                  </li>
+                  <li>They appear in My members straight away, with what they still need to qualify.</li>
+                  <li>They qualify once they use Help24 on 2 different days in their first 14, or post or send an offer.</li>
+                </ol>
+              </section>
+            )}
             <SummaryTiles summary={summary} failed={progress.failed} />
             <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
               <WeeklyBars weeks={weeklyCounts(progress.data, 8, now)} />
