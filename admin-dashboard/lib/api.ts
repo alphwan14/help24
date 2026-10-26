@@ -74,6 +74,16 @@ export async function adminRequest<T>(
   const token = init?.token ?? (await getAdminToken());
   if (!token) throw new ApiError(401, "Not connected to the arbitration backend.");
 
+  // One line per backend call, correlated with the backend's own access log
+  // by x-request-id (it adopts a valid inbound id). Method, path WITHOUT its
+  // query string, status and duration — never the token or a body.
+  const requestId = crypto.randomUUID();
+  const method = (init?.method ?? "GET").toUpperCase();
+  const route = path.split("?")[0];
+  const started = performance.now();
+  const logCall = (status: number | string) =>
+    console.log(`[api] ${method} ${route} ${status} ${(performance.now() - started).toFixed(0)}ms rid=${requestId}`);
+
   let res: Response;
   try {
     res = await fetch(`${BACKEND}${path}`, {
@@ -81,15 +91,18 @@ export async function adminRequest<T>(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        "x-request-id": requestId,
         ...(init?.headers ?? {}),
       },
       cache: "no-store",
     });
   } catch {
+    logCall("unreachable");
     throw new ApiError(503, "Cannot reach the arbitration backend.");
   }
 
   const text = await res.text();
+  logCall(res.status);
   const json = text ? safeParse(text) : null;
 
   if (!res.ok) {

@@ -10,13 +10,32 @@ const DENIAL_PARAM: Record<AccessDenial, string> = {
   unavailable: "unavailable",
 };
 
+/**
+ * Server-Timing for the admin gate: the session check (`auth`), the identity
+ * lookup (`gate`) and the whole of middleware (`mw`). Visible in DevTools →
+ * Network → Timing and to `performance.getEntriesByType("resource")`, so a slow
+ * navigation can be attributed to the gate or ruled out without guessing.
+ * Durations only — nothing about who the admin is.
+ */
+function withTiming<T extends NextResponse>(res: T, t: { start: number; auth?: number; gate?: number }): T {
+  const parts = [
+    t.auth != null && `auth;dur=${t.auth.toFixed(1)};desc="session check"`,
+    t.gate != null && `gate;dur=${t.gate.toFixed(1)};desc="admin identity"`,
+    `mw;dur=${(performance.now() - t.start).toFixed(1)};desc="middleware"`,
+  ].filter(Boolean);
+  res.headers.set("Server-Timing", parts.join(", "));
+  return res;
+}
+
 export async function middleware(request: NextRequest) {
+  const timing: { start: number; auth?: number; gate?: number } = { start: performance.now() };
   const response = NextResponse.next({ request });
   const supabase = createMiddlewareClient(request, response);
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  timing.auth = performance.now() - timing.start;
 
   const pathname = request.nextUrl.pathname;
 
@@ -52,18 +71,21 @@ export async function middleware(request: NextRequest) {
   // Resolved from the session's auth.users id via user_auth_identities, NOT from
   // the session's email. The email path made one user-writable string decide who
   // is an admin; see lib/admin-identity.ts for the full reasoning.
+  const gateStart = performance.now();
   const access = await resolveAdminAccess(user.id);
+  timing.gate = performance.now() - gateStart;
+  const ms = `auth=${timing.auth.toFixed(0)}ms gate=${timing.gate.toFixed(0)}ms`;
 
   if (!access.ok) {
-    console.log(`[Admin Check] Access DENIED for subject ${user.id} (${access.reason})`);
+    console.log(`[Admin Check] Access DENIED for subject ${user.id} (${access.reason}) ${ms}`);
     // Every reason denies. The query only chooses what the person is told:
     // a correct password on an unlinked login is not "no admin privileges".
-    return NextResponse.redirect(new URL(`/login?error=${DENIAL_PARAM[access.reason]}`, request.url));
+    return withTiming(NextResponse.redirect(new URL(`/login?error=${DENIAL_PARAM[access.reason]}`, request.url)), timing);
   }
 
   const identity = access.identity;
-  console.log(`[Admin Check] Access GRANTED for ${identity.help24UserId}`);
-  return response;
+  console.log(`[Admin Check] Access GRANTED for ${identity.help24UserId} ${ms}`);
+  return withTiming(response, timing);
 }
 
 export const config = {
