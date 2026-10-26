@@ -91,8 +91,9 @@ export function WeeklyBars({ weeks }: { weeks: { week: string; count: number }[]
           <div key={w.week} className="flex-1 flex flex-col items-center justify-end h-full gap-1">
             <span className="text-[11px] text-gray-500 font-tabular">{w.count || ""}</span>
             <div className="w-full rounded-t bg-brand-600/80" style={{ height: `${(w.count / max) * 100}%`, minHeight: w.count ? 4 : 1 }} />
-            <span className="text-[10.5px] text-gray-400 font-tabular">
-              {new Date(w.week).toLocaleDateString("en-KE", { day: "numeric", month: "short", timeZone: "UTC" })}
+            {/* Week starting d/m — short enough for eight columns on a phone. */}
+            <span className="text-[10.5px] text-gray-400 font-tabular whitespace-nowrap">
+              {new Date(w.week).toLocaleDateString("en-KE", { day: "numeric", month: "numeric", timeZone: "UTC" })}
             </span>
           </div>
         ))}
