@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { AdminRole, AdminUser, PendingInvite } from "@/lib/api";
+import type { AdminRole, AdminUser, LinkCandidate, PendingInvite } from "@/lib/api";
+import PersonPicker from "@/components/PersonPicker";
 import {
   sendInvite,
   revokeInvite,
@@ -46,9 +47,18 @@ export default function AdminsManager({
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Invite form
+  // Invite form. The PERSON comes first: an invitation names the Help24 account
+  // it is for, so accepting it links the new login with no manual step.
+  const [invitePerson, setInvitePerson] = useState<LinkCandidate | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<AdminRole>("support_agent");
+
+  function choosePerson(person: LinkCandidate | null) {
+    setInvitePerson(person);
+    // Prefill with their app email; it stays editable, because the address they
+    // sign in to the dashboard with may differ from the one the app knows.
+    setInviteEmail(person?.email ?? "");
+  }
 
   function reset() {
     setError(null);
@@ -59,9 +69,14 @@ export default function AdminsManager({
     e.preventDefault();
     reset();
     setInviteLink(null);
+    if (!invitePerson) {
+      setError("Choose the Help24 account this invitation is for.");
+      return;
+    }
     const fd = new FormData();
     fd.set("email", inviteEmail.trim());
     fd.set("role", inviteRole);
+    fd.set("help24UserId", invitePerson.id);
     startTransition(async () => {
       const res = await sendInvite(fd);
       if (!res.ok || !res.data) {
@@ -70,6 +85,7 @@ export default function AdminsManager({
       }
       setInviteLink(res.data.inviteLink);
       setInviteEmail("");
+      setInvitePerson(null);
       setNotice(`Invite created for ${res.data.email}.`);
       router.refresh();
     });
@@ -137,32 +153,47 @@ export default function AdminsManager({
         <div>
           <h2 className="text-base font-bold text-gray-900">Invite an admin</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Admins join by invitation only. The link is single-use and expires in 7 days.
+            Admins join by invitation only. Choose who it is for — they must already use the Help24 app — and
+            accepting the link signs them straight in. The link is single-use and expires in 7 days.
           </p>
         </div>
-        <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="email"
-            value={inviteEmail}
-            onChange={(e) => setInviteEmail(e.target.value)}
-            className="input flex-1"
-            placeholder="new.admin@help24.app"
-            required
-          />
-          <select
-            value={inviteRole}
-            onChange={(e) => setInviteRole(e.target.value as AdminRole)}
-            className="input sm:w-44"
-          >
-            {ROLES.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABELS[r]}
-              </option>
-            ))}
-          </select>
-          <button type="submit" disabled={isPending} className="btn-primary disabled:opacity-50">
-            {isPending ? "Working…" : "Send invite"}
-          </button>
+        <form onSubmit={handleInvite} className="space-y-3">
+          <div>
+            <p className="text-xs font-semibold text-gray-600 mb-1.5">1. Who is this for?</p>
+            <PersonPicker selected={invitePerson} onSelect={choosePerson} />
+          </div>
+          {invitePerson && (
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+              <label className="flex-1">
+                <span className="block text-xs font-semibold text-gray-600 mb-1.5">2. Email they will sign in with</span>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="input w-full"
+                  placeholder="their.login@example.com"
+                  required
+                />
+              </label>
+              <label>
+                <span className="block text-xs font-semibold text-gray-600 mb-1.5">3. Role</span>
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value as AdminRole)}
+                  className="input sm:w-44"
+                >
+                  {ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" disabled={isPending} className="btn-primary disabled:opacity-50">
+                {isPending ? "Working…" : "Create invite"}
+              </button>
+            </div>
+          )}
         </form>
 
         {inviteLink && (

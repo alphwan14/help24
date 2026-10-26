@@ -37,13 +37,15 @@ export async function sendInvite(
 ): Promise<ActionResult<CreateInviteResult>> {
   const email = String(formData.get("email") ?? "").trim();
   const role = String(formData.get("role") ?? "") as AdminRole;
+  const help24UserId = String(formData.get("help24UserId") ?? "").trim();
+  if (!help24UserId) return { ok: false, error: "Choose the Help24 account this invitation is for." };
   if (!email) return { ok: false, error: "Enter an email address." };
   if (!role) return { ok: false, error: "Choose a role." };
 
   try {
     const data = await adminRequest<CreateInviteResult>("/admin/invite", {
       method: "POST",
-      body: JSON.stringify({ email, role }),
+      body: JSON.stringify({ email, role, help24UserId }),
     });
     revalidatePath("/dashboard/users/admins");
     return { ok: true, data };
