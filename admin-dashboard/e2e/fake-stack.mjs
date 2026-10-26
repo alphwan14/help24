@@ -128,7 +128,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     let body = {};
     try { body = raw ? JSON.parse(raw) : {}; } catch { body = {}; }
     const grant = url.searchParams.get("grant_type");
-    log.push({ method: req.method, path: url.pathname + (grant ? `?grant_type=${grant}` : ""), body: raw });
+    log.push({ method: req.method, path: url.pathname + (grant ? `?grant_type=${grant}` : ""), select: url.searchParams.get("select") ?? "", body: raw });
 
     const send = (status, payload, headers = {}) => {
       res.writeHead(status, { "Content-Type": "application/json", "X-Supabase-Api-Version": "2024-01-01", ...cors, ...headers });

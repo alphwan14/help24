@@ -6,6 +6,7 @@ import { inviteErrorMessage, isCompletedInvite } from "@/lib/invite-acceptance";
 import { signInvitedEmail } from "@/lib/invite-email-binding";
 import { getSessionUser } from "@/lib/supabase-server";
 import AcceptInviteForm from "./AcceptInviteForm";
+import { DASHBOARD_HOME } from "@/lib/routes";
 
 export const dynamic = "force-dynamic";
 
@@ -78,7 +79,7 @@ export default async function AcceptInvitePage({ searchParams }: PageProps) {
     // about the invitation decides this: the same check middleware makes does.
     if (err instanceof ApiError && isCompletedInvite(err)) {
       const user = await getSessionUser();
-      if (user && (await requireAdminIdentity(user.id))) redirect("/dashboard");
+      if (user && (await requireAdminIdentity(user.id))) redirect(DASHBOARD_HOME);
     }
     const message =
       err instanceof ApiError

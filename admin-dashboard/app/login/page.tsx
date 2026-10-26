@@ -7,6 +7,7 @@ import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import { requestPasswordReset } from "@/lib/admin-password";
 import { recoveryRedirectUrl } from "@/lib/recovery-session";
 import { EyeIcon } from "@/components/PasswordInputs";
+import { DASHBOARD_HOME } from "@/lib/routes";
 
 /** URL-param messages (set by middleware / redirects). */
 const URL_MESSAGES: Record<string, { text: string; type: "info" | "error" }> = {
@@ -106,8 +107,9 @@ function LoginForm() {
       return;
     }
 
-    router.push("/dashboard");
-    router.refresh();
+    // Straight to the overview in ONE navigation. This was push("/dashboard")
+    // then refresh(): two server round trips, then a redirect for a third.
+    router.replace(DASHBOARD_HOME);
   }
 
   async function handleReset(e: React.FormEvent) {

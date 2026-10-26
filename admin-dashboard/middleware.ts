@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMiddlewareClient } from "@/lib/supabase-middleware";
 import { resolveAdminAccess, resolveAdminIdentity, type AccessDenial } from "@/lib/admin-identity";
+import { DASHBOARD_HOME } from "@/lib/routes";
 
 /** The ?error= the login page explains for each refusal (app/login/page.tsx). */
 const DENIAL_PARAM: Record<AccessDenial, string> = {
@@ -36,7 +37,7 @@ export async function middleware(request: NextRequest) {
           `role=${identity?.role ?? "none"} (pre-auth redirect)`
       );
       if (identity?.role === "admin") {
-        return NextResponse.redirect(new URL("/dashboard", request.url));
+        return NextResponse.redirect(new URL(DASHBOARD_HOME, request.url));
       }
     }
     return response;

@@ -173,10 +173,15 @@ try {
   await waitFor(`location.pathname.startsWith('/dashboard')`, "admin lands in dashboard");
   // The admin gate resolves link AND role in ONE query (users(role) embed); a
   // separate users lookup means a round trip crept back onto every request.
+  check("sign-in lands on the overview in one navigation, not via /dashboard",
+    await evaluate(`location.pathname`) === "/dashboard/overview", await evaluate(`location.pathname`));
   const gateCalls = fake.log.slice(gateMark);
+  // The gate's own query is a ROLE lookup; the overview page reads users for its
+  // figures too, which is not the gate.
+  const roleLookups = gateCalls.filter((l) => l.path === "/rest/v1/users" && l.select.trim() === "role");
   check("admin gate: identity + role in one round trip, no separate users lookup",
-    gateCalls.some((l) => l.path === "/rest/v1/user_auth_identities") && !gateCalls.some((l) => l.path === "/rest/v1/users"),
-    `${gateCalls.filter((l) => l.path === "/rest/v1/users").length} users lookups`);
+    gateCalls.some((l) => l.path === "/rest/v1/user_auth_identities" && l.select.includes("users(role)")) && roleLookups.length === 0,
+    `${roleLookups.length} separate role lookups`);
   // The sign-in page reaches the dashboard by a client-side navigation too; Sign
   // out must work from there without a page load in between.
   await waitFor(`!document.body.innerText.includes('Setting up your admin workspace')`, "shell ready", 30000).catch(() => {});

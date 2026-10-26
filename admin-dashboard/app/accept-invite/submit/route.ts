@@ -5,6 +5,7 @@ import { requireAdminIdentity } from "@/lib/admin-identity";
 import { acceptInvitation } from "@/lib/invite-acceptance";
 import { isInvitedEmail } from "@/lib/invite-email-binding";
 import { createSessionWriter } from "@/lib/supabase-server";
+import { DASHBOARD_HOME } from "@/lib/routes";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
   const to = (path: string) => NextResponse.redirect(new URL(path, request.url), 303);
   switch (outcome.kind) {
     case "dashboard":
-      return to("/dashboard");
+      return to(DASHBOARD_HOME);
     case "pending-activation":
       return to("/login?message=invite-pending");
     case "sign-in":

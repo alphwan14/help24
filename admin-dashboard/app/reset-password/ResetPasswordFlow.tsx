@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import { restoreArbitration } from "@/lib/arbitration-client";
+import { DASHBOARD_HOME } from "@/lib/routes";
 import {
   hasErrors,
   passwordRequirements,
@@ -116,7 +117,7 @@ export default function ResetPasswordFlow({ linkError }: { linkError: RecoveryLi
     // A forgotten password is also how a stolen one gets fixed, so retire the
     // arbitration token any other device held, as Settings does. Best effort.
     await restoreArbitration(true);
-    router.replace("/dashboard");
+    router.replace(DASHBOARD_HOME);
     router.refresh();
   }
 
