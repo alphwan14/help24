@@ -517,6 +517,21 @@ try {
   }
 
   /* ════════════════════════════════════════════════════════════════════ */
+  section("live operations board");
+  {
+    await goto(`${APP}/dashboard/operations/live`);
+    await waitFor(`!!document.querySelector('[data-testid="live-board"]')`, "live board");
+    check("live board: the four headline figures and the panels render",
+      await evaluate(`["In the app now", "Jobs in progress", "Held in escrow", "Paying out", "Requests waiting for anyone", "Happening now", "Sharing live location"].every(t => document.body.innerText.includes(t))`));
+    check("live board: an empty minute reads as empty, not as a failed read",
+      await evaluate(`${bodyHas("Nobody has the app open at the moment.")} && !(${bodyHas("Could not be read just now")})`));
+    check("live board: says how fresh it is", await evaluate(bodyHas("refreshes every 30s")));
+    await goto(`${APP}/dashboard/operations/controls`);
+    await waitFor(`!!document.querySelector('[data-testid="versions-in-use"]')`, "versions in use");
+    check("App controls shows the versions in use beside the gates", true);
+  }
+
+  /* ════════════════════════════════════════════════════════════════════ */
   section("member page");
   {
     const daveId = fake.idOf(DAVE);
@@ -533,7 +548,9 @@ try {
       await evaluate(`${bodyHas("Has not posted anything.")} && !(${bodyHas("Could not be read just now")})`));
     check("member page: the push token never reaches the page", !(await evaluate(`document.documentElement.outerHTML.includes("fcm-secret-token-e2e")`)));
     await goto(`${APP}/dashboard/users/not a valid id`);
-    check("member page: a malformed id is a 404, not a query", await evaluate(`${bodyHas("404")} || ${bodyHas("could not be found")} || ${bodyHas("not found")}`));
+    check("member page: a malformed id is a 404, not a query",
+      await waitFor(`${bodyHas("404")} || ${bodyHas("could not be found")} || ${bodyHas("not found")}`, "404", 15000).then(() => true, () => false),
+      await evaluate("document.body.innerText.slice(0, 160)"));
   }
   // Desktop: the shell is one screen tall and only <main> scrolls, so the rail
   // stays put. If anything on the page escapes that box the DOCUMENT scrolls

@@ -7,9 +7,14 @@ export default function OperationsLayout({ children }: { children: React.ReactNo
     <div>
       <div className="page-header">
         <h1>Operations</h1>
-        <p>Switches that change what the app does for everyone — every change recorded</p>
+        <p>What is happening on Help24 now, and the switches that change it for everyone</p>
       </div>
-      <SectionTabs tabs={[{ label: "App controls", href: `${BASE}/controls` }]} />
+      <SectionTabs
+        tabs={[
+          { label: "Live", href: `${BASE}/live` },
+          { label: "App controls", href: `${BASE}/controls` },
+        ]}
+      />
       {children}
     </div>
   );

@@ -53,6 +53,7 @@ const NAV: NavItem[] = [
     label: "Operations",
     icon: SlidersIcon,
     children: [
+      { label: "Live", href: "/dashboard/operations/live" },
       { label: "App Controls", href: "/dashboard/operations/controls" },
     ],
   },
