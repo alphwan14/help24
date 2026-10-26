@@ -180,6 +180,16 @@ function Header({ m }: { m: MemberProfile }) {
                 : "No phone registered"}
           </dd>
         </div>
+        {m.appVersion && (
+          <div className="flex gap-2">
+            <dt className="text-gray-500 w-28 shrink-0">App version</dt>
+            <dd className="text-gray-900 font-tabular">
+              {m.appVersion.version
+                ? `${m.appVersion.version}${m.appVersion.seenAt ? ` · ${agoLabel(Date.parse(m.appVersion.seenAt), now)}` : ""}`
+                : "Not reported — 1.0.5 or older"}
+            </dd>
+          </div>
+        )}
         <div className="flex gap-2 min-w-0">
           <dt className="text-gray-500 w-28 shrink-0">Member ID</dt>
           <dd className="text-gray-500 font-mono text-[12px] truncate">{u.id}</dd>

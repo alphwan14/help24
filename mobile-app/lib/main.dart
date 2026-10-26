@@ -24,6 +24,8 @@ import 'screens/review_submission_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'screens/post_detail_screen.dart';
+import 'services/post_service.dart';
 import 'services/account_status_service.dart';
 import 'services/auth_service.dart';
 import 'services/cache_service.dart';
@@ -548,6 +550,17 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
         }
         break;
 
+      // ── Request rescue → the request itself, where they can send an offer ──
+      // Sent from the admin dashboard to providers whose work matches an open
+      // request (backend RequestRescueService). data = { post_id, sent_by }.
+      case 'request_match':
+        if (postId != null && postId.isNotEmpty) {
+          await _openPost(context, postId: postId);
+        } else {
+          _openNotificationsScreen(context);
+        }
+        break;
+
       // ── Provider applied → open applications screen ────────────────────────
       case 'provider_applied':
         if (postId != null && postId.isNotEmpty) {
@@ -578,6 +591,19 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
         _openNotificationsScreen(context);
         break;
     }
+  }
+
+  /// Open a listing on the same detail screen Discover uses. The navigator is
+  /// taken before the fetch: `context` is not safe to use after an await.
+  Future<void> _openPost(BuildContext context, {required String postId}) async {
+    debugPrint('[NAV][OPEN_POST] postId=$postId');
+    final navigator = Navigator.of(context);
+    final post = await PostService.getPostById(postId).catchError((Object _) => null);
+    if (post == null) {
+      if (context.mounted) _openNotificationsScreen(context);
+      return;
+    }
+    await navigator.push(MaterialPageRoute<void>(builder: (_) => PostDetailScreen(post: post)));
   }
 
   /// Open the unified Job Lifecycle Detail screen (the destination for all

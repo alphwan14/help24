@@ -13,12 +13,15 @@ import {
   describeChange,
   isRestrictive,
   nextAnnouncementId,
+  versionImpact,
+  FIRST_REPORTING_VERSION,
   type Announcement,
   type ClientConfig,
   type ControlKey,
   type KillSwitches,
   type Maintenance,
   type MinVersion,
+  type VersionUsage,
 } from "@/lib/app-controls";
 import { saveAppControlAction } from "@/lib/config-actions";
 
@@ -58,6 +61,7 @@ export default function ControlsClient({
   history,
   historyAvailable,
   updatedAt,
+  usage,
 }: {
   config: ClientConfig;
   canEdit: boolean;
@@ -65,6 +69,7 @@ export default function ControlsClient({
   history: HistoryEntry[];
   historyAvailable: boolean;
   updatedAt: Partial<Record<ControlKey, string>>;
+  usage: VersionUsage | null;
 }) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
@@ -81,7 +86,7 @@ export default function ControlsClient({
     return "Never changed — the app's built-in default";
   }
 
-  const shared = { canEdit, review, latest };
+  const shared = { canEdit, review, latest, usage };
 
   return (
     <div className="space-y-5" data-testid="app-controls">
@@ -112,6 +117,7 @@ export default function ControlsClient({
       <ConfirmDialog
         pending={pending}
         latest={latest}
+        usage={usage}
         onClose={() => setPending(null)}
         onSaved={(recorded) => {
           setNotice(
@@ -133,6 +139,7 @@ type CardProps<T> = {
   last: string;
   canEdit: boolean;
   latest: Latest;
+  usage: VersionUsage | null;
   review: (key: ControlKey, after: Record<string, unknown>) => void;
 };
 
@@ -252,7 +259,7 @@ function FeaturesCard({ value, last, canEdit, review }: CardProps<KillSwitches>)
   );
 }
 
-function VersionCard({ value, last, canEdit, review, latest }: CardProps<MinVersion>) {
+function VersionCard({ value, last, canEdit, review, latest, usage }: CardProps<MinVersion>) {
   // An empty store_url falls back to the app's compiled link; the form shows
   // the real page instead, and only a change the admin makes counts as one.
   const base: MinVersion = { ...value, store_url: value.store_url || DEFAULT_STORE_URL };
@@ -287,6 +294,7 @@ function VersionCard({ value, last, canEdit, review, latest }: CardProps<MinVers
       <Field label="Update button opens">
         <input className="input" value={draft.store_url} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, store_url: e.target.value })} />
       </Field>
+      <VersionsInUse usage={usage} hard={draft.hard.trim()} />
       {problems.length > 0 && (
         <ul className="text-[12.5px] text-critical-700 space-y-1" role="alert">
           {problems.map((p) => (
@@ -295,6 +303,43 @@ function VersionCard({ value, last, canEdit, review, latest }: CardProps<MinVers
         </ul>
       )}
     </ControlCard>
+  );
+}
+
+function VersionsInUse({ usage, hard }: { usage: VersionUsage | null; hard: string }) {
+  if (!usage) {
+    return (
+      <p className="text-[12px] text-gray-400">
+        Versions in use are not collected yet — they start with app {FIRST_REPORTING_VERSION} once migration 126 is applied.
+      </p>
+    );
+  }
+  const total = usage.versions.reduce((n, v) => n + v.count, 0) + usage.unreported;
+  const impact = versionImpact(hard, usage);
+  return (
+    <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2.5 text-[12.5px]" data-testid="versions-in-use">
+      <p className="font-semibold text-gray-700">
+        Versions in use <span className="font-normal text-gray-400">· {total} people active in the last {usage.windowDays} days</span>
+      </p>
+      <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-gray-600 font-tabular">
+        {usage.versions.map((v) => (
+          <li key={v.version}>
+            {v.version} — {v.count}
+          </li>
+        ))}
+        {usage.unreported > 0 && (
+          <li className="text-gray-400" title={`Apps before ${FIRST_REPORTING_VERSION} do not report their version`}>
+            not reported — {usage.unreported}
+          </li>
+        )}
+      </ul>
+      {hard && (impact.known > 0 || impact.certainUnreported) && (
+        <p className="mt-1.5 text-gray-600">
+          Requiring {hard} blocks {impact.known}
+          {impact.certainUnreported && impact.unreported ? ` + ${impact.unreported} not reporting (older apps)` : ""} of them.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -383,13 +428,19 @@ function BannerPreview({ message, action, tone }: { message: string; action?: st
   );
 }
 
-function consequence(p: Pending): string | null {
+function consequence(p: Pending, usage: VersionUsage | null): string | null {
   if (p.key === "ops.kill_switches") {
     const off = SWITCHES.filter((s) => p.before[s.key] !== false && p.after[s.key] === false);
     return off.length ? off.map((s) => s.off).join(" ") : null;
   }
   if (p.key === "ops.min_version" && isRestrictive(p.key, p.before, p.after)) {
-    return `Anyone on a version below ${String(p.after.hard)} will be blocked at their next app start until they install the update from ${String(p.after.store_url)}.`;
+    const hard = String(p.after.hard);
+    const base = `Anyone on a version below ${hard} will be blocked at their next app start until they install the update from ${String(p.after.store_url)}.`;
+    if (!usage) return base;
+    const i = versionImpact(hard, usage);
+    const who = i.known + (i.certainUnreported ? i.unreported : 0);
+    const maybe = !i.certainUnreported && i.unreported ? ` (plus up to ${i.unreported} whose app does not report its version)` : "";
+    return `${base} Of the people active in the last ${usage.windowDays} days, that is ${who}${maybe}.`;
   }
   return null;
 }
@@ -397,11 +448,13 @@ function consequence(p: Pending): string | null {
 function ConfirmDialog({
   pending,
   latest,
+  usage,
   onClose,
   onSaved,
 }: {
   pending: Pending | null;
   latest: Latest;
+  usage: VersionUsage | null;
   onClose: () => void;
   onSaved: (recorded: boolean) => void;
 }) {
@@ -413,7 +466,7 @@ function ConfirmDialog({
   if (!pending) return null;
   const lines = describeChange(pending.key, pending.before, pending.after);
   const danger = isRestrictive(pending.key, pending.before, pending.after);
-  const why = consequence(pending);
+  const why = consequence(pending, usage);
   const problems = controlProblems(pending.key, pending.after, latest?.version ?? null);
 
   const after = pending.after as Record<string, string | boolean>;

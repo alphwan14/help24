@@ -106,6 +106,30 @@ export function controlProblems(key: ControlKey, value: Record<string, unknown>,
   return [];
 }
 
+// ── versions in use ─────────────────────────────────────────────────────────
+
+/**
+ * Members active in the window, by the version their app reported
+ * (users.app_version, migration 126). Apps before 1.0.6 never report, so
+ * `unreported` is "1.0.5 or older" — or a phone not opened since 1.0.6.
+ */
+export type VersionUsage = { versions: { version: string; count: number }[]; unreported: number; windowDays: number };
+
+/** The first version that reports itself; everything unreported is older. */
+export const FIRST_REPORTING_VERSION = "1.0.6";
+
+/**
+ * Who a required version would block, among recently active members:
+ * `known` reported a lower version; `unreported` did not report at all, and
+ * is certain to be blocked only when the gate is above the last version that
+ * could not report (1.0.5).
+ */
+export function versionImpact(hard: string, usage: VersionUsage): { known: number; unreported: number; certainUnreported: boolean } {
+  if (!isVersion(hard)) return { known: 0, unreported: 0, certainUnreported: false };
+  const known = usage.versions.filter((v) => isVersion(v.version) && compareVersions(v.version, hard) < 0).reduce((n, v) => n + v.count, 0);
+  return { known, unreported: usage.unreported, certainUnreported: compareVersions(hard, FIRST_REPORTING_VERSION) >= 0 };
+}
+
 // ── describing a change ─────────────────────────────────────────────────────
 
 function onOff(b: unknown): string {

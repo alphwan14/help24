@@ -9,6 +9,7 @@ import '../utils/phone_utils.dart';
 import 'adaptive_poll.dart';
 import 'notification_toggle_state.dart';
 import 'post_service.dart';
+import 'remote_config_service.dart';
 import 'storage_service.dart';
 import 'supabase_auth_bridge.dart';
 import 'user_row.dart';
@@ -221,6 +222,30 @@ class UserProfileService {
       });
     } catch (e) {
       debugPrint('UserProfileService setOnline: $e');
+    }
+    if (isOnline) unawaited(_reportAppVersion(uid));
+  }
+
+  /// The uid whose version this process has already reported (or given up on).
+  static String? _versionReportedFor;
+
+  /// Tell the dashboard which version this member runs (migration 126), once
+  /// per session and account. Its own update, never merged into the presence
+  /// write above: before 126 is applied the column does not exist, and that
+  /// failure must not cost the heartbeat. Any failure is dropped until the
+  /// next launch.
+  static Future<void> _reportAppVersion(String uid) async {
+    if (_versionReportedFor == uid) return;
+    final version = RemoteConfigService.instance.appVersion;
+    if (!RegExp(r'^\d+\.\d+\.\d+$').hasMatch(version)) return;
+    _versionReportedFor = uid;
+    try {
+      await _updateUser(uid, {
+        'app_version': version,
+        'app_version_seen_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('UserProfileService app version not reported: $e');
     }
   }
 

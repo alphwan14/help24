@@ -63,3 +63,13 @@ test("announcement ids are new each time, so a reworded notice is shown again", 
   assert.notEqual(nextAnnouncementId(1), nextAnnouncementId(2));
   assert.match(nextAnnouncementId(), /^a-[0-9a-z]+$/);
 });
+
+test("a required version's reach among recent members", async () => {
+  const { versionImpact } = await import("./app-controls.ts");
+  const usage = { versions: [{ version: "1.0.6", count: 4 }, { version: "1.0.7", count: 2 }, { version: "1.0.10", count: 1 }], unreported: 5, windowDays: 30 };
+  assert.deepEqual(versionImpact("1.0.7", usage), { known: 4, unreported: 5, certainUnreported: true });
+  assert.deepEqual(versionImpact("1.0.11", usage).known, 7);
+  // At or below 1.0.5 an unreported phone may already be on it.
+  assert.equal(versionImpact("1.0.5", usage).certainUnreported, false);
+  assert.equal(versionImpact("", usage).known, 0);
+});
