@@ -98,7 +98,8 @@ export class ServingService {
         // parse a slot with the same PostModel.fromJson as an organic row.
         .select(
           'id, owner_user_id, posts!inner(*, ' +
-            'users!author_user_id(name, email, profile_image, avatar_url, phone_number), ' +
+            // public_profiles, not users: see FEED_ROW_SELECT in feed.repository.ts.
+            'users:public_profiles!author_user_id(name, profile_image, avatar_url, has_phone), ' +
             'post_images(image_url))',
         )
         .eq('status', 'active')

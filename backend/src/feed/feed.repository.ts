@@ -83,10 +83,17 @@ export interface CandidateQuery {
  * ranked feed cannot introduce a parsing difference, and the fallback path
  * produces objects indistinguishable from the ranked one.
  */
+// People come from public_profiles (migration 123), never users. This used to
+// embed every author's and applicant's email and phone number into every feed
+// row served to every client, guests included — the service role bypasses RLS,
+// so no database policy could have stopped it. The app needs a name, an avatar
+// and whether the author has an M-Pesa number (`has_phone`), nothing more. The
+// `users:` alias keeps the JSON key the app parses. Byte-identical to
+// PostService.feedRowSelect in mobile-app/lib/services/post_service.dart.
 const FEED_ROW_SELECT =
-  '*, users!author_user_id(name, email, profile_image, avatar_url, phone_number), ' +
+  '*, users:public_profiles!author_user_id(name, profile_image, avatar_url, has_phone), ' +
   'post_images(image_url), ' +
-  'applications(*, users!applicant_user_id(name, email, profile_image, avatar_url, profession))';
+  'applications(*, users:public_profiles!applicant_user_id(name, profile_image, avatar_url, profession))';
 
 @Injectable()
 export class FeedRepository {
