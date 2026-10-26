@@ -4,6 +4,18 @@ import DataTable from "@/components/DataTable";
 import { AccountStatusBadge } from "@/components/moderation/Badges";
 import { fetchAllReputations, ratingLabel, reputationByProvider } from "@/lib/reputation";
 import { RoleToggle } from "./RoleToggle";
+import { FilterLink, FilterResults, FilterScope } from "@/components/FilterTransition";
+import {
+  ACTIVITY_LABELS,
+  ACTIVITY_MEANING,
+  ACTIVITY_ORDER,
+  ACTIVITY_STYLES,
+  activityState,
+  agoLabel,
+  isActivityState,
+  lastActiveAt,
+  type ActivityState,
+} from "@/lib/activity";
 
 type UserRow = {
   id: string;
@@ -97,7 +109,9 @@ function Count({ n }: { n: number }) {
   );
 }
 
-export default async function UsersPage() {
+export default async function UsersPage({ searchParams }: { searchParams: Promise<{ activity?: string }> }) {
+  const { activity: activityParam } = await searchParams;
+  const activityFilter = isActivityState(activityParam) ? activityParam : null;
   const [{ rows: users, error: usersError }, postCounts, sessionUser, reps, states] = await Promise.all([
     getUsers(),
     getPostCounts(),
@@ -111,15 +125,23 @@ export default async function UsersPage() {
   // stat columns are dead and must not be read.
   const repMap = reputationByProvider(reps);
 
-  type EnrichedUser = UserRow & { requests: number; offers: number };
+  type EnrichedUser = UserRow & { requests: number; offers: number; activity: ActivityState; lastActive: number | null };
 
-  const rows: EnrichedUser[] = users.map((u) => ({
-    ...u,
-    requests: postCounts[u.id]?.requests ?? 0,
-    offers: postCounts[u.id]?.offers ?? 0,
-  }));
+  const now = Date.now();
+  const everyone: EnrichedUser[] = users
+    .map((u) => ({
+      ...u,
+      requests: postCounts[u.id]?.requests ?? 0,
+      offers: postCounts[u.id]?.offers ?? 0,
+      activity: activityState(u, now),
+      lastActive: lastActiveAt(u),
+    }))
+    // Most recently active first — the people using Help24 right now lead.
+    .sort((a, b) => (b.lastActive ?? -1) - (a.lastActive ?? -1));
 
-  const adminCount = rows.filter((r) => r.role === "admin").length;
+  const counts = Object.fromEntries(ACTIVITY_ORDER.map((s) => [s, everyone.filter((u) => u.activity === s).length])) as Record<ActivityState, number>;
+  const rows = activityFilter ? everyone.filter((u) => u.activity === activityFilter) : everyone;
+  const adminCount = everyone.filter((r) => r.role === "admin").length;
 
   const columns = [
     {
@@ -179,10 +201,23 @@ export default async function UsersPage() {
       ),
     },
     {
-      key: "last_login",
-      label: "Last Active",
+      key: "activity",
+      label: "Activity",
+      // How recently they actually USED the app (heartbeat or sign-in), not
+      // whether they are allowed to — that is the Account column.
       render: (r: EnrichedUser) => (
-        <span className="text-gray-500">{fmtDate(r.last_login)}</span>
+        <span
+          className="inline-flex flex-col gap-0.5"
+          title={r.lastActive ? `${ACTIVITY_MEANING[r.activity]} · ${new Date(r.lastActive).toLocaleString("en-KE")}` : ACTIVITY_MEANING[r.activity]}
+        >
+          <span className={`badge ${ACTIVITY_STYLES[r.activity]} whitespace-nowrap`}>
+            {r.activity === "online" && <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mr-1 align-middle animate-pulse" aria-hidden="true" />}
+            {ACTIVITY_LABELS[r.activity]}
+          </span>
+          {r.activity !== "online" && r.activity !== "never" && (
+            <span className="text-[11px] text-gray-400 tabular-nums">{agoLabel(r.lastActive, now)}</span>
+          )}
+        </span>
       ),
     },
     {
@@ -199,7 +234,7 @@ export default async function UsersPage() {
     },
     {
       key: "account_status",
-      label: "Status",
+      label: "Account",
       // Read-only. Warnings, suspensions and bans are decisions with a reason
       // and an audit record, made in Trust & Safety — never a one-click toggle.
       render: (r: EnrichedUser) => (
@@ -221,11 +256,37 @@ export default async function UsersPage() {
     },
   ];
 
+  const pill = "px-3 py-1.5 rounded-lg text-xs font-semibold border whitespace-nowrap";
+  const off = `${pill} bg-surface text-gray-600 border-gray-200`;
+  const on = `${pill} bg-gray-900 text-on-action border-gray-900`;
+
   return (
+    <FilterScope>
     <div className="space-y-6">
       <p className="text-gray-500 text-sm">
-        {rows.length} users · {adminCount} admin{adminCount !== 1 ? "s" : ""}
+        {everyone.length} users · {adminCount} admin{adminCount !== 1 ? "s" : ""}
+        {activityFilter && <> · showing {rows.length} {ACTIVITY_LABELS[activityFilter].toLowerCase()}</>}
       </p>
+
+      {/* Who is actually using Help24 — each count filters the table. */}
+      <nav aria-label="Filter by activity" className="flex gap-2 flex-wrap">
+        <FilterLink href="/dashboard/users" active={!activityFilter} className={off} activeClassName={on}>
+          All <span className="tabular-nums opacity-70">{everyone.length}</span>
+        </FilterLink>
+        {ACTIVITY_ORDER.filter((s) => counts[s] > 0).map((s) => (
+          <FilterLink
+            key={s}
+            href={`/dashboard/users?activity=${s}`}
+            active={activityFilter === s}
+            className={off}
+            activeClassName={on}
+          >
+            <span title={ACTIVITY_MEANING[s]}>
+              {ACTIVITY_LABELS[s]} <span className="tabular-nums opacity-70">{counts[s]}</span>
+            </span>
+          </FilterLink>
+        ))}
+      </nav>
 
       {/* Surface any DB errors visibly instead of silently showing empty table */}
       {usersError && (
@@ -239,7 +300,10 @@ export default async function UsersPage() {
         </div>
       )}
 
-      <DataTable columns={columns} rows={rows} emptyMessage="No users found." />
+      <FilterResults>
+        <DataTable columns={columns} rows={rows} emptyMessage="No users in this view." />
+      </FilterResults>
     </div>
+    </FilterScope>
   );
 }

@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
 import { fetchAllReputations, ratingLabel, reputationByProvider } from "@/lib/reputation";
+import { ACTIVITY_LABELS, ACTIVITY_MEANING, ACTIVITY_STYLES, activityState, agoLabel, lastActiveAt } from "@/lib/activity";
 
 // Platform-wide figures, the same for every admin: cached for 60 s and rebuilt
 // in the background. Without this the page was prerendered ONCE at deploy and
@@ -17,6 +18,8 @@ type UserRow = {
   role: string | null;
   created_at: string;
   last_login: string | null;
+  last_seen: string | null;
+  is_online: boolean | null;
 };
 
 function fmtDate(iso: string | null) {
@@ -24,32 +27,33 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function timeAgo(iso: string | null) {
-  if (!iso) return "—";
-  const diff = Date.now() - new Date(iso).getTime();
-  const days = Math.floor(diff / 86400_000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return fmtDate(iso);
-}
 
-async function getActiveUsers() {
+/**
+ * Members who USED the app in the last 7 days — by the presence heartbeat
+ * (last_seen, every 60 s while open) or a sign-in (last_login). It used to be
+ * sign-ins only, so someone opening the app every day on a long-lived session
+ * dropped off this list. Most recently active first.
+ */
+async function getActiveUsers(): Promise<{ rows: UserRow[]; failed: boolean }> {
   const db = createServiceClient();
   const since7 = new Date(Date.now() - 7 * 86400_000).toISOString();
   const { data, error } = await db
     .from("users")
-    .select("id, name, email, phone_number, role, created_at, last_login")
-    .gte("last_login", since7)
-    .order("last_login", { ascending: false });
+    .select("id, name, email, phone_number, role, created_at, last_login, last_seen, is_online")
+    .or(`last_login.gte.${since7},last_seen.gte.${since7}`);
 
-  if (error) console.error("[Users/active] ERROR:", error.message);
-  return (data ?? []) as UserRow[];
+  if (error) {
+    console.error("[Users/active] ERROR:", error.message);
+    return { rows: [], failed: true };
+  }
+  const rows = (data ?? []) as UserRow[];
+  rows.sort((a, b) => (lastActiveAt(b) ?? -1) - (lastActiveAt(a) ?? -1));
+  return { rows, failed: false };
 }
 
 export default async function ActiveUsersPage() {
-  const [rows, reps] = await Promise.all([getActiveUsers(), fetchAllReputations()]);
+  const [{ rows, failed }, reps] = await Promise.all([getActiveUsers(), fetchAllReputations()]);
+  const now = Date.now();
   const repMap = reputationByProvider(reps);
 
   const columns = [
@@ -95,11 +99,17 @@ export default async function ActiveUsersPage() {
       },
     },
     {
-      key: "last_login",
-      label: "Last Active",
-      render: (r: UserRow) => (
-        <span className="text-emerald-600 font-medium text-sm">{timeAgo(r.last_login)}</span>
-      ),
+      key: "activity",
+      label: "Activity",
+      render: (r: UserRow) => {
+        const state = activityState(r, now);
+        return (
+          <span className="inline-flex flex-col gap-0.5" title={ACTIVITY_MEANING[state]}>
+            <span className={`badge ${ACTIVITY_STYLES[state]} whitespace-nowrap`}>{ACTIVITY_LABELS[state]}</span>
+            {state !== "online" && <span className="text-[11px] text-gray-400 tabular-nums">{agoLabel(lastActiveAt(r), now)}</span>}
+          </span>
+        );
+      },
     },
     {
       key: "created_at",
@@ -110,10 +120,18 @@ export default async function ActiveUsersPage() {
 
   return (
     <div className="space-y-4">
-      <p className="text-gray-500 text-sm">
-        {rows.length} users active in the last 7 days
-      </p>
-      <DataTable columns={columns} rows={rows} emptyMessage="No active users in the last 7 days." />
+      {failed ? (
+        <p className="card p-4 text-sm text-gray-500">
+          Activity could not be read just now. It refreshes every minute — reload to try again.
+        </p>
+      ) : (
+        <>
+          <p className="text-gray-500 text-sm">
+            {rows.length} {rows.length === 1 ? "person" : "people"} used the app in the last 7 days
+          </p>
+          <DataTable columns={columns} rows={rows} emptyMessage="Nobody has used the app in the last 7 days." />
+        </>
+      )}
     </div>
   );
 }

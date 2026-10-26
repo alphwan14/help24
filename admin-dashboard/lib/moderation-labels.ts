@@ -83,7 +83,10 @@ export const SEVERITY_DOT: Record<string, string> = {
 };
 
 export const ACCOUNT_STATUS_LABELS: Record<string, string> = {
-  active: "Active",
+  // "Good standing", not "Active": this is whether the account may use Help24,
+  // not whether it does. Activity is its own column (lib/activity.ts) — a member
+  // last seen six months ago was being shown as a green "Active".
+  active: "Good standing",
   restricted: "Restricted",
   suspended: "Suspended",
   banned: "Banned",
