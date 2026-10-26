@@ -159,10 +159,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // so the resume branch below does not run and the user would stay
         // flagged offline for the whole session. Start the beat explicitly.
         _startPresence();
-        // After the launch has settled: never part of the first frames.
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) unawaited(_agentCodes());
-        });
       }
       // Configuration refresh AFTER the first frame, deliberately: warmUp()
       // already ran off disk during bootstrap, so the app is rendering on the
@@ -332,6 +328,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _stopPresence();
         } else {
           _startPresence();
+          // Agent codes: claim one that arrived by link or from profile
+          // setup, else ask a new account once. Here, not in initState: on a
+          // cold start the session is restored after initState has run. A
+          // few seconds later, so it is never part of the launch.
+          Future.delayed(const Duration(seconds: 3), () {
+            if (mounted && _lastAuthUserId == uid) unawaited(_agentCodes());
+          });
         }
         _handleAuthLocationFlow(uid);
         // Preload Messages the moment auth is ready — conversations, unread
