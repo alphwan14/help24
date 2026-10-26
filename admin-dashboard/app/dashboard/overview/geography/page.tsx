@@ -21,15 +21,14 @@ function extractCity(location: string | null): string {
 async function getGeoData() {
   const db = createServiceClient();
 
-  const [postRes, userRes] = await Promise.all([
-    db.from("posts").select("location").not("location", "is", null),
-    db.from("users").select("location").not("location", "is", null),
-  ]);
+  // Listings are the only thing on Help24 that carries a location. This also
+  // asked users for one, but users has no location column: the query was
+  // refused (400), the error was swallowed, and the page reported a confident
+  // "0" users per city. A failed read is now said out loud, never shown as 0.
+  const postRes = await db.from("posts").select("location").not("location", "is", null);
+  if (postRes.error) return { failed: true as const };
 
-  const allLocations = [
-    ...(postRes.data ?? []).map((r: { location: string | null }) => r.location),
-    ...(userRes.data ?? []).map((r: { location: string | null }) => r.location),
-  ];
+  const allLocations = (postRes.data ?? []).map((r: { location: string | null }) => r.location);
 
   const counts: Record<string, number> = {};
   for (const loc of allLocations) {
@@ -51,32 +50,33 @@ async function getGeoData() {
   const other = geoPoints.find((g) => g.city === "Other");
 
   return {
+    failed: false as const,
     geoPoints: [...topCities, ...(other ? [other] : [])],
     total,
     postCount: postRes.data?.length ?? 0,
-    userCount: userRes.data?.length ?? 0,
   };
 }
 
 export default async function GeographyPage() {
-  const { geoPoints, total, postCount, userCount } = await getGeoData();
+  const data = await getGeoData();
+  if (data.failed) {
+    return <p className="card p-6 text-sm text-gray-500">Location data could not be loaded just now. It refreshes every minute — reload to try again.</p>;
+  }
+  const { geoPoints, total, postCount } = data;
 
   return (
     <div className="space-y-6">
       {/*
-        Three figures, one ink colour.
+        Two figures, one ink colour.
 
-        These were black, indigo and green — three hues for three counts of the
-        same kind of thing. The green one was "Users with location", which
-        currently reads 0: an ABSENCE rendered in the colour that means a good
-        outcome. Colour here was decoration, and decoration that occasionally
-        lies.
+        There used to be a third, "Users with location", which always read 0 —
+        Help24 records no location for a member, and the query behind it was
+        refused outright. A figure that can only ever be zero is not a figure.
       */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         {[
           { value: total, label: "Location data points" },
           { value: postCount, label: "Posts with location" },
-          { value: userCount, label: "Users with location" },
         ].map((s) => (
           <div key={s.label} className="card p-4 text-center">
             <p className="text-2xl font-semibold text-gray-900 tabular-nums">

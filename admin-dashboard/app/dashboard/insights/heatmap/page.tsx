@@ -25,19 +25,18 @@ function extractCity(location: string | null): string {
 async function getHeatmapData() {
   const db = createServiceClient();
 
-  const [postRes, userRes] = await Promise.all([
-    db.from("posts").select("location, type, created_at").not("location", "is", null),
-    db.from("users").select("location").not("location", "is", null),
-  ]);
-
+  // Listings are the only thing on Help24 that carries a location. This also
+  // asked users for one, but users has no location column: the query was
+  // refused (400), the error was swallowed, and the page reported a confident
+  // "0" users per city. A failed read is now said out loud, never shown as 0.
+  const postRes = await db.from("posts").select("location, type, created_at").not("location", "is", null);
+  if (postRes.error) return null;
   const posts = postRes.data ?? [];
-  const users = userRes.data ?? [];
 
   // City counts by type
   const postCounts: Record<string, number> = {};
   const requestCounts: Record<string, number> = {};
   const offerCounts: Record<string, number> = {};
-  const userCounts: Record<string, number> = {};
 
   for (const p of posts) {
     const city = extractCity(p.location);
@@ -46,15 +45,7 @@ async function getHeatmapData() {
     if (p.type === "offer")   offerCounts[city]   = (offerCounts[city] ?? 0) + 1;
   }
 
-  for (const u of users) {
-    const city = extractCity(u.location);
-    userCounts[city] = (userCounts[city] ?? 0) + 1;
-  }
-
-  const allCities = new Set([
-    ...Object.keys(postCounts),
-    ...Object.keys(userCounts),
-  ]);
+  const allCities = new Set(Object.keys(postCounts));
 
   const totalPosts = posts.length;
   const geoPoints = Array.from(allCities)
@@ -69,11 +60,15 @@ async function getHeatmapData() {
   const other = geoPoints.find((g) => g.city === "Other");
   const sorted = [...topCities, ...(other ? [other] : [])];
 
-  return { sorted, requestCounts, offerCounts, userCounts, totalPosts };
+  return { sorted, requestCounts, offerCounts, totalPosts };
 }
 
 export default async function HeatmapPage() {
-  const { sorted, requestCounts, offerCounts, userCounts, totalPosts } = await getHeatmapData();
+  const data = await getHeatmapData();
+  if (!data) {
+    return <p className="card p-6 text-sm text-gray-500">Location data could not be loaded just now. It refreshes every minute — reload to try again.</p>;
+  }
+  const { sorted, requestCounts, offerCounts, totalPosts } = data;
 
   return (
     <div className="space-y-6">
@@ -117,7 +112,6 @@ export default async function HeatmapPage() {
                   <th className="text-left py-2 text-xs text-gray-500 font-semibold">City</th>
                   <th className="text-right py-2 text-xs text-gray-500 font-semibold">Requests</th>
                   <th className="text-right py-2 text-xs text-gray-500 font-semibold">Offers</th>
-                  <th className="text-right py-2 text-xs text-gray-500 font-semibold">Users</th>
                   <th className="text-right py-2 text-xs text-gray-500 font-semibold">Share</th>
                 </tr>
               </thead>
@@ -127,7 +121,6 @@ export default async function HeatmapPage() {
                     <td className="py-2 font-medium text-gray-800">{g.city}</td>
                     <td className="py-2 text-right text-blue-600">{(requestCounts[g.city] ?? 0).toLocaleString("en-KE")}</td>
                     <td className="py-2 text-right text-purple-600">{(offerCounts[g.city] ?? 0).toLocaleString("en-KE")}</td>
-                    <td className="py-2 text-right text-gray-600">{(userCounts[g.city] ?? 0).toLocaleString("en-KE")}</td>
                     <td className="py-2 text-right font-semibold text-gray-700">{g.pct}%</td>
                   </tr>
                 ))}
