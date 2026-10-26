@@ -15,13 +15,43 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterFragmentActivity() {
+    /** The agent link this activity was launched with, handed to Dart once. */
+    private var initialLink: String? = null
+    private var links: MethodChannel? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Only a fresh launch carries a new link; a restore re-delivers the old intent.
+        if (savedInstanceState == null) initialLink = agentLink(intent)
         super.onCreate(savedInstanceState)
         createNotificationChannels()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        agentLink(intent)?.let { links?.invokeMethod("link", it) }
+    }
+
+    /** help24.co.ke/a/<CODE> links only (AgentCodeService parses the rest). */
+    private fun agentLink(intent: Intent?): String? {
+        val data = intent?.data ?: return null
+        if (intent.action != Intent.ACTION_VIEW || data.scheme != "https") return null
+        if (data.host != "help24.co.ke" || data.path?.startsWith("/a/") != true) return null
+        return data.toString()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        links = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.help24.help24/links").apply {
+            setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "initialLink" -> {
+                        result.success(initialLink)
+                        initialLink = null
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.help24.help24/documents")
             .setMethodCallHandler { call, result ->
                 when (call.method) {

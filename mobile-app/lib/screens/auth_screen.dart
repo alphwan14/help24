@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../config/app_urls.dart';
 import '../providers/auth_provider.dart';
+import '../services/agent_code_service.dart';
 import '../services/auth_service.dart';
 import '../services/email_verification_cooldown.dart';
 import '../services/storage_service.dart';
@@ -1654,6 +1655,8 @@ class _ProfileSetupStep extends StatefulWidget {
 class _ProfileSetupStepState extends State<_ProfileSetupStep> {
   final _firstName = TextEditingController();
   final _lastName = TextEditingController();
+  final _agentCode = TextEditingController();
+  String? _agentCodeError;
   XFile? _pickedFile;
   bool _uploading = false;
 
@@ -1661,6 +1664,7 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
   void dispose() {
     _firstName.dispose();
     _lastName.dispose();
+    _agentCode.dispose();
     super.dispose();
   }
 
@@ -1688,6 +1692,19 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
       ));
       return;
     }
+
+    // Optional. Checked for shape here; kept as pending and credited by the
+    // server once Home opens (AgentCodeService) — a wrong code is explained
+    // there and can be fixed in Profile, never a reason to stop sign-up.
+    final typed = _agentCode.text.trim();
+    final agentCode = typed.isEmpty ? null : AgentCodeService.normalize(typed);
+    if (typed.isNotEmpty && agentCode == null) {
+      setState(() => _agentCodeError = 'Agent codes look like H24-7K3Q — or leave this empty.');
+      return;
+    }
+    setState(() => _agentCodeError = null);
+    if (agentCode != null) await AgentCodeService.setPending(agentCode, AgentCodeMethod.code);
+    if (!mounted) return;
 
     FocusScope.of(context).unfocus();
     setState(() => _uploading = true);
@@ -1820,6 +1837,24 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
               fontSize: 12.5,
               color:
                   isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
+            ),
+          ),
+          const SizedBox(height: 20),
+          _AuthField(
+            controller: _agentCode,
+            hint: 'Agent code (optional)',
+            textCapitalization: TextCapitalization.characters,
+            action: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _agentCodeError ?? 'If a Help24 agent helped you sign up, enter their code.',
+            style: TextStyle(
+              fontSize: 12.5,
+              color: _agentCodeError != null
+                  ? AppTheme.errorRed
+                  : (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary),
             ),
           ),
           const SizedBox(height: 28),

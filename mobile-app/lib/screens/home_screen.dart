@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/moderation.dart';
 import '../services/account_status_service.dart';
 import '../services/adaptive_poll.dart';
+import '../services/agent_code_service.dart';
 import '../services/launch_sequence.dart';
 import '../services/notification_store.dart';
 import '../services/remote_config_service.dart';
@@ -26,6 +27,7 @@ import 'post_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
 import 'location_permission_explainer_screen.dart';
+import 'agent_code_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -112,11 +114,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  StreamSubscription<String>? _agentLinks;
+
+  /// Credit a code that arrived by link or from profile setup, and tell the
+  /// member what happened. A new account with no credit is asked once.
+  Future<void> _agentCodes({bool fromLink = false}) async {
+    final auth = context.read<AuthProvider>();
+    final uid = auth.currentUserId;
+    if (!auth.isLoggedIn || uid == null || uid.isEmpty) return;
+    final claimed = await AgentCodeService.claimPending();
+    if (!mounted) return;
+    if (claimed != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(claimed.ok ? agentThanks(claimed) : claimed.error!),
+        duration: const Duration(seconds: 6),
+      ));
+      return;
+    }
+    if (fromLink || await AgentCodeService.promptDismissed(uid)) return;
+    final credit = await AgentCodeService.myCredit();
+    if (!mounted || credit == null || credit.credited || !credit.canChange) return;
+    // Never on top of another sheet or screen (restriction explainer,
+    // location explainer, a pushed route): only when Home is what they see.
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    await AgentCodeService.dismissPrompt(uid);
+    if (!mounted) return;
+    await AgentCodeSheet.show(context);
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     AccountStatusStore.instance.addListener(_onAccountStatus);
+    _agentLinks = AgentCodeService.arrivals.listen((_) {
+      if (mounted) unawaited(_agentCodes(fromLink: true));
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final auth = context.read<AuthProvider>();
@@ -126,6 +159,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // so the resume branch below does not run and the user would stay
         // flagged offline for the whole session. Start the beat explicitly.
         _startPresence();
+        // After the launch has settled: never part of the first frames.
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) unawaited(_agentCodes());
+        });
       }
       // Configuration refresh AFTER the first frame, deliberately: warmUp()
       // already ran off disk during bootstrap, so the app is rendering on the
@@ -137,6 +174,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _agentLinks?.cancel();
     _stopPresence();
     AccountStatusStore.instance.removeListener(_onAccountStatus);
     WidgetsBinding.instance.removeObserver(this);

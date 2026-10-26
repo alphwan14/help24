@@ -26,6 +26,7 @@ import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/post_detail_screen.dart';
 import 'services/post_service.dart';
+import 'services/agent_code_service.dart';
 import 'services/account_status_service.dart';
 import 'services/auth_service.dart';
 import 'services/cache_service.dart';
@@ -128,6 +129,9 @@ void main() async {
   await LaunchSplash.warm();
 
   runApp(Help24App(initialTheme: themePreference));
+  // An agent link (help24.co.ke/a/<CODE>) can be what launched the app; it is
+  // kept as a pending code and claimed once someone is signed in (HomeScreen).
+  unawaited(AgentCodeService.init());
 }
 
 class Help24App extends StatefulWidget {

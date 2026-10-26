@@ -40,6 +40,7 @@ import '../widgets/profile_widgets.dart';
 import '../widgets/reputation_widgets.dart';
 import 'professional_profile_screen.dart';
 import 'sign_in_methods_screen.dart';
+import 'agent_code_screen.dart';
 import '../services/auth_service.dart';
 import 'promotion/promote_business_screen.dart';
 import 'provider/payout_destinations_screen.dart';
@@ -705,6 +706,17 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                   ).then((_) {
                     if (mounted) setState(() {});
                   }),
+                ),
+                // Agent credit (migration 127): add or correct the code of the
+                // agent who signed this member up, in their first 3 days.
+                _SettingsTile(
+                  icon: AppIcons.person,
+                  title: 'Who helped you join?',
+                  trailing: const Icon(AppIcons.disclosure),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AgentCodeScreen()),
+                  ),
                 ),
                 // NOT a payout surface. This is the number the client PAYS
                 // FROM (buyer STK push) and the contact number that makes a

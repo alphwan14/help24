@@ -53,6 +53,18 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Agent links (help24.co.ke/a/<CODE>, ?src=qr for printed codes).
+                 Verified against https://help24.co.ke/.well-known/assetlinks.json;
+                 the website's "Open in Help24" button also reaches this filter
+                 directly with an intent:// URL. MainActivity hands the link to
+                 Dart (AgentCodeService) - Flutter's own route handling is off. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="help24.co.ke" android:pathPrefix="/a/"/>
+            </intent-filter>
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>
         </activity>
         <meta-data
             android:name="flutterEmbedding"
