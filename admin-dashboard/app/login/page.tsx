@@ -8,7 +8,8 @@ import { recoveryRedirectUrl } from "@/lib/recovery-session";
 import { EyeIcon } from "@/components/PasswordInputs";
 import { DASHBOARD_HOME } from "@/lib/routes";
 import AuthShell from "@/components/auth/AuthShell";
-import { ADMIN_AUDIENCE } from "@/lib/auth-audiences";
+import { ConsolePreview } from "@/components/auth/ConsolePreviews";
+import { ADMIN_HELP } from "@/lib/auth-audiences";
 
 /** URL-param messages (set by middleware / redirects). */
 const URL_MESSAGES: Record<string, { text: string; type: "info" | "error" }> = {
@@ -144,14 +145,11 @@ function LoginForm() {
 
   return (
     <AuthShell
-      audience={ADMIN_AUDIENCE}
-      title={resetMode ? "Reset your password" : "Welcome back"}
-      subtitle={
-        resetMode
-          ? "Enter the email you sign in with and we'll send you a link to choose a new password."
-          : "Sign in to the Help24 operations console."
-      }
-      below={<p>Admin access is by invitation only — there is no public sign-up.</p>}
+      product="Help24 Operations"
+      preview={<ConsolePreview />}
+      help={ADMIN_HELP}
+      title={resetMode ? "Reset your password" : "Sign in"}
+      subtitle={resetMode ? "We'll email you a link to choose a new one." : undefined}
     >
       <form onSubmit={resetMode ? handleReset : handleLogin} className="space-y-5">
         {info && (

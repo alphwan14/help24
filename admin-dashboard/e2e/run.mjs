@@ -678,6 +678,14 @@ try {
   await sleep(500);
   check("the mobile drawer carries the Settings entry", await evaluate(`[...document.querySelectorAll('nav[aria-label="Mobile navigation"] a')].some(a => a.getAttribute('href') === '/dashboard/settings')`));
   await shot("3-drawer-mobile.png");
+  // The device is in dark mode and nobody picked a theme: the console follows it.
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  await goto(`${APP}/dashboard/operations/live`);
+  await waitFor(`!!document.querySelector('[data-testid="live-board"]')`, "live board in dark");
+  const darkBg = await evaluate(`getComputedStyle(document.querySelector("main")).backgroundColor + " | " + getComputedStyle(document.querySelector(".card")).backgroundColor`);
+  check("dark device, no saved theme: the dashboard renders dark", !/rgb(2[45]d, 2[45]d, 2[45]d)/.test(darkBg), darkBg);
+  await shot("14-dashboard-dark-phone.png");
+  await send("Emulation.setEmulatedMedia", { features: [] });
   await send("Emulation.setDeviceMetricsOverride", { width: 640, height: 1100, deviceScaleFactor: 1, mobile: false });
   await goto(pathToFileURL(join(ARTIFACTS, "reset-email.html")).href);
   await shot("7-reset-email.png", true);

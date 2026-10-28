@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AuthShell from "@/components/auth/AuthShell";
-import { PARTNER_AUDIENCE } from "@/lib/auth-audiences";
+import { PartnerPreview } from "@/components/auth/ConsolePreviews";
+import { PARTNER_HELP } from "@/lib/auth-audiences";
 import { hashInviteToken } from "@/lib/partners/rules";
 import { createServiceClient } from "@/lib/supabase-server";
 import AcceptForm from "./AcceptForm";
@@ -20,7 +21,9 @@ export default async function PartnerAcceptPage({ searchParams }: { searchParams
   if (!preview?.valid) {
     return (
       <AuthShell
-        audience={PARTNER_AUDIENCE}
+        product="Help24 Partners"
+        preview={<PartnerPreview />}
+        help={PARTNER_HELP}
         title="This invitation can't be used"
         subtitle="It has expired, was already used, or the link is incomplete. Ask Help24 for a new invitation."
       >
@@ -33,7 +36,9 @@ export default async function PartnerAcceptPage({ searchParams }: { searchParams
 
   return (
     <AuthShell
-      audience={PARTNER_AUDIENCE}
+      product="Help24 Partners"
+      preview={<PartnerPreview />}
+      help={PARTNER_HELP}
       title={`Welcome to Help24 Partners, ${preview.name?.split(/\s+/)[0] ?? "partner"}`}
       subtitle={
         <>
@@ -41,7 +46,6 @@ export default async function PartnerAcceptPage({ searchParams }: { searchParams
           <strong className="font-semibold text-gray-800">{preview.email}</strong>.
         </>
       }
-      below={<p>This invitation works once. If you lose your password later, ask Help24 for a new invitation.</p>}
     >
       <AcceptForm token={token} email={preview.email ?? ""} />
     </AuthShell>

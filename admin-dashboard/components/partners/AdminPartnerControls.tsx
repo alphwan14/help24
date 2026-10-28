@@ -51,7 +51,9 @@ export function CreateAgent() {
       if (!res.ok) return setError(res.error ?? "Could not add the agent.");
       setMade({ id: res.id!, code: res.code!, inviteUrl: res.inviteUrl, expiresAt: res.expiresAt, name: form.name.trim() });
       if (res.error) setError(res.error);
-      router.refresh();
+      // No router.refresh() here: "Done" navigates to the new agent's page, and
+      // a refresh still in flight could swallow that navigation (seen in e2e).
+      // The list is revalidated on the server (revalidatePath) for next time.
     });
   }
 

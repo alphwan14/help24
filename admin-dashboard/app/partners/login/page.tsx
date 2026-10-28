@@ -1,5 +1,6 @@
 import AuthShell from "@/components/auth/AuthShell";
-import { PARTNER_AUDIENCE } from "@/lib/auth-audiences";
+import { PartnerPreview } from "@/components/auth/ConsolePreviews";
+import { PARTNER_HELP } from "@/lib/auth-audiences";
 import LoginForm from "./LoginForm";
 
 const REASONS: Record<string, string> = {
@@ -12,15 +13,11 @@ export default async function PartnerLoginPage({ searchParams }: { searchParams:
   const { error } = await searchParams;
   return (
     <AuthShell
-      audience={PARTNER_AUDIENCE}
-      title="Welcome back"
-      subtitle="Sign in to see your agent code and the members you've brought to Help24."
-      below={
-        <>
-          <p>New partner? Open the invitation link Help24 sent you to set your password.</p>
-          <p>Forgot your password? Ask Help24 for a new invitation — it lets you choose a new one.</p>
-        </>
-      }
+      product="Help24 Partners"
+      preview={<PartnerPreview />}
+      help={PARTNER_HELP}
+      title="Sign in"
+      below={<p>New, or forgot your password? Open the latest invitation Help24 sent you.</p>}
     >
       <LoginForm notice={error ? REASONS[error] : undefined} />
     </AuthShell>
