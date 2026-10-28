@@ -51,6 +51,10 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(fu
   const id = useId();
   const errorId = `${id}-error`;
   const [visible, setVisible] = useState(false);
+  // Caps Lock is the commonest reason a right password is refused; say so
+  // while it is on, rather than after the attempt fails.
+  const [capsOn, setCapsOn] = useState(false);
+  const readCaps = (e: React.KeyboardEvent<HTMLInputElement>) => setCapsOn(e.getModifierState("CapsLock"));
   const described = [error ? errorId : null, describedBy].filter(Boolean).join(" ") || undefined;
 
   return (
@@ -71,6 +75,9 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(fu
           autoCorrect="off"
           spellCheck={false}
           disabled={disabled}
+          onKeyDown={readCaps}
+          onKeyUp={readCaps}
+          onBlur={() => setCapsOn(false)}
           aria-invalid={error ? true : undefined}
           aria-describedby={described}
           className={`input pr-11 disabled:opacity-60 ${error ? "border-red-400" : ""}`}
@@ -87,6 +94,7 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(fu
           <EyeIcon open={visible} />
         </button>
       </div>
+      {capsOn && <p className="mt-1.5 text-xs font-medium text-caution-700">Caps Lock is on</p>}
       {error && (
         <p id={errorId} className="mt-1.5 text-xs font-medium text-red-600">
           {error}

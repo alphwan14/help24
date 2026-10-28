@@ -1,9 +1,12 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
+import { PasswordField } from "@/components/PasswordInputs";
 import { acceptPartnerInvite, type FormState } from "../actions";
 
 export default function AcceptForm({ token, email }: { token: string; email: string }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   // Signed in: navigate in the same callback, through middleware (see
   // FormState in ../actions). Not in an effect: setting the session cookie
   // re-renders this page at once, and on /accept the form is gone by then.
@@ -13,22 +16,21 @@ export default function AcceptForm({ token, email }: { token: string; email: str
     return result;
   }, {});
   return (
-    <form action={action} className="mt-6 space-y-3">
+    <form action={action} className="space-y-5">
       <input type="hidden" name="token" value={token} />
       {/* For password managers: the account this password belongs to. */}
       <input type="email" name="username" autoComplete="username" value={email} readOnly hidden />
-      <label className="block">
-        <span className="text-xs font-semibold text-gray-600">Password</span>
-        <input name="password" type="password" autoComplete="new-password" minLength={8} required className="input mt-1" />
-        <span className="block text-[11.5px] text-gray-400 mt-1">At least 8 characters — not only numbers.</span>
-      </label>
-      <label className="block">
-        <span className="text-xs font-semibold text-gray-600">Confirm password</span>
-        <input name="confirm" type="password" autoComplete="new-password" required className="input mt-1" />
-      </label>
-      {state.error && <p role="alert" className="text-[13px] text-critical-700">{state.error}</p>}
+      {state.error && (
+        <div role="alert" className="rounded-lg border border-critical-200 bg-critical-50 px-3.5 py-3 text-[13px] leading-snug text-critical-700">
+          {state.error}
+        </div>
+      )}
+      <PasswordField label="Choose a password" name="password" value={password} onChange={setPassword} autoComplete="new-password">
+        <p className="mt-1.5 text-xs text-gray-400">At least 8 characters, and not only numbers.</p>
+      </PasswordField>
+      <PasswordField label="Confirm password" name="confirm" value={confirm} onChange={setConfirm} autoComplete="new-password" />
       <button type="submit" className="btn-primary w-full" disabled={pending || state.done}>
-        {pending ? "Setting up…" : "Create my partner account"}
+        {pending || state.done ? "Setting up your account…" : "Create my partner account"}
       </button>
     </form>
   );

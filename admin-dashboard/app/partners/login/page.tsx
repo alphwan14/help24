@@ -1,3 +1,5 @@
+import AuthShell from "@/components/auth/AuthShell";
+import { PARTNER_AUDIENCE } from "@/lib/auth-audiences";
 import LoginForm from "./LoginForm";
 
 const REASONS: Record<string, string> = {
@@ -9,15 +11,18 @@ const REASONS: Record<string, string> = {
 export default async function PartnerLoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   return (
-    <main className="mx-auto max-w-sm px-4 py-16">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/favicon.svg" alt="" className="h-12 w-12" />
-      <h1 className="mt-5 text-2xl font-bold text-gray-900">Help24 Partners</h1>
-      <p className="mt-1 text-sm text-gray-500">Sign in to see your agent code and the members you brought.</p>
+    <AuthShell
+      audience={PARTNER_AUDIENCE}
+      title="Welcome back"
+      subtitle="Sign in to see your agent code and the members you've brought to Help24."
+      below={
+        <>
+          <p>New partner? Open the invitation link Help24 sent you to set your password.</p>
+          <p>Forgot your password? Ask Help24 for a new invitation — it lets you choose a new one.</p>
+        </>
+      }
+    >
       <LoginForm notice={error ? REASONS[error] : undefined} />
-      <p className="mt-6 text-[12.5px] text-gray-400">
-        New partner? Open the invitation link Help24 sent you. Forgot your password? Ask Help24 for a new invitation.
-      </p>
-    </main>
+    </AuthShell>
   );
 }

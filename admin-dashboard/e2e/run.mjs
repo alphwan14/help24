@@ -557,7 +557,7 @@ try {
       await evaluate(`${bodyHas("What Wanjiru Agent sees in the partner portal")}`));
 
     await goto(inviteUrl);
-    await waitFor(bodyHas("Welcome, Wanjiru Agent"), "invitation page");
+    await waitFor(bodyHas("Welcome to Help24 Partners, Wanjiru"), "invitation page");
     await fill('input[name="password"]', AGENT_PW);
     await fill('input[name="confirm"]', AGENT_PW);
     await clickText("Create my partner account");
