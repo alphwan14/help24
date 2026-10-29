@@ -35,11 +35,11 @@ library;
 /// stay identical — a drift here silently changes what the fallback shows
 /// relative to the engine, which is exactly the bug this enum ends.
 enum FeedScope {
-  /// Discover's "All" scope. Requests and offers — NOT jobs, which have their
-  /// own scope. `null` (no filter) would have been a product change disguised
-  /// as a default, and that is still true now that Jobs sits in the same row:
-  /// "All" keeps meaning exactly what it meant.
-  all('all', ['request', 'offer']),
+  /// Discover's "All" scope: every type, jobs included (owner's decision,
+  /// 2026-10-29 — a member searching "All" for a cleaner did not see a
+  /// cleaning job). Still an explicit list, never `null` (no filter): a new
+  /// post type must be a decision, not a default. Jobs keeps its own scope.
+  all('all', ['request', 'offer', 'job']),
 
   /// Discover's "Requests" tab.
   requests('requests', ['request']),

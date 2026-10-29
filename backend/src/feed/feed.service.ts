@@ -59,6 +59,33 @@ export interface FeedResponse {
   ranking_epoch: string;
 }
 
+/**
+ * Scope → the `posts.type` values it admits. Mirrored by `FeedScope` in
+ * mobile-app/lib/utils/feed_scope.dart; test/feed_scope_test.dart there and
+ * feed-scope.spec.ts here pin the two tables together.
+ *
+ * `all` is every type, jobs included — the owner's decision of 2026-10-29: a
+ * member searching "All" for a cleaner did not see a cleaning job, and "All"
+ * should mean all. It is still an explicit list, never `null` (no filter):
+ * a new post type must be a decision, not a default.
+ *
+ * Apps up to 1.0.8 filter "All" to requests and offers on their side, so they
+ * keep showing what they showed until they update.
+ */
+export function typesForScope(scope?: string): string[] {
+  switch (scope) {
+    case 'requests':
+      return ['request'];
+    case 'offers':
+      return ['offer'];
+    case 'jobs':
+      return ['job'];
+    case 'all':
+    default:
+      return ['request', 'offer', 'job'];
+  }
+}
+
 @Injectable()
 export class FeedService {
   private readonly logger = new Logger(FeedService.name);
@@ -280,25 +307,8 @@ export class FeedService {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
-  /**
-   * Scope → the `posts.type` values it admits.
-   *
-   * `all` deliberately excludes `job`, matching what Discover shows today (the
-   * Jobs tab is its own surface). `null` would have silently added job posts to
-   * everyone's Discover feed — a product change disguised as a refactor.
-   */
-  private typesForScope(scope?: string): string[] | null {
-    switch (scope) {
-      case 'requests':
-        return ['request'];
-      case 'offers':
-        return ['offer'];
-      case 'jobs':
-        return ['job'];
-      case 'all':
-      default:
-        return ['request', 'offer'];
-    }
+  private typesForScope(scope?: string): string[] {
+    return typesForScope(scope);
   }
 
   private parseCategories(raw?: string): string[] | null {

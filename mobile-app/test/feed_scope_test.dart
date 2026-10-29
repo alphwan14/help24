@@ -30,7 +30,7 @@ void main() {
     /// server changes, this table must change with it — and this test is what
     /// makes that a failing build rather than a silent behavioural split.
     const backendTypesForScope = <String, List<String>>{
-      'all': ['request', 'offer'],
+      'all': ['request', 'offer', 'job'],
       'requests': ['request'],
       'offers': ['offer'],
       'jobs': ['job'],
@@ -53,10 +53,10 @@ void main() {
       );
     });
 
-    test('scope "all" is requests AND offers — not everything', () {
-      // The whole bug in one assertion: `all` never meant "no filter".
-      expect(FeedScope.all.postTypes, ['request', 'offer']);
-      expect(FeedScope.all.postTypes, isNot(contains('job')));
+    test('scope "all" is every type as an explicit list — never "no filter"', () {
+      // The original bug in one assertion: `all` never meant "no filter".
+      // Since 2026-10-29 it lists jobs too (owner's decision).
+      expect(FeedScope.all.postTypes, ['request', 'offer', 'job']);
     });
 
     test('browsable statuses mirror fn_feed_candidates', () {
@@ -77,12 +77,11 @@ void main() {
       expect(FeedScope.jobs.postTypes, ['job']);
     });
 
-    test('"All" still excludes jobs now that Jobs sits beside it', () {
-      // Folding the Jobs tab into this row must not quietly widen the default.
-      // "All" means requests and offers, exactly as it did when Jobs was a
-      // separate destination.
-      expect(FeedScope.all.postTypes, ['request', 'offer']);
-      expect(FeedScope.all.postTypes, isNot(contains('job')));
+    test('"All" includes jobs, and Jobs still has its own scope', () {
+      // Widened on purpose (2026-10-29): a member searching "All" for a
+      // cleaner did not see a cleaning job.
+      expect(FeedScope.all.postTypes, contains('job'));
+      expect(FeedScope.jobs.postTypes, ['job']);
     });
 
     test('an unknown label falls back to all, like the server default', () {
@@ -92,11 +91,10 @@ void main() {
   });
 
   group('PostFilters.forScope applies BOTH rules', () {
-    test('scope "all" excludes jobs on the fallback query', () {
+    test('scope "all" includes jobs on the fallback query too', () {
       final filters = const PostFilters().forScope(FeedScope.all);
 
-      expect(filters.types, ['request', 'offer']);
-      expect(filters.types, isNot(contains('job')));
+      expect(filters.types, ['request', 'offer', 'job']);
     });
 
     test('scope "all" restricts to open listings', () {
