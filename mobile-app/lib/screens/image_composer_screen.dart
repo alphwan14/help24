@@ -215,7 +215,9 @@ class _ImageComposerScreenState extends State<ImageComposerScreen> {
                   ),
                   const SizedBox(width: 8),
                   // 52 dp, and the only filled control on screen — sending is
-                  // the decision this screen exists to confirm.
+                  // the decision this screen exists to confirm. The icon is
+                  // its only content, so it carries the name: without one a
+                  // screen reader announces just "Button".
                   SizedBox(
                     width: 52,
                     height: 52,
@@ -227,7 +229,7 @@ class _ImageComposerScreenState extends State<ImageComposerScreen> {
                         shape: const CircleBorder(),
                       ),
                       child: const Icon(AppIcons.sendMessage,
-                          color: Colors.white, size: 24),
+                          color: Colors.white, size: 24, semanticLabel: 'Send'),
                     ),
                   ),
                 ],

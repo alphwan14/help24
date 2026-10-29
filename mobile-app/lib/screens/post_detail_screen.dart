@@ -371,6 +371,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       surfaceTintColor: Colors.transparent,
       leading: _CircleIconButton(
         icon: AppIcons.back,
+        label: 'Back',
         isDark: isDark,
         onScrim: hasImages,
         onTap: () => Navigator.pop(context),
@@ -385,6 +386,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 icon: saved
                     ? AppIcons.savedActive
                     : AppIcons.saved,
+                label: saved ? 'Saved. Remove from saved' : 'Save',
                 isDark: isDark,
                 onScrim: hasImages,
                 color: saved ? AppTheme.primaryAccent : null,
@@ -410,22 +412,20 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         // most people never need, and a flag beside Save reads as an accusation
         // hanging over every listing.
         if (!isAuthor && post.authorUserId.isNotEmpty)
-          Semantics(
+          _CircleIconButton(
+            icon: AppIcons.more,
             label: 'More options',
-            button: true,
-            child: _CircleIconButton(
-              icon: AppIcons.more,
-              isDark: isDark,
-              onScrim: hasImages,
-              onTap: () => ReportMenu.show(context, [
-                ReportTarget.post(postId: post.id, title: post.title),
-                ReportTarget.user(userId: post.authorUserId, name: post.authorName, postId: post.id),
-              ]),
-            ),
+            isDark: isDark,
+            onScrim: hasImages,
+            onTap: () => ReportMenu.show(context, [
+              ReportTarget.post(postId: post.id, title: post.title),
+              ReportTarget.user(userId: post.authorUserId, name: post.authorName, postId: post.id),
+            ]),
           ),
         if (isAuthor)
           _CircleIconButton(
             icon: AppIcons.delete,
+            label: 'Delete this post',
             isDark: isDark,
             onScrim: hasImages,
             color: AppTheme.errorRed,
@@ -1121,6 +1121,10 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
 
 class _CircleIconButton extends StatelessWidget {
   final IconData icon;
+
+  /// What a screen reader says. Required: an icon alone is announced as a
+  /// nameless "Button" — found on device 2026-10-29 for Back and Delete.
+  final String label;
   final bool isDark;
   final bool onScrim;
   final Color? color;
@@ -1128,6 +1132,7 @@ class _CircleIconButton extends StatelessWidget {
 
   const _CircleIconButton({
     required this.icon,
+    required this.label,
     required this.isDark,
     required this.onScrim,
     required this.onTap,
@@ -1154,7 +1159,7 @@ class _CircleIconButton extends StatelessWidget {
           child: SizedBox(
             width: 38,
             height: 38,
-            child: Icon(icon, size: 20, color: fg),
+            child: Icon(icon, size: 20, color: fg, semanticLabel: label),
           ),
         ),
       ),
