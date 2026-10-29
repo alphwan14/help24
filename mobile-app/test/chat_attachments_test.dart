@@ -124,6 +124,25 @@ void main() {
       expect(request.bodyBytes, [0xff, 0xd8, 0xff, 1, 2, 3]);
     });
 
+    // Found on device 2026-10-29. image_picker (maxWidth/imageQuality) writes
+    // scaled_<original name> but encodes it as JPEG whenever the bitmap has no
+    // alpha channel — so an ordinary PNG arrived as "scaled_x.png" holding JPEG
+    // bytes, the Worker answered 415 CONTENT_MISMATCH, and the photo could
+    // never be sent however often it was retried.
+    test('a photo the picker re-encoded is sent as what it is, not what it is called', () async {
+      respond(201, {'ref': 'chat-attachments/$chat/$msg.jpg', 'stored': true});
+      final path = await file('scaled_1000202436.png', [0xff, 0xd8, 0xff, 0xe0, 1, 2]);
+      await ChatAttachmentApi.upload(localPath: path, chatId: chat, messageId: msg);
+      expect((sent.single as http.Request).headers['content-type'], 'image/jpeg');
+    });
+
+    test('a HEIC photo the picker turned into JPEG is not refused for its name', () async {
+      respond(201, {'ref': 'chat-attachments/$chat/$msg.jpg', 'stored': true});
+      final path = await file('scaled_20261029_143000.heic', [0xff, 0xd8, 0xff, 0xe1, 1, 2]);
+      await ChatAttachmentApi.upload(localPath: path, chatId: chat, messageId: msg);
+      expect((sent.single as http.Request).headers['content-type'], 'image/jpeg');
+    });
+
     test('"already stored" (a retry) returns the same reference', () async {
       respond(200, {'ref': 'chat-attachments/$chat/$msg.pdf', 'stored': false});
       final path = await file('contract.pdf', utf8.encode('%PDF-1.4'));

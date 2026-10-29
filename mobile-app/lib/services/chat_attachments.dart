@@ -97,6 +97,43 @@ class ChatAttachments {
     if (dot <= 0 || dot == name.length - 1) return null;
     return contentTypes[name.substring(dot + 1).toLowerCase()];
   }
+
+  /// The content type [bytes] actually are, by their signature; null when they
+  /// match none a chat may carry. The same checks as the Worker's
+  /// `bytesMatchType` (workers/help24-files/src/policy.js), so a type chosen
+  /// here is one the Worker accepts.
+  ///
+  /// This, not the file name, decides the upload type: image_picker writes
+  /// `scaled_<original name>` but encodes it as JPEG whenever the bitmap has no
+  /// alpha channel, so "scaled_x.png" (or ".heic") routinely holds JPEG bytes.
+  static String? contentTypeForBytes(List<int> b) {
+    bool at(int offset, List<int> sig) {
+      if (b.length < offset + sig.length) return false;
+      for (var i = 0; i < sig.length; i++) {
+        if (b[offset + i] != sig[i]) return false;
+      }
+      return true;
+    }
+
+    if (b.length > 3 && at(0, const [0xff, 0xd8, 0xff])) return contentTypes['jpg'];
+    if (b.length > 8 && at(0, const [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+      return contentTypes['png'];
+    }
+    if (b.length > 6 && at(0, const [0x47, 0x49, 0x46, 0x38])) return contentTypes['gif'];
+    if (b.length > 12 && at(0, const [0x52, 0x49, 0x46, 0x46]) && at(8, const [0x57, 0x45, 0x42, 0x50])) {
+      return contentTypes['webp'];
+    }
+    // A PDF header may follow a little junk; the spec allows it within 1024 bytes.
+    final limit = b.length - 4 < 1024 ? b.length - 4 : 1024;
+    for (var i = 0; i <= limit; i++) {
+      if (at(i, const [0x25, 0x50, 0x44, 0x46])) return contentTypes['pdf'];
+    }
+    if (b.length > 8 && at(0, const [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) {
+      return contentTypes['doc'];
+    }
+    if (b.length > 4 && at(0, const [0x50, 0x4b, 0x03, 0x04])) return contentTypes['docx'];
+    return null;
+  }
 }
 
 /// A refusal or failure from the files endpoint. Carries the HTTP status, so
@@ -153,9 +190,12 @@ class ChatAttachmentApi {
     required String chatId,
     required String messageId,
   }) async {
-    final type = ChatAttachments.contentTypeForPath(localPath);
-    if (type == null) throw const ChatAttachmentException(415, 'UNSUPPORTED_TYPE');
     final bytes = await File(localPath).readAsBytes();
+    // What the bytes are, then what the name says: the name alone lies for
+    // photos the picker re-encoded (see contentTypeForBytes).
+    final type = ChatAttachments.contentTypeForBytes(bytes) ??
+        ChatAttachments.contentTypeForPath(localPath);
+    if (type == null) throw const ChatAttachmentException(415, 'UNSUPPORTED_TYPE');
     if (bytes.isEmpty) throw const ChatAttachmentException(400, 'EMPTY');
     if (bytes.length > ChatAttachments.maxBytes) {
       throw const ChatAttachmentException(413, 'TOO_LARGE');
