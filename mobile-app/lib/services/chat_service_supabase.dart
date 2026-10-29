@@ -1234,6 +1234,34 @@ class ChatServiceSupabase {
     }
   }
 
+  /// The conversation preview that stands in for a deleted last message — the
+  /// same words the bubble shows (chat_bubbles.dart).
+  static const String deletedPreview = 'This message was deleted';
+
+  /// When [messageId] is [chatId]'s newest message, replace the preview the
+  /// conversation list reads (`chats.last_message`, written on every send)
+  /// with [deletedPreview].
+  ///
+  /// Found on device 2026-10-29: a message deleted for everyone still showed
+  /// its text in BOTH people's conversation lists, because only the message
+  /// row changed. Best effort — the delete itself has already succeeded, and
+  /// the next send overwrites the preview anyway.
+  static Future<void> _retirePreviewIfLatest(String chatId, String messageId) async {
+    try {
+      final latest = await _client
+          .from('chat_messages')
+          .select('id')
+          .eq('chat_id', chatId)
+          .order('created_at', ascending: false)
+          .limit(1);
+      final rows = latest as List;
+      if (rows.isEmpty || (rows.first as Map)['id'] != messageId) return;
+      await _client.from('chats').update({'last_message': deletedPreview}).eq('id', chatId);
+    } catch (e) {
+      debugPrint('ChatServiceSupabase deleteMessageForEveryone preview: $e');
+    }
+  }
+
   /// Soft-delete a message for everyone. The outcome distinguishes the
   /// 15-minute sender window from a server/RLS failure so the UI never blames
   /// the window for a fresh message that failed for another reason.
@@ -1255,6 +1283,8 @@ class ChatServiceSupabase {
         debugPrint('ChatServiceSupabase deleteMessageForEveryone: 0 rows updated (RLS?)');
         return DeleteForEveryoneResult.failed;
       }
+      final chatId = (rows.first as Map)['chat_id'] as String?;
+      if (chatId != null) await _retirePreviewIfLatest(chatId, messageId);
       return DeleteForEveryoneResult.success;
     } catch (e) {
       debugPrint('ChatServiceSupabase deleteMessageForEveryone: $e');
