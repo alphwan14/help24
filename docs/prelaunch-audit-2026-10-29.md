@@ -168,3 +168,75 @@ released). **Before launch, in order:**
    admin-dashboard/ — it does not auto-deploy).
 4. Release the app fixes (next version ≥ 1.0.9+10, WSL build).
 5. Server-side payments kill switch (D10) before `MPESA_ENV=production`.
+
+## Round 2 — after 129, 130 and 131 were applied (2026-10-29, evening)
+
+The owner applied 129–131 in the SQL editor. Everything below was run against
+production with the published **1.0.8** on both phones unless it says "test
+build".
+
+### Migrations verified
+
+| Check | Result |
+|---|---|
+| Catalog: open policies gone, new policies, grants, bucket limits, admin_overview = 131 | Pass |
+| Anon REST: notifications read / filtered read / PATCH, providers, posts & applications insert, post_images delete | all **401** |
+| Anon REST: posts, post_images, applications, public_profiles read | 200 (by design) |
+| Anon storage: overwrite W's avatar (same bytes), new file in a foreign folder | **403** RLS; avatar checksum unchanged |
+| Anon storage: HTML into post-images / 6 MB into post-images | **415** / **413** |
+| 1.0.8 cold start, both phones; notification bell loads | Pass; every app read of notifications since apply is `authenticated` 200 |
+| 1.0.8 creates a Job, an Offer with a photo; W applies to the Job | Pass — posts_insert_own, post_images_insert_by_author, applications_insert_own all exercised |
+| W changes profile photo, then restores the original | Pass (owner-only storage rule) |
+| Sign-in on a fresh session | three `401 → token refreshed, replaying request`: the designed recovery, observed on a phone |
+
+### Admin dashboard, signed in to production
+
+Pages loaded with a real session: Overview, Revenue, Users (24 = DB), Requests
+(49 = DB), Offers (23 = DB), Payments (45 = DB), Escrow (10 held transactions
+= its definition), Disputes, T&S reports (1 = DB), Operations, Partners,
+Settings. Before the deploy the money cards still showed the 100× bug
+("Pending Escrow KES 687", "Total Revenue KES 574"); Active/Completed Jobs were
+already right (9/9) because 131 was live.
+
+New defect **D21 (P2)** — 12 pages declared `revalidate = 60` and Overview used
+a 60-second data cache: the first visit after a quiet spell is answered with
+the old render. The Jobs page listed 1 job while 2 were live (one posted 30
+minutes earlier) until a second visit. Fixed: data pages render per request
+(`f5a7a47`), guarded by `route-freshness.test.mjs`.
+
+New finding **D22 (P2)** — 6 escrow rows (KES 13,700) are `locked` against
+payments that failed or never completed (e.g. "Shambala boy": 3 failed
+attempts, escrow locked KES 6,000; the app correctly says "payment due").
+Overview's "Pending Escrow" sums the escrow table and is overstated by that
+amount. This is the orphaned-row case in `escrow-cleanup-design.md` — needs
+the owner's approval; no money rows were touched.
+
+### Device scenarios
+
+| Scenario | Result |
+|---|---|
+| Report a listing (W → L's test offer, Spam) | Pass — "Report submitted"; generic `report_received` push; DB row (reporter, target, reason, status new, severity low, source api) |
+| Dispute (Academics Coaching, funded KES 500 sandbox): L marks done → W opens dispute from the push | Pass — completion pending_approval, then dispute **open**; escrow, completion and transaction all `disputed`; L got `dispute_opened`. Left open for the owner (a ruling moves money) |
+| "On my way" (W → L, Shambala) | Pass — ETA from `/routes/compute` 200 with a verified token; live message (120 min); background push tap opens the exact chat; live map; Stop sharing ends it server-side |
+| Sign out / account switch on the A21s (L → W → L) | Pass — token removed at sign-out; L's local chat data deleted; W sees only W's chats (isolation checked against the DB); token ownership follows the account; back to L restores L's chats from the server |
+| Phone restart (S20+, owner unlocked it) | Session survives; queued pushes delivered after unlock; **tap opened Discover, not the chat** → D23 |
+
+New defect **D23 (P1)** — a tap on a chat push that has to START the app lands
+on Discover. Chat pushes are drawn by the background isolate with
+flutter_local_notifications, which reports a launching tap only through
+`getNotificationAppLaunchDetails()`; nothing asked for it. Affects every tap
+made while the app was not running (reboot, swipe-away, Android reclaiming
+it). Fixed in `5ba11f5` (contract test red→green); on a phone: see below.
+
+New finding **D24 (P2)** — after every token registration the app deletes the
+member's other Android tokens, so someone signed in on two phones gets pushes
+only on the last one to register (observed: signing W in on the A21s silently
+removed W's S20+). The backend already prunes dead tokens; recommended fix is
+to drop that client "Step 2". Not changed.
+
+### Product change
+
+Discover **All** now includes **jobs** (owner's decision): backend `6e901e6`
+(deploys now, harmless to 1.0.8, which filters "All" itself) + app half in the
+next release. See `docs/next-app-release.md` for everything that waits on a
+release.

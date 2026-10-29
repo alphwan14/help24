@@ -407,9 +407,41 @@ class NotificationService {
     }
   }
 
+  static String? _lastTapKey;
+  static DateTime? _lastTapAt;
+
+  /// Whether [response] is a tap to route, or a second delivery of one just
+  /// routed. When a push has already started the process for its background
+  /// handler, a single tap arrives through onDidReceiveNotificationResponse
+  /// AND as the launch details — found on device 2026-10-29, where it opened
+  /// the chat twice. A tapped notification is dismissed, so the same id +
+  /// payload within a few seconds is the same tap; chat threads reuse one id
+  /// with a new payload per message, so those still route.
+  @visibleForTesting
+  static bool shouldRouteTap(NotificationResponse response, DateTime now) {
+    final key = '${response.id}|${response.payload}';
+    final last = _lastTapAt;
+    if (key == _lastTapKey && last != null && now.difference(last) < const Duration(seconds: 10)) {
+      return false;
+    }
+    _lastTapKey = key;
+    _lastTapAt = now;
+    return true;
+  }
+
+  @visibleForTesting
+  static void resetTapDedupeForTest() {
+    _lastTapKey = null;
+    _lastTapAt = null;
+  }
+
   static void _onLocalNotificationTap(NotificationResponse response) {
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
+    if (!shouldRouteTap(response, DateTime.now())) {
+      debugPrint('[FCM][TAP] the same tap delivered twice — routed once');
+      return;
+    }
     try {
       final data = jsonDecode(payload) as Map<String, dynamic>;
       debugPrint('[FCM][TAP] local notification tapped data=$data');
