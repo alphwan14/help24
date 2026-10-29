@@ -347,6 +347,9 @@ class NotificationService {
         const InitializationSettings(android: androidInit),
         onDidReceiveNotificationResponse: _onLocalNotificationTap,
       );
+      // The callback above covers taps while the app runs; this covers the tap
+      // that started it.
+      await _deliverLocalLaunchTap();
 
       // iOS: suppress OS banner in foreground; in-app overlay handles display.
       await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
@@ -379,6 +382,30 @@ class NotificationService {
   // helpers were removed — they were unreferenced and contained a second
   // _localNotifications.show() path plus a "Someone" fallback that could emit a
   // duplicate card. Do not reintroduce a second render path here.
+
+  /// Route the LOCAL notification that launched the app, if there was one.
+  ///
+  /// flutter_local_notifications calls onDidReceiveNotificationResponse only
+  /// while the app is running. A tap that STARTS it — after a reboot, a
+  /// swipe-away, or Android reclaiming the process — is handed over by
+  /// getNotificationAppLaunchDetails() alone. Help24's chat pushes are
+  /// data-only and drawn by the background isolate, so every tap on one made
+  /// while the app was not running arrives this way. Found on device
+  /// 2026-10-29: after a reboot the tap opened Discover instead of the chat.
+  ///
+  /// main.dart registers the tap callback in initState, before the bootstrap
+  /// reaches [initialize], so the route is already listening.
+  static Future<void> _deliverLocalLaunchTap() async {
+    try {
+      final details = await _localNotifications.getNotificationAppLaunchDetails();
+      final response = details?.notificationResponse;
+      if (details?.didNotificationLaunchApp != true || response == null) return;
+      debugPrint('[FCM][TAP][LAUNCH] the app was started by a notification tap');
+      _onLocalNotificationTap(response);
+    } catch (e) {
+      debugPrint('[FCM][TAP][LAUNCH][ERROR] $e');
+    }
+  }
 
   static void _onLocalNotificationTap(NotificationResponse response) {
     final payload = response.payload;

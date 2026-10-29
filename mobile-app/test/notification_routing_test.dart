@@ -176,4 +176,27 @@ void main() {
               'launch-message check in the first place');
     });
   });
+
+  // Found on device 2026-10-29: after a reboot, a tap on a chat push opened
+  // Discover. Chat pushes are data-only and drawn by the background isolate
+  // with flutter_local_notifications, which calls
+  // onDidReceiveNotificationResponse only while the app is RUNNING. A tap that
+  // starts the app is handed over by getNotificationAppLaunchDetails() alone.
+  group('a tap that launches the app from a local notification is routed', () {
+    test('initialize() asks the plugin which notification launched the app', () {
+      final init = member(notifSrc, 'static Future<void> initialize()');
+      expect(init.contains('_deliverLocalLaunchTap()'), isTrue);
+      final launch = member(notifSrc, 'static Future<void> _deliverLocalLaunchTap(');
+      expect(launch.contains('getNotificationAppLaunchDetails()'), isTrue);
+      expect(launch.contains('didNotificationLaunchApp'), isTrue);
+      expect(launch.contains('_onLocalNotificationTap('), isTrue,
+          reason: 'the launching tap must take the same route as a live one');
+    });
+
+    test('the launch check runs after the plugin is initialised', () {
+      final init = member(notifSrc, 'static Future<void> initialize()');
+      expect(init.indexOf('_localNotifications.initialize('),
+          lessThan(init.indexOf('_deliverLocalLaunchTap()')));
+    });
+  });
 }
