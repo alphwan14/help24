@@ -46,7 +46,7 @@ async function getTrendsData() {
   for (const t of txRows.data ?? []) {
     if (!["paid", "payout_pending", "released"].includes(t.status)) continue;
     const day = t.created_at.slice(0, 10);
-    revenueByDay[day] = (revenueByDay[day] ?? 0) + Math.round((t.total_paid ?? 0) / 100);
+    revenueByDay[day] = (revenueByDay[day] ?? 0) + Math.round(t.total_paid ?? 0);
   }
   const revenueGrowth = Object.entries(revenueByDay)
     .sort(([a], [b]) => a.localeCompare(b))

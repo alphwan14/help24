@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase-server";
+import { fmtKes } from "@/lib/post-display";
 import { UserGrowthChart } from "@/components/charts/UserGrowthChart";
 
 // Platform-wide figures, the same for every admin: cached for 60 s and rebuilt
@@ -67,9 +68,8 @@ async function getRevenueData() {
   return { revenueByDay, totalRevenue, totalFees, pendingRevenue, failedRevenue, statusCounts, totalTx: rows.length };
 }
 
-function fmtKES(n: number) {
-  return `KES ${(n / 100).toLocaleString("en-KE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
+// Whole KES, like every other money figure here (see lib/money-units.test.mjs).
+const fmtKES = fmtKes;
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700",
@@ -86,7 +86,7 @@ export default async function RevenuePage() {
   // Convert revenue to a GrowthPoint shape for the chart (reuse LineChart)
   const chartData = revenueByDay.map((r) => ({
     date: r.date,
-    count: Math.round(r.revenue / 100), // cents → KES
+    count: Math.round(r.revenue), // already whole KES
   }));
 
   return (

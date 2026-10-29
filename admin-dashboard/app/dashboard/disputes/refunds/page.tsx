@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase-server";
+import { fmtKes } from "@/lib/post-display";
 import DataTable from "@/components/DataTable";
 
 // Platform-wide figures, the same for every admin: cached for 60 s and rebuilt
@@ -19,9 +20,8 @@ type TxRow = {
   posts: { title: string | null } | null;
 };
 
-function fmtKES(n: number) {
-  return `KES ${(n / 100).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`;
-}
+// Whole KES, like every other money figure here (see lib/money-units.test.mjs).
+const fmtKES = fmtKes;
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });

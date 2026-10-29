@@ -1,11 +1,15 @@
 import { unstable_cache } from "next/cache";
 import { createServiceClient } from "@/lib/supabase-server";
 import MetricCard from "@/components/MetricCard";
+import { fmtKes } from "@/lib/post-display";
 import { UserGrowthChart } from "@/components/charts/UserGrowthChart";
 import { RequestsOffersChart } from "@/components/charts/RequestsOffersChart";
 import { PaymentStatusChart } from "@/components/charts/PaymentStatusChart";
 
 const KENYA_CITIES = ["Nairobi", "Mombasa", "Kisumu", "Nakuru", "Eldoret", "Thika", "Nyeri", "Malindi"];
+
+/** Statuses in which a customer's money has really been taken. */
+const PAID_STATUSES = ["paid", "payout_pending", "released"];
 
 function extractCity(location: string | null): string {
   if (!location) return "Other";
@@ -43,15 +47,22 @@ async function getDataViaTwelveQueries() {
     db.from("users").select("*", { count: "exact", head: true }).gte("last_login", since7),
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "request"),
     db.from("posts").select("*", { count: "exact", head: true }).eq("type", "offer"),
-    db.from("posts").select("*", { count: "exact", head: true }).not("selected_provider_id", "is", null),
-    // Server-derived reputation table — users.completed_jobs_count is dead.
-    db.from("provider_reputation").select("*", { count: "exact", head: true }).gt("completed_jobs", 0),
+    // A job is active while a provider is on it and it has not finished —
+    // a disputed job is still unresolved work. Counting every post that ever
+    // had a provider (the old query) folded completed jobs in.
+    db.from("posts").select("*", { count: "exact", head: true })
+      .not("selected_provider_id", "is", null).in("status", ["assigned", "disputed"]),
+    // Jobs, not providers: provider_reputation rows with completed_jobs > 0
+    // counted the PEOPLE who had finished at least one.
+    db.from("posts").select("*", { count: "exact", head: true }).eq("status", "completed"),
     db.from("transactions").select("*", { count: "exact", head: true }),
     db.from("escrow").select("amount").eq("status", "locked"),
     db.from("users").select("created_at").gte("created_at", since30).order("created_at"),
     db.from("posts").select("created_at, type").gte("created_at", since30).order("created_at"),
     db.from("transactions").select("created_at, total_paid, status").order("created_at", { ascending: false }).limit(200),
     db.from("posts").select("location").not("location", "is", null).limit(500),
+    // Every paid transaction, not the latest 200 the status chart samples.
+    db.from("transactions").select("total_paid, fee").in("status", PAID_STATUSES),
   ]);
 
   // THE SUPABASE CLIENT RETURNS ERRORS; IT DOES NOT THROW THEM.
@@ -82,6 +93,7 @@ async function getDataViaTwelveQueries() {
     postRows,
     txRows,
     locRows,
+    paidRows,
   ] = results;
 
   const pendingEscrow = (escrowRes.data ?? []).reduce(
@@ -108,9 +120,11 @@ async function getDataViaTwelveQueries() {
   }
   const paymentStatus = Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
 
-  const totalRevenue = (txRows.data ?? [])
-    .filter((t) => ["paid", "payout_pending", "released"].includes(t.status))
-    .reduce((s, t) => s + (t.total_paid ?? 0), 0);
+  // What customers paid (provider earnings included) and, within it, what
+  // Help24 earns. The first was labelled "Total Revenue"; revenue is the fees.
+  const paid = (paidRows.data ?? []) as { total_paid: number | null; fee: number | null }[];
+  const paymentsVolume = paid.reduce((s, t) => s + (t.total_paid ?? 0), 0);
+  const platformFees = paid.reduce((s, t) => s + (t.fee ?? 0), 0);
 
   const cityCounts: Record<string, number> = {};
   for (const p of locRows.data ?? []) {
@@ -137,7 +151,8 @@ async function getDataViaTwelveQueries() {
       completedJobs: completedJobs ?? 0,
       totalTx:       totalTx       ?? 0,
       pendingEscrow,
-      totalRevenue,
+      paymentsVolume,
+      platformFees,
     },
     userGrowth,
     postActivity,
@@ -148,9 +163,8 @@ async function getDataViaTwelveQueries() {
 }
 
 function fmtNum(n: number) { return n.toLocaleString("en-KE"); }
-function fmtKES(n: number) {
-  return `KES ${(n / 100).toLocaleString("en-KE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
+// Whole KES, like every other money figure here (see lib/money-units.test.mjs).
+const fmtKES = fmtKes;
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -203,11 +217,15 @@ const loadOverview = unstable_cache(
     const db = createServiceClient();
     const { data, error } = await db.rpc("admin_overview", { p_cities: KENYA_CITIES });
 
-    if (!error && data) return data as Overview;
+    // Before migration 131 the function counted every post that ever had a
+    // provider as active, providers as completed jobs, and called the gross
+    // paid amount revenue. A result without paymentsVolume is that version:
+    // its numbers are wrong, so the corrected queries answer instead.
+    if (!error && data && (data as Overview).kpis?.paymentsVolume != null) return data as Overview;
 
     console.warn(
-      "[overview] admin_overview unavailable, falling back to 12 queries:",
-      error?.message,
+      "[overview] admin_overview unavailable or pre-131, falling back to 12 queries:",
+      error?.message ?? "no paymentsVolume",
     );
     return getDataViaTwelveQueries();
   },
@@ -297,7 +315,7 @@ export default async function OverviewGeneralPage() {
             value={fmtNum(kpis.activeJobs)}
 
             icon="jobs"
-            sub="Provider assigned"
+            sub="Provider on it, not finished"
           />
           <MetricCard
             label="Completed Jobs"
@@ -318,10 +336,11 @@ export default async function OverviewGeneralPage() {
             sub="Locked funds"
           />
           <MetricCard
-            label="Total Revenue"
-            value={fmtKES(kpis.totalRevenue)}
+            label="Payments volume"
+            value={fmtKES(kpis.paymentsVolume)}
 
             icon="revenue"
+            sub={kpis.platformFees == null ? "Paid by customers" : `Platform fees ${fmtKES(kpis.platformFees)}`}
           />
         </div>
       </section>
