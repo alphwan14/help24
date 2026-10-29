@@ -39,3 +39,18 @@ test("every data page is either request-specific or declares its freshness", () 
     .map((p) => relative(ROOT, p).replaceAll("\\", "/"));
   assert.deepEqual(frozen, [], `these would be frozen at build time:\n  ${frozen.join("\n  ")}`);
 });
+
+// `revalidate = 60` (and unstable_cache's revalidate) reads as "at most a
+// minute old", but Next rebuilds only when someone asks, and answers THAT
+// request with the old render. On a console visited a few times a day the first
+// view is nearly always stale: on 2026-10-29 the Jobs page left out a job posted
+// 30 minutes earlier, and Overview the same way. Data pages render per request.
+test("no data page answers with a cached render", () => {
+  const cached = pages(DASHBOARD)
+    .filter((p) => {
+      const src = readFileSync(p, "utf8");
+      return READS_DATA.test(src) && /export const revalidate\s*=|unstable_cache\(/.test(src);
+    })
+    .map((p) => relative(ROOT, p).replaceAll("\\", "/"));
+  assert.deepEqual(cached, [], `these serve a stale render on the first visit after a quiet spell:\n  ${cached.join("\n  ")}`);
+});

@@ -2,12 +2,12 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { fmtKes } from "@/lib/post-display";
 import { UserGrowthChart } from "@/components/charts/UserGrowthChart";
 
-// Platform-wide figures, the same for every admin: cached for 60 s and rebuilt
-// in the background. Without this the page was prerendered ONCE at deploy and
-// served unchanged until the next deploy. Nothing here reads the session, so
-// a shared cache cannot carry one admin's view to another; access is still
-// decided per request by middleware before the cache is consulted.
-export const revalidate = 60;
+// Rendered per request. `revalidate = 60` read as "at most a minute old", but
+// Next rebuilds such a page only when someone asks, and answers that request
+// with the old render — on 2026-10-29 the Jobs page left out a job posted 30
+// minutes earlier. The dashboard is quiet and each query is one round trip:
+// fresh beats fast here (lib/route-freshness.test.mjs).
+export const dynamic = "force-dynamic";
 
 type TxRow = {
   created_at: string;

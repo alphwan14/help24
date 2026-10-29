@@ -3,12 +3,12 @@ import DataTable from "@/components/DataTable";
 import { PostStatusBadge, archivedRowClass } from "@/components/PostStatusBadge";
 import { jobSalaryLabel, schemasByName, smartAnswerLines, type Json } from "@/lib/post-display";
 
-// Platform-wide figures, the same for every admin: cached for 60 s and rebuilt
-// in the background. Without this the page was prerendered ONCE at deploy and
-// served unchanged until the next deploy. Nothing here reads the session, so
-// a shared cache cannot carry one admin's view to another; access is still
-// decided per request by middleware before the cache is consulted.
-export const revalidate = 60;
+// Rendered per request. `revalidate = 60` read as "at most a minute old", but
+// Next rebuilds such a page only when someone asks, and answers that request
+// with the old render — on 2026-10-29 the Jobs page left out a job posted 30
+// minutes earlier. The dashboard is quiet and each query is one round trip:
+// fresh beats fast here (lib/route-freshness.test.mjs).
+export const dynamic = "force-dynamic";
 
 // Hiring posts (type='job') — recruitment listings from the Smart Posting
 // job journey. Previously these had NO admin surface at all.

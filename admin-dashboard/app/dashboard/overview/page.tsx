@@ -1,10 +1,13 @@
-import { unstable_cache } from "next/cache";
 import { createServiceClient } from "@/lib/supabase-server";
 import MetricCard from "@/components/MetricCard";
 import { fmtKes } from "@/lib/post-display";
 import { UserGrowthChart } from "@/components/charts/UserGrowthChart";
 import { RequestsOffersChart } from "@/components/charts/RequestsOffersChart";
 import { PaymentStatusChart } from "@/components/charts/PaymentStatusChart";
+
+// Per request: nothing here reads the request, so without this Next would
+// prerender the page once at build time (see loadOverview below).
+export const dynamic = "force-dynamic";
 
 const KENYA_CITIES = ["Nairobi", "Mombasa", "Kisumu", "Nakuru", "Eldoret", "Thika", "Nyeri", "Malindi"];
 
@@ -189,7 +192,7 @@ function ChartHeader({ title, sub }: { title: string; sub?: string }) {
 type Overview = Awaited<ReturnType<typeof getDataViaTwelveQueries>>;
 
 /**
- * The overview data, in ONE round trip, cached.
+ * The overview data, in ONE round trip, read fresh on every visit.
  *
  * ── Why one call ────────────────────────────────────────────────────────────
  * This page used to issue twelve PostgREST requests per load. Measured from
@@ -197,23 +200,19 @@ type Overview = Awaited<ReturnType<typeof getDataViaTwelveQueries>>;
  * 161–602 ms and a real query costs 343–512 ms — the same number. The database
  * is not the cost; the ROUND TRIP is, and the page was buying twelve of them.
  *
- * ── Why it is cached ────────────────────────────────────────────────────────
- * Nothing was cached, so every navigation re-ran all twelve. These are
- * platform-wide counts on an operations console: "43 requests" does not need to
- * be true to the millisecond, and a minute of staleness is invisible next to
- * the seconds it was costing.
- *
- * `unstable_cache` rather than a route-level `revalidate` because the PAGE is
- * per-admin — it reads the session — while the DATA is global. Caching the
- * route would cache somebody's session along with the numbers.
+ * ── Why it is not cached ────────────────────────────────────────────────────
+ * It was (Next's data cache, 60-second revalidate) when a load cost twelve round
+ * trips. That cache answers the first request after it expires with the OLD
+ * result and refreshes in the background, so on a console opened a few times a
+ * day the first view was routinely stale. Now that admin_overview is one round
+ * trip, the cache buys little and costs the truth (lib/route-freshness.test.mjs).
  *
  * ── Why there is still a fallback ───────────────────────────────────────────
  * `admin_overview` arrives in migration 113. Until that is applied everywhere,
  * a missing function must not blank the dashboard, so the old path stays until
  * the migration is live.
  */
-const loadOverview = unstable_cache(
-  async (): Promise<Overview> => {
+async function loadOverview(): Promise<Overview> {
     const db = createServiceClient();
     const { data, error } = await db.rpc("admin_overview", { p_cities: KENYA_CITIES });
 
@@ -228,10 +227,7 @@ const loadOverview = unstable_cache(
       error?.message ?? "no paymentsVolume",
     );
     return getDataViaTwelveQueries();
-  },
-  ["admin-overview"],
-  { revalidate: 60, tags: ["admin-overview"] },
-);
+}
 
 export default async function OverviewGeneralPage() {
   let overview: Overview | null = null;
