@@ -196,11 +196,16 @@ ChatJobBarState deriveChatJobBar(ChatJobInputs i) {
       ..sort((a, b) => a.at.compareTo(b.at));
     if (offers.isEmpty) return _fallback(i);
     final offer = offers.last;
-    final amount = formatPriceDisplay(offer.price > 0 ? offer.price : i.price);
+    // The offer sheet has no price field, so most offers carry none. Falling
+    // back to the request's budget here told the client the provider had
+    // quoted a number they never named (and "KES 0" on an open request).
+    final amount = offer.price > 0 ? formatPriceDisplay(offer.price) : null;
     return _state(
       stage: ChatJobStage.offerIn,
       i: i,
-      status: isClient ? '$partner offered $amount' : 'You offered $amount',
+      status: amount == null
+          ? (isClient ? '$partner sent an offer' : 'You sent an offer')
+          : (isClient ? '$partner offered $amount' : 'You offered $amount'),
       tile: ChatJobTile.money,
       action: isClient ? ChatJobAction.review : ChatJobAction.view,
       actionLabel: isClient ? 'Review' : 'View',

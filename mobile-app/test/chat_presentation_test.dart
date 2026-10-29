@@ -261,6 +261,21 @@ void main() {
       expect(s.segments.first, ChatJobSegment.current);
     });
 
+    // Found on device 2026-10-29: the offer sheet has no price field, so every
+    // offer arrives with price 0, and the bar said "Joseph offered KES <the
+    // request's budget>" — a number the provider never named (and "KES 0" on
+    // an open-to-offers request).
+    test('an offer with no price never puts a number in the provider\'s mouth', () {
+      final offer = [ChatJobOffer(applicantId: 'them', price: 0, at: t0)];
+      final customer = bar(selected: null, offers: offer);
+      expect(customer.stage, ChatJobStage.offerIn);
+      expect(customer.status, 'Joseph sent an offer');
+      expect((customer.action, customer.primary), (ChatJobAction.review, true));
+      final provider = bar(client: false, selected: null,
+          offers: [ChatJobOffer(applicantId: 'me', price: 0, at: t0)]);
+      expect(provider.status, 'You sent an offer');
+    });
+
     test('price agreed: the customer pays with M-Pesa — the only rail there is', () {
       final s = bar(life: lc('awaiting_payment'));
       expect(s.stage, ChatJobStage.priceAgreed);
