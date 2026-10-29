@@ -15,7 +15,12 @@ export const MIGRATIONS = [
   '115_trust_safety_actions.sql',
   '116_trust_safety_enforcement.sql',
   '117_alert_reviews_and_finance_repairs.sql',
-].map((f) => path.join(migrations, f));
+].map((f) => path.join(migrations, f)).concat([
+  // providers and the legacy messages table as they are live (the replica
+  // predates them), then 129 on top. See anon-access.test.mjs.
+  path.join(here, 'fixtures', '129_live_prestate.sql'),
+  path.join(migrations, '129_close_anonymous_table_access.sql'),
+]);
 
 const PORT = Number(process.env.TS_PG_PORT ?? 54329);
 

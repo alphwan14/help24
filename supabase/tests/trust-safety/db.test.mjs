@@ -719,8 +719,10 @@ test('18: an active account posts, applies, opens chats and messages exactly as 
   await t.user(U.carol)('INSERT INTO public.chats (user1, user2, post_id) VALUES ($1, $2, $3)', [U.bob, U.carol, P.bobOffer2]);
   await t.user(U.carol)(`INSERT INTO public.chat_messages (chat_id, sender_id, content) VALUES ($1, $2, 'Hello Dave')`, [CHAT_CD, U.carol]);
   await t.user(U.carol)(`UPDATE public.posts SET title = 'Edited' WHERE id = $1`, [ID(401)]);
-  // The anonymous insert path the app uses before its session exchange lands.
-  await t.insertPostAs(t.anon, ID(402), U.carol);
+  // Since 129 an insert sent before the session exchange lands is refused
+  // (401 at PostgREST); HttpClientWithToken re-exchanges and replays it signed
+  // in, which is the first line of this test.
+  await t.rejects(t.insertPostAs(t.anon, ID(402), U.carol), /permission denied/);
 });
 
 // The core flow, at the database layer: REQUEST → APPLY → SELECT → PAYMENT →
@@ -789,11 +791,12 @@ test('12: a suspended account can still read, mark read, and settle', async (t) 
   assert.equal((await t.statusOf(U.carol)).status, 'suspended');
 });
 
-test('13: a ban blocks the same writes, including an anonymous insert under the banned id', async (t) => {
+test('13: a ban blocks the same writes; an anonymous insert under the banned id never gets that far', async (t) => {
   await t.sanction({ user: U.carol, kind: 'ban' });
   await t.rejects(t.insertPostAs(t.user(U.carol), ID(405), U.carol), /HELP24_ACCOUNT_RESTRICTED: banned/);
-  await t.rejects(t.insertPostAs(t.anon, ID(406), U.carol), /HELP24_ACCOUNT_RESTRICTED: banned/);
-  await t.rejects(t.anon(`INSERT INTO public.applications (post_id, applicant_temp_id, applicant_user_id, message, proposed_price) VALUES ($1, 'tmp', $2, 'hi', 0)`, [P.bobOffer2, U.carol]), /HELP24_ACCOUNT_RESTRICTED: banned/);
+  // 129: anon may not insert posts or applications at all.
+  await t.rejects(t.insertPostAs(t.anon, ID(406), U.carol), /permission denied/);
+  await t.rejects(t.anon(`INSERT INTO public.applications (post_id, applicant_temp_id, applicant_user_id, message, proposed_price) VALUES ($1, 'tmp', $2, 'hi', 0)`, [P.bobOffer2, U.carol]), /permission denied/);
 });
 
 test('a banned JWT is refused even when the row names somebody else', async (t) => {
