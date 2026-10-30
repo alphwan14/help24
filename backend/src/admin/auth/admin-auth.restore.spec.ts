@@ -315,3 +315,43 @@ describe('AdminAuthService — a console key per sign-in (migration 133)', () =>
     expect(fake.deletes).toEqual([{ table: 'admin_sessions', filter: 'admin_id=adm-2' }]);
   });
 });
+
+describe('AdminAuthService.reactivateAdmin', () => {
+  it('turns a deactivated admin back on, and nothing else', async () => {
+    const rows = linkedAdminRows();
+    rows.admin_users[0].active = false;
+    const fake = fakeSupabase(rows);
+
+    await expect(makeService(fake.service).reactivateAdmin('adm-1')).resolves.toEqual({ id: 'adm-1', active: true });
+    expect(fake.updates).toEqual([{ table: 'admin_users', patch: { active: true }, id: 'adm-1' }]);
+    expect(fake.inserts).toHaveLength(0);
+  });
+
+  it('an admin who is already active is left alone', async () => {
+    const fake = fakeSupabase(linkedAdminRows());
+
+    await makeService(fake.service).reactivateAdmin('adm-1');
+    expect(fake.updates).toHaveLength(0);
+  });
+
+  it('an unknown id is a 404', async () => {
+    const fake = fakeSupabase(linkedAdminRows());
+
+    await expect(makeService(fake.service).reactivateAdmin('adm-x')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('a reactivated admin still has to sign in again — keys deleted on deactivation stay gone', async () => {
+    const rows = linkedAdminRows({ admin_sessions: [] });
+    rows.admin_users[0].role = 'support_agent'; // past the last-super-admin guard
+    const fake = fakeSupabase(rows, { user });
+    const service = makeService(fake.service);
+    const { token } = await service.restoreSession('jwt');
+
+    rows.admin_users.push({ id: 'adm-2', email: 'other@example.com', name: 'O', role: 'super_admin', active: true });
+    await service.deactivateAdmin('adm-1', 'adm-2');
+    rows.admin_sessions = rows.admin_sessions.filter((s) => s.admin_id !== 'adm-1'); // the fake's delete only records
+    await service.reactivateAdmin('adm-1');
+
+    await expect(service.authenticate(token)).resolves.toMatchObject({ ok: false, reason: 'not_found' });
+  });
+});

@@ -121,6 +121,17 @@ export async function deactivateAdmin(id: string): Promise<ActionResult> {
   }
 }
 
+/** Undo a deactivation. They sign in again as usual; the backend re-checks their link and role. */
+export async function reactivateAdmin(id: string): Promise<ActionResult> {
+  try {
+    await adminActionRequest(`/admin/users/${id}/reactivate`, { method: "POST" });
+    revalidatePath("/dashboard/users/admins");
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 // ── Auth token management ────────────────────────────────────────────────────
 
 /**

@@ -108,6 +108,13 @@ export class AdminUsersController {
     return this.auth.deactivateAdmin(id, admin.id);
   }
 
+  @Post('users/:id/reactivate')
+  @Roles('super_admin')
+  @HttpCode(HttpStatus.OK)
+  reactivate(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.auth.reactivateAdmin(id);
+  }
+
   // ── Legacy direct creation (kept for bootstrap / back-compat) ───────────────
 
   @Post('admins')

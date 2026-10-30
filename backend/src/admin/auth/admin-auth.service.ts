@@ -669,6 +669,25 @@ export class AdminAuthService implements OnModuleInit {
     return { id, active: false };
   }
 
+  /**
+   * Undo a deactivation. Grants nothing by itself: the admin still needs a
+   * fresh sign-in, and restoreSession still asks the identity link and the
+   * person's role, so someone whose app account is no longer an admin stays
+   * out. Their old keys were deleted on deactivation; none come back.
+   */
+  async reactivateAdmin(id: string) {
+    const target = await this.requireAdmin(id);
+    if (target.active) return { id, active: true };
+
+    const { error } = await this.supabase.client
+      .from('admin_users')
+      .update({ active: true })
+      .eq('id', id);
+    if (error) throw new Error(error.message);
+    this.logger.log(`[ADMIN_AUTH] reactivated ${target.email}`);
+    return { id, active: true };
+  }
+
   private async requireAdmin(id: string) {
     const { data } = await this.supabase.client
       .from('admin_users')

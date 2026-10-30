@@ -209,6 +209,13 @@ try {
   check("Admin Roles: Account and Activity are separate columns",
     await evaluate(`[...document.querySelectorAll("thead")].some((t) => /activity/i.test(t.textContent) && /account/i.test(t.textContent))`));
   check("Admin Roles: a deactivated admin is not listed", !(await evaluate(`document.body.innerText.includes(${JSON.stringify(DORA)})`)));
+  check("Admin Roles: deactivated admins wait behind one small link",
+    await evaluate(`[...document.querySelectorAll("button")].some((b) => b.textContent.trim().startsWith("Show deactivated ("))`));
+  await evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.trim().startsWith("Show deactivated (")).click()`);
+  await waitFor(bodyHas(DORA), "deactivated list open");
+  await evaluate(`(window.confirm = () => true, [...document.querySelectorAll("li")].find((l) => l.innerText.includes(${JSON.stringify(DORA)})).querySelector("button").click())`);
+  const reactivated = await waitFor(`[...document.querySelectorAll("tr")].some((r) => r.innerText.includes(${JSON.stringify(DORA)}))`, "reactivated admin listed", 15000).then(() => true, () => false);
+  check("Admin Roles: Reactivate puts the admin back in the list", reactivated && fake.admins.get(DORA).active === true);
   // Another device restores and retires this tab's key. The search must renew
   // it and answer — not "Invalid admin token." until a reload.
   fake.retireArbitrationToken(ALICE);

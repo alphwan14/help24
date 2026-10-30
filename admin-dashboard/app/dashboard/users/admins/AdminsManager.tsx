@@ -10,6 +10,7 @@ import {
   revokeInvite,
   updateAdminRole,
   deactivateAdmin,
+  reactivateAdmin,
 } from "@/lib/admin-actions";
 
 const ROLES: AdminRole[] = ["support_agent", "senior_admin", "super_admin"];
@@ -33,6 +34,7 @@ export default function AdminsManager({
   currentAdminEmail,
   currentAdminRole,
   admins,
+  deactivated,
   invites,
   presence,
 }: {
@@ -40,6 +42,8 @@ export default function AdminsManager({
   currentAdminEmail: string;
   currentAdminRole: AdminRole;
   admins: AdminUser[];
+  /** Hidden by default; shown only behind "Show deactivated". */
+  deactivated: AdminUser[];
   invites: PendingInvite[];
   /** Last console heartbeat per admin id (migration 132); null = not recorded yet. */
   presence: Record<string, string | null> | null;
@@ -50,6 +54,7 @@ export default function AdminsManager({
   const [notice, setNotice] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showDeactivated, setShowDeactivated] = useState(false);
 
   // Invite form. The PERSON comes first: an invitation names the Help24 account
   // it is for, so accepting it links the new login with no manual step.
@@ -115,6 +120,19 @@ export default function AdminsManager({
       if (!res.ok) setError(res.error ?? "Could not deactivate admin.");
       else {
         setNotice(`${email} deactivated.`);
+        router.refresh();
+      }
+    });
+  }
+
+  function handleReactivate(id: string, email: string) {
+    reset();
+    if (!confirm(`Reactivate ${email}? They can sign in to the console again with their current role.`)) return;
+    startTransition(async () => {
+      const res = await reactivateAdmin(id);
+      if (!res.ok) setError(res.error ?? "Could not reactivate admin.");
+      else {
+        setNotice(`${email} reactivated.`);
         router.refresh();
       }
     });
@@ -325,6 +343,38 @@ export default function AdminsManager({
           </table>
         </div>
       </div>
+
+      {deactivated.length > 0 && (
+        <div className="text-xs text-gray-400">
+          <button
+            type="button"
+            onClick={() => setShowDeactivated((v) => !v)}
+            aria-expanded={showDeactivated}
+            className="hover:text-gray-600 hover:underline"
+          >
+            {showDeactivated ? "Hide deactivated" : `Show deactivated (${deactivated.length})`}
+          </button>
+          {showDeactivated && (
+            <ul className="mt-2 divide-y divide-gray-100 rounded-lg border border-gray-100">
+              {deactivated.map((a) => (
+                <li key={a.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <span className="min-w-0 truncate text-gray-500">
+                    {a.name || "—"} · {a.email} · {ROLE_LABELS[a.role]}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleReactivate(a.id, a.email)}
+                    disabled={isPending}
+                    className="shrink-0 font-semibold text-gray-600 hover:text-gray-900 hover:underline disabled:opacity-50"
+                  >
+                    Reactivate
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

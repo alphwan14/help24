@@ -421,6 +421,15 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
         ? send(200, [...admins.values()].map((a) => ({ id: a.id, email: a.email, name: a.name, role: a.role, active: a.active, created_at: "2026-06-01T08:00:00Z", last_login_at: null })))
         : apiFail(401, "Invalid admin token.");
     }
+    if (req.method === "POST" && p.startsWith("/admin/users/") && p.endsWith("/reactivate")) {
+      const a = adminByToken();
+      if (!a) return apiFail(401, "Invalid admin token.");
+      if (a.role !== "super_admin") return apiFail(403, "Requires role 'super_admin' or higher.");
+      const target = [...admins.values()].find((x) => x.id === p.split("/")[3]);
+      if (!target) return apiFail(404, "Admin not found.");
+      target.active = true;
+      return send(200, { id: target.id, active: true });
+    }
     if (req.method === "GET" && p === "/admin/identity/people") {
       if (!adminByToken()) return apiFail(401, "Invalid admin token.");
       const q = (url.searchParams.get("q") ?? "").toLowerCase();
