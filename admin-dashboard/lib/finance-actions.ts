@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ApiError, adminRequest } from "./api";
+import { ApiError } from "./api";
+import { adminActionRequest } from "./arbitration-session";
 
 export type FinanceResult = { ok: boolean; error?: string; message?: string };
 
@@ -22,7 +23,7 @@ export async function recordManualSettlementAction(
   if (input.reference.trim().length < 3) return { ok: false, error: "Give the payment reference (the M-Pesa code or bank reference)." };
   if (input.reason.trim().length < 5) return { ok: false, error: "Say how it was paid — at least 5 characters." };
   try {
-    await adminRequest(`/admin/finance/transactions/${encodeURIComponent(transactionId)}/manual-settlements`, {
+    await adminActionRequest(`/admin/finance/transactions/${encodeURIComponent(transactionId)}/manual-settlements`, {
       method: "POST",
       body: JSON.stringify({ direction: input.direction, reference: input.reference.trim(), reason: input.reason.trim() }),
     });
@@ -37,7 +38,7 @@ export async function recordManualSettlementAction(
 export async function applyRulingAction(disputeId: string, reason: string): Promise<FinanceResult> {
   if (reason.trim().length < 5) return { ok: false, error: "Give a reason — at least 5 characters." };
   try {
-    const res = await adminRequest<{ phase: string; payout: { dispatched: boolean; message: string } | null }>(
+    const res = await adminActionRequest<{ phase: string; payout: { dispatched: boolean; message: string } | null }>(
       `/admin/finance/disputes/${encodeURIComponent(disputeId)}/apply-ruling`,
       { method: "POST", body: JSON.stringify({ reason: reason.trim() }) },
     );

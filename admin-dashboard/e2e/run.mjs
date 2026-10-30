@@ -23,6 +23,7 @@ const FAKE_PORT = 54399, APP_PORT = 3101, CDP_PORT = 9333;
 const APP = `http://localhost:${APP_PORT}`;
 const CALLBACK = `${APP}/auth/callback`;
 
+const DORA = "dora.deactivated@help24.test";
 const ALICE = "alice@help24.test", ALICE_PW1 = "Initial-pass-1", ALICE_PW2 = "Battery-staple-42", ALICE_PW3 = "Recovered-pass-77", ALICE_PW4 = "Settings-link-88";
 const BOB = "bob@help24.test", BOB_PW = "Bobs-pass-22";
 const CAROL = "carol@help24.test", CAROL_PW = "Carols-pass-3";
@@ -200,12 +201,23 @@ try {
   check("existing route /dashboard/users/admins still renders for a super_admin", true);
   // The console heartbeat has had a chance to land; a reload reads it back.
   for (let i = 0; i < 20 && !fake.admins.get(ALICE).lastSeen; i++) await sleep(250);
+  fake.addArbitrationAdmin(DORA, "Dora Deactivated", "support_agent", false);
   await goto(`${APP}/dashboard/users/admins`);
   await waitFor(bodyHas("Invite an admin"), "Admin Roles page again");
   check("Admin Roles: the console heartbeat marks this admin as in the console now",
     !!fake.admins.get(ALICE).lastSeen && (await evaluate(`[...document.querySelectorAll("tr")].some(r => r.innerText.includes(${JSON.stringify(ALICE)}) && r.innerText.includes("In the console now"))`)));
   check("Admin Roles: Account and Activity are separate columns",
     await evaluate(`[...document.querySelectorAll("thead")].some((t) => /activity/i.test(t.textContent) && /account/i.test(t.textContent))`));
+  check("Admin Roles: a deactivated admin is not listed", !(await evaluate(`document.body.innerText.includes(${JSON.stringify(DORA)})`)));
+  // Another device restores and retires this tab's key. The search must renew
+  // it and answer — not "Invalid admin token." until a reload.
+  fake.retireArbitrationToken(ALICE);
+  const restoresBeforeSearch = fake.restores.get(ALICE) ?? 0;
+  await fill('input[aria-label="Search Help24 accounts"]', "alice");
+  const searchOk = await waitFor(`[...document.querySelectorAll("li button")].some((b) => b.innerText.includes(${JSON.stringify(ALICE)}))`, "people search answers", 15000).then(() => true, () => false);
+  check("Invite an admin: people search renews a key retired by another device",
+    searchOk && !(await evaluate(`document.body.innerText.includes("Invalid admin token")`)) && (fake.restores.get(ALICE) ?? 0) === restoresBeforeSearch + 1,
+    `restores +${(fake.restores.get(ALICE) ?? 0) - restoresBeforeSearch}`);
   await click('nav a[href="/dashboard/settings"]');
   await waitFor(`${pathIs("/dashboard/settings")} && ${bodyHas("Change password")}`, "Settings via sidebar");
   check("sidebar Settings entry navigates to /dashboard/settings", true);

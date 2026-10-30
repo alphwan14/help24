@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ApiError, adminRequest } from "./api";
+import { ApiError } from "./api";
+import { adminActionRequest } from "./arbitration-session";
 
 /**
  * Trust & Safety writes — Server Actions only.
@@ -52,7 +53,7 @@ export type TriageInput = {
 
 export async function triageReportAction(reportId: string, input: TriageInput): Promise<ActionResult> {
   try {
-    const data = await adminRequest(`/admin/moderation/reports/${reportId}/triage`, {
+    const data = await adminActionRequest(`/admin/moderation/reports/${reportId}/triage`, {
       method: "POST",
       body: JSON.stringify(input),
     });
@@ -69,7 +70,7 @@ export async function resolveReportAction(
 ): Promise<ActionResult> {
   if (input.reason.trim().length < 5) return { ok: false, error: "Give a reason of at least 5 characters." };
   try {
-    const data = await adminRequest(`/admin/moderation/reports/${reportId}/resolve`, {
+    const data = await adminActionRequest(`/admin/moderation/reports/${reportId}/resolve`, {
       method: "POST",
       body: JSON.stringify({ ...input, reason: input.reason.trim(), internal_note: input.internal_note?.trim() || undefined }),
     });
@@ -84,7 +85,7 @@ export async function resolveReportAction(
 export async function addReportNoteAction(reportId: string, note: string): Promise<ActionResult> {
   if (!note.trim()) return { ok: false, error: "Write a note first." };
   try {
-    await adminRequest(`/admin/moderation/reports/${reportId}/notes`, {
+    await adminActionRequest(`/admin/moderation/reports/${reportId}/notes`, {
       method: "POST",
       body: JSON.stringify({ note: note.trim() }),
     });
@@ -112,7 +113,7 @@ export async function sanctionUserAction(userId: string, input: SanctionInput): 
     return { ok: false, error: "The reason is shown to the person — write at least a sentence (10+ characters)." };
   }
   try {
-    const data = await adminRequest(`/admin/moderation/users/${encodeURIComponent(userId)}/sanctions`, {
+    const data = await adminActionRequest(`/admin/moderation/users/${encodeURIComponent(userId)}/sanctions`, {
       method: "POST",
       body: JSON.stringify({
         ...input,
@@ -131,7 +132,7 @@ export async function sanctionUserAction(userId: string, input: SanctionInput): 
 export async function addUserNoteAction(userId: string, note: string): Promise<ActionResult> {
   if (!note.trim()) return { ok: false, error: "Write a note first." };
   try {
-    await adminRequest(`/admin/moderation/users/${encodeURIComponent(userId)}/notes`, {
+    await adminActionRequest(`/admin/moderation/users/${encodeURIComponent(userId)}/notes`, {
       method: "POST",
       body: JSON.stringify({ note: note.trim() }),
     });
@@ -149,7 +150,7 @@ export async function liftRestrictionAction(
 ): Promise<ActionResult> {
   if (input.reason.trim().length < 10) return { ok: false, error: "Explain why in at least 10 characters." };
   try {
-    const data = await adminRequest(`/admin/moderation/restrictions/${restrictionId}/lift`, {
+    const data = await adminActionRequest(`/admin/moderation/restrictions/${restrictionId}/lift`, {
       method: "POST",
       body: JSON.stringify({ reason: input.reason.trim(), internal_note: input.internal_note?.trim() || undefined }),
     });
@@ -170,7 +171,7 @@ export async function setContentStateAction(
 ): Promise<ActionResult> {
   if (input.reason.trim().length < 10) return { ok: false, error: "Explain why in at least 10 characters." };
   try {
-    const data = await adminRequest(`/admin/moderation/content/${contentType}/${contentId}/${action}`, {
+    const data = await adminActionRequest(`/admin/moderation/content/${contentType}/${contentId}/${action}`, {
       method: "POST",
       body: JSON.stringify({
         reason: input.reason.trim(),

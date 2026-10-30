@@ -421,6 +421,14 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
         ? send(200, [...admins.values()].map((a) => ({ id: a.id, email: a.email, name: a.name, role: a.role, active: a.active, created_at: "2026-06-01T08:00:00Z", last_login_at: null })))
         : apiFail(401, "Invalid admin token.");
     }
+    if (req.method === "GET" && p === "/admin/identity/people") {
+      if (!adminByToken()) return apiFail(401, "Invalid admin token.");
+      const q = (url.searchParams.get("q") ?? "").toLowerCase();
+      return send(200, [...people.values()].filter((x) => x.email.includes(q)).map((x) => ({
+        id: x.id, name: null, email: x.email, phone_number: null, role: x.role,
+        has_dashboard_login: links.some((l) => l.help24 === x.id),
+      })));
+    }
     if (req.method === "GET" && p === "/admin/invites") return adminByToken() ? send(200, []) : apiFail(401, "Invalid admin token.");
     if (req.method === "GET" && p.startsWith("/admin/invite/")) {
       const inv = invites.get(decodeURIComponent(p.slice("/admin/invite/".length)));
@@ -459,6 +467,10 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     },
     addArbitrationAdmin(email, name, role, active = true) {
       admins.set(email, { id: randomUUID(), email, name, role, active, token: null });
+    },
+    /** As if this admin restored on another device: the backend before 133 kept one key per admin. */
+    retireArbitrationToken(email) {
+      admins.get(email).token = "arb-" + randomUUID();
     },
     addInvite(token, email, role, { expired = false } = {}) {
       invites.set(token, { email, role, status: "pending", expiresAt: Date.now() + (expired ? -1 : 7) * 86400e3 });

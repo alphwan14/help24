@@ -61,6 +61,8 @@ export default async function AdminsPage() {
     getConsolePresence(),
   ]);
 
+  // A deactivated admin is no longer an admin, so they are not listed. The
+  // backend keeps the row for the record and refuses their keys.
   return (
     <div className="space-y-6">
       {unlinked.ok ? (
@@ -74,7 +76,7 @@ export default async function AdminsPage() {
         currentAdminId={admin.id}
         currentAdminEmail={admin.email}
         currentAdminRole={admin.role}
-        admins={admins}
+        admins={admins.filter((a) => a.active)}
         invites={invites}
         presence={presence}
       />

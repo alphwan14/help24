@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { ApiError, adminRequest, getAdminToken } from "@/lib/api";
+import { ApiError } from "@/lib/api";
+import { adminActionRequest } from "@/lib/arbitration-session";
 import type { AlertsResponse } from "@/lib/alerts";
 
 export const dynamic = "force-dynamic";
@@ -13,13 +14,13 @@ export const dynamic = "force-dynamic";
  *
  * A failure is returned AS a failure (non-2xx with a message), never as an
  * empty list: "no alerts" and "could not check" are different facts.
+ *
+ * A refused or missing key is renewed from the Supabase session first
+ * (lib/arbitration-session.ts), so the bell's poll also repairs the tab's key.
  */
 export async function GET() {
-  if (!(await getAdminToken())) {
-    return NextResponse.json({ message: "Not connected." }, { status: 401 });
-  }
   try {
-    const data = await adminRequest<AlertsResponse>("/admin/alerts");
+    const data = await adminActionRequest<AlertsResponse>("/admin/alerts");
     return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     const status = err instanceof ApiError ? err.status : 502;

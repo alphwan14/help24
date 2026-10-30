@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { cookies } from "next/headers";
-import { ADMIN_TOKEN_COOKIE, publicRequest, type AcceptInviteResult } from "@/lib/api";
+import { publicRequest, type AcceptInviteResult } from "@/lib/api";
+import { storeArbitrationToken } from "@/lib/arbitration-session";
 import { requireAdminIdentity } from "@/lib/admin-identity";
 import { acceptInvitation } from "@/lib/invite-acceptance";
 import { isInvitedEmail } from "@/lib/invite-email-binding";
@@ -8,8 +8,6 @@ import { createSessionWriter } from "@/lib/supabase-server";
 import { DASHBOARD_HOME } from "@/lib/routes";
 
 export const dynamic = "force-dynamic";
-
-const TWELVE_HOURS = 60 * 60 * 12;
 
 /**
  * POST /accept-invite/submit — the invitation form's target.
@@ -58,15 +56,7 @@ export async function POST(request: NextRequest) {
         await session.auth.signOut({ scope: "local" });
       },
       // The token lives ONLY in this httpOnly cookie — never in a response body.
-      storeArbitrationToken: async (arbitrationToken) => {
-        (await cookies()).set(ADMIN_TOKEN_COOKIE, arbitrationToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-          path: "/",
-          maxAge: TWELVE_HOURS,
-        });
-      },
+      storeArbitrationToken,
     },
   );
 

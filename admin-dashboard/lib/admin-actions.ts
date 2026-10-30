@@ -5,12 +5,12 @@ import { revalidatePath } from "next/cache";
 import {
   ADMIN_TOKEN_COOKIE,
   ApiError,
-  adminRequest,
   type AdminRole,
   type CreateInviteResult,
   type LinkCandidate,
   type LinkResult,
 } from "./api";
+import { adminActionRequest } from "./arbitration-session";
 
 /**
  * Server Actions for invite-based admin management. Privileged writes go through
@@ -43,7 +43,7 @@ export async function sendInvite(
   if (!role) return { ok: false, error: "Choose a role." };
 
   try {
-    const data = await adminRequest<CreateInviteResult>("/admin/invite", {
+    const data = await adminActionRequest<CreateInviteResult>("/admin/invite", {
       method: "POST",
       body: JSON.stringify({ email, role, help24UserId }),
     });
@@ -61,7 +61,7 @@ export async function searchPeople(query: string): Promise<ActionResult<LinkCand
   const q = query.trim();
   if (q.length < 2) return { ok: true, data: [] };
   try {
-    const data = await adminRequest<LinkCandidate[]>(`/admin/identity/people?q=${encodeURIComponent(q)}`);
+    const data = await adminActionRequest<LinkCandidate[]>(`/admin/identity/people?q=${encodeURIComponent(q)}`);
     return { ok: true, data };
   } catch (err) {
     return fail(err);
@@ -74,7 +74,7 @@ export async function linkDashboardLogin(
   help24UserId: string,
 ): Promise<ActionResult<LinkResult>> {
   try {
-    const data = await adminRequest<LinkResult>("/admin/identity/links", {
+    const data = await adminActionRequest<LinkResult>("/admin/identity/links", {
       method: "POST",
       body: JSON.stringify({ authSubject, help24UserId }),
     });
@@ -87,7 +87,7 @@ export async function linkDashboardLogin(
 
 export async function revokeInvite(id: string): Promise<ActionResult> {
   try {
-    await adminRequest(`/admin/invites/${id}`, { method: "DELETE" });
+    await adminActionRequest(`/admin/invites/${id}`, { method: "DELETE" });
     revalidatePath("/dashboard/users/admins");
     return { ok: true };
   } catch (err) {
@@ -100,7 +100,7 @@ export async function updateAdminRole(
   role: AdminRole,
 ): Promise<ActionResult> {
   try {
-    await adminRequest(`/admin/users/${id}/role`, {
+    await adminActionRequest(`/admin/users/${id}/role`, {
       method: "PATCH",
       body: JSON.stringify({ role }),
     });
@@ -113,7 +113,7 @@ export async function updateAdminRole(
 
 export async function deactivateAdmin(id: string): Promise<ActionResult> {
   try {
-    await adminRequest(`/admin/users/${id}`, { method: "DELETE" });
+    await adminActionRequest(`/admin/users/${id}`, { method: "DELETE" });
     revalidatePath("/dashboard/users/admins");
     return { ok: true };
   } catch (err) {

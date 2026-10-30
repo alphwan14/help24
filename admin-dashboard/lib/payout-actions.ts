@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ApiError, adminRequest } from "./api";
+import { ApiError } from "./api";
+import { adminActionRequest } from "./arbitration-session";
 
 export type ReconcileResult = { ok: boolean; message: string };
 
@@ -15,7 +16,7 @@ export type ReconcileResult = { ok: boolean; message: string };
  */
 export async function reconcilePayoutAction(postId: string): Promise<ReconcileResult> {
   try {
-    const res = await adminRequest<{ message?: string }>("/admin/reconcile-payout", {
+    const res = await adminActionRequest<{ message?: string }>("/admin/reconcile-payout", {
       method: "POST",
       body: JSON.stringify({ post_id: postId }),
     });

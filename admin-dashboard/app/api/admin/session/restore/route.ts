@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { ADMIN_TOKEN_COOKIE, ApiError, restoreAdminSession } from "@/lib/api";
+import { ApiError, restoreAdminSession } from "@/lib/api";
+import { storeArbitrationToken } from "@/lib/arbitration-session";
 import { getServerAccessToken } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
-
-const TWELVE_HOURS = 60 * 60 * 12;
 
 /**
  * POST /api/admin/session/restore
@@ -29,14 +27,7 @@ export async function POST() {
   try {
     const result = await restoreAdminSession(accessToken);
 
-    const store = await cookies();
-    store.set(ADMIN_TOKEN_COOKIE, result.token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: TWELVE_HOURS,
-    });
+    await storeArbitrationToken(result.token);
 
     return NextResponse.json({
       connected: true,

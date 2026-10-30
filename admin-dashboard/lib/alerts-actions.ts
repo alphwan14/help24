@@ -1,6 +1,7 @@
 "use server";
 
-import { ApiError, adminRequest } from "./api";
+import { ApiError } from "./api";
+import { adminActionRequest } from "./arbitration-session";
 import type { AdminAlert } from "./alerts";
 
 export type ReviewResult = { ok: boolean; error?: string; alert?: AdminAlert };
@@ -21,7 +22,7 @@ export async function reviewAlertAction(
     return { ok: false, error: "Say why it needs nothing more — at least 5 characters." };
   }
   try {
-    const alert = await adminRequest<AdminAlert>(`/admin/alerts/${encodeURIComponent(alertId)}/reviews`, {
+    const alert = await adminActionRequest<AdminAlert>(`/admin/alerts/${encodeURIComponent(alertId)}/reviews`, {
       method: "POST",
       body: JSON.stringify({ action, fingerprint, note: note?.trim() || undefined }),
     });

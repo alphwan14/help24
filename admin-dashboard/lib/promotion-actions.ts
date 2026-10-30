@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ApiError, adminRequest, type PromotionCampaignItem, type PromotionPackageItem } from "./api";
+import { adminActionRequest } from "./arbitration-session";
+import { ApiError, type PromotionCampaignItem, type PromotionPackageItem } from "./api";
 
 /**
  * Server Actions for Business Promotion WRITES (disputes-actions pattern):
@@ -28,7 +29,7 @@ function revalidateCampaign(id: string) {
 
 export async function approveCampaign(id: string): Promise<ActionResult<PromotionCampaignItem>> {
   try {
-    const data = await adminRequest<PromotionCampaignItem>(
+    const data = await adminActionRequest<PromotionCampaignItem>(
       `/admin/promotions/campaigns/${id}/approve`,
       { method: "POST" },
     );
@@ -44,7 +45,7 @@ export async function rejectCampaign(
   reason: string,
 ): Promise<ActionResult<PromotionCampaignItem>> {
   try {
-    const data = await adminRequest<PromotionCampaignItem>(
+    const data = await adminActionRequest<PromotionCampaignItem>(
       `/admin/promotions/campaigns/${id}/reject`,
       { method: "POST", body: JSON.stringify({ reason }) },
     );
@@ -57,7 +58,7 @@ export async function rejectCampaign(
 
 export async function pauseCampaign(id: string): Promise<ActionResult<PromotionCampaignItem>> {
   try {
-    const data = await adminRequest<PromotionCampaignItem>(
+    const data = await adminActionRequest<PromotionCampaignItem>(
       `/admin/promotions/campaigns/${id}/pause`,
       { method: "POST" },
     );
@@ -70,7 +71,7 @@ export async function pauseCampaign(id: string): Promise<ActionResult<PromotionC
 
 export async function resumeCampaign(id: string): Promise<ActionResult<PromotionCampaignItem>> {
   try {
-    const data = await adminRequest<PromotionCampaignItem>(
+    const data = await adminActionRequest<PromotionCampaignItem>(
       `/admin/promotions/campaigns/${id}/resume`,
       { method: "POST" },
     );
@@ -86,7 +87,7 @@ export async function cancelCampaign(
   reason: string,
 ): Promise<ActionResult<PromotionCampaignItem>> {
   try {
-    const data = await adminRequest<PromotionCampaignItem>(
+    const data = await adminActionRequest<PromotionCampaignItem>(
       `/admin/promotions/campaigns/${id}/cancel`,
       { method: "POST", body: JSON.stringify({ reason }) },
     );
@@ -102,7 +103,7 @@ export async function updatePackage(
   patch: Partial<Pick<PromotionPackageItem, "name" | "description" | "price_kes" | "duration_days" | "active">>,
 ): Promise<ActionResult<PromotionPackageItem>> {
   try {
-    const data = await adminRequest<PromotionPackageItem>(
+    const data = await adminActionRequest<PromotionPackageItem>(
       `/admin/promotions/packages/${id}`,
       { method: "PATCH", body: JSON.stringify(patch) },
     );

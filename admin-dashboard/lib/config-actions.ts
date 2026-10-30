@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ApiError, adminRequest } from "./api";
+import { ApiError } from "./api";
+import { adminActionRequest } from "./arbitration-session";
 import { CONTROL_KEYS, controlProblems, type ControlKey } from "./app-controls";
 import { getLatestRelease } from "./latest-release";
 
@@ -23,7 +24,7 @@ export async function saveAppControlAction(
   const problems = controlProblems(key, value, (await getLatestRelease())?.version ?? null);
   if (problems.length) return { ok: false, error: problems[0] };
   try {
-    const res = await adminRequest<{ recorded?: boolean }>(`/admin/config/${encodeURIComponent(key)}`, {
+    const res = await adminActionRequest<{ recorded?: boolean }>(`/admin/config/${encodeURIComponent(key)}`, {
       method: "PATCH",
       body: JSON.stringify({ value, reason: reason.trim() }),
     });

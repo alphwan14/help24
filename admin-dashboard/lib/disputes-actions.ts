@@ -5,9 +5,9 @@ import { revalidatePath } from "next/cache";
 import {
   ADMIN_TOKEN_COOKIE,
   ApiError,
-  adminRequest,
   getCurrentAdmin,
 } from "./api";
+import { adminActionRequest, storeArbitrationToken } from "./arbitration-session";
 
 /**
  * Server Actions for all dispute WRITES + admin-token session management.
@@ -17,8 +17,6 @@ import {
  * ({ ok, error? }) instead of throwing, so client components can render errors
  * inline. revalidatePath refreshes the affected Server Component after a write.
  */
-
-const TWELVE_HOURS = 60 * 60 * 12;
 
 export type ActionResult<T = undefined> = {
   ok: boolean;
@@ -46,14 +44,7 @@ export async function connectArbitration(
   const admin = await getCurrentAdmin(token);
   if (!admin) return { ok: false, error: "Invalid or inactive admin token." };
 
-  const store = await cookies();
-  store.set(ADMIN_TOKEN_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: TWELVE_HOURS,
-  });
+  await storeArbitrationToken(token);
 
   revalidatePath("/dashboard/disputes");
   return { ok: true, email: admin.email };
@@ -69,7 +60,7 @@ export async function disconnectArbitration(): Promise<void> {
 
 export async function assignDispute(id: string): Promise<ActionResult> {
   try {
-    await adminRequest(`/disputes/${id}/assign`, { method: "POST" });
+    await adminActionRequest(`/disputes/${id}/assign`, { method: "POST" });
     revalidatePath(`/dashboard/disputes/${id}`);
     return { ok: true };
   } catch (err) {
@@ -99,7 +90,7 @@ export async function decideDispute(
       body.client_refund_amount = input.clientRefundAmount;
     }
 
-    const data = await adminRequest<{ decision_id: string; message: string }>(
+    const data = await adminActionRequest<{ decision_id: string; message: string }>(
       `/disputes/${id}/decision`,
       { method: "POST", body: JSON.stringify(body) },
     );
@@ -121,7 +112,7 @@ export async function postDisputeMessage(
   const internal = String(formData.get("internal") ?? "") === "true";
   if (!message) return { ok: false, error: "Message cannot be empty." };
   try {
-    await adminRequest(`/disputes/${id}/message`, {
+    await adminActionRequest(`/disputes/${id}/message`, {
       method: "POST",
       body: JSON.stringify({ message, internal }),
     });
@@ -141,7 +132,7 @@ export async function requestDisputeEvidence(
   const msg = message.trim();
   if (!msg) return { ok: false, error: "Describe what evidence you need." };
   try {
-    await adminRequest(`/disputes/${id}/request-evidence`, {
+    await adminActionRequest(`/disputes/${id}/request-evidence`, {
       method: "POST",
       body: JSON.stringify({ from, message: msg }),
     });
@@ -159,7 +150,7 @@ export async function markEvidenceReviewed(
   evidenceId: string,
 ): Promise<ActionResult> {
   try {
-    await adminRequest(`/disputes/${id}/evidence/${evidenceId}/reviewed`, {
+    await adminActionRequest(`/disputes/${id}/evidence/${evidenceId}/reviewed`, {
       method: "PATCH",
     });
     revalidatePath(`/dashboard/disputes/${id}`);
@@ -191,7 +182,7 @@ export async function addDisputeEvidence(
   if (content) body.content = content;
 
   try {
-    await adminRequest(`/disputes/${id}/evidence`, {
+    await adminActionRequest(`/disputes/${id}/evidence`, {
       method: "POST",
       body: JSON.stringify(body),
     });
