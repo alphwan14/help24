@@ -316,9 +316,11 @@ few clean weeks.
 **13 — Custom domain (optional).** A paid add-on (US$10/month, paid plans only),
 one per project, project-wide (REST and storage answer on it too). CNAME
 `auth-admin.help24.co.ke` → `taohzhnvaitrpxcyjflq.supabase.co.` plus the
-`_acme-challenge` TXT Supabase issues. Without it the email's link shows the
-Supabase project host; the sender, wording and return address are Help24's
-regardless.
+`_acme-challenge` TXT Supabase issues. Not needed for the reset email: since
+2026-10-30 its link is `https://admin.help24.co.ke/auth/callback#…` (the token
+after the `#`, handed to Supabase by app/auth/continue), so the email never
+shows the project host. Without the add-on the host still appears for a moment
+in the address bar while the browser passes through Supabase's verify step.
 
 ### Safe production smoke test
 

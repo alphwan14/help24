@@ -5,13 +5,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { TEMPLATES, apiFields, manifest, render } from "../supabase-auth-emails/templates.mjs";
+import { RECOVERY_LINK, TEMPLATES, apiFields, manifest, render } from "../supabase-auth-emails/templates.mjs";
 
 // Line endings normalised: a Windows checkout (core.autocrlf) turns the committed LF into CRLF.
 const html = (key) =>
   readFileSync(new URL(`../supabase-auth-emails/html/${key}.html`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const LINK = "{{ .ConfirmationURL }}";
-const ALLOWED_VARIABLES = new Set(["ConfirmationURL", "Token", "Email", "NewEmail"]);
+const ALLOWED_VARIABLES = new Set(["ConfirmationURL", "Token", "Email", "NewEmail", "RedirectTo", "TokenHash"]);
 
 /** What a text-only mail client is left with. */
 const asText = (h) =>
@@ -23,8 +23,17 @@ test("the committed HTML is exactly what the source renders (run `npm run emails
   assert.deepEqual(committed, manifest());
 });
 
-test("links are Supabase's own one-time link — never a URL we assemble around a token", () => {
-  for (const t of TEMPLATES) {
+test("the reset link is Help24's own address, forwarded to Supabase — the email never names the provider", () => {
+  const h = html("recovery");
+  // The button, and the same link printed as text and as its own href.
+  assert.equal(h.split(RECOVERY_LINK).length - 1, 3);
+  // After the `#`: a browser never sends it to a server, so no Help24 log sees the token.
+  assert.equal(RECOVERY_LINK, "{{ .RedirectTo }}#{{ .TokenHash }}");
+  assert.ok(!h.includes(LINK), "recovery must not print Supabase's verify URL");
+});
+
+test("every other link is Supabase's own one-time link — never a URL we assemble around a token", () => {
+  for (const t of TEMPLATES.filter((x) => x.key !== "recovery")) {
     const h = html(t.key);
     const links = h.split(LINK).length - 1;
     if (t.code) {
@@ -89,7 +98,7 @@ test("still makes sense with the markup stripped — Supabase sends HTML only", 
   for (const t of TEMPLATES) {
     const text = asText(html(t.key));
     assert.ok(text.includes(t.heading), `${t.key} heading`);
-    if (t.action?.url === LINK) assert.ok(text.includes(LINK), `${t.key} prints its link as text`);
+    if (t.action?.url) assert.ok(text.includes(t.action.url), `${t.key} prints its link as text`);
     if (t.code) assert.ok(text.includes("{{ .Token }}"));
   }
 });

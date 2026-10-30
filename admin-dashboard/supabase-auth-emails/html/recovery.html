@@ -32,11 +32,11 @@
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 8px;">
                 <tr>
                   <td align="center" bgcolor="#12161A" style="border-radius:10px;">
-                    <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:14px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;line-height:20px;color:#FFFFFF;text-decoration:none;border-radius:10px;">Choose a new password</a>
+                    <a href="{{ .RedirectTo }}#{{ .TokenHash }}" target="_blank" style="display:inline-block;padding:14px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;line-height:20px;color:#FFFFFF;text-decoration:none;border-radius:10px;">Choose a new password</a>
                   </td>
                 </tr>
               </table>
-              <p style="margin:16px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:20px;color:#585F66;">Button not working? Copy this link into your browser:<br><a href="{{ .ConfirmationURL }}" target="_blank" style="color:#96620A;word-break:break-all;">{{ .ConfirmationURL }}</a></p>
+              <p style="margin:16px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:20px;color:#585F66;">Button not working? Copy this link into your browser:<br><a href="{{ .RedirectTo }}#{{ .TokenHash }}" target="_blank" style="color:#96620A;word-break:break-all;">{{ .RedirectTo }}#{{ .TokenHash }}</a></p>
               <p style="margin:24px 0 0;padding:14px 16px;background:#FBEFE6;border-radius:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:20px;color:#12161A;">Didn't ask for this? Ignore this email — your password stays as it is. If these keep arriving, tell us at support@help24.co.ke.</p>
               </td>
             </tr>

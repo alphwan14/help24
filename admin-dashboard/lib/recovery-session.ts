@@ -29,6 +29,9 @@
  */
 export const RECOVERY_CALLBACK_PATH = "/auth/callback";
 
+/** Where the email's link is read in the browser and handed to Supabase (app/auth/continue). */
+export const RECOVERY_CONTINUE_PATH = "/auth/continue";
+
 /** Where a recovery session goes to choose its new password. */
 export const RESET_PASSWORD_PATH = "/reset-password";
 

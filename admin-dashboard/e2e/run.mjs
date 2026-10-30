@@ -308,9 +308,9 @@ try {
   await waitFor(bodyHas("Change password"), "settings");
   await signOut();
   let mail = await requestReset(ALICE);
-  check("the reset email asks Supabase to return to the exact callback", mail && new URL(mail.link).searchParams.get("redirect_to") === CALLBACK, mail?.link.replace(/token=[^&]+/, "token=…"));
+  check("the reset email links to Help24's own callback, the token after the # (never sent to a server)", mail && mail.link.startsWith(`${CALLBACK}#pkce_`), mail?.link.replace(/#.*/, "#…"));
   check("the email is Help24's template, subject included", mail.subject === "Reset your Help24 admin password" && mail.html.includes("Reset your password") && !/supabase/i.test(mail.html.replaceAll(mail.link, "")));
-  check("the email's button and printed link are Supabase's verify link, not one we built", mail.html.split(mail.link).length - 1 === 3 && mail.link.startsWith(`${FAKE}/auth/v1/verify?token=pkce_`));
+  check("the email's button and printed link are Help24's, and the provider's address appears nowhere", mail.html.split(mail.link).length - 1 === 3 && !mail.html.includes(FAKE) && !mail.html.includes("/auth/v1/"));
   // Preview copy only: the logo from this checkout, so rendering it fetches nothing live.
   writeFileSync(join(ARTIFACTS, "reset-email.html"),
     mail.html.replaceAll("https://admin.help24.co.ke/help24.png", pathToFileURL(join(ADMIN, "public", "help24.png")).href));
@@ -318,7 +318,9 @@ try {
   const bobBeforeReset = fake.signInDirect(BOB, BOB_PW);
   await goto(mail.link);
   await waitFor(`${pathIs("/reset-password")} && ${bodyHas("Set a new password")}`, "reset form from the emailed link");
-  check("email link → Supabase verify → /auth/callback → reset form, code gone from the URL", await evaluate(`!location.search.includes('code')`));
+  check("email link → /auth/callback → /auth/continue → Supabase verify → /auth/callback → reset form, code gone from the URL", await evaluate(`!location.search.includes('code')`));
+  check("the browser handed the token to Supabase's verify",
+    fake.log.some((l) => l.path === "/auth/v1/verify"));
   await shot("4-reset-form.png");
   await fill(S.neu, ALICE_PW3);
   await fill(S.conf, ALICE_PW3 + "?");

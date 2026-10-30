@@ -16,9 +16,15 @@
  * reset production auth settings to the CLI's defaults.
  *
  * ── Rules every template keeps (asserted by lib/auth-emails.test.mjs) ───────
- *  - Links are Supabase's own `{{ .ConfirmationURL }}` — the one-time token is
- *    checked by Supabase, never by a URL we assemble. The reauthentication email
- *    carries `{{ .Token }}`, a code, and no link at all.
+ *  - The reset email's link is Help24's own address — `{{ .RedirectTo }}`, the
+ *    dashboard's /auth/callback — with `{{ .TokenHash }}` after the `#`. A
+ *    browser never sends the part after `#` to a server, so the token reaches
+ *    no Help24 server or log; app/auth/continue reads it in the browser and
+ *    hands it to Supabase's verify endpoint. Supabase still checks the token,
+ *    and the PKCE code it returns still needs this browser's verifier. The
+ *    email never shows the provider's address. The other links are Supabase's
+ *    own `{{ .ConfirmationURL }}` (none of them is sent today). The
+ *    reauthentication email carries `{{ .Token }}`, a code, and no link at all.
  *  - HTML only: Supabase's hosted mailer sends an HTML body with no plain-text
  *    part, so each template reads correctly with the markup stripped — the full
  *    link is printed as text under the button.
@@ -36,6 +42,8 @@ export const SUPPORT_EMAIL = "support@help24.co.ke";
 
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const LINK = "{{ .ConfirmationURL }}";
+/** Lands on app/auth/callback → app/auth/continue, which hands the token to Supabase's verify. */
+export const RECOVERY_LINK = "{{ .RedirectTo }}#{{ .TokenHash }}";
 
 /**
  * `key` matches Supabase's own naming, so the Management API fields are
@@ -52,7 +60,7 @@ export const TEMPLATES = [
       "Someone asked to reset the password for the Help24 admin account <strong>{{ .Email }}</strong>. If that was you, choose a new password below.",
       "For your security the link works once, expires soon, and only opens in the browser where you asked for it.",
     ],
-    action: { label: "Choose a new password", url: LINK },
+    action: { label: "Choose a new password", url: RECOVERY_LINK },
     notice: "Didn't ask for this? Ignore this email — your password stays as it is. If these keep arriving, tell us at " + SUPPORT_EMAIL + ".",
   },
   {

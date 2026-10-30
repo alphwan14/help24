@@ -207,13 +207,15 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
         const token = "pkce_" + randomUUID().replace(/-/g, "");
         const redirectTo = allowedRedirect(url.searchParams.get("redirect_to") ?? siteUrl);
         recoveries.set(token, { userId: u.id, challenge: body.code_challenge, redirectTo, sentAt: Date.now(), used: false });
-        const link = `${origin}/auth/v1/verify?token=${token}&type=recovery&redirect_to=${encodeURIComponent(redirectTo)}`;
+        // The template's link: Help24's callback carrying the token hash, as GoTrue
+        // fills {{ .RedirectTo }} and {{ .TokenHash }}. The callback forwards it to /verify.
+        const link = `${redirectTo}#${token}`;
         outbox.push({
           to: u.email,
           subject: recoverySubject,
           link,
           token,
-          html: recoveryTemplate.replaceAll("{{ .ConfirmationURL }}", link).replaceAll("{{ .Email }}", u.email),
+          html: recoveryTemplate.replaceAll("{{ .RedirectTo }}", redirectTo).replaceAll("{{ .TokenHash }}", token).replaceAll("{{ .Email }}", u.email),
         });
       }
       return send(200, {});
