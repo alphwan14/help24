@@ -21,7 +21,12 @@ export default async function PartnersPage() {
   for (const r of progress.data) byAgent.set(r.agent_id, [...(byAgent.get(r.agent_id) ?? []), r]);
   const canManage = admin?.role === "senior_admin" || admin?.role === "super_admin";
 
-  const rows = agents.data
+  // Paused agents are not agents for now: they leave the table and its count,
+  // and wait under a closed "Paused agents" line below it (Reactivate on the
+  // agent's page). The totals still include any members they brought in.
+  const active = agents.data.filter((a) => a.status === "active");
+  const paused = agents.data.filter((a) => a.status !== "active");
+  const rows = active
     .map((a) => ({ agent: a, s: summarise(byAgent.get(a.id) ?? [], now), last: byAgent.get(a.id)?.[0]?.claimed_at ?? null }))
     .sort((x, y) => y.s.qualified - x.s.qualified || y.s.credited - x.s.credited);
 
@@ -29,7 +34,7 @@ export default async function PartnersPage() {
     <div className="space-y-5" data-testid="admin-partners">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[13px] text-gray-500">
-          {agents.failed ? "Agents could not be read just now." : `${agents.data.length} ${agents.data.length === 1 ? "agent" : "agents"}`} ·
+          {agents.failed ? "Agents could not be read just now." : `${active.length} ${active.length === 1 ? "agent" : "agents"}`} ·
           members qualify on 2 days of use or a post or offer in their first 14 days.
         </p>
         {canManage && <CreateAgent />}
@@ -61,12 +66,11 @@ export default async function PartnersPage() {
               rows.map(({ agent: a, s, last }) => {
                 const decided = s.qualified + s.notQualified;
                 return (
-                  <tr key={a.id} className={a.status === "active" ? "" : "opacity-60"}>
+                  <tr key={a.id}>
                     <td className="px-4 py-2.5">
                       <Link href={`/dashboard/partners/${a.id}`} className="font-medium text-gray-900 hover:underline">{a.display_name}</Link>
                       <p className="text-[11.5px] text-gray-400">
                         {KIND_LABELS[a.kind] ?? a.kind}
-                        {a.status !== "active" && " · paused"}
                         {last && ` · last credit ${new Date(last).toLocaleDateString("en-KE", { day: "2-digit", month: "short", timeZone: "Africa/Nairobi" })}`}
                       </p>
                     </td>
@@ -83,6 +87,24 @@ export default async function PartnersPage() {
           </tbody>
         </table>
       </section>
+
+      {paused.length > 0 && (
+        <details className="text-[12px] text-gray-400" data-testid="paused-agents">
+          <summary className="cursor-pointer select-none hover:text-gray-600">Paused agents ({paused.length})</summary>
+          <ul className="mt-2 divide-y divide-gray-100 rounded-lg border border-gray-100">
+            {paused.map((a) => (
+              <li key={a.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                <span className="min-w-0 truncate text-gray-500">
+                  {a.display_name} · {KIND_LABELS[a.kind] ?? a.kind} · <span className="font-mono">{a.code}</span>
+                </span>
+                <Link href={`/dashboard/partners/${a.id}`} className="shrink-0 font-semibold text-gray-600 hover:text-gray-900 hover:underline">
+                  Open
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
         <WeeklyBars weeks={weeklyCounts(progress.data, 8, now)} />

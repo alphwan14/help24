@@ -639,6 +639,13 @@ try {
     await clickText("Sign in");
     await waitFor(bodyHas("partner account is paused"), "paused agent refused", 15000);
     check("a paused agent can no longer sign in", true);
+    await goto(`${APP}/dashboard/partners`);
+    await waitFor(`!!document.querySelector('[data-testid="admin-partners"]')`, "admin partners after pause");
+    check("a paused agent leaves the Agents table and its count, and waits under a closed Paused agents line",
+      await evaluate(`!document.querySelector('section[aria-label="Agents"]').innerText.includes("Wanjiru Agent")
+        && !!document.querySelector('[data-testid="paused-agents"]:not([open])')
+        && document.querySelector('[data-testid="paused-agents"]').textContent.includes("Wanjiru Agent")
+        && document.querySelector('[data-testid="admin-partners"] p').textContent.startsWith("0 agents")`));
   }
 
   /* ════════════════════════════════════════════════════════════════════ */
