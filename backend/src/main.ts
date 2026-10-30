@@ -35,6 +35,9 @@ async function bootstrap(): Promise<void> {
   // req.ip the real client via X-Forwarded-For.
   app.set('trust proxy', 1);
 
+  // No `X-Powered-By: Express` on every response: the stack is nobody's business.
+  app.disable('x-powered-by');
+
   // CORS is environment-driven: set CORS_ORIGINS to a comma-separated allowlist
   // in production (e.g. https://help24-admin-dashboard.vercel.app). Unset → allow all (dev).
   const corsOrigins = process.env.CORS_ORIGINS?.split(',')

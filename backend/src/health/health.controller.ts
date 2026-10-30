@@ -1,7 +1,8 @@
-import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { RateLimit, SkipRateLimit } from '../common/rate-limit/rate-limit.decorator';
-import { Public } from '../common/auth/auth.decorator';
+import { AdminAuth, Public } from '../common/auth/auth.decorator';
+import { AdminAuthGuard } from '../admin/auth/admin-auth.guard';
 import { RequestContextStore } from '../common/request-context/request-context';
 import { HealthService } from './health.service';
 import { DependencyHealth, DependencyStatus } from './health.types';
@@ -31,6 +32,14 @@ import { DependencyHealth, DependencyStatus } from './health.types';
  * which DO return 503 — because their audience is a monitor and a human, not
  * a supervisor with a restart button.
  *
+ * WHAT THE PUBLIC SEES (2026-10-30)
+ * ---------------------------------
+ * /health and / are public and say only ok/degraded. Which dependencies the
+ * service has, how long it has been up and what a probe found are Help24's
+ * business, not the internet's: that detail (/health/detail) and the three
+ * deep probes need a signed-in admin. Nothing polls them unattended —
+ * Docker, Render and the app read only the status code of /health.
+ *
  * BACKWARDS COMPATIBILITY
  * -----------------------
  * The previous response was `{ status: 'ok', service: 'help24-backend',
@@ -39,14 +48,12 @@ import { DependencyHealth, DependencyStatus } from './health.types';
  * consumers — the Docker HEALTHCHECK and the app's ConnectivityProvider, which
  * only checks for HTTP 200 — are unaffected.
  */
-// A health check that requires credentials is not a health check. These are
-// polled by Docker's HEALTHCHECK, by Render, by uptime monitors and — for the
-// liveness route — by every device in the field as its connectivity probe, none
-// of which hold a Firebase token. Requiring one would make the orchestrator
-// unable to tell a healthy process from an unhealthy one, which is a far larger
-// operational risk than the (masked, dependency-status-only) information here.
+// A liveness check that requires credentials is not a liveness check: /health
+// is polled by Docker's HEALTHCHECK, by Render and by every device in the field
+// as its connectivity probe, none of which hold a token. So it stays public —
+// and says nothing beyond ok/degraded. Everything deeper needs an admin.
 @Controller('health')
-@Public('Liveness and dependency probes for orchestrators, monitors and the app connectivity check.')
+@Public('Liveness for orchestrators and the app connectivity check: ok/degraded only.')
 export class HealthController {
   constructor(private readonly health: HealthService) {}
 
@@ -72,14 +79,25 @@ export class HealthController {
       status: worstOf(dependencies) === 'healthy' ? 'ok' : 'degraded',
       service: 'help24-backend',
       timestamp: new Date().toISOString(),
+    };
+  }
 
-      // ── Added, never removed ────────────────────────────────────────────
+  /**
+   * What /health used to add for everyone: per-dependency status, uptime and
+   * the snapshot's age (a stale one means the background refresh stopped —
+   * a "this process is unwell" signal no probe would reveal). Admins only.
+   */
+  @Get('detail')
+  @RateLimit('health:deep')
+  @UseGuards(AdminAuthGuard)
+  @AdminAuth()
+  detail() {
+    const { dependencies, snapshotAt } = this.health.getSnapshot();
+    return {
+      status: worstOf(dependencies) === 'healthy' ? 'ok' : 'degraded',
       uptimeSeconds: this.health.uptimeSeconds,
       requestId: RequestContextStore.requestId(),
       dependencies: summarize(dependencies),
-      // The snapshot's age. A stale value here means the background refresh
-      // has stopped ticking — a genuine "this process is unwell" signal that
-      // no dependency probe would reveal.
       dependenciesCheckedAt: snapshotAt,
     };
   }
@@ -92,6 +110,8 @@ export class HealthController {
    */
   @Get('database')
   @RateLimit('health:deep')
+  @UseGuards(AdminAuthGuard)
+  @AdminAuth()
   async database(@Res({ passthrough: true }) res: Response) {
     return respond(res, await this.health.checkDatabase());
   }
@@ -99,6 +119,8 @@ export class HealthController {
   /** Live probe: PING. */
   @Get('redis')
   @RateLimit('health:deep')
+  @UseGuards(AdminAuthGuard)
+  @AdminAuth()
   async redis(@Res({ passthrough: true }) res: Response) {
     return respond(res, await this.health.checkRedis());
   }
@@ -106,6 +128,8 @@ export class HealthController {
   /** Live probe: the service-account credential mints an access token. */
   @Get('firebase')
   @RateLimit('health:deep')
+  @UseGuards(AdminAuthGuard)
+  @AdminAuth()
   async firebase(@Res({ passthrough: true }) res: Response) {
     return respond(res, await this.health.checkFirebase());
   }

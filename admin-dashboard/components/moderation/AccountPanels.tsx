@@ -46,8 +46,8 @@ export function AccountHeader({ summary, compact = false }: { summary: AccountSu
           {u.email && signIn && <span className={signIn.email_verified ? "text-positive-700" : "text-gray-400"}>{signIn.email_verified ? " · verified" : " · unverified"}</span>}
         </Fact>
         {signIn?.disabled && (
-          <Fact label="Firebase">
-            <span className="text-critical-700 font-semibold">Sign-in disabled in Firebase</span>
+          <Fact label="Sign-in">
+            <span className="text-critical-700 font-semibold">Disabled — this member cannot sign in</span>
           </Fact>
         )}
       </dl>

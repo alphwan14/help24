@@ -288,15 +288,12 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         ))}
       </nav>
 
-      {/* Surface any DB errors visibly instead of silently showing empty table */}
+      {/* A failed read is said out loud, never shown as an empty table. The
+          provider's own message goes to the server log, not the screen. */}
       {usersError && (
         <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-          <p className="font-semibold mb-1">Query error — check server logs</p>
-          <code className="text-xs">{usersError}</code>
-          <p className="mt-2 text-xs text-red-500">
-            Common cause: a column referenced in the query does not exist yet.
-            Run the latest Supabase migrations.
-          </p>
+          <p className="font-semibold">Couldn&apos;t load members right now.</p>
+          <p className="mt-1 text-xs text-red-500">Reload to try again. If it keeps happening, the details are in the server log.</p>
         </div>
       )}
 

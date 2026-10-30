@@ -1,7 +1,8 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { EventProcessorService } from './event-processor.service';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
-import { Public } from '../common/auth/auth.decorator';
+import { AdminAuth } from '../common/auth/auth.decorator';
+import { AdminAuthGuard } from '../admin/auth/admin-auth.guard';
 
 /**
  * GET /health/events
@@ -23,10 +24,12 @@ import { Public } from '../common/auth/auth.decorator';
  * Use deadLetterCount>0 as the "events need manual replay" signal.
  */
 // Counters only — queue depth and tick timestamps, never an event's contents.
-// It sits under /health rather than /admin precisely so a monitor can poll it.
+// Still internal — how Help24 processes events is not the public's to read —
+// so it needs a signed-in admin (2026-10-30).
 @Controller('health/events')
 @RateLimit('health:deep')
-@Public('Processor liveness counters for monitoring. Exposes queue depth and timestamps, never event payloads.')
+@UseGuards(AdminAuthGuard)
+@AdminAuth()
 export class EventsHealthController {
   constructor(private readonly processor: EventProcessorService) {}
 

@@ -88,7 +88,7 @@ export default async function AuditPage({ searchParams }: PageProps) {
         </label>
         <label className="block">
           <span className="text-[11px] font-semibold text-gray-500">Account id</span>
-          <input name="user_id" defaultValue={query.user_id ?? ""} className="input mt-1 font-mono" placeholder="Firebase UID" maxLength={128} />
+          <input name="user_id" defaultValue={query.user_id ?? ""} className="input mt-1 font-mono" placeholder="Member ID" maxLength={128} />
         </label>
         <label className="block">
           <span className="text-[11px] font-semibold text-gray-500">Reference</span>

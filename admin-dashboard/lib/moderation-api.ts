@@ -303,7 +303,7 @@ export async function settle<T>(promise: Promise<T>): Promise<Settled<T>> {
         err.status === 403
           ? "Your admin role cannot see this."
           : err.status === 503 || err.status >= 500
-            ? `${err.message} The Trust & Safety service may still be starting, or its database migrations are not applied yet.`
+            ? `${err.message} Trust & Safety may still be starting — try again in a minute.`
             : err.message;
       return { ok: false, status: err.status, error: hint };
     }

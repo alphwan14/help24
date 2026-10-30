@@ -177,7 +177,7 @@ export class DarajaService {
     this.logger.log(`[Daraja] STK response: ${JSON.stringify(data)}`);
 
     if (data.ResponseCode !== '0') {
-      throw new Error(`STK push rejected by Daraja: ${data.ResponseDescription}`);
+      throw new Error(`M-Pesa could not start the payment: ${data.ResponseDescription}`);
     }
 
     return {
@@ -230,7 +230,7 @@ export class DarajaService {
     this.logger.log(`[PAYOUT][DARAJA_RESPONSE] raw: ${JSON.stringify(data)}`);
 
     if (data.ResponseCode !== '0') {
-      throw new Error(`B2C payout rejected by Daraja: ${data.ResponseDescription}`);
+      throw new Error(`M-Pesa refused the payout: ${data.ResponseDescription}`);
     }
 
     this.logger.log(
@@ -309,7 +309,7 @@ export class DarajaService {
 
     if (data.ResponseCode !== '0') {
       throw new Error(
-        `Transaction Status Query rejected by Daraja: ${data.ResponseDescription as string}`,
+        `M-Pesa refused the status check: ${data.ResponseDescription as string}`,
       );
     }
 

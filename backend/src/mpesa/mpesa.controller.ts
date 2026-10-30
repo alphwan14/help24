@@ -167,16 +167,17 @@ export class MpesaController {
 
   /**
    * Health/config check — shows what environment this instance is running with.
-   * Secrets are masked. Use this to verify production Render env vars are correct.
+   * Secrets are masked. Use this to verify the production environment is correct.
    * GET /mpesa/health
    */
   @Get('health')
   @HttpCode(HttpStatus.OK)
   @RateLimit('health:deep')
-  // Configuration echo with every secret masked. Its audience is an operator
-  // diagnosing a misrouted Daraja callback, often before any account exists on
-  // the instance being checked.
-  @Public('Deployment configuration check. All secrets are masked in the response.')
+  // Configuration echo with every secret masked, for an operator diagnosing a
+  // misrouted Daraja callback. Admins only: callback hosts and the environment
+  // are internal (2026-10-30).
+  @UseGuards(AdminAuthGuard)
+  @AdminAuth()
   health() {
     const env         = this.config.get<string>('MPESA_ENV', 'MISSING');
     const shortcode   = this.config.get<string>('MPESA_SHORTCODE', 'MISSING');
@@ -200,7 +201,7 @@ export class MpesaController {
       callback_ok:    callbackOk,
       callback_warning: callbackOk ? null :
         'MPESA_CALLBACK_URL appears to be a local/tunnel URL. ' +
-        'Set it to https://help24-backend.onrender.com/mpesa/stk-callback in Render env vars.',
+        'Set it to the production API origin + /mpesa/stk-callback in the service environment.',
       b2c_result_url: b2cResultUrl,
       consumer_key:   mask(consumerKey),
       note: 'callback_ok=false means Daraja callbacks go to the wrong server — ' +

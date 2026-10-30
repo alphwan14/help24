@@ -123,7 +123,7 @@ export default function ControlsClient({
           setNotice(
             recorded
               ? { tone: "ok", text: "Saved, and added to the change history below." }
-              : { tone: "warn", text: "Saved — but it could not be added to the change history (migration 125 is not applied yet)." },
+              : { tone: "warn", text: "Saved — but it could not be added to the change history yet." },
           );
           setPending(null);
         }}

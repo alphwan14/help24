@@ -35,6 +35,6 @@ export async function saveAppControlAction(
       if (err.status === 403) return { ok: false, error: "Changing app controls needs a Senior Admin." };
       return { ok: false, error: err.message };
     }
-    return { ok: false, error: "Could not reach the backend. Nothing was changed." };
+    return { ok: false, error: "Can't reach Help24 right now. Nothing was changed." };
   }
 }

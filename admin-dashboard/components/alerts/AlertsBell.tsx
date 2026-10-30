@@ -220,7 +220,7 @@ function AlertsPanel({ placement, onClose }: { placement: "rail" | "topbar"; onC
         {unavailable.length > 0 && (
           <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 text-[11.5px] text-gray-500">
             Couldn&apos;t check: {unavailable.map((u) => SOURCE_LABELS[u.source] ?? u.source).join(", ")}.
-            {unavailable.some((u) => u.source === "reports") && " (Reports need the Trust & Safety migrations.)"}
+            {unavailable.some((u) => u.source === "reports") && " (Reports aren't available yet.)"}
           </div>
         )}
       </div>

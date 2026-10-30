@@ -73,7 +73,7 @@ export async function adminRequest<T>(
   init?: RequestInit & { token?: string },
 ): Promise<T> {
   const token = init?.token ?? (await getAdminToken());
-  if (!token) throw new ApiError(401, "Not connected to the arbitration backend.");
+  if (!token) throw new ApiError(401, "Your console session needs refreshing. Reload the page.");
 
   // One line per backend call, correlated with the backend's own access log
   // by x-request-id (it adopts a valid inbound id). Method, path WITHOUT its
@@ -99,7 +99,7 @@ export async function adminRequest<T>(
     });
   } catch {
     logCall("unreachable");
-    throw new ApiError(503, "Cannot reach the arbitration backend.");
+    throw new ApiError(503, "Can't reach Help24 right now. Please try again.");
   }
 
   const text = await res.text();
@@ -132,7 +132,7 @@ export async function publicRequest<T>(
       cache: "no-store",
     });
   } catch {
-    throw new ApiError(503, "Cannot reach the arbitration backend.");
+    throw new ApiError(503, "Can't reach Help24 right now. Please try again.");
   }
 
   const text = await res.text();

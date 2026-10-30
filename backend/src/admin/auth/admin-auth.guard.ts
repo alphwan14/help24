@@ -51,7 +51,7 @@ export class AdminAuthGuard implements CanActivate {
       switch (result.reason) {
         case 'db_error':
           throw new ServiceUnavailableException(
-            'Admin auth backend error — token could not be verified. Check server logs.',
+            'Admin access could not be checked right now. Please try again.',
           );
         case 'inactive':
           throw new UnauthorizedException('This admin account is inactive.');

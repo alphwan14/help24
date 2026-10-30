@@ -22,6 +22,6 @@ export async function notifyProvidersAction(postId: string, providerIds: string[
     return { ok: true, ...res };
   } catch (err) {
     if (err instanceof ApiError) return { ok: false, error: err.message };
-    return { ok: false, error: "Could not reach the backend. Nobody was notified." };
+    return { ok: false, error: "Can't reach Help24 right now. Nobody was notified." };
   }
 }
