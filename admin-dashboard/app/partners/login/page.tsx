@@ -1,6 +1,5 @@
 import AuthShell from "@/components/auth/AuthShell";
-import { PartnerPreview } from "@/components/auth/ConsolePreviews";
-import { PARTNER_HELP } from "@/lib/auth-audiences";
+import { SIGN_IN_HELP } from "@/lib/auth-audiences";
 import LoginForm from "./LoginForm";
 
 const REASONS: Record<string, string> = {
@@ -14,8 +13,8 @@ export default async function PartnerLoginPage({ searchParams }: { searchParams:
   return (
     <AuthShell
       product="Help24 Partners"
-      preview={<PartnerPreview />}
-      help={PARTNER_HELP}
+      notice="Partner access is by invitation"
+      help={SIGN_IN_HELP}
       title="Sign in"
       below={<p>New, or forgot your password? Open the latest invitation Help24 sent you.</p>}
     >

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import AuthShell from "@/components/auth/AuthShell";
-import { PartnerPreview } from "@/components/auth/ConsolePreviews";
-import { PARTNER_HELP } from "@/lib/auth-audiences";
+import { SIGN_IN_HELP } from "@/lib/auth-audiences";
 import { hashInviteToken } from "@/lib/partners/rules";
 import { createServiceClient } from "@/lib/supabase-server";
 import AcceptForm from "./AcceptForm";
@@ -22,8 +21,8 @@ export default async function PartnerAcceptPage({ searchParams }: { searchParams
     return (
       <AuthShell
         product="Help24 Partners"
-        preview={<PartnerPreview />}
-        help={PARTNER_HELP}
+        notice="Partner access is by invitation"
+        help={SIGN_IN_HELP}
         title="This invitation can't be used"
         subtitle="It has expired, was already used, or the link is incomplete. Ask Help24 for a new invitation."
       >
@@ -37,12 +36,12 @@ export default async function PartnerAcceptPage({ searchParams }: { searchParams
   return (
     <AuthShell
       product="Help24 Partners"
-      preview={<PartnerPreview />}
-      help={PARTNER_HELP}
-      title={`Welcome to Help24 Partners, ${preview.name?.split(/\s+/)[0] ?? "partner"}`}
+      notice="Partner access is by invitation"
+      help={SIGN_IN_HELP}
+      title={`Welcome, ${preview.name?.split(/\s+/)[0] ?? "partner"}`}
       subtitle={
         <>
-          Choose a password to finish setting up your account. You&apos;ll sign in with{" "}
+          Set a password for your Help24 Partners account. You&apos;ll sign in with{" "}
           <strong className="font-semibold text-gray-800">{preview.email}</strong>.
         </>
       }

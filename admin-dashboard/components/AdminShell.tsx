@@ -10,6 +10,7 @@ import {
 import { clearArbitrationToken } from "@/lib/admin-actions";
 import Sidebar from "@/components/Sidebar";
 import AlertsProvider from "@/components/alerts/AlertsProvider";
+import ConsolePresence from "@/components/ConsolePresence";
 import ConnectAccess from "@/app/dashboard/disputes/ConnectAccess";
 
 type Status = "checking" | "ready" | "recovery";
@@ -110,6 +111,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         </div>
       </main>
 
+      {/* Who is in the console now — Admin Roles reads it (migration 132). */}
+      <ConsolePresence enabled={status === "ready"} />
       {status === "checking" && <Splash />}
       {status === "recovery" && <RecoveryOverlay />}
     </div>

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { AdminRole, AdminUser, LinkCandidate, PendingInvite } from "@/lib/api";
 import PersonPicker from "@/components/PersonPicker";
+import { ACTIVITY_LABELS, ACTIVITY_MEANING, ACTIVITY_STYLES, activityState, agoLabel, lastActiveAt } from "@/lib/activity";
 import {
   sendInvite,
   revokeInvite,
@@ -33,12 +34,15 @@ export default function AdminsManager({
   currentAdminRole,
   admins,
   invites,
+  presence,
 }: {
   currentAdminId: string;
   currentAdminEmail: string;
   currentAdminRole: AdminRole;
   admins: AdminUser[];
   invites: PendingInvite[];
+  /** Last console heartbeat per admin id (migration 132); null = not recorded yet. */
+  presence: Record<string, string | null> | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -262,8 +266,8 @@ export default function AdminsManager({
               <tr className="border-b border-gray-100 bg-gray-50/80 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
                 <th className="px-4 py-3">Admin</th>
                 <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Last active</th>
+                <th className="px-4 py-3">Account</th>
+                <th className="px-4 py-3">Activity</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -300,7 +304,9 @@ export default function AdminsManager({
                         <span className="badge bg-gray-100 text-gray-500">disabled</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-500">{fmtDate(a.last_login_at)}</td>
+                    <td className="px-4 py-3">
+                      <ConsoleActivity seenAt={presence ? (presence[a.id] ?? null) : undefined} signedInAt={a.last_login_at} />
+                    </td>
                     <td className="px-4 py-3 text-right">
                       {a.active && !isSelf && (
                         <button
@@ -320,5 +326,27 @@ export default function AdminsManager({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Whether an admin is using the console — the same states as a member's
+ * activity (lib/activity.ts), read from the console heartbeat (migration 132)
+ * and, for older visits, the last time they connected.
+ * `seenAt` undefined = presence is not recorded yet (before 132).
+ */
+function ConsoleActivity({ seenAt, signedInAt }: { seenAt: string | null | undefined; signedInAt: string | null }) {
+  if (seenAt === undefined && !signedInAt) return <span className="text-xs text-gray-400">Not recorded yet</span>;
+  const now = Date.now();
+  const input = { is_online: true, last_seen: seenAt ?? null, last_login: signedInAt };
+  const state = activityState(input, now);
+  const label = state === "online" ? "In the console now" : state === "never" ? "Never signed in" : ACTIVITY_LABELS[state];
+  return (
+    <span className="inline-flex flex-col gap-0.5" title={state === "online" ? "Has the console open right now" : ACTIVITY_MEANING[state]}>
+      <span className={`badge ${ACTIVITY_STYLES[state]} whitespace-nowrap`}>{label}</span>
+      {state !== "online" && state !== "never" && (
+        <span className="text-[11px] text-gray-400 tabular-nums">{agoLabel(lastActiveAt(input), now)}</span>
+      )}
+    </span>
   );
 }

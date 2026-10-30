@@ -308,6 +308,13 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     }
 
     // ── PostgREST (service role) ────────────────────────────────────────────
+    // The console heartbeat (migration 132): PATCH admin_users ... ilike email.
+    if (req.method === "PATCH" && p === "/rest/v1/admin_users") {
+      const email = (url.searchParams.get("email") ?? "").replace(/^ilike./, "").toLowerCase();
+      const a = admins.get(email);
+      if (a && body.last_seen_at) a.lastSeen = body.last_seen_at;
+      return send(204);
+    }
     if (req.method === "GET" && p.startsWith("/rest/v1/")) {
       const table = p.slice("/rest/v1/".length);
       const eq = (k) => url.searchParams.get(k)?.replace(/^eq\./, "");
@@ -325,6 +332,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
           : []);
       }
       if (table === "app_settings_history") return send(200, [...configHistory].reverse());
+      if (table === "admin_users") return send(200, [...admins.values()].map((a) => ({ id: a.id, last_seen_at: a.lastSeen ?? null })));
       if (table === "partner_logins") {
         const sub = eq("auth_subject"), aid = eq("agent_id");
         const rows = [...partnerLogins].filter(([s2, a]) => (sub ? s2 === sub : true) && (aid ? a === aid : true));

@@ -198,6 +198,14 @@ try {
   await goto(`${APP}/dashboard/users/admins`);
   await waitFor(bodyHas("Invite an admin"), "Admin Roles page");
   check("existing route /dashboard/users/admins still renders for a super_admin", true);
+  // The console heartbeat has had a chance to land; a reload reads it back.
+  for (let i = 0; i < 20 && !fake.admins.get(ALICE).lastSeen; i++) await sleep(250);
+  await goto(`${APP}/dashboard/users/admins`);
+  await waitFor(bodyHas("Invite an admin"), "Admin Roles page again");
+  check("Admin Roles: the console heartbeat marks this admin as in the console now",
+    !!fake.admins.get(ALICE).lastSeen && (await evaluate(`[...document.querySelectorAll("tr")].some(r => r.innerText.includes(${JSON.stringify(ALICE)}) && r.innerText.includes("In the console now"))`)));
+  check("Admin Roles: Account and Activity are separate columns",
+    await evaluate(`[...document.querySelectorAll("thead")].some((t) => /activity/i.test(t.textContent) && /account/i.test(t.textContent))`));
   await click('nav a[href="/dashboard/settings"]');
   await waitFor(`${pathIs("/dashboard/settings")} && ${bodyHas("Change password")}`, "Settings via sidebar");
   check("sidebar Settings entry navigates to /dashboard/settings", true);
@@ -492,7 +500,7 @@ try {
 
     await click(`${F} button[aria-label="Payments"]`);
     await waitFor(`!document.querySelector('${F} .btn-primary').disabled`, "review enabled");
-    check("nothing is sent by flipping a switch", !fake.log.some((l) => l.method === "PATCH"));
+    check("nothing is sent by flipping a switch", !fake.log.some((l) => l.method === "PATCH" && l.path.startsWith("/admin/config")));
     await click(`${F} .btn-primary`);
     await waitFor(`!!document.querySelector('[role="dialog"]')`, "confirm dialog");
     const dialog = await evaluate(`document.querySelector('[role="dialog"]').innerText`);
@@ -503,7 +511,7 @@ try {
     await shot("8-app-controls-confirm.png");
     await clickText("Confirm change");
     await waitFor(`!document.querySelector('[role="dialog"]') && ${bodyHas("1 off")}`, "saved", 15000);
-    const write = fake.log.filter((l) => l.method === "PATCH").at(-1);
+    const write = fake.log.filter((l) => l.method === "PATCH" && l.path.startsWith("/admin/config")).at(-1);
     const sent = JSON.parse(write?.body || "{}");
     check("one PATCH /admin/config/ops.kill_switches with the value and the reason",
       write?.path === "/admin/config/ops.kill_switches" && sent.value?.payments === false && sent.reason === "M-Pesa callbacks failing", write?.body);
@@ -517,7 +525,7 @@ try {
     await fill('input[name="hard"]', "1.0.6");
     check("a required version above the suggested one is refused before review",
       await evaluate(`${bodyHas("cannot be higher than the suggested one")} && document.querySelector('section[aria-label="App version"] .btn-primary').disabled`));
-    check("no other write went out", fake.log.filter((l) => l.method === "PATCH").length === 1);
+    check("no other write went out", fake.log.filter((l) => l.method === "PATCH" && l.path.startsWith("/admin/config")).length === 1);
   }
 
   /* ════════════════════════════════════════════════════════════════════ */
@@ -557,7 +565,7 @@ try {
       await evaluate(`${bodyHas("What Wanjiru Agent sees in the partner portal")}`));
 
     await goto(inviteUrl);
-    await waitFor(bodyHas("Welcome to Help24 Partners, Wanjiru"), "invitation page");
+    await waitFor(bodyHas("Welcome, Wanjiru"), "invitation page");
     await fill('input[name="password"]', AGENT_PW);
     await fill('input[name="confirm"]', AGENT_PW);
     await clickText("Create my partner account");
