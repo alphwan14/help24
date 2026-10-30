@@ -22,6 +22,18 @@ import { ADMIN_ROLES, AdminContext, AdminRole } from './admin-role';
  */
 const RETIRED_BOOTSTRAP_TOKEN = 'help24-super-admin-CHANGE-ME';
 
+/**
+ * Lifetime of a console key in admin_sessions (migration 133) — the same as
+ * the dashboard's h24_admin_token cookie, which renews it from the Supabase
+ * session.
+ */
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
+/** PostgREST / Postgres "no such table": admin_sessions before 133 is applied. */
+function isMissingTable(error: { code?: string }): boolean {
+  return error.code === 'PGRST205' || error.code === '42P01';
+}
+
 // =============================================================================
 // RULE — IDENTITY STANDARDIZATION (applies to this whole auth module)
 //   Supabase Auth (auth.users.id, UUID) = ONLY valid identity for authentication
@@ -187,11 +199,23 @@ export class AdminAuthService implements OnModuleInit {
       );
     }
 
-    const { data, error } = await this.supabase.client
+    // A per-sign-in key (migration 133) — what every restore issues — names
+    // its admin; otherwise the token may be the admin row's own key (an
+    // invite just accepted, or the backend before 133). Either way the admin
+    // row below is read fresh, so active and role are never taken from a key.
+    const session = await this.findSession(tokenHash);
+    if (session.error) {
+      this.logger.error(`[ADMIN_AUTH] session lookup FAILED: ${session.error}`);
+      return { ok: false, reason: 'db_error', detail: session.error };
+    }
+
+    const lookup = this.supabase.client
       .from('admin_users')
-      .select('id, email, name, role, active')
-      .eq('token_hash', tokenHash)
-      .maybeSingle();
+      .select('id, email, name, role, active');
+    const { data, error } = await (session.adminId
+      ? lookup.eq('id', session.adminId)
+      : lookup.eq('token_hash', tokenHash)
+    ).maybeSingle();
 
     if (error) {
       // e.g. code 42703 = undefined_column (schema drift), PGRST = cache stale.
@@ -238,6 +262,50 @@ export class AdminAuthService implements OnModuleInit {
         role: data.role as AdminRole,
       },
     };
+  }
+
+  /**
+   * The admin a live per-sign-in key belongs to. An unknown or expired key —
+   * or no admin_sessions table yet — is simply no match; only a failed
+   * lookup is an error.
+   */
+  private async findSession(tokenHash: string): Promise<{ adminId?: string; error?: string }> {
+    const { data, error } = await this.supabase.client
+      .from('admin_sessions')
+      .select('admin_id, expires_at')
+      .eq('token_hash', tokenHash)
+      .maybeSingle();
+    if (error) return isMissingTable(error) ? {} : { error: error.message };
+    if (!data || new Date(data.expires_at as string).getTime() <= Date.now()) return {};
+    return { adminId: data.admin_id as string };
+  }
+
+  /**
+   * Record a new console key for this admin, beside any other device's.
+   * False when admin_sessions does not exist yet (before migration 133): the
+   * caller then falls back to the admin row's single key.
+   */
+  private async issueSession(adminId: string, tokenHash: string): Promise<boolean> {
+    const now = Date.now();
+    const { error } = await this.supabase.client.from('admin_sessions').insert({
+      token_hash: tokenHash,
+      admin_id: adminId,
+      expires_at: new Date(now + SESSION_TTL_MS).toISOString(),
+    });
+    if (error) {
+      if (isMissingTable(error)) return false;
+      throw new Error(error.message);
+    }
+    // Housekeeping, best effort: an expired key can never authenticate.
+    this.supabase.client
+      .from('admin_sessions')
+      .delete()
+      .lt('expires_at', new Date(now).toISOString())
+      .then(
+        () => undefined,
+        () => undefined,
+      );
+    return true;
   }
 
   /** Back-compat convenience: AdminContext or null (loses the failure reason). */
@@ -368,8 +436,12 @@ export class AdminAuthService implements OnModuleInit {
    * equivalent to a fresh login, so no token/password is required here.
    *
    * Only the token HASH is stored, so the previous plaintext cannot be handed
-   * back — a new token is minted and the hash rotated. Does NOT create a row:
-   * a missing/inactive admin is a recovery case, surfaced as a typed reason.
+   * back — a new token is minted. Since migration 133 it is a key of its own
+   * in admin_sessions, so the keys this admin's other devices hold keep
+   * working; the admin row's single key is retired (nobody should be holding
+   * it once restores issue sessions). Before 133 the row's key is rotated, as
+   * it always was. Does NOT create a row: a missing/inactive admin is a
+   * recovery case, surfaced as a typed reason.
    */
   async reissueTokenForAdmin(email: string): Promise<{
     ok: boolean;
@@ -393,10 +465,16 @@ export class AdminAuthService implements OnModuleInit {
 
     const token = AdminAuthService.generateToken();
     const tokenHash = AdminAuthService.hashToken(token);
+    const issued = await this.issueSession(data.id as string, tokenHash);
 
     const { error } = await this.supabase.client
       .from('admin_users')
-      .update({ token_hash: tokenHash, last_login_at: new Date().toISOString() })
+      .update({
+        token_hash: issued
+          ? AdminAuthService.hashToken(AdminAuthService.generateToken())
+          : tokenHash,
+        last_login_at: new Date().toISOString(),
+      })
       .eq('id', data.id as string);
     if (error) throw new Error(error.message);
 
@@ -578,6 +656,16 @@ export class AdminAuthService implements OnModuleInit {
       .update({ active: false })
       .eq('id', id);
     if (error) throw new Error(error.message);
+
+    // Their keys already stop working (authenticate reads `active`); removing
+    // them means re-enabling this admin later does not revive an old device.
+    const { error: revokeError } = await this.supabase.client
+      .from('admin_sessions')
+      .delete()
+      .eq('admin_id', id);
+    if (revokeError && !isMissingTable(revokeError)) {
+      this.logger.warn(`[ADMIN_AUTH] could not revoke sessions of ${id}: ${revokeError.message}`);
+    }
     return { id, active: false };
   }
 

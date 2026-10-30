@@ -131,7 +131,9 @@ export class AdminInvitesService {
       .maybeSingle();
     if (existingAdmin) {
       throw new ConflictException(
-        `${email} is already an admin. Manage their role from the admins list instead of re-inviting.`,
+        existingAdmin.active
+          ? `${email} is already an admin. Manage their role from the admins list instead of re-inviting.`
+          : `${email} was deactivated as an admin, and a deactivated admin cannot be invited again.`,
       );
     }
 
