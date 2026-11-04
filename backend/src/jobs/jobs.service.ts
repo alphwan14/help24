@@ -14,6 +14,7 @@ import { MarkCompleteDto } from './dto/mark-complete.dto';
 import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
 import { deriveSettlementState } from './settlement-state';
+import { autoApproveDeadline, autoApproveHours } from './auto-approval';
 
 @Injectable()
 export class JobsService {
@@ -203,6 +204,9 @@ export class JobsService {
         client_user_id: post.author_user_id as string,
         provider_note: dto.provider_note ?? null,
         status: 'pending_approval',
+        // The client's window to approve or dispute; past it the completion
+        // approves itself (CompletionAutoApprovalService, migration 134).
+        auto_approve_at: autoApproveDeadline(new Date()).toISOString(),
       })
       .select('id')
       .single();
@@ -242,7 +246,7 @@ export class JobsService {
       userId: post.author_user_id as string,
       type: 'completion_requested',
       title: 'Job Marked as Done',
-      body: `Your provider has marked "${post.title as string}" as complete. Review and approve or dispute.`,
+      body: `Your provider has marked "${post.title as string}" as complete. Review and approve or dispute within ${autoApproveHours()} hours.`,
       data: { post_id: dto.post_id, completion_id: completionId, ...(cmpChatId ? { chat_id: cmpChatId } : {}) },
     });
     this.logger.log(`[JOB_COMPLETE][PUSH] sent to client=${post.author_user_id as string}`);
@@ -277,32 +281,17 @@ export class JobsService {
 
     const completion = await this.getPendingCompletion(dto.post_id);
 
-    await this.supabase.client
-      .from('job_completions')
-      .update({ status: 'approved', reviewed_at: new Date().toISOString() })
-      .eq('id', completion.id);
-
-    await this.supabase.client
-      .from('posts')
-      .update({ status: 'completed' })
-      .eq('id', dto.post_id);
-
-    // Emit job.approved — EventProcessorService handles:
-    //   1. Calls releasePayout() (decoupled from this HTTP request)
-    //   2. Notifies both parties
-    // If payout fails, the event stays processed=false and retries every 60 s.
-    void this.events.emit({
-      type: EVENT_TYPES.JOB_APPROVED,
-      actorUserId: dto.client_user_id,
-      entityType: 'job_completion',
-      entityId: completion.id as string,
-      payload: {
-        post_id:     dto.post_id,
-        post_title:  post.title as string,
-        provider_id: post.selected_provider_id as string,
-        buyer_id:    dto.client_user_id,
-      },
+    const won = await this.approveCompletion({
+      completionId: completion.id as string,
+      postId: dto.post_id,
+      postTitle: post.title as string,
+      providerId: post.selected_provider_id as string,
+      clientUserId: dto.client_user_id,
+      by: 'client',
     });
+    if (!won) {
+      throw new ConflictException('This job was disputed or already approved a moment ago.');
+    }
 
     // Notify both parties inline for speed.
     const { data: apvChatRow } = await this.supabase.client
@@ -408,7 +397,7 @@ export class JobsService {
   async getJobStatus(postId: string) {
     const { data } = await this.supabase.client
       .from('job_completions')
-      .select('id, status, provider_note, created_at, reviewed_at')
+      .select('id, status, provider_note, created_at, reviewed_at, auto_approve_at, approved_by')
       .eq('post_id', postId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -464,7 +453,7 @@ export class JobsService {
     // Latest completion request.
     const { data: completion } = await this.supabase.client
       .from('job_completions')
-      .select('id, status, provider_note, created_at, reviewed_at')
+      .select('id, status, provider_note, created_at, reviewed_at, auto_approve_at, approved_by')
       .eq('post_id', postId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -517,7 +506,15 @@ export class JobsService {
     }
     if (completion) {
       add('completion_requested', 'Provider marked the job as done', completion.created_at);
-      if (completion.status === 'approved') add('completion_approved', 'You approved the completion', completion.reviewed_at);
+      if (completion.status === 'approved') {
+        add(
+          'completion_approved',
+          completion.approved_by === 'system'
+            ? 'Approved automatically when the review time ended'
+            : isClient ? 'You approved the completion' : 'The client approved the completion',
+          completion.reviewed_at,
+        );
+      }
       if (completion.status === 'disputed') add('completion_disputed', 'Completion disputed', completion.reviewed_at);
     }
     if (dispute) {
@@ -734,6 +731,69 @@ export class JobsService {
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────
+
+  /**
+   * THE approval transition — the client's Approve and the auto-approval sweep
+   * both come through here, so an automatic approval pays out by exactly the
+   * same route as a tapped one: job.approved → EventProcessorService →
+   * releasePayout, with its retries, dead letter and payout audit.
+   *
+   * Returns false when the completion is no longer pending — a dispute or
+   * another approval got there first. The completion is moved with ONE
+   * conditional update, so of a dispute and an approval racing on the same
+   * row exactly one wins; the old update-by-id let an approval overwrite a
+   * dispute that had landed a moment before it. Nothing else is written, and
+   * no event is emitted, by the loser.
+   */
+  async approveCompletion(input: {
+    completionId: string;
+    postId: string;
+    postTitle: string;
+    providerId: string;
+    clientUserId: string;
+    by: 'client' | 'system';
+  }): Promise<boolean> {
+    const { data: moved, error } = await this.supabase.client
+      .from('job_completions')
+      .update({ status: 'approved', reviewed_at: new Date().toISOString(), approved_by: input.by })
+      .eq('id', input.completionId)
+      .eq('status', 'pending_approval')
+      .select('id');
+    if (error) {
+      this.logger.error(`[JOBS] approve completion=${input.completionId} failed: ${error.message}`);
+      throw new BadRequestException('Could not approve this job just now.');
+    }
+    if (!moved || moved.length === 0) {
+      this.logger.warn(`[JOBS] approve completion=${input.completionId} lost — no longer pending (by=${input.by})`);
+      return false;
+    }
+
+    // A dispute that lands after the completion moved still owns the post's
+    // status; never paint 'completed' over it.
+    await this.supabase.client
+      .from('posts')
+      .update({ status: 'completed' })
+      .eq('id', input.postId)
+      .neq('status', 'disputed');
+
+    // job.approved → EventProcessorService calls releasePayout() in the
+    // background; if the payout fails the event retries every 60 s.
+    void this.events.emit({
+      type: EVENT_TYPES.JOB_APPROVED,
+      actorUserId: input.by === 'client' ? input.clientUserId : undefined,
+      entityType: 'job_completion',
+      entityId: input.completionId,
+      payload: {
+        post_id:     input.postId,
+        post_title:  input.postTitle,
+        provider_id: input.providerId,
+        buyer_id:    input.clientUserId,
+        approved_by: input.by,
+      },
+    });
+    this.logger.log(`[JOBS] completion=${input.completionId} approved by=${input.by} post=${input.postId}`);
+    return true;
+  }
 
   private async getPendingCompletion(postId: string) {
     const { data } = await this.supabase.client

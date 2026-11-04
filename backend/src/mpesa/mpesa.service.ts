@@ -8,7 +8,7 @@ import {
 import { SupabaseService } from '../supabase/supabase.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { DarajaService } from './daraja.service';
+import { B2cNotSentError, DarajaService } from './daraja.service';
 import { EventsService } from '../events/events.service';
 import { EVENT_TYPES } from '../events/event.types';
 import { calculateFee, calculateTotal } from './fee';
@@ -619,6 +619,36 @@ export class MpesaService {
       throw new BadRequestException('Provider has not added a valid M-Pesa payout number.');
     }
 
+    // ── CLAIM THE PAYMENT BEFORE ANY MONEY MOVES ─────────────────────────────
+    //
+    // The status read above is only a read. Between it and the B2C call a
+    // dispute can freeze this payment ('paid' → 'disputed'), and the old code
+    // then wrote 'payout_pending' over the freeze once Daraja answered: money
+    // gone, a dispute open, and a case file that said the funds were frozen.
+    // Auto-approval makes that collision likely by design — its final reminder
+    // tells the client to dispute just before the release runs.
+    //
+    // So the payment is claimed with ONE conditional update, from the exact
+    // status it was read in. Whoever gets the row decides; if a dispute got it
+    // first, nothing is sent.
+    const txId = transaction.id as string;
+    const sourceStatus = transaction.status as string;
+    const claimed = await this.transactions.claimStatus(txId, [sourceStatus], 'payout_pending');
+    if (!claimed) {
+      this.logger.warn(
+        `[PAYOUT][CLAIM_LOST] postId=${dto.post_id} txId=${txId} — no longer '${sourceStatus}' (disputed or already paying); nothing sent`,
+      );
+      void this.payoutAudit.emit({
+        providerUserId: post.selected_provider_id as string,
+        eventType: 'payout_refused',
+        actorType: 'system',
+        transactionId: txId,
+        reason: 'payment_changed',
+        metadata: { post_id: dto.post_id, expected_status: sourceStatus },
+      });
+      throw new ConflictException('This payment changed before the payout started (a dispute or another payout). Nothing was sent.');
+    }
+
     this.logger.log(
       `[PAYOUT][DARAJA_REQUEST] postId=${dto.post_id} txId=${transaction.id as string} amount=${transaction.amount as number} providerPhone=${providerPhone}`,
     );
@@ -643,8 +673,26 @@ export class MpesaService {
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
         this.logger.error(
-          `[PAYOUT][FAILED] postId=${dto.post_id} txId=${transaction.id as string} — ${detail}`,
+          `[PAYOUT][FAILED] postId=${dto.post_id} txId=${txId} — ${detail}`,
         );
+        if (err instanceof B2cNotSentError) {
+          // Certainly not sent: hand the payment back exactly as it was, so the
+          // event retry (or the next arbitration attempt) can try again.
+          await this.transactions.claimStatus(txId, ['payout_pending'], sourceStatus, {
+            failure_reason: detail.slice(0, 500),
+          });
+        } else {
+          // Outcome UNKNOWN (timeout, no response, 5xx): Daraja may have taken
+          // it. Stay 'payout_pending' — the retry then skips it instead of
+          // paying a second time — and leave it to the stuck-payout alert and
+          // the Daraja portal to say what really happened.
+          this.logger.error(
+            `[PAYOUT][OUTCOME_UNKNOWN] postId=${dto.post_id} txId=${txId} left payout_pending — check the Daraja portal before any retry`,
+          );
+          await this.transactions
+            .update(txId, { failure_reason: `B2C outcome unknown: ${detail}`.slice(0, 500) })
+            .catch(() => undefined);
+        }
         throw err;
       }
     }
@@ -673,8 +721,8 @@ export class MpesaService {
       },
     });
 
-    await this.transactions.update(transaction.id as string, {
-      status: 'payout_pending',
+    // Status is already 'payout_pending' (claimed above); record how to find it.
+    await this.transactions.update(txId, {
       conversation_id: b2cResult.conversationId,
       // Persisted so a stranded payout (missing B2C callback) can later be
       // reconciled via Daraja's Transaction Status Query, which correlates by

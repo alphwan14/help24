@@ -28,6 +28,23 @@ export interface B2cResult {
   originatorConversationId: string;
 }
 
+/**
+ * A B2C request that Daraja certainly did NOT accept: it was never sent (no
+ * token, missing config), or Daraja answered and refused it (HTTP 4xx, or a
+ * non-zero ResponseCode). No money can have moved, so the caller may safely
+ * put the payment back and try again later.
+ *
+ * Anything else thrown by b2cPayout — no response, a timeout, a 5xx — is an
+ * UNKNOWN outcome: Daraja may have accepted the request before the connection
+ * failed. Retrying that blindly is how a provider gets paid twice.
+ */
+export class B2cNotSentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'B2cNotSentError';
+  }
+}
+
 export interface TransactionStatusAck {
   conversationId: string;
   originatorConversationId: string;
@@ -194,12 +211,19 @@ export class DarajaService {
     amount: number;
     jobId: string;
   }): Promise<B2cResult> {
-    const token              = await this.getToken();
-    const shortcode          = this.config.getOrThrow<string>('MPESA_SHORTCODE');
-    const initiatorName      = this.config.getOrThrow<string>('MPESA_B2C_INITIATOR_NAME');
-    const securityCredential = this.config.getOrThrow<string>('MPESA_B2C_SECURITY_CREDENTIAL');
-    const resultUrl          = this.config.getOrThrow<string>('MPESA_B2C_RESULT_URL');
-    const timeoutUrl         = this.config.getOrThrow<string>('MPESA_B2C_TIMEOUT_URL');
+    // Everything before the POST: a failure here means nothing was sent.
+    let token: string, shortcode: string, initiatorName: string;
+    let securityCredential: string, resultUrl: string, timeoutUrl: string;
+    try {
+      token              = await this.getToken();
+      shortcode          = this.config.getOrThrow<string>('MPESA_SHORTCODE');
+      initiatorName      = this.config.getOrThrow<string>('MPESA_B2C_INITIATOR_NAME');
+      securityCredential = this.config.getOrThrow<string>('MPESA_B2C_SECURITY_CREDENTIAL');
+      resultUrl          = this.config.getOrThrow<string>('MPESA_B2C_RESULT_URL');
+      timeoutUrl         = this.config.getOrThrow<string>('MPESA_B2C_TIMEOUT_URL');
+    } catch (err) {
+      throw new B2cNotSentError(`B2C payout not sent: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     const payload = {
       InitiatorName:      initiatorName,
@@ -224,13 +248,22 @@ export class DarajaService {
         headers: { Authorization: `Bearer ${token}` },
       }));
     } catch (err) {
-      this.handleAxiosError('B2C payout', err);
+      // Daraja answered with a 4xx: it read the request and refused it.
+      const status = isAxiosError(err) ? err.response?.status : undefined;
+      if (status !== undefined && status >= 400 && status < 500) {
+        try {
+          this.handleAxiosError('B2C payout', err);
+        } catch (mapped) {
+          throw new B2cNotSentError((mapped as Error).message);
+        }
+      }
+      this.handleAxiosError('B2C payout', err); // no response / 5xx: outcome unknown
     }
 
     this.logger.log(`[PAYOUT][DARAJA_RESPONSE] raw: ${JSON.stringify(data)}`);
 
     if (data.ResponseCode !== '0') {
-      throw new Error(`M-Pesa refused the payout: ${data.ResponseDescription}`);
+      throw new B2cNotSentError(`M-Pesa refused the payout: ${data.ResponseDescription}`);
     }
 
     this.logger.log(

@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
+import '../utils/time_utils.dart';
 import '../widgets/primitives.dart';
 import 'review_submission_screen.dart';
 
@@ -50,6 +51,10 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
   String? _providerNote;
   double _amount = 0;
 
+  /// When this approves itself if the client does nothing; null for
+  /// completions that predate the review window (they wait for the client).
+  DateTime? _autoApproveAt;
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +79,8 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
         _title = lc.post.title;
         _amount = lc.payment?.amount ?? 0;
         _providerNote = lc.completion?.providerNote;
+        _autoApproveAt =
+            lc.completion?.status == 'pending_approval' ? lc.completion?.autoApproveAt : null;
         _loading = false;
       });
     } catch (_) {
@@ -450,7 +457,8 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Your payment is held safely by Help24. Approving releases it to the provider. Disputing freezes it while our team reviews.',
+                    'Your payment is held safely by Help24. Approving releases it to the provider. Disputing freezes it while our team reviews.'
+                    '${_autoApproveAt == null ? '' : ' If you do neither, it approves automatically ${formatUpcomingStamp(context, _autoApproveAt!)}.'}',
                     style: TextStyle(
                         color: textSecondary, fontSize: 12, height: 1.4),
                   ),

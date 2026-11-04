@@ -98,6 +98,37 @@ export class TransactionsService {
     return data as Transaction;
   }
 
+  /**
+   * Compare-and-set: move transaction [id] to [to] only if its status is still
+   * one of [from]. Returns true when THIS caller made the move.
+   *
+   * The money path's only defence against two writers deciding at once — a
+   * payout starting while a dispute freezes the same payment. Read-then-write
+   * cannot be that defence: both sides read 'paid', and the later write wins
+   * whatever it says. One conditional UPDATE is decided by Postgres, row by row,
+   * so exactly one of them gets the row back.
+   */
+  async claimStatus(
+    id: string,
+    from: string[],
+    to: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<boolean> {
+    const { data, error } = await this.supabase.client
+      .from('transactions')
+      .update({ ...extra, status: to })
+      .eq('id', id)
+      .in('status', from)
+      .select('id');
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to claim transaction ${id} (${from.join('|')} → ${to}): ${error.message}`,
+      );
+    }
+    return (data?.length ?? 0) > 0;
+  }
+
   async update(id: string, data: Record<string, unknown>): Promise<void> {
     const { error } = await this.supabase.client
       .from('transactions')

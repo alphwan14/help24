@@ -16,7 +16,7 @@ Build in WSL from a commit, never from Windows:
 
 | Commit | Change | Why members need it | Verified |
 |---|---|---|---|
-| | _Nothing yet._ | | |
+| _(this commit)_ | The approve screen says when an unanswered job **approves automatically** (`auto_approve_at`, backend migration 134) | Without it the client learns of the 48 h window only from the pushes; 1.0.9 still gets the reminders and routes them to this screen | Unit + widget test (`test/auto_approve_test.dart`) |
 
 ## Shipped in 1.0.9 (2026-11-04)
 

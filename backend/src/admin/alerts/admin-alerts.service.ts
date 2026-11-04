@@ -510,7 +510,7 @@ export class AdminAlertsService {
     const overdueCutoff = new Date(now - THRESHOLDS.completionOverdueHours * HOUR).toISOString();
     const [{ data: completions }, { data: assigned }] = await Promise.all([
       must<Row[]>(this.db.from('job_completions')
-        .select('id, post_id, created_at')
+        .select('id, post_id, created_at, auto_approve_at')
         .eq('status', 'pending_approval')
         .lt('created_at', overdueCutoff)
         .limit(500)),
@@ -526,7 +526,9 @@ export class AdminAlertsService {
     const overdue = (completions ?? []).map((c): AlertItem => ({
       id: c.id,
       label: truncate(titles.get(c.post_id)),
-      detail: `Marked done ${ageOf(c.created_at, now)} ago; payout waits on the client`,
+      detail: c.auto_approve_at
+        ? `Marked done ${ageOf(c.created_at, now)} ago; auto-approval did not run — check AUTO_APPROVE logs`
+        : `Marked done ${ageOf(c.created_at, now)} ago; payout waits on the client`,
       at: c.created_at,
       href: jobPage(c.post_id),
     }));

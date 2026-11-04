@@ -70,7 +70,12 @@ export const THRESHOLDS = {
   payoutStuckMinutes: 30,
   /** Daraja answers every STK prompt (paid, failed, cancelled, timed out) within minutes. */
   paymentUnconfirmedMinutes: 60,
-  /** There is no auto-approval: a provider's money waits on the client indefinitely. */
+  /**
+   * Completions approve themselves after AUTO_APPROVE_HOURS (48, migration
+   * 134), so one still pending at 72 h means the sweep did not act — it is
+   * off, the listing no longer matches the completion, or it predates the
+   * deadline column and still waits on the client.
+   */
   completionOverdueHours: 72,
   /** A paid job with no completion request after two weeks has likely been abandoned. */
   paidStalledDays: 14,

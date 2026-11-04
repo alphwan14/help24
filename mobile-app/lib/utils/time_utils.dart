@@ -128,6 +128,19 @@ String formatMessageStamp(BuildContext context, DateTime t) {
   return '${_months[local.month]} ${local.day}, $clock';
 }
 
+/// A moment still AHEAD, local zone + device clock convention:
+/// `today at 16:35`, `tomorrow at 16:35`, otherwise `Thu 7 Nov at 16:35`.
+/// For deadlines ("approves automatically …"), where "Yesterday" makes no sense.
+String formatUpcomingStamp(BuildContext context, DateTime t) {
+  final clock = formatClockTime(context, t);
+  final day = localDay(t);
+  final today = localDay(DateTime.now());
+  if (day == today) return 'today at $clock';
+  if (day == today.add(const Duration(days: 1))) return 'tomorrow at $clock';
+  final local = t.toLocal();
+  return '${_weekdays[local.weekday - 1]} ${local.day} ${_months[local.month]} at $clock';
+}
+
 /// Date-separator label for a chat thread: `Today` / `Yesterday` /
 /// `Mon, Jul 19` — all resolved against local calendar days.
 String formatDateSeparator(DateTime t) {

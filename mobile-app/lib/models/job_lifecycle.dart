@@ -1,3 +1,5 @@
+import '../utils/time_utils.dart';
+
 /// Parsed response of GET /jobs/:postId/lifecycle — the single source of truth
 /// for the Job Lifecycle Detail screen. Mirrors the backend aggregate; the mobile
 /// app derives display stages from these raw statuses but never stores lifecycle state.
@@ -149,13 +151,25 @@ class LifecycleCompletion {
   final String? createdAt;
   final String? reviewedAt;
 
+  /// When a pending completion approves itself if the client neither approves
+  /// nor disputes (migration 134). Null for completions from before it, which
+  /// wait for the client.
+  final DateTime? autoApproveAt;
+
+  /// 'client' or 'system' once approved; null before migration 134.
+  final String? approvedBy;
+
   const LifecycleCompletion({
     required this.id,
     required this.status,
     required this.providerNote,
     required this.createdAt,
     required this.reviewedAt,
+    this.autoApproveAt,
+    this.approvedBy,
   });
+
+  bool get approvedAutomatically => status == 'approved' && approvedBy == 'system';
 
   factory LifecycleCompletion.fromJson(Map<String, dynamic> j) => LifecycleCompletion(
         id: j['id'] as String? ?? '',
@@ -163,6 +177,8 @@ class LifecycleCompletion {
         providerNote: j['provider_note'] as String?,
         createdAt: j['created_at'] as String?,
         reviewedAt: j['reviewed_at'] as String?,
+        autoApproveAt: parseServerTimeOrNull(j['auto_approve_at']),
+        approvedBy: j['approved_by'] as String?,
       );
 }
 

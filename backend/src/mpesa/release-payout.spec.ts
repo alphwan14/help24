@@ -50,10 +50,15 @@ function makeSupabase(txStatus: string, capture: Captured[]) {
   };
 }
 
-function buildService(txStatus: string) {
+function buildService(txStatus: string, opts: { claimWins?: boolean; b2c?: () => Promise<unknown> } = {}) {
   const capture: Captured[] = [];
-  const daraja = { b2cPayout: jest.fn().mockResolvedValue({ conversationId: 'c1', originatorConversationId: 'o1' }) };
-  const transactions = { update: jest.fn().mockResolvedValue(undefined) };
+  const daraja = {
+    b2cPayout: jest.fn(opts.b2c ?? (() => Promise.resolve({ conversationId: 'c1', originatorConversationId: 'o1' }))),
+  };
+  const transactions = {
+    update: jest.fn().mockResolvedValue(undefined),
+    claimStatus: jest.fn().mockResolvedValue(opts.claimWins ?? true),
+  };
   const events = { emit: jest.fn() };
   const supa = makeSupabase(txStatus, capture);
   // Payout destinations DISABLED — this suite pins the pre-migration behaviour,
@@ -85,7 +90,7 @@ function buildService(txStatus: string) {
     payoutDestinations as any,
     payoutAudit as any,
   );
-  return { service, capture, daraja, payoutDestinations, payoutAudit };
+  return { service, capture, daraja, payoutDestinations, payoutAudit, transactions };
 }
 
 const statusFilter = (capture: Captured[]) =>
@@ -108,5 +113,70 @@ describe('MpesaService.releasePayout source-status selection', () => {
     await service.releasePayout({ post_id: 'p1' });
 
     expect(statusFilter(capture)).toEqual(['paid']);
+  });
+});
+
+/**
+ * The payout claims the payment BEFORE any money moves (auto-approval work,
+ * 2026-11-04). A dispute freezes 'paid' → 'disputed'; the payout moves
+ * 'paid' → 'payout_pending'. Both are conditional updates, so whichever lands
+ * first wins and the other does nothing. Before this, the payout read 'paid',
+ * called Daraja, then wrote 'payout_pending' over a freeze that had landed in
+ * between — money sent on a disputed job.
+ */
+describe('MpesaService.releasePayout claims the payment before Daraja', () => {
+  it('claims from the exact status it read, then pays, and never rewrites the status itself', async () => {
+    const { service, daraja, transactions } = buildService('paid');
+
+    await service.releasePayout({ post_id: 'p1' });
+
+    expect(transactions.claimStatus).toHaveBeenCalledWith('tx1', ['paid'], 'payout_pending');
+    expect(transactions.claimStatus.mock.invocationCallOrder[0])
+      .toBeLessThan(daraja.b2cPayout.mock.invocationCallOrder[0]);
+    // The post-Daraja write records the conversation ids only — no status.
+    for (const [, data] of transactions.update.mock.calls) expect(data).not.toHaveProperty('status');
+  });
+
+  it('arbitration claims from disputed', async () => {
+    const { service, transactions } = buildService('disputed');
+    await service.releasePayout({ post_id: 'p1' }, { allowFromDisputed: true });
+    expect(transactions.claimStatus).toHaveBeenCalledWith('tx1', ['disputed'], 'payout_pending');
+  });
+
+  it('a dispute that froze the payment first wins: nothing is sent, and the refusal is audited', async () => {
+    const { service, daraja, payoutAudit } = buildService('paid', { claimWins: false });
+
+    await expect(service.releasePayout({ post_id: 'p1' })).rejects.toThrow(/Nothing was sent/);
+
+    expect(daraja.b2cPayout).not.toHaveBeenCalled();
+    expect(payoutAudit.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'payout_refused', reason: 'payment_changed' }),
+    );
+  });
+
+  it('Daraja certainly refused: the payment goes back to where it was, so a retry can pay it', async () => {
+    const { B2cNotSentError } = jest.requireActual('./daraja.service');
+    const { service, transactions } = buildService('paid', {
+      b2c: () => Promise.reject(new B2cNotSentError('M-Pesa refused the payout: Invalid MSISDN')),
+    });
+
+    await expect(service.releasePayout({ post_id: 'p1' })).rejects.toThrow(/Invalid MSISDN/);
+
+    expect(transactions.claimStatus).toHaveBeenLastCalledWith(
+      'tx1', ['payout_pending'], 'paid', { failure_reason: expect.stringContaining('Invalid MSISDN') },
+    );
+  });
+
+  it('outcome unknown (timeout): stays payout_pending so the event retry cannot pay twice', async () => {
+    const { service, transactions } = buildService('paid', {
+      b2c: () => Promise.reject(new Error('[Daraja] B2C payout failed — HTTP no-response: undefined')),
+    });
+
+    await expect(service.releasePayout({ post_id: 'p1' })).rejects.toThrow(/no-response/);
+
+    expect(transactions.claimStatus).toHaveBeenCalledTimes(1); // the claim, never a revert
+    expect(transactions.update).toHaveBeenCalledWith(
+      'tx1', { failure_reason: expect.stringContaining('B2C outcome unknown') },
+    );
   });
 });

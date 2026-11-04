@@ -133,8 +133,10 @@ export class DisputesService {
     const txId = tx.id as string;
     const amount = (tx.amount as number) ?? 0;
 
-    // Freeze escrow + job (idempotent if already disputed).
-    await this.freezeForDispute(dto.post_id, txId);
+    // Freeze escrow + job (idempotent if already disputed). False when a payout
+    // had already claimed the payment: the case still opens, but nothing could
+    // be held, and the case file must not say otherwise.
+    const frozen = await this.freezeForDispute(dto.post_id, txId);
 
     // Auto-priority from escrow value.
     const priority = this.priorityForAmount(amount);
@@ -160,7 +162,12 @@ export class DisputesService {
 
     const disputeId = created.id as string;
 
-    await this.systemMessage(disputeId, `Dispute opened by ${dto.raised_by_role}. Escrow frozen pending review.`);
+    await this.systemMessage(
+      disputeId,
+      frozen
+        ? `Dispute opened by ${dto.raised_by_role}. Escrow frozen pending review.`
+        : `Dispute opened by ${dto.raised_by_role}. The payout had already started, so the funds could not be frozen; review for a refund.`,
+    );
 
     void this.events.emit({
       type: EVENT_TYPES.DISPUTE_OPENED,
@@ -747,10 +754,33 @@ export class DisputesService {
     return data;
   }
 
-  private async freezeForDispute(postId: string, txId: string): Promise<void> {
+  /**
+   * Freeze the payment for a dispute. Returns whether the money is now held.
+   *
+   * The transaction is frozen with a CONDITIONAL update, 'paid' → 'disputed' —
+   * the same race releasePayout guards from its side. Once a payout has
+   * claimed the payment ('payout_pending'), money is leaving or gone: writing
+   * 'disputed' over it used to strand the B2C callback (it settles only from
+   * 'payout_pending'), so a provider who HAD been paid showed as frozen
+   * forever. Now the payment is left to settle and the case opens unfrozen.
+   */
+  private async freezeForDispute(postId: string, txId: string): Promise<boolean> {
+    const { data: claimed, error: claimError } = await this.supabase.client
+      .from('transactions')
+      .update({ status: 'disputed' })
+      .eq('id', txId)
+      .in('status', ['paid', 'disputed'])
+      .select('id');
+    if (claimError) throw new BadRequestException(`Could not freeze the payment: ${claimError.message}`);
+    const frozen = (claimed?.length ?? 0) > 0;
+    if (!frozen) {
+      this.logger.warn(`[DISPUTES] tx=${txId} already claimed by a payout — case opens without a freeze`);
+    }
+
     await Promise.all([
-      this.supabase.client.from('transactions').update({ status: 'disputed' }).eq('id', txId),
-      this.supabase.client.from('escrow').update({ status: 'disputed' }).eq('transaction_id', txId),
+      ...(frozen
+        ? [this.supabase.client.from('escrow').update({ status: 'disputed' }).eq('transaction_id', txId)]
+        : []),
       this.supabase.client.from('posts').update({ status: 'disputed' }).eq('id', postId),
       this.supabase.client
         .from('job_completions')
@@ -758,12 +788,15 @@ export class DisputesService {
         .eq('post_id', postId)
         .eq('status', 'pending_approval'),
     ]);
-    void this.events.emit({
-      type: EVENT_TYPES.ESCROW_DISPUTED,
-      entityType: 'escrow',
-      entityId: txId,
-      payload: { post_id: postId, transaction_id: txId },
-    });
+    if (frozen) {
+      void this.events.emit({
+        type: EVENT_TYPES.ESCROW_DISPUTED,
+        entityType: 'escrow',
+        entityId: txId,
+        payload: { post_id: postId, transaction_id: txId },
+      });
+    }
+    return frozen;
   }
 
   private async enforceRateLimit(userId: string): Promise<void> {
