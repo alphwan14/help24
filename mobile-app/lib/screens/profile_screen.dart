@@ -45,6 +45,8 @@ import '../services/agent_code_service.dart';
 import '../services/auth_service.dart';
 import 'promotion/promote_business_screen.dart';
 import 'provider/payout_destinations_screen.dart';
+import 'provider/provider_card_screen.dart';
+import '../widgets/provider_gate.dart';
 import 'provider/provider_onboarding_screen.dart';
 import 'location_permission_explainer_screen.dart';
 import 'account_status_screen.dart';
@@ -643,6 +645,25 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                   ).then((changed) {
                     if (changed == true) _resubscribe();
                   }),
+                ),
+                // The card is a provider's own: the same readiness sheet that
+                // gates "offer your services" explains what is missing first.
+                _SettingsTile(
+                  icon: AppIcons.providerCard,
+                  title: 'My Help24 card',
+                  trailing: const Icon(AppIcons.disclosure),
+                  onTap: () async {
+                    final ready = await ensureProviderReady(
+                      context,
+                      uid: widget.uid,
+                      action: 'get your Help24 card',
+                    );
+                    if (!ready || !context.mounted) return;
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => ProviderCardScreen(uid: widget.uid)),
+                    );
+                  },
                 ),
                 _SettingsTile(
                   icon: AppIcons.payoutDestination,

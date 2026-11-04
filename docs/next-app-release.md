@@ -23,6 +23,7 @@ Build in WSL from a commit, never from Windows:
 | `c40314c` | Back / Save / Delete on the post screen and the photo composer's Send are named for screen readers | TalkBack announced only "Button", including on Delete | Widget test red→green; content-desc on a phone |
 | `5ba11f5` | A tap on a chat push that **starts** the app opens that chat | **On 1.0.8 every such tap — after a reboot, a swipe-away, or Android reclaiming the app — lands on Discover** | Contract test red→green; on a phone after a reboot/kill (see the audit report) |
 | `6e901e6` | Discover **All** includes **jobs** (`FeedScope.all`) | Owner decision 2026-10-29: "All" should mean all; a search for "cleaner" missed a cleaning job | Unit tests; backend half already live — see below |
+| _(uncommitted)_ | **My Help24 card** (Profile → Business): card + QR + share; `help24.co.ke/p/<id>` opens the provider's profile (docs/provider-card.md) | Providers bring their own customers; 1.0.8 does not claim `/p/` links | Unit + widget tests; **device check owed** (WhatsApp share, camera scan, cold/warm App Link) |
 
 ### The one change with a server half
 

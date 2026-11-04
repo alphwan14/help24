@@ -8,6 +8,7 @@ import '../services/adaptive_poll.dart';
 import '../services/agent_code_service.dart';
 import '../services/launch_sequence.dart';
 import '../services/notification_store.dart';
+import '../services/provider_card_link.dart';
 import '../services/remote_config_service.dart';
 import '../services/supabase_auth_bridge.dart';
 import '../services/user_profile_service.dart';
@@ -28,6 +29,7 @@ import 'messages_screen.dart';
 import 'profile_screen.dart';
 import 'location_permission_explainer_screen.dart';
 import 'agent_code_screen.dart';
+import 'provider_profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -115,6 +117,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   StreamSubscription<String>? _agentLinks;
+  StreamSubscription<void>? _cardLinks;
+
+  /// Open the profile a provider's card link asked for (help24.co.ke/p/<id>).
+  ///
+  /// Pushed over whatever is showing — the person tapped that link to see
+  /// exactly this person — but never during the launch hold: a route pushed
+  /// under the splash would be the first thing on screen with no launch behind
+  /// it. Guests are welcome; the profile's actions ask for sign-in themselves.
+  Future<void> _openCardLink() async {
+    await LaunchSequence.ready;
+    if (!mounted) return;
+    final uid = ProviderCardLink.takePending();
+    if (uid == null) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ProviderProfileScreen(providerId: uid),
+    ));
+  }
 
   /// Credit a code that arrived by link or from profile setup, and tell the
   /// member what happened. A new account with no credit is asked once.
@@ -150,6 +169,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _agentLinks = AgentCodeService.arrivals.listen((_) {
       if (mounted) unawaited(_agentCodes(fromLink: true));
     });
+    _cardLinks = ProviderCardLink.arrivals.listen((_) {
+      if (mounted) unawaited(_openCardLink());
+    });
+    // A card link that launched the app may have landed before Home existed.
+    unawaited(_openCardLink());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final auth = context.read<AuthProvider>();
@@ -171,6 +195,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _agentLinks?.cancel();
+    _cardLinks?.cancel();
     _stopPresence();
     AccountStatusStore.instance.removeListener(_onAccountStatus);
     WidgetsBinding.instance.removeObserver(this);

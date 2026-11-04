@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'app_links.dart';
 import 'supabase_auth_bridge.dart';
 
 /// How an agent code reached the app — recorded with the credit, because
@@ -51,7 +51,6 @@ class AgentCredit {
 class AgentCodeService {
   AgentCodeService._();
 
-  static const MethodChannel _links = MethodChannel('com.help24.help24/links');
   static const _pendingCodeKey = 'help24_agent_code_pending_v1';
   static const _pendingMethodKey = 'help24_agent_code_method_v1';
   static const _promptDismissedKey = 'help24_agent_prompt_dismissed_v1';
@@ -66,15 +65,7 @@ class AgentCodeService {
   static Future<void> init() async {
     if (_listening) return;
     _listening = true;
-    _links.setMethodCallHandler((call) async {
-      if (call.method == 'link' && call.arguments is String) await _receive(call.arguments as String);
-    });
-    try {
-      final initial = await _links.invokeMethod<String>('initialLink');
-      if (initial != null) await _receive(initial);
-    } catch (e) {
-      debugPrint('[AGENT] initial link unavailable: ${e.runtimeType}');
-    }
+    await AppLinks.listen(_receive);
   }
 
   /// `/a/<CODE>` on help24.co.ke → (code, method), or null for any other link.

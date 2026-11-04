@@ -55,6 +55,9 @@ dependencies:
   # version label, whose API is identical in both majors.
   package_info_plus: ^9.0.1
   flutter_svg: ^2.3.0
+  # QR encoding only (pure Dart) for the provider's Help24 card; the card
+  # paints the modules itself so the printed code matches the card exactly.
+  qr: ^3.0.2
 
 dev_dependencies:
   flutter_test:

@@ -3,6 +3,7 @@ package com.help24.help24
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
@@ -15,30 +16,34 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterFragmentActivity() {
-    /** The agent link this activity was launched with, handed to Dart once. */
+    /** The app link this activity was launched with, handed to Dart once. */
     private var initialLink: String? = null
     private var links: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Only a fresh launch carries a new link; a restore re-delivers the old intent.
-        if (savedInstanceState == null) initialLink = agentLink(intent)
+        if (savedInstanceState == null) initialLink = appLink(intent)
         super.onCreate(savedInstanceState)
         createNotificationChannels()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        agentLink(intent)?.let { links?.invokeMethod("link", it) }
+        appLink(intent)?.let { links?.invokeMethod("link", it) }
     }
 
-    /** help24.co.ke/a/<CODE> links only (AgentCodeService parses the rest). */
-    private fun agentLink(intent: Intent?): String? {
+    /**
+     * help24.co.ke/a/<CODE> (agent) and /p/<id> (provider card) links only;
+     * Dart parses the rest (AgentCodeService, ProviderCardLink).
+     */
+    private fun appLink(intent: Intent?): String? {
         val data = intent?.data ?: return null
         if (intent.action != Intent.ACTION_VIEW || data.scheme != "https") return null
         // Reopened from Recents: Android hands back the intent that first
         // started the task — an old link, already handled. Not a new one.
         if ((intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return null
-        if (data.host != "help24.co.ke" || data.path?.startsWith("/a/") != true) return null
+        val path = data.path ?: return null
+        if (data.host != "help24.co.ke" || !(path.startsWith("/a/") || path.startsWith("/p/"))) return null
         return data.toString()
     }
 
@@ -64,6 +69,45 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.help24.help24/share")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "shareImage" -> result.success(
+                        shareImage(call.argument<String>("path"), call.argument<String>("text")),
+                    )
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * Share a PNG the app rendered (the provider's Help24 card) through the
+     * phone's share sheet, with [text] beside it — WhatsApp keeps both.
+     *
+     * Only a file inside files/shared_cards/ is accepted; the receiving app gets
+     * READ access to that one content:// URI. Returns false — never throws —
+     * when nothing can receive it, so Flutter can fall back to the link alone.
+     */
+    private fun shareImage(path: String?, text: String?): Boolean {
+        if (path == null || !path.endsWith(".png")) return false
+        val root = File(filesDir, "shared_cards").canonicalFile
+        val file = File(path).canonicalFile
+        if (!file.path.startsWith(root.path + File.separator) || !file.isFile) return false
+        val uri = FileProvider.getUriForFile(this, "$packageName.documents", file)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            if (text != null) putExtra(Intent.EXTRA_TEXT, text)
+            // The chooser only forwards the grant when the URI is also ClipData.
+            clipData = ClipData.newRawUri(null, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        return try {
+            startActivity(Intent.createChooser(send, null))
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        }
     }
 
     /**

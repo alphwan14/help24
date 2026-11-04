@@ -27,6 +27,7 @@ import 'screens/notifications_screen.dart';
 import 'screens/post_detail_screen.dart';
 import 'services/post_service.dart';
 import 'services/agent_code_service.dart';
+import 'services/provider_card_link.dart';
 import 'services/account_status_service.dart';
 import 'services/auth_service.dart';
 import 'services/cache_service.dart';
@@ -132,6 +133,8 @@ void main() async {
   // An agent link (help24.co.ke/a/<CODE>) can be what launched the app; it is
   // kept as a pending code and claimed once someone is signed in (HomeScreen).
   unawaited(AgentCodeService.init());
+  // A provider's card link (help24.co.ke/p/<id>) opens their profile from Home.
+  unawaited(ProviderCardLink.init());
 }
 
 class Help24App extends StatefulWidget {

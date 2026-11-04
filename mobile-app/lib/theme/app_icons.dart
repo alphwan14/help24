@@ -447,6 +447,10 @@ class AppIcons {
   static const IconData refresh = Iconsax.refresh;
   static const IconData delete = Iconsax.trash;
   static const IconData copy = Iconsax.copy;
+  static const IconData share = Iconsax.share;
+
+  /// The provider's Help24 card (Profile → Business).
+  static const IconData providerCard = Iconsax.personalcard;
   static const IconData edit = Iconsax.edit_2;
   static const IconData expandFull = Iconsax.maximize_3;
   static const IconData show = Iconsax.eye;

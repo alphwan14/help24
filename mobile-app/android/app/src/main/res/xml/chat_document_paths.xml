@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The ONLY directory ChatDocumentProvider may hand out: the private cache of
-  chat documents (Flutter's getApplicationSupportDirectory() is filesDir).
+  The ONLY directories ChatDocumentProvider may hand out (Flutter's
+  getApplicationSupportDirectory() is filesDir):
+    chat_documents - the private cache of chat documents, opened in a viewer.
+    shared_cards   - the provider's rendered Help24 card, sent to the share sheet.
   Nothing else in the app's storage can be turned into a content:// URI.
 -->
 <paths>
     <files-path name="chat_documents" path="chat_documents/" />
+    <files-path name="shared_cards" path="shared_cards/" />
 </paths>
