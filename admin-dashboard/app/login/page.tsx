@@ -3,8 +3,6 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
-import { requestPasswordReset } from "@/lib/admin-password";
-import { recoveryRedirectUrl } from "@/lib/recovery-session";
 import { EyeIcon } from "@/components/PasswordInputs";
 import { DASHBOARD_HOME } from "@/lib/routes";
 import AuthShell from "@/components/auth/AuthShell";
@@ -123,22 +121,26 @@ function LoginForm() {
       return;
     }
     setLoading(true);
-    // The link lands on /auth/callback, which opens /reset-password with a
-    // recovery session. It used to point back at this page claiming "Password
-    // updated", with nothing in between to set one — see lib/recovery-session.ts.
-    const result = await requestPasswordReset(
-      getSupabaseBrowser().auth,
-      email,
-      recoveryRedirectUrl(window.location.origin),
-    );
+    // The server decides whether this address gets an email (only an admin's
+    // does) and answers every address the same way, so this page never learns
+    // which it was — see app/api/admin/password-reset. The link lands on
+    // /auth/callback, which opens /reset-password with a recovery session.
+    const result = await fetch("/api/admin/password-reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    })
+      .then(async (r) => ({ ok: r.ok, message: ((await r.json().catch(() => ({}))) as { message?: string }).message }))
+      .catch(() => ({ ok: false, message: "We couldn't reach Help24. Check your connection and try again." }));
     setLoading(false);
     if (!result.ok) {
-      setError(result.message);
+      setError(result.message ?? "We couldn't send the reset email just now. Try again.");
       return;
     }
     setResetSent(true);
     setInfo(
-      "If that email has an admin account, a reset link is on its way. Open it in this browser — it won't work anywhere else.",
+      `Check your inbox. We've sent a reset link to ${email.trim()} — open it on this device, in this browser. ` +
+        "Nothing after a few minutes? Make sure this is the address your admin account uses, or ask a super admin.",
     );
   }
 

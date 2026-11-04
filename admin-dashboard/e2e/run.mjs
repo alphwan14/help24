@@ -139,7 +139,10 @@ try {
     await waitFor(bodyHas("Send reset link"), "reset mode");
     await fill("input[type=email]", email);
     await click("form button[type=submit]");
-    await waitFor(bodyHas("a reset link is on its way"), "reset requested");
+    await waitFor(bodyHas(`sent a reset link to ${email}`), "reset requested");
+    // The email leaves after the response (after() in the route): wait for it.
+    const before = fake.outbox.length;
+    for (let i = 0; i < 40 && fake.outbox.length === before; i++) await sleep(100);
     return fake.lastEmailTo(email);
   }
   async function fillInvite(name, password, confirm = password) {
@@ -307,6 +310,23 @@ try {
   await goto(`${APP}/dashboard/settings`);
   await waitFor(bodyHas("Change password"), "settings");
   await signOut();
+  // Every address gets the same answer: an admin and three non-admins, byte for byte.
+  {
+    const ask = async (email, ip) => {
+      const t = Date.now();
+      const r = await fetch(`${APP}/api/admin/password-reset`, { method: "POST", headers: { "Content-Type": "application/json", "x-forwarded-for": ip }, body: JSON.stringify({ email }) });
+      return { status: r.status, body: await r.text(), cookies: r.headers.getSetCookie().map((c) => c.split("=")[0]).sort().join(","), ms: Date.now() - t };
+    };
+    const before = fake.outbox.length;
+    const answers = [await ask(ALICE, "203.0.113.1"), await ask("nobody@help24.test", "203.0.113.2"), await ask(CAROL, "203.0.113.3"), await ask(ERIN, "203.0.113.4")];
+    const same = answers.every((a) => a.status === 200 && a.body === answers[0].body && a.cookies === answers[0].cookies && a.cookies.includes("code-verifier"));
+    check("reset request: an admin, an unknown address, a non-admin login and a deactivated admin get the same status, body and cookie", same, answers.map((a) => `${a.status} ${a.body} [${a.cookies}]`).join(" | "));
+    check("reset request: no answer comes back faster than the floor", answers.every((a) => a.ms >= 700), answers.map((a) => a.ms).join("/"));
+    for (let i = 0; i < 40 && fake.outbox.length === before; i++) await sleep(100);
+    await sleep(500);
+    const sent = fake.outbox.slice(before).map((m) => m.to);
+    check("reset request: only the admin was emailed", sent.length === 1 && sent[0] === ALICE, sent.join(", "));
+  }
   let mail = await requestReset(ALICE);
   check("the reset email links to Help24's own callback, the token after the # (never sent to a server)", mail && mail.link.startsWith(`${CALLBACK}#pkce_`), mail?.link.replace(/#.*/, "#…"));
   check("the email is Help24's template, subject included", mail.subject === "Reset your Help24 admin password" && mail.html.includes("Reset your password") && !/supabase/i.test(mail.html.replaceAll(mail.link, "")));
