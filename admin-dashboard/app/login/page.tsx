@@ -123,6 +123,26 @@ function LoginForm() {
       return;
     }
     setLoading(true);
+    // Is this an admin? The server knows (app/api/admin/reset-eligibility);
+    // no email goes to an address that isn't one, and a check that fails
+    // sends nothing either.
+    const check = await fetch("/api/admin/reset-eligibility", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    })
+      .then(async (r) => ({ ok: r.ok, body: (await r.json().catch(() => ({}))) as { admin?: boolean; message?: string } }))
+      .catch(() => ({ ok: false, body: { message: "We couldn't reach Help24. Check your connection and try again." } }));
+    if (!check.ok || typeof check.body.admin !== "boolean") {
+      setLoading(false);
+      setError(check.body.message ?? "We couldn't check that email just now. Try again.");
+      return;
+    }
+    if (!check.body.admin) {
+      setLoading(false);
+      setError("There's no Help24 admin account with this email. Check the address, or ask a super admin for an invitation.");
+      return;
+    }
     // The link lands on /auth/callback, which opens /reset-password with a
     // recovery session. It used to point back at this page claiming "Password
     // updated", with nothing in between to set one — see lib/recovery-session.ts.
@@ -137,9 +157,7 @@ function LoginForm() {
       return;
     }
     setResetSent(true);
-    setInfo(
-      "If that email has an admin account, a reset link is on its way. Open it in this browser — it won't work anywhere else.",
-    );
+    setInfo(`Reset link sent to ${email.trim()}. Open it on this device, in this browser.`);
   }
 
   return (

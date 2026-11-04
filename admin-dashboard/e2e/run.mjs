@@ -139,7 +139,7 @@ try {
     await waitFor(bodyHas("Send reset link"), "reset mode");
     await fill("input[type=email]", email);
     await click("form button[type=submit]");
-    await waitFor(bodyHas("a reset link is on its way"), "reset requested");
+    await waitFor(bodyHas(`Reset link sent to ${email}`), "reset requested");
     return fake.lastEmailTo(email);
   }
   async function fillInvite(name, password, confirm = password) {
@@ -307,6 +307,16 @@ try {
   await goto(`${APP}/dashboard/settings`);
   await waitFor(bodyHas("Change password"), "settings");
   await signOut();
+  // Only an active admin gets a reset email; anyone else is told so, and nothing is sent.
+  for (const [who, email] of [["an address with no account", "nobody@help24.test"], ["a dashboard login that is not an admin", CAROL], ["a deactivated admin", ERIN]]) {
+    const before = fake.outbox.length;
+    await goto(`${APP}/login?reset=1`);
+    await waitFor(bodyHas("Send reset link"), "reset mode");
+    await fill("input[type=email]", email);
+    await click("form button[type=submit]");
+    const told = await waitFor(bodyHas("no Help24 admin account with this email"), `refused: ${who}`, 15000).then(() => true, () => false);
+    check(`reset for ${who}: told there is no admin account, and no email sent`, told && fake.outbox.length === before);
+  }
   let mail = await requestReset(ALICE);
   check("the reset email links to Help24's own callback, the token after the # (never sent to a server)", mail && mail.link.startsWith(`${CALLBACK}#pkce_`), mail?.link.replace(/#.*/, "#…"));
   check("the email is Help24's template, subject included", mail.subject === "Reset your Help24 admin password" && mail.html.includes("Reset your password") && !/supabase/i.test(mail.html.replaceAll(mail.link, "")));
