@@ -334,12 +334,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
           : []);
       }
       if (table === "app_settings_history") return send(200, [...configHistory].reverse());
-      if (table === "admin_users") {
-        // The reset check asks by email and active; Admin Roles asks for every row.
-        const email = eq("email"), active = eq("active");
-        const rows = [...admins.values()].filter((a) => (email ? a.email === email : true) && (active ? String(a.active) === active : true));
-        return send(200, rows.map((a) => ({ id: a.id, last_seen_at: a.lastSeen ?? null })));
-      }
+      if (table === "admin_users") return send(200, [...admins.values()].map((a) => ({ id: a.id, last_seen_at: a.lastSeen ?? null })));
       if (table === "partner_logins") {
         const sub = eq("auth_subject"), aid = eq("agent_id");
         const rows = [...partnerLogins].filter(([s2, a]) => (sub ? s2 === sub : true) && (aid ? a === aid : true));
