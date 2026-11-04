@@ -1,8 +1,8 @@
 # Next app release — changes waiting on it
 
 The changes below are merged on `main` but are **not on members' phones** until
-the next Android release. Published today: **v1.0.8** (versionCode 9, release
-commit `5e1edcd`). The next release must be **≥ 1.0.9+10** — check
+the next Android release. Published today: **v1.0.9** (versionCode 10, release
+commit `367c367`). The next release must be **≥ 1.0.10+11** — check
 `gh release list` first; parallel sessions have shipped versions before.
 
 Keep this file current: add a row when a change to `mobile-app/` lands, and
@@ -16,6 +16,18 @@ Build in WSL from a commit, never from Windows:
 
 | Commit | Change | Why members need it | Verified |
 |---|---|---|---|
+| | _Nothing yet._ | | |
+
+## Shipped in 1.0.9 (2026-11-04)
+
+Release commit `367c367`, tag `v1.0.9`: 74,582,185 bytes, sha256
+`47a1c71f…32ad` (matches GitHub), cert `48f1d72b…`, all three ABIs,
+permissions identical to 1.0.8. On the S20+ it installed over 1.0.8 (Play
+Protect ALLOW, still signed in); website `68b242e` serves it. `ops.min_version`
+not changed.
+
+| Commit | Change | Why members need it | Verified |
+|---|---|---|---|
 | `fbdb8d6` | Request alerts get their own icon and a **Send an offer** action | The alert says what to do | Before this audit |
 | `68ec4eb` | Chat photos are typed by their bytes, not their file name | **Ordinary PNG photos (and HEIC) can never be sent in chat on 1.0.8** — permanent 415 `CONTENT_MISMATCH`, "Not sent" forever | Unit tests red→green; on a phone the stuck photo sent itself after the update |
 | `d87dfc2` | An offer with no price reads "sent an offer", not "offered KES <budget>" | The job bar quoted a price the provider never named | Unit test red→green; on a phone |
@@ -23,7 +35,8 @@ Build in WSL from a commit, never from Windows:
 | `c40314c` | Back / Save / Delete on the post screen and the photo composer's Send are named for screen readers | TalkBack announced only "Button", including on Delete | Widget test red→green; content-desc on a phone |
 | `5ba11f5` | A tap on a chat push that **starts** the app opens that chat | **On 1.0.8 every such tap — after a reboot, a swipe-away, or Android reclaiming the app — lands on Discover** | Contract test red→green; on a phone after a reboot/kill (see the audit report) |
 | `6e901e6` | Discover **All** includes **jobs** (`FeedScope.all`) | Owner decision 2026-10-29: "All" should mean all; a search for "cleaner" missed a cleaning job | Unit tests; backend half already live — see below |
-| _(uncommitted)_ | **My Help24 card** (Profile → Business): card + QR + share; `help24.co.ke/p/<id>` opens the provider's profile (docs/provider-card.md) | Providers bring their own customers; 1.0.8 does not claim `/p/` links | Unit + widget tests; **device check owed** (WhatsApp share, camera scan, cold/warm App Link) |
+| `1268007` | **My Help24 card** (Profile → Business): card + QR + share; `help24.co.ke/p/<id>` opens the provider's profile (docs/provider-card.md) | Providers bring their own customers; 1.0.8 does not claim `/p/` links | Unit + widget tests; S20+ on the release APK: card renders, QR decodes from a screenshot to the right link, share sheet carries the PNG, warm and cold App Link open the profile after the launch hold, agent links still route |
+| | Discover **All** (row above) | | Also seen on the S20+ release APK: the open Mtwapa Gardens job is in All |
 
 ### The one change with a server half
 
