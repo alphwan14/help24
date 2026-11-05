@@ -1,6 +1,93 @@
 # Provider card — "Find me on Help24"
 
-Status: **Phase A built (2026-11-04), not released. Phase B blocked.**
+Status: **Phase A live in v1.0.9 (2026-11-04). Phase B ("Book me", payment
+protected) designed, decided, not built — blocked.**
+
+## Where we stopped (2026-11-06)
+
+Read this first when picking the work up.
+
+**Live:** the card in the app (v1.0.9, published and checked on the owner's
+S20+ from the release APK) and `help24.co.ke/p/<uid>` on the website.
+
+**Not known yet: whether providers share it.** The website pushes
+`provider_card_open` (and `provider_card_open_app`, `qr_scan`) into
+`window.dataLayer`, but **no analytics tool is installed** (see
+`help24_website/lib/analytics.ts`), so nothing is collected. Phase B's go/no-go
+test below cannot be read until one of these exists:
+
+- an analytics tool on the website that consumes `dataLayer` (Vercel Web
+  Analytics custom events, GA4/GTM, Plausible …) — owner's choice; or
+- server-side counting: card attribution stored at sign-up (needed for the
+  waiver anyway, see Phase B) gives "members who joined through a card" from
+  the database without any website analytics.
+
+**Phase B blockers, as last checked:**
+
+| # | Blocker | State | Last checked |
+|---|---|---|---|
+| 1 | `MPESA_ENV=production` | **sandbox** | 2026-10-30 (`/mpesa/health`, now admin-only) |
+| 2 | Providers can be paid: `PAYOUT_DESTINATIONS_ENABLED`, SMS, the six stuck escrow rows | flag **off**, Africa's Talking **not wired** | 2026-11-04 |
+| 3 | Play Store listing | **none**; the app ships as an APK from help24.co.ke | 2026-11-06 |
+| 4 | Someone owns dispute rulings, with a response time | **not decided** | — |
+| 5 | Legal read on holding customer funds (NPS Act / CBK) | **not done** | — |
+
+**Already in place that Phase B relies on** (built since this doc was first
+written):
+
+- **Auto-approval, live 2026-11-04** (migration 134, backend `9418f8e`): a job
+  the client never answers approves itself after 48 h, with reminders at 24 h
+  and 44 h; a dispute at any point stops it. A provider who did the work is no
+  longer waiting on the client forever, which is half of what "Book me" offers.
+  The approve-screen line ("approves automatically …") waits for app ≥ 1.0.10
+  (`docs/next-app-release.md`).
+- **Payout race fixed** in the same change: the payout claims the payment
+  before calling M-Pesa, and a dispute freezes only money that has not started
+  paying out.
+- **Refund returns the fee** on a FULL_REFUND (owner decision below; already
+  true in code).
+
+**Next steps, in order:**
+
+1. Owner: choose how card use is measured (above), so Phase A can be judged.
+2. Owner: the blockers that are not code — #3 Play listing, #4 dispute owner
+   and response time, #5 legal read, the Safaricom tariff on Help24's own
+   shortcode, VAT on the fee (accountant).
+3. Code, once blockers 1 (M-Pesa production) and 2 (providers can be paid)
+   are cleared: the tariff and waiver as one
+   release (see "Building it" below) — `fee.ts`, `payment_utils.dart`, card
+   attribution at sign-up, the waiver limits, then `ops.min_version` raised to
+   that app version.
+4. Only then change the card copy to the Phase B line.
+
+**Related open thread — vetting providers for sensitive work** (proposed
+2026-11-04 in the same session, nothing built). Booking a stranger safely
+matters most for care work, so it belongs next to Phase B:
+
+- **ID check** (national ID / passport / alien ID, front and back, plus a selfie
+  holding it) for tutors, drivers, house help, security guards.
+- **Care check** (the ID check plus a DCI Certificate of Good Conduct) for
+  babysitting, nanny, day care, elderly and special-needs care, caregiving,
+  maternity and night nursing.
+- Keyed to the **category of work being offered or applied for**, not the
+  profession picked at sign-up (the one live Babysitting offer is by a lash
+  technician). Enforced in the database, because posts and applications are
+  written straight to it. Reviewed by an admin within 24 h; clients see only
+  "ID verified" / "Care checked"; images deleted 30 days after the decision
+  (Data Protection Act 2019). Approval switches on the existing, never-used
+  `verified` flag (which already shows a badge and boosts ranking).
+- **Four owner decisions before building:** (1) accept the two-tier category
+  list or move some (e.g. tutors into the Care check); (2) accept the eCitizen
+  application receipt for 30 days while the certificate is pending, or require
+  the certificate; (3) give the two existing Babysitting/Caregiving offers 14
+  days with a "Not yet verified" label, or hide them at launch; (4) offer the
+  ID badge optionally to every other provider (recommended: yes).
+- Also owner: confirm Help24's registration with the Data Protection
+  Commissioner and update the privacy policy before it goes live.
+- Shape: one migration (verifications table, per-category requirement, the
+  database check), a private storage bucket, an upload step in provider
+  onboarding, a review queue in the admin dashboard. App part targeted for
+  1.0.10, with the auto-approval line.
 
 ## What it is
 
@@ -46,13 +133,15 @@ Decisions worth not re-litigating:
   people's screens and on paper.
 - **A card link opens the profile after the launch hold**, for guests too.
 
-Owed before release: device check (share to WhatsApp, scan the QR with the
-camera, App Link opens the profile on a cold start and a warm one), then ship
-in ≥ 1.0.9. The website half deploys on push and is harmless before the app
-ships: 1.0.8 does not claim `/p/` links, so they open in the browser.
+Shipped in 1.0.9 (2026-11-04) after a device check on the release APK: the
+card renders, the QR decodes from a screenshot to the right link, the share
+sheet carries the PNG, a card link opens the profile from a warm and a cold
+start, agent links still route, Copy link works. The website half deploys on
+push; phones on 1.0.8 open `/p/` links in the browser.
 
-What Phase A measures: `provider_card_open` (source qr|link) on the website.
-If providers do not share the card, Phase B is not worth building.
+What Phase A measures: `provider_card_open` (source qr|link) on the website —
+**but nothing collects it yet** (see "Where we stopped"). If providers do not
+share the card, Phase B is not worth building.
 
 ## Phase B — "Book me on Help24", blocked
 

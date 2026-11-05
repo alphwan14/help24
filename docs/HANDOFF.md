@@ -3,6 +3,21 @@
 Last updated: **2026-09-27**. Written so a new session can resume without
 re-deriving anything. Read this first, then the linked reports.
 
+> **Resume points (2026-11-06)** — two open threads, each with a "Where we
+> stopped" section at the top of its doc:
+>
+> - **"Book me" — providers booked with payment protection:**
+>   [`provider-card.md`](provider-card.md). The card (Phase A) is live in
+>   v1.0.9; Phase B is decided but blocked on M-Pesa production, payouts, a
+>   Play listing, a dispute owner and a legal read. Card use is not being
+>   measured yet. Provider vetting for care work is proposed, four decisions
+>   pending.
+> - **Admin dashboard performance:**
+>   [`admin-dashboard-performance.md`](admin-dashboard-performance.md). All 7
+>   stages shipped 2026-10-26; nothing re-measured from a browser since, and
+>   13 pages became per-request on 2026-10-29. Next: re-measure, then the
+>   Overview chart settle and the Fluid Compute check.
+
 > **Done (2026-09-27): Trust & Safety + admin alerts are LIVE.** Migrations
 > 114 → 115 → 116 applied, `help24-backend` deployed (`fae99c2`), admin
 > dashboard deployed, production verified — evidence in
