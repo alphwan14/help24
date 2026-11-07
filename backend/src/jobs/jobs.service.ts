@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -28,6 +29,41 @@ export class JobsService {
 
   // ── Client: select a provider ─────────────────────────────────────────────
 
+  /**
+   * Refuses to hire a provider who lacks the check the post's category needs
+   * (categories.vetting_tier, migration 135). Fails CLOSED: if the check
+   * cannot be read, nobody is hired for vetted work rather than anybody.
+   */
+  private async requireVettedProvider(providerId: string, category: string | null): Promise<void> {
+    if (!category) return;
+    const { data: tier, error: tierErr } = await this.supabase.client.rpc('vetting_tier_for_category', {
+      p_category: category,
+    });
+    if (tierErr) {
+      this.logger.error(`[JOBS][SELECT_PROVIDER] vetting tier lookup failed: ${tierErr.message}`);
+      throw new ServiceUnavailableException('Could not confirm this provider\'s verification. Try again shortly.');
+    }
+    if (!tier) return;
+
+    const { data: ok, error } = await this.supabase.client.rpc('provider_meets_vetting', {
+      p_user_id: providerId,
+      p_tier: tier,
+      p_allow_pending: false,
+    });
+    if (error) {
+      this.logger.error(`[JOBS][SELECT_PROVIDER] vetting check failed: ${error.message}`);
+      throw new ServiceUnavailableException('Could not confirm this provider\'s verification. Try again shortly.');
+    }
+    if (ok !== true) {
+      this.logger.warn(`[JOBS][SELECT_PROVIDER] provider ${providerId} lacks the ${String(tier)} check for "${category}"`);
+      throw new ConflictException(
+        tier === 'care'
+          ? 'This provider has not completed the Care check (ID and Certificate of Good Conduct) needed for care work, so they cannot be hired for it yet.'
+          : 'This provider has not verified their ID, which this kind of work needs, so they cannot be hired for it yet.',
+      );
+    }
+  }
+
   async selectProvider(dto: SelectProviderDto): Promise<{ post_id: string; provider_id: string }> {
     this.logger.log(
       `[JOBS][SELECT_PROVIDER] postId=${dto.post_id} providerId=${dto.provider_id} clientUserId=${dto.client_user_id}`,
@@ -36,7 +72,7 @@ export class JobsService {
     // 1. Validate post exists and caller is the owner.
     const { data: post, error: postErr } = await this.supabase.client
       .from('posts')
-      .select('id, title, author_user_id, selected_provider_id, status, archived_by')
+      .select('id, title, category, author_user_id, selected_provider_id, status, archived_by')
       .eq('id', dto.post_id)
       .single();
 
@@ -80,6 +116,12 @@ export class JobsService {
       );
       throw new BadRequestException('The selected provider has not applied to this post.');
     }
+
+    // 2b. Work that needs an ID check or a Care check (migration 135) can only
+    //     go to a provider who holds the FULL check now. A Care check on a
+    //     pending certificate is not enough to be hired, and a check can lapse
+    //     between applying and being selected.
+    await this.requireVettedProvider(dto.provider_id, post.category as string | null);
 
     // 3. Update post: assign provider and mark as assigned.
     const { error: updateErr } = await this.supabase.client

@@ -394,13 +394,24 @@ class NotificationKind {
     ),
 
     // ── Provider ────────────────────────────────────────────────────────────
+    // Provider vetting (migration 135): an ID, receipt or certificate was
+    // accepted, or turned down with a reason to fix. Both open the
+    // verification screen, which shows what is held and what is next.
     NotificationKind._(
       type: 'verification_approved',
       category: NotificationCategory.provider,
       priority: NotificationPriority.normal,
       icon: AppIcons.verifiedProvider,
       tone: NotificationTone.positive,
-      action: 'View profile',
+      action: 'View verification',
+    ),
+    NotificationKind._(
+      type: 'verification_rejected',
+      category: NotificationCategory.provider,
+      priority: NotificationPriority.high,
+      icon: AppIcons.warning,
+      tone: NotificationTone.warning,
+      action: 'Send again',
     ),
     NotificationKind._(
       type: 'badge_earned',

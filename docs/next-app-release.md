@@ -17,6 +17,8 @@ Build in WSL from a commit, never from Windows:
 | Commit | Change | Why members need it | Verified |
 |---|---|---|---|
 | _(this commit)_ | The approve screen says when an unanswered job **approves automatically** (`auto_approve_at`, backend migration 134) | Without it the client learns of the 48 h window only from the pushes; 1.0.9 still gets the reminders and routes them to this screen | Unit + widget test (`test/auto_approve_test.dart`) |
+| `feat/provider-vetting` | **Verify your identity** (Profile → Business), the ID / Care check upload flow, a sheet before posting or applying in a vetted category, listing labels ("Care checked", "ID verified", "Certificate pending", "Not yet verified"), verification notifications (docs/provider-vetting.md) | Without it a provider in Babysitting, Caregiving, Tutoring, Driver, Security Guard or House Cleaning is refused by the database with a generic message and has no way to verify | `test/provider_vetting_test.dart` — **written without a Flutter toolchain; run `flutter analyze` + `flutter test` first**. Needs migrations 135–136 and the backend live first |
+| (release itself) | **First Shorebird release** — build 1.0.10 with `scripts/shorebird/release.sh` instead of the normal build, then raise `ops.min_version` to 1.0.10 (docs/shorebird.md) | Every later Dart-only fix ships as a patch with no reinstall | — |
 
 ## Shipped in 1.0.9 (2026-11-04)
 

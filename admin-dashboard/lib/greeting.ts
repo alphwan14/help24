@@ -63,13 +63,12 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * What the context line can mention, in the order it is mentioned. Each row
  * sums the unreviewed alerts it covers (alert ids from the backend catalogue,
  * backend/src/admin/alerts/alert-rules.ts) and links where they are acted on.
- * Provider verifications are absent on purpose: the product has no
- * verification step, so there is nothing pending to count.
  */
 const ATTENTION: Array<{ ids: string[]; href: string; text: (n: number) => string }> = [
   { ids: ["dispute_escalated", "dispute_awaiting_admin"], href: "/dashboard/disputes", text: (n) => `${plural(n, "dispute needs", "disputes need")} review` },
   { ids: ["payout_failed"], href: "/dashboard/payments/escrow", text: (n) => plural(n, "failed payout", "failed payouts") },
   { ids: ["reports_urgent", "reports_untriaged"], href: "/dashboard/trust-safety/queue", text: (n) => `${plural(n, "report", "reports")} to triage` },
+  { ids: ["verifications_waiting"], href: "/dashboard/trust-safety/verifications", text: (n) => `${plural(n, "verification", "verifications")} to review` },
   { ids: ["requests_unanswered", "urgent_unanswered"], href: "/dashboard/marketplace/requests?status=open", text: (n) => `${plural(n, "request", "requests")} awaiting providers` },
   { ids: ["promotion_review"], href: "/dashboard/promotion?status=pending_review", text: (n) => `${plural(n, "promotion", "promotions")} awaiting review` },
   { ids: ["dashboard_login_unlinked"], href: "/dashboard/users/admins#unlinked-logins", text: (n) => `${plural(n, "login", "logins")} waiting to be linked` },

@@ -21,6 +21,7 @@ import 'dispute_thread_screen.dart';
 import 'job_lifecycle_screen.dart';
 import 'promotion/campaign_detail_screen.dart';
 import 'provider_profile_screen.dart';
+import 'provider/verification_screen.dart';
 import 'review_submission_screen.dart';
 import 'messages_screen.dart';
 import 'post_detail_screen.dart';
@@ -393,6 +394,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return;
 
       case 'verification_approved':
+      case 'verification_rejected':
+        await _push(VerificationScreen(uid: widget.userId));
+        return;
+
       case 'badge_earned':
       case 'profile_updated':
         await _push(ProviderProfileScreen(providerId: widget.userId));

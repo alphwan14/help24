@@ -131,7 +131,7 @@ class PostService {
   /// [PostModel.fromJson] reads the same shape; `has_phone` replaces the raw
   /// number. Changing this means changing FEED_ROW_SELECT in the same commit.
   static const String feedRowSelect =
-      '*, users:public_profiles!author_user_id(name, profile_image, avatar_url, has_phone), '
+      '*, users:public_profiles!author_user_id(name, profile_image, avatar_url, has_phone, id_verified, care_status), '
       'post_images(image_url), '
       'applications(*, users:public_profiles!applicant_user_id(name, profile_image, avatar_url, profession))';
 

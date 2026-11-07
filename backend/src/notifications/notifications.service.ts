@@ -45,7 +45,10 @@ export type NotificationType =
   | 'account_banned'             // permanent ban
   | 'account_restricted'         // messaging or marketplace restriction
   | 'account_restored'           // a restriction was lifted
-  | 'content_removed';           // one of the user's listings was hidden
+  | 'content_removed'            // one of the user's listings was hidden
+  // Provider vetting (migration 135). data = { screen: 'verification', kind, status }.
+  | 'verification_approved'      // ID / receipt / certificate accepted
+  | 'verification_rejected';     // a submission was turned down, with the reason
 
 export interface NotificationPayload {
   userId: string;

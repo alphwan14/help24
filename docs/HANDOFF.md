@@ -3,15 +3,24 @@
 Last updated: **2026-09-27**. Written so a new session can resume without
 re-deriving anything. Read this first, then the linked reports.
 
-> **Resume points (2026-11-06)** — two open threads, each with a "Where we
-> stopped" section at the top of its doc:
+> **Resume points (2026-11-07)** — each with a "Where we stopped" section at
+> the top of its doc:
 >
+> - **Provider vetting (ID check / Care check): built, waiting for approval to
+>   apply** — [`provider-vetting.md`](provider-vetting.md). Migrations 135–136,
+>   backend, admin Verifications queue and app 1.0.10 screens on branch
+>   `feat/provider-vetting`. Deploy order and the owner's decisions are in the doc.
+> - **Card analytics: built** — migration 137 + help24_website `/api/e`;
+>   Partners → Provider cards in the dashboard. Needs 137 applied and the
+>   website deployed.
+> - **Shorebird (over-the-air Dart patches): set up, not run** —
+>   [`shorebird.md`](shorebird.md). Needs `shorebird login`/`init` on the
+>   owner's machine, then 1.0.10 as the first Shorebird release.
 > - **"Book me" — providers booked with payment protection:**
 >   [`provider-card.md`](provider-card.md). The card (Phase A) is live in
->   v1.0.9; Phase B is decided but blocked on M-Pesa production, payouts, a
->   Play listing, a dispute owner and a legal read. Card use is not being
->   measured yet. Provider vetting for care work is proposed, four decisions
->   pending.
+>   v1.0.9. **Phase B is the next priority once M-Pesa is in production and
+>   the blockers are lifted** (payouts, a Play listing, a dispute owner, a
+>   legal read).
 > - **Admin dashboard performance:**
 >   [`admin-dashboard-performance.md`](admin-dashboard-performance.md). All 7
 >   stages shipped 2026-10-26; nothing re-measured from a browser since, and

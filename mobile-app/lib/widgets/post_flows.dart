@@ -18,6 +18,7 @@ import '../utils/post_ownership.dart';
 import 'account_restriction.dart';
 import 'application_modal.dart';
 import 'provider_gate.dart';
+import 'vetting_gate.dart';
 
 /// Shared post action flows — used by both the feed cards (discover) and the
 /// post detail screen so the business rules (duplicate-application guard,
@@ -341,6 +342,16 @@ Future<void> _applyToListing(BuildContext context, PostModel post) async {
     action: isJob ? 'apply for jobs' : 'offer your services',
   );
   if (!context.mounted || !ready) return;
+
+  // Care and in-home work needs an ID check or a Care check (migration 135).
+  // Asked here, before the form, rather than refused after it.
+  final vetted = await ensureVettedFor(
+    context,
+    uid: currentUserId,
+    categoryName: post.category.name,
+    applying: true,
+  );
+  if (!context.mounted || !vetted) return;
 
   // Captured before the sheet: the modal's callback outlives this context.
   final appProvider = context.read<AppProvider>();

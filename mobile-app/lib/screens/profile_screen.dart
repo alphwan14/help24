@@ -46,6 +46,7 @@ import '../services/auth_service.dart';
 import 'promotion/promote_business_screen.dart';
 import 'provider/payout_destinations_screen.dart';
 import 'provider/provider_card_screen.dart';
+import 'provider/verification_screen.dart';
 import '../widgets/provider_gate.dart';
 import 'provider/provider_onboarding_screen.dart';
 import 'location_permission_explainer_screen.dart';
@@ -664,6 +665,18 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                       MaterialPageRoute(builder: (_) => ProviderCardScreen(uid: widget.uid)),
                     );
                   },
+                ),
+                // Provider vetting (migration 135): the ID check (badge for
+                // anyone; required for tutoring, driving, security, house
+                // cleaning) and the Care check (babysitting, caregiving).
+                _SettingsTile(
+                  icon: AppIcons.verifiedProvider,
+                  title: 'Verify your identity',
+                  trailing: const Icon(AppIcons.disclosure),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => VerificationScreen(uid: widget.uid)),
+                  ),
                 ),
                 _SettingsTile(
                   icon: AppIcons.payoutDestination,

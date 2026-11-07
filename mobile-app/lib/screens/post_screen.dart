@@ -17,6 +17,7 @@ import '../services/auth_service.dart';
 import '../services/category_schema_service.dart';
 import '../services/location_registry.dart';
 import '../services/user_profile_service.dart';
+import '../services/verification_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
@@ -28,6 +29,7 @@ import '../widgets/post_preview_card.dart';
 import '../widgets/schema_question_flow.dart';
 import 'place_picker_screen.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
+import '../widgets/vetting_gate.dart';
 
 /// Represents a selected image with cross-platform support
 class SelectedImage {
@@ -183,6 +185,14 @@ class _PostScreenState extends State<PostScreen> {
       _selectedType = type;
     });
   }
+
+  /// The provider's verification status, read once when the screen opens so
+  /// picking a vetted category can ask for verification without a wait.
+  /// Re-read after the sheet is shown, in case they verified in between.
+  Future<VerificationStatus?> _vettingStatus = _readVettingStatus();
+
+  static Future<VerificationStatus?> _readVettingStatus() =>
+      VerificationService.myStatus().then<VerificationStatus?>((s) => s).catchError((_) => null);
 
   @override
   void initState() {
@@ -1204,7 +1214,24 @@ class _PostScreenState extends State<PostScreen> {
   bool get _supportsCustomCategory => _isOfferFlow || _isRequestFlow;
 
   /// Select [category] and advance — shared by registry and custom tiles.
-  void _pickCategory(Category category) {
+  Future<void> _pickCategory(Category category) async {
+    // Offering care or in-home work needs a check (migration 135). Ask here,
+    // before the form, not after the provider has filled it in.
+    if (_isOfferFlow) {
+      final uid = context.read<AuthProvider>().currentUserId ?? '';
+      final vetted = await ensureVettedFor(
+        context,
+        uid: uid,
+        categoryName: category.name,
+        applying: false,
+        known: _vettingStatus,
+      );
+      if (!mounted) return;
+      if (!vetted) {
+        _vettingStatus = _readVettingStatus();
+        return;
+      }
+    }
     setState(() {
       // Different category → its questions (and old answers) no longer apply.
       if (category.name != _selectedCategory?.name) _attributes = {};
@@ -2053,6 +2080,20 @@ class _PostScreenState extends State<PostScreen> {
   Future<void> _submitPost() async {
     if (_isSubmitting) return;
 
+    // Offering care or in-home work needs an ID check or a Care check
+    // (migration 135). The database refuses the listing otherwise; asking
+    // first means the provider is sent to verify instead of seeing a refusal.
+    if (_selectedType == PostType.offer && _selectedCategory != null) {
+      final uid = context.read<AuthProvider>().currentUserId ?? '';
+      final vetted = await ensureVettedFor(
+        context,
+        uid: uid,
+        categoryName: _selectedCategory!.name,
+        applying: false,
+      );
+      if (!mounted || !vetted) return;
+    }
+
     setState(() {
       _isSubmitting = true;
       _uploadedImages = 0;
@@ -2062,6 +2103,7 @@ class _PostScreenState extends State<PostScreen> {
     });
 
     final provider = context.read<AppProvider>();
+    final currentUserId = context.read<AuthProvider>().currentUserId;
     final price = _effectivePrice;
     // Same string shape this screen has always written ("Area, City" or
     // "City"), so every existing post, filter and card keeps working.
@@ -2113,7 +2155,6 @@ class _PostScreenState extends State<PostScreen> {
           attributesSchemaVersion: schemaVersion,
         );
 
-        final currentUserId = context.read<AuthProvider>().currentUserId;
         final createdJob = await provider.createJob(
           job,
           currentUserId: currentUserId,
@@ -2163,7 +2204,6 @@ class _PostScreenState extends State<PostScreen> {
           attributesSchemaVersion: schemaVersion,
         );
 
-        final currentUserId = context.read<AuthProvider>().currentUserId;
         final createdPost = await provider.createPost(
           post,
           currentUserId: currentUserId,

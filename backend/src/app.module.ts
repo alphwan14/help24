@@ -31,6 +31,7 @@ import { ModerationEnforcementModule } from './moderation/moderation-enforcement
 import { ModerationModule } from './moderation/moderation.module';
 import { AdminAlertsModule } from './admin/alerts/admin-alerts.module';
 import { FinanceRepairsModule } from './admin/finance/finance-repairs.module';
+import { VerificationsModule } from './verifications/verifications.module';
 
 @Module({
   imports: [
@@ -103,6 +104,10 @@ import { FinanceRepairsModule } from './admin/finance/finance-repairs.module';
     AdminAlertsModule,
     // Manual settlements + applying a ruling on record (migration 117).
     FinanceRepairsModule,
+    // Provider vetting (migration 135): the admin review queue and the sweep
+    // that hides listings whose verification window ran out and deletes
+    // documents 30 days after the decision.
+    VerificationsModule,
     // The client configuration plane: kill switches, maintenance mode, the
     // minimum-version gate and the client tunables that previously required a
     // Play release. A leaf — nothing imports it. Serves compiled defaults when

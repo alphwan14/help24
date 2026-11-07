@@ -39,6 +39,8 @@ import 'mark_complete_screen.dart';
 import 'payment_screen.dart';
 import '../models/moderation.dart';
 import '../widgets/report_sheet.dart';
+import '../utils/vetting_labels.dart';
+import '../widgets/vetting_badge.dart';
 
 /// Production post detail — the conversion surface of Help24.
 ///
@@ -1320,6 +1322,10 @@ class _PriceCard extends StatelessWidget {
           ),
           if (post.type == PostType.offer && post.authorHasPhone)
             _MetaChip(label: 'Accepts M-Pesa', color: AppTheme.successGreen),
+          if (post.vettingLabel == 'certificate_pending' && post.type == PostType.offer)
+            _MetaChip(label: 'Certificate pending', color: AppTheme.warningOrange, dot: true),
+          if (post.vettingLabel == 'not_verified' && post.type == PostType.offer)
+            _MetaChip(label: 'Not yet verified', color: AppTheme.warningOrange, dot: true),
         ],
       ),
     );
@@ -1407,6 +1413,12 @@ class _AuthorCard extends StatelessWidget {
                         fontSize: 17,
                       ),
                     ),
+                    // Provider vetting (migration 135): "Care checked" /
+                    // "ID verified", or the caution label on an offer.
+                    if (listingVettingLabel(post) != null) ...[
+                      const SizedBox(height: 4),
+                      VettingBadge(post: post),
+                    ],
                   ],
                 ),
               ),
@@ -1416,6 +1428,13 @@ class _AuthorCard extends StatelessWidget {
               ],
             ],
           ),
+          if (listingVettingExplanation(post) != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              listingVettingExplanation(post)!,
+              style: TextStyle(fontSize: 12.5, color: tertiary, height: 1.35),
+            ),
+          ],
           const SizedBox(height: 12),
           ReputationTrustBlock(providerId: post.authorUserId),
         ],
