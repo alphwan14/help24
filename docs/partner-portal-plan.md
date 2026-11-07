@@ -132,3 +132,42 @@ No new environment variables are needed. `PARTNER_HOSTS` defaults to `partners.h
 - Checking verified sign-in (phone or Google) before payment (P5).
 - Fraud flags (same phone or device).
 - The research view (P4) and marketing campaign links (P3).
+
+## Planned: Google sign-in and password reset for partners (noted 2026-11-07)
+
+Owner decision: build this **when onboarding of the first real agents
+starts**, not before. Today the only agents are two paused test accounts.
+
+**Why:** agents work in the field on phones, and nearly every Android phone
+in Kenya already has a Google account signed in, so one tap beats a password
+on a small screen. It also covers the portal's real gap: there is **no
+"Forgot password"**. A new invitation is the only reset today.
+
+**One package, three parts:**
+
+1. **Continue with Google on `/login`.** Reuse the admin console's setup
+   (`components/auth/GoogleButton.tsx`, Google Identity Services plus
+   `signInWithIdToken`, the reserved button space, and the "check first"
+   rule). The portal's own gate (`lib/partners/access.ts`, an active agent
+   through `partner_logins`) decides, not the admin gate. A Google account
+   that is not an active agent is signed straight back out, with a reason.
+2. **Join with Google on `/accept`.** An invited agent accepts with one tap
+   instead of creating a password. The token is accepted **only when the
+   Google account's email matches the invited email**, so a forwarded
+   invitation link is useless to anyone else.
+3. **Forgot password on `/login`**, built like the admin one
+   (`app/api/admin/password-reset`). The server decides who gets the email,
+   and every address gets the same answer and the same delay. The reset link
+   must land on the partner host. Reset emails now go out through Help24's
+   own sender ("Help24 Security"), so the old reason for having no reset —
+   Supabase's default mailer reaching only team members — no longer applies.
+
+**Setup at that point (the owner's part):** add `https://partners.help24.co.ke`
+under Authorised JavaScript origins on the existing "Help24 admin" web client
+in the Help24 Google Cloud project. No new project, and Supabase needs no
+change: Google is already on, and public sign-ups must **stay off**. Google's
+screen will show the verified Help24 branding, "help24.co.ke".
+
+**Limits to state to agents:** Google works only when their Google email is
+the email they were invited with. Everyone else uses a password, which part 3
+lets them recover.
