@@ -28,7 +28,11 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
   const admins = new Map(); // email → { id, email, name, role, active, token }
   const invites = new Map(); // token → { email, role, status, expiresAt }
   const recoveries = new Map(); // emailed token → { userId, challenge, redirectTo, sentAt, used }
-  const flows = new Map(); // auth code → { userId, challenge }
+  const flows = new Map(); // auth code → { userId, challenge, method }
+  // Google sign-in: off until a run switches it on (as in Supabase today), and
+  // the Google account the person "chooses" (null = they back out at Google).
+  let googleOn = false;
+  let googleAccount = null;
   const outbox = [];
   const log = [];
   const restores = new Map();
@@ -161,6 +165,32 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     const p = url.pathname;
 
     // ── GoTrue ──────────────────────────────────────────────────────────────
+    if (req.method === "GET" && p === "/auth/v1/settings") {
+      return send(200, { external: { email: true, google: googleOn }, disable_signup: true });
+    }
+    if (req.method === "GET" && p === "/auth/v1/authorize") {
+      // GoTrue's OAuth start, with Google played in-process. Public sign-ups
+      // are off (as they must be in production), so a Google address with no
+      // login is refused the way GoTrue refuses it, and nothing is created.
+      if (!googleOn || url.searchParams.get("provider") !== "google") return authFail(400, "validation_failed", "Unsupported provider: provider is not enabled");
+      const target = new URL(allowedRedirect(url.searchParams.get("redirect_to") ?? siteUrl));
+      if (!googleAccount) {
+        target.searchParams.set("error", "access_denied");
+        target.searchParams.set("error_description", "The user denied the request");
+        return redirect(target.href);
+      }
+      const u = byEmail(googleAccount);
+      if (!u) {
+        target.searchParams.set("error", "access_denied");
+        target.searchParams.set("error_code", "signup_disabled");
+        target.searchParams.set("error_description", "Signups not allowed for this instance");
+        return redirect(target.href);
+      }
+      const code = randomUUID();
+      flows.set(code, { userId: u.id, challenge: url.searchParams.get("code_challenge"), method: "oauth" });
+      target.searchParams.set("code", code);
+      return redirect(target.href);
+    }
     if (req.method === "POST" && p === "/auth/v1/token") {
       if (grant === "password") {
         const u = byEmail(body.email);
@@ -172,7 +202,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
         if (!f) return authFail(404, "flow_state_not_found");
         if (createHash("sha256").update(body.code_verifier ?? "").digest("base64url") !== f.challenge) return authFail(400, "bad_code_verifier");
         flows.delete(body.auth_code);
-        return send(200, issue(auth.get(f.userId), "recovery"));
+        return send(200, issue(auth.get(f.userId), f.method ?? "recovery"));
       }
       if (grant === "refresh_token") {
         for (const s of sessions.values()) if (s.refreshToken === body.refresh_token) { s.refreshToken = randomUUID(); return send(200, sessionJson(s)); }
@@ -233,7 +263,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       }
       r.used = true;
       const code = randomUUID();
-      flows.set(code, { userId: r.userId, challenge: r.challenge });
+      flows.set(code, { userId: r.userId, challenge: r.challenge, method: "recovery" });
       target.searchParams.set("code", code);
       return redirect(target.href);
     }
@@ -494,6 +524,9 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     /** As if an earlier attempt had succeeded and its response had been lost. */
     acceptOutOfBand: (token, name, password) => acceptInvite(token, name, password),
     inviteStatus: (token) => invites.get(token)?.status,
+    setGoogle: (on) => { googleOn = on; },
+    chooseGoogleAccount: (email) => { googleAccount = email; },
+    authUserCount: () => auth.size,
     isLinked: (email) => links.some((l) => l.subject === byEmail(email)?.id),
     roleOf: (email) => personByEmail(email)?.role,
     idOf: (email) => personByEmail(email)?.id,
