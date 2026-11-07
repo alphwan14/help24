@@ -245,16 +245,10 @@ class PostService {
             (filters?.offset ?? 0) + (filters?.limit ?? 50) - 1,
           );
 
-      // Debug: Log the raw response to see image data
-      final posts = (response as List).map((json) {
-        debugPrint('📦 Post: ${json['title']} | Images: ${json['post_images']}');
-        return PostModel.fromJson(json);
-      }).toList();
-      
-      debugPrint('✅ Loaded ${posts.length} posts');
-      for (final post in posts.take(3)) {
-        debugPrint('  - ${post.title}: ${post.images.length} images');
-      }
+      // One line per load, not one per post: release builds print debugPrint
+      // too, and the per-post line serialised every post's image list.
+      final posts = (response as List).map((json) => PostModel.fromJson(json)).toList();
+      debugPrint('[FEED] fallback loaded ${posts.length} posts');
 
       // Complete cards on first paint: warm author reputations BEFORE the feed
       // is handed to the UI (bounded to 2s; failure changes nothing).

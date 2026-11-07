@@ -28,6 +28,7 @@ import '../utils/error_mapper.dart';
 import '../utils/feature_errors.dart';
 import '../utils/feed_scope.dart';
 import '../utils/proximity.dart';
+import '../utils/feed_images.dart';
 import 'connectivity_provider.dart' show NetworkHealth;
 
 class AppProvider extends ChangeNotifier implements SessionScoped {
@@ -2002,14 +2003,15 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// data mentioning them lands (feed, jobs, conversations) — the image is
   /// then already decoded when its card/tile builds, so it is never seen
   /// loading. Fire-and-forget; errors are swallowed by the pipeline.
-  void _warmImageUrls(Iterable<String> urls, {int cap = 40}) {
+  void _warmImageUrls(Iterable<String> urls, {int cap = 40, bool thumbnail = false}) {
     var started = 0;
     for (final url in urls) {
       if (started >= cap) break;
-      if (url.isEmpty || !_warmedAvatarUrls.add(url)) continue;
+      if (url.isEmpty || !_warmedAvatarUrls.add(thumbnail ? 'thumb:$url' : url)) continue;
       started++;
       try {
-        CachedNetworkImageProvider(url).resolve(ImageConfiguration.empty);
+        (thumbnail ? feedThumbProvider(url) : CachedNetworkImageProvider(url))
+            .resolve(ImageConfiguration.empty);
       } catch (_) {
         // Never let a bad URL disturb the provider.
       }
@@ -2033,9 +2035,12 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   void _warmPostMedia(Iterable<PostModel> posts, {int cap = 30}) {
     final list = posts.take(cap).toList();
     _warmImageUrls(list.map((p) => p.authorAvatar), cap: cap);
+    // Covers at the card's decode size (utils/feed_images.dart), not the
+    // 1200 px original.
     _warmImageUrls(
       list.where((p) => p.images.isNotEmpty).map((p) => p.images.first),
       cap: cap,
+      thumbnail: true,
     );
   }
 
@@ -2087,7 +2092,8 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   static Future<void> _decoded(String url) {
     final completer = Completer<void>();
     late final ImageStreamListener listener;
-    final stream = CachedNetworkImageProvider(url).resolve(ImageConfiguration.empty);
+    // Covers only (see _coverUrls), at the size the card paints them.
+    final stream = feedThumbProvider(url).resolve(ImageConfiguration.empty);
     void finish() {
       if (completer.isCompleted) return;
       completer.complete();

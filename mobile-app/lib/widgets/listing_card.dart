@@ -15,6 +15,7 @@ import 'marketplace_card_components.dart';
 import 'primitives.dart';
 import 'reputation_widgets.dart';
 import '../utils/vetting_labels.dart';
+import '../utils/feed_images.dart';
 
 /// ONE CARD FOR EVERY LISTING.
 ///
@@ -545,6 +546,9 @@ class _Thumbnail extends StatelessWidget {
           children: [
             CachedNetworkImage(
               imageUrl: url,
+              // Decoded at thumbnail size, the same key the feed warms
+              // (utils/feed_images.dart).
+              memCacheWidth: kFeedThumbDecodeWidth,
               fit: BoxFit.cover,
               fadeInDuration: Duration.zero,
               fadeOutDuration: Duration.zero,

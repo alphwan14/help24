@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 // ID token the server binds identity from, so the ownership checks in each
 // backend service actually mean something. See api_client.dart.
 import 'api_client.dart';
+import 'feed_pager.dart';
 
 import '../config/api_config.dart';
 import '../models/post_model.dart';
@@ -180,7 +181,9 @@ class FeedService {
       scope: scope,
       filters: filters,
       page: page,
-      pageSize: pageSize,
+      // Every ranked page must use the same size, or page n would not start
+      // where page n-1 ended.
+      pageSize: pageSize ?? FeedPager.pageSize,
       parse: PostModel.fromJson,
       idOf: (post) => post.id,
       fallback: () async =>

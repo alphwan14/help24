@@ -117,8 +117,11 @@ typedef FeedRowHydrate = Future<List<PostModel>> Function(List<String> ids);
 /// The decision of what to fetch next, as a function of the cursor and the ids
 /// already on screen — so it is testable without a network or a provider.
 abstract final class FeedPager {
-  /// Posts per tail page, matching the engine's own page size.
-  static const int pageSize = 20;
+  /// Posts per page, for the ranked head (sent as `page_size`) and the tail
+  /// alike. 30 fills about four screens on a phone, so the next page starts
+  /// loading well before the reader reaches it, while each request stays small
+  /// (the server ranks 30 in about 200 ms; photos load only as cards appear).
+  static const int pageSize = 30;
 
   /// Rows per keyset probe. The first tail probe after a ranked head is mostly
   /// posts the reader has seen (the head is drawn largely from the newest), so
