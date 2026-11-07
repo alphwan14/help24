@@ -1,43 +1,52 @@
-import { recoveryRedirectUrl } from "./recovery-session";
+/**
+ * "Continue with Google" on the admin sign-in page — Google Identity Services.
+ *
+ * Google's own button signs the person in on admin.help24.co.ke and hands the
+ * page a signed ID token; the page gives it to Supabase (`signInWithIdToken`).
+ * The browser never visits the provider's address, so Google's account screen
+ * names admin.help24.co.ke — and, once Google has verified the Help24
+ * branding, "Help24" — rather than the Supabase project host that the
+ * redirect flow showed. Then app/api/admin/google-check asks the admin gate
+ * before the dashboard opens; a Google account that is not a linked admin is
+ * signed straight back out.
+ */
 
 /**
- * Set by the sign-in page just before it hands the browser to Google, read
- * (and cleared) by app/auth/callback. It only matters when Google comes back
- * WITHOUT a session — the person cancelled, or has no dashboard login — so the
- * callback returns them to the sign-in page rather than the password-reset
- * page that shares the route. A session that does come back says for itself
- * how it signed in (its `amr`), so nothing is decided by this cookie alone.
+ * The "Help24 admin" web client in the Help24 Google Cloud project. A client
+ * id is public by design (Google puts it in every sign-in page); its
+ * Authorised JavaScript origins — https://admin.help24.co.ke only — are what
+ * stop another site from using it. Supabase must list it under the Google
+ * provider's Client IDs, or it refuses the token's audience.
  */
-export const GOOGLE_FLOW_COOKIE = "h24_google_flow";
-export const GOOGLE_FLOW_MAX_AGE = 10 * 60;
+export const GOOGLE_CLIENT_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "454215745233-dmb397i77e4nomh880srfjfirimbfpjg.apps.googleusercontent.com";
 
-/** The `amr` method a Google (or any OAuth) sign-in carries. */
-export const OAUTH_METHOD = "oauth";
+/** Google's script; the e2e run points this at its stand-in. */
+export const GOOGLE_GSI_SRC = process.env.NEXT_PUBLIC_GOOGLE_GSI_SRC ?? "https://accounts.google.com/gsi/client";
 
-/** True when verified claims (`auth.getClaims()`) come from an OAuth sign-in. */
-export function isOAuthSession(claims: unknown): boolean {
-  const amr = (claims as { amr?: unknown } | null)?.amr;
-  return Array.isArray(amr) && amr.some((e) => (e as { method?: unknown } | null)?.method === OAUTH_METHOD);
+/**
+ * A fresh nonce per button: Google puts its SHA-256 (hex) in the ID token,
+ * Supabase is given the raw value and checks the two agree — so a token
+ * lifted from elsewhere cannot be replayed here.
+ */
+export async function makeNonce(): Promise<{ raw: string; hashed: string }> {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const raw = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  const hashed = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  return { raw, hashed };
 }
 
-/** Why Google sign-in returned to the sign-in page (`/login?error=…`). */
-export type GoogleSignInError = "google-not-admin" | "google-failed";
+/** Why Google sign-in left the person on the sign-in page (keys of the page's messages). */
+export type GoogleSignInError = "google-not-admin" | "google-failed" | "not-linked" | "unavailable";
 
 /**
- * The callback's verdict when Google came back without a code. GoTrue says
- * `error_code=signup_disabled` when the Google address has no dashboard login
- * (public sign-ups are off); an `access_denied` with no code is the person
- * backing out at Google, which deserves no message at all.
+ * Supabase refuses a Google address that has no dashboard login with
+ * `signup_disabled`, because public sign-ups are off. That person proved they
+ * own the Google account, so saying "not an admin login" reveals nothing about
+ * anyone else.
  */
-export function googleReturnError(params: URLSearchParams): GoogleSignInError | null {
-  const code = params.get("error_code") ?? "";
-  const description = params.get("error_description") ?? "";
-  if (code === "signup_disabled" || /signups? not allowed/i.test(description)) return "google-not-admin";
-  if (params.get("error") === "access_denied") return null;
+export function idTokenError(error: { code?: string; message?: string }): GoogleSignInError {
+  if (error.code === "signup_disabled" || /signups? not allowed/i.test(error.message ?? "")) return "google-not-admin";
   return "google-failed";
-}
-
-/** Where Google sends the browser back: the dashboard's one auth callback. */
-export function googleRedirectUrl(origin: string): string {
-  return recoveryRedirectUrl(origin);
 }

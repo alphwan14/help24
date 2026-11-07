@@ -173,34 +173,45 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     if (req.method === "GET" && p === "/auth/v1/settings") {
       return send(200, { external: { email: true, google: googleOn }, disable_signup: true });
     }
-    if (req.method === "GET" && p === "/auth/v1/authorize") {
-      // GoTrue's OAuth start, with Google played in-process. Public sign-ups
-      // are off (as they must be in production), so a Google address with no
-      // login is refused the way GoTrue refuses it, and nothing is created.
-      if (!googleOn || url.searchParams.get("provider") !== "google") return authFail(400, "validation_failed", "Unsupported provider: provider is not enabled");
-      const target = new URL(allowedRedirect(url.searchParams.get("redirect_to") ?? siteUrl));
-      if (!googleAccount) {
-        target.searchParams.set("error", "access_denied");
-        target.searchParams.set("error_description", "The user denied the request");
-        return redirect(target.href);
-      }
-      const u = byEmail(googleAccount);
-      if (!u) {
-        target.searchParams.set("error", "access_denied");
-        target.searchParams.set("error_code", "signup_disabled");
-        target.searchParams.set("error_description", "Signups not allowed for this instance");
-        return redirect(target.href);
-      }
-      const code = randomUUID();
-      flows.set(code, { userId: u.id, challenge: url.searchParams.get("code_challenge"), method: "oauth" });
-      target.searchParams.set("code", code);
-      return redirect(target.href);
+    // Google Identity Services, played in-process: the script the sign-in page
+    // loads, and the signed ID token it gets back (here: the chosen account and
+    // the nonce hash, which the id_token grant below checks like GoTrue does).
+    if (req.method === "GET" && p === "/gsi/client") {
+      res.writeHead(200, { "Content-Type": "text/javascript" });
+      return res.end(`window.google = { accounts: { id: {
+        initialize(o) { this.o = o; },
+        renderButton(el) {
+          const b = document.createElement("button");
+          b.type = "button"; b.textContent = "Continue with Google";
+          b.onclick = () => fetch(${JSON.stringify(origin)} + "/gsi/credential?nonce=" + encodeURIComponent(this.o.nonce))
+            .then((r) => r.json()).then((j) => { if (j.credential) this.o.callback({ credential: j.credential }); });
+          el.appendChild(b);
+        },
+      } } };`);
+    }
+    if (req.method === "GET" && p === "/gsi/credential") {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      // No account chosen = the person closed Google's window: no callback at all.
+      if (!googleAccount) return send(200, {});
+      const token = Buffer.from(JSON.stringify({ email: googleAccount, nonce: url.searchParams.get("nonce") })).toString("base64url");
+      return send(200, { credential: token });
     }
     if (req.method === "POST" && p === "/auth/v1/token") {
       if (grant === "password") {
         const u = byEmail(body.email);
         if (!u || u.password !== body.password) return authFail(400, "invalid_credentials", "Invalid login credentials");
         return send(200, issue(u, "password"));
+      }
+      if (grant === "id_token") {
+        // GoTrue's id_token grant: the token's nonce must be SHA-256(raw nonce),
+        // and with public sign-ups off an address with no login is refused.
+        if (!googleOn || body.provider !== "google") return authFail(400, "validation_failed", "Unsupported provider");
+        let claims;
+        try { claims = JSON.parse(Buffer.from(String(body.id_token), "base64url").toString()); } catch { return authFail(400, "bad_jwt"); }
+        if (createHash("sha256").update(String(body.nonce ?? "")).digest("hex") !== claims.nonce) return authFail(400, "bad_jwt", "Nonces mismatch");
+        const u = byEmail(claims.email);
+        if (!u) return authFail(422, "signup_disabled", "Signups not allowed for this instance");
+        return send(200, issue(u, "oauth"));
       }
       if (grant === "pkce") {
         const f = flows.get(body.auth_code);

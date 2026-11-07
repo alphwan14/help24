@@ -93,6 +93,9 @@ const next = spawn(process.execPath, [join(ADMIN, "node_modules/next/dist/bin/ne
     SUPABASE_SERVICE_ROLE_KEY: "fake-service-key",
     BACKEND_URL: FAKE,
     NEXT_PUBLIC_BACKEND_URL: FAKE,
+    // Google Identity Services: the fake serves the script and the ID token.
+    NEXT_PUBLIC_GOOGLE_GSI_SRC: `${FAKE}/gsi/client`,
+    NEXT_PUBLIC_GOOGLE_CLIENT_ID: "fake-client.apps.googleusercontent.com",
     NEXT_DIST_DIR: ".next-e2e",
     // The partner portal gets its own origin: same server, another host name,
     // so its cookies are separate from the admin's — as on production.
@@ -414,7 +417,8 @@ try {
     fake.chooseGoogleAccount(account);
     await goto(`${APP}/login`);
     await waitFor(bodyHas("Continue with Google"), "Google button", 15000);
-    await clickText("Continue with Google");
+    // Google draws its own button (an iframe in production), outside React: click it directly.
+    await evaluate(`document.querySelector('[data-testid="google-button"] button').click()`);
   };
   const stillSignedOut = async () => {
     await goto(`${APP}/dashboard/overview`);
@@ -424,7 +428,9 @@ try {
   await googleIn(ALICE);
   const googleAdmin = await waitFor(pathIs("/dashboard/overview"), "Google admin lands in the dashboard", 20000).then(() => true, () => false);
   check("an admin's Google account (same email as their admin login) goes straight to the dashboard", googleAdmin);
-  check("Google sign-in used the PKCE flow", fake.log.some((l) => l.path === "/auth/v1/token?grant_type=pkce"));
+  check("Google sign-in hands Supabase an ID token with a nonce, and never visits the provider's address",
+    fake.log.some((l) => l.path === "/auth/v1/token?grant_type=id_token" && l.body.includes("\"nonce\"")) &&
+    !fake.log.some((l) => l.path.startsWith("/auth/v1/authorize")));
   await waitFor(`!document.body.innerText.includes('Setting up your admin workspace')`, "shell ready", 30000).catch(() => {});
   await signOut();
 
@@ -435,16 +441,16 @@ try {
 
   await googleIn(CAROL);
   const carolTold = await waitFor(`${pathIs("/login")} && ${bodyHas("isn't a Help24 admin login")}`, "non-admin refused", 15000).then(() => true, () => false);
-  check("a dashboard login that is not an admin is refused at the callback and signed back out", carolTold && (await stillSignedOut()));
+  check("a dashboard login that is not an admin is refused by the admin check and signed back out", carolTold && (await stillSignedOut()));
 
   await googleIn(UMA);
   const umaTold = await waitFor(bodyHas("isn't connected to a Help24 account yet"), "unlinked admin told", 15000).then(() => true, () => false);
   check("an admin login not yet linked is told so, and signed back out", umaTold && (await stillSignedOut()));
 
   await googleIn(null);
-  const backedOut = await waitFor(pathIs("/login"), "back from Google", 15000).then(() => true, () => false);
-  await sleep(500);
-  check("backing out at Google returns to the sign-in page with no error", backedOut && !(await evaluate("!!document.querySelector('[role=alert]')")));
+  await sleep(1500);
+  check("closing Google's window leaves the sign-in page as it was, with no error",
+    (await evaluate(pathIs("/login"))) && !(await evaluate("!!document.querySelector('[role=alert]')")));
   await signIn(ALICE, ALICE_PW4);
   await waitFor(`location.pathname.startsWith('/dashboard')`, "signed in again");
 
