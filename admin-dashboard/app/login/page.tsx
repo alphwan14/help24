@@ -7,6 +7,36 @@ import { EyeIcon } from "@/components/PasswordInputs";
 import { DASHBOARD_HOME } from "@/lib/routes";
 import AuthShell from "@/components/auth/AuthShell";
 import { SIGN_IN_HELP } from "@/lib/auth-audiences";
+import { GOOGLE_FLOW_COOKIE, GOOGLE_FLOW_MAX_AGE, googleRedirectUrl } from "@/lib/google-sign-in";
+
+/**
+ * Whether Google sign-in is switched on in Supabase, from its public settings.
+ * Until it is, the button stays hidden: pressing it would land on the
+ * provider's raw "provider is not enabled" page.
+ */
+async function googleEnabled(): Promise<boolean> {
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/settings`, {
+      headers: { apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! },
+    });
+    const body = (await res.json()) as { external?: { google?: boolean } };
+    return res.ok && body.external?.google === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Google's "G", in its four brand colours (Google sign-in branding guidelines). */
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
+  );
+}
 
 /** URL-param messages (set by middleware / redirects). */
 const URL_MESSAGES: Record<string, { text: string; type: "info" | "error" }> = {
@@ -14,12 +44,23 @@ const URL_MESSAGES: Record<string, { text: string; type: "info" | "error" }> = {
     text: "Access denied — your account does not have admin privileges.",
     type: "error",
   },
-  // Middleware sends this when the password was right but the login is not
-  // linked to a Help24 account. Saying "no privileges" here sent one admin
-  // through repeated sign-ins and password resets that could never help.
+  // Middleware (or the Google callback) sends this when sign-in worked but the
+  // login is not linked to a Help24 account. Saying "no privileges" here sent
+  // one admin through repeated sign-ins and password resets that could never help.
   "not-linked": {
-    text: "Your password is correct, but this login isn't connected to a Help24 account yet. A super admin has been alerted — once they link it, sign in here again. There's no need to reset your password.",
+    text: "You signed in, but this login isn't connected to a Help24 account yet. A super admin has been alerted — once they link it, sign in here again. There's no need to reset your password.",
     type: "info",
+  },
+  // app/auth/callback: the Google account is not a Help24 admin login. The
+  // person has just proved they own it, so saying so reveals nothing about
+  // anyone else.
+  "google-not-admin": {
+    text: "This Google account isn't a Help24 admin login. Continue with the Google account that uses your admin email, or sign in with your email and password.",
+    type: "error",
+  },
+  "google-failed": {
+    text: "Google sign-in didn't finish. Please try again, or sign in with your email and password.",
+    type: "error",
   },
   unavailable: {
     text: "We couldn't check your access just now, so you weren't let in. Please try again in a moment.",
@@ -75,6 +116,34 @@ function LoginForm() {
   const [info, setInfo] = useState<string | null>(null);
   const [resetMode, setResetMode] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [google, setGoogle] = useState<"hidden" | "ready" | "leaving">("hidden");
+
+  useEffect(() => {
+    let live = true;
+    void googleEnabled().then((on) => live && on && setGoogle("ready"));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Google decides who the person is; app/auth/callback then asks the admin
+  // gate, and only an admin's Google account gets past it.
+  async function handleGoogle() {
+    setError(null);
+    setInfo(null);
+    setGoogle("leaving");
+    document.cookie =
+      `${GOOGLE_FLOW_COOKIE}=1; Max-Age=${GOOGLE_FLOW_MAX_AGE}; Path=/; SameSite=Lax` +
+      (window.location.protocol === "https:" ? "; Secure" : "");
+    const { error: oauthError } = await getSupabaseBrowser().auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: googleRedirectUrl(window.location.origin), queryParams: { prompt: "select_account" } },
+    });
+    if (oauthError) {
+      setGoogle("ready");
+      setError("Google sign-in isn't available right now. Sign in with your email and password.");
+    }
+  }
 
   useEffect(() => {
     const errorParam = params.get("error");
@@ -162,6 +231,26 @@ function LoginForm() {
           <div role="alert" className="rounded-lg border border-critical-200 bg-critical-50 px-3.5 py-3 text-[13px] leading-snug text-critical-700">
             {error}
           </div>
+        )}
+
+        {!resetMode && google !== "hidden" && (
+          <>
+            <button
+              type="button"
+              onClick={handleGoogle}
+              disabled={google === "leaving" || loading}
+              className="inline-flex w-full items-center justify-center gap-3 rounded-lg border border-gray-300 bg-surface px-4 py-2.5 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-60"
+              style={{ minHeight: 44 }}
+            >
+              <GoogleMark />
+              {google === "leaving" ? "Opening Google…" : "Continue with Google"}
+            </button>
+            <div className="flex items-center gap-3 text-xs text-gray-400" aria-hidden="true">
+              <span className="h-px flex-1 bg-gray-200" />
+              or
+              <span className="h-px flex-1 bg-gray-200" />
+            </div>
+          </>
         )}
 
         <div>

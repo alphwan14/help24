@@ -401,6 +401,54 @@ try {
   check("Settings → 'Email me a reset link' → email → new password", fake.password(ALICE) === ALICE_PW4);
 
   /* ════════════════════════════════════════════════════════════════════ */
+  section("signing in with Google");
+  await goto(`${APP}/dashboard/settings`);
+  await waitFor(bodyHas("Change password"), "settings");
+  await signOut();
+  await goto(`${APP}/login`);
+  await waitFor("!!document.querySelector('input[type=email]')", "login form");
+  await sleep(1000);
+  check("Google switched off in Supabase: no Google button", !(await evaluate(bodyHas("Continue with Google"))));
+  fake.setGoogle(true);
+  const googleIn = async (account) => {
+    fake.chooseGoogleAccount(account);
+    await goto(`${APP}/login`);
+    await waitFor(bodyHas("Continue with Google"), "Google button", 15000);
+    await clickText("Continue with Google");
+  };
+  const stillSignedOut = async () => {
+    await goto(`${APP}/dashboard/overview`);
+    return waitFor(pathIs("/login"), "refused to the sign-in page", 15000).then(() => true, () => false);
+  };
+
+  await googleIn(ALICE);
+  const googleAdmin = await waitFor(pathIs("/dashboard/overview"), "Google admin lands in the dashboard", 20000).then(() => true, () => false);
+  check("an admin's Google account (same email as their admin login) goes straight to the dashboard", googleAdmin);
+  check("Google sign-in used the PKCE flow", fake.log.some((l) => l.path === "/auth/v1/token?grant_type=pkce"));
+  await waitFor(`!document.body.innerText.includes('Setting up your admin workspace')`, "shell ready", 30000).catch(() => {});
+  await signOut();
+
+  const loginsBefore = fake.authUserCount();
+  await googleIn("stranger@gmail.test");
+  const strangerTold = await waitFor(`${pathIs("/login")} && ${bodyHas("isn't a Help24 admin login")}`, "stranger refused", 15000).then(() => true, () => false);
+  check("a Google account with no dashboard login is refused, and no login is created", strangerTold && fake.authUserCount() === loginsBefore);
+
+  await googleIn(CAROL);
+  const carolTold = await waitFor(`${pathIs("/login")} && ${bodyHas("isn't a Help24 admin login")}`, "non-admin refused", 15000).then(() => true, () => false);
+  check("a dashboard login that is not an admin is refused at the callback and signed back out", carolTold && (await stillSignedOut()));
+
+  await googleIn(UMA);
+  const umaTold = await waitFor(bodyHas("isn't connected to a Help24 account yet"), "unlinked admin told", 15000).then(() => true, () => false);
+  check("an admin login not yet linked is told so, and signed back out", umaTold && (await stillSignedOut()));
+
+  await googleIn(null);
+  const backedOut = await waitFor(pathIs("/login"), "back from Google", 15000).then(() => true, () => false);
+  await sleep(500);
+  check("backing out at Google returns to the sign-in page with no error", backedOut && !(await evaluate("!!document.querySelector('[role=alert]')")));
+  await signIn(ALICE, ALICE_PW4);
+  await waitFor(`location.pathname.startsWith('/dashboard')`, "signed in again");
+
+  /* ════════════════════════════════════════════════════════════════════ */
   section("invitations");
   await goto(`${APP}/dashboard/settings`);
   await waitFor(bodyHas("Change password"), "settings");
