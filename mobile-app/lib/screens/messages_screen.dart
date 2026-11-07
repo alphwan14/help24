@@ -133,8 +133,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = AppColors.of(context);
-
     return SafeArea(
       top: false,
       child: Column(
@@ -158,7 +156,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
               ],
             ),
           ),
-          Divider(height: 1, thickness: 0.5, color: colors.borderHairline),
+          const SizedBox(height: AppSpace.sm),
 
           // Conversations List
           Expanded(
@@ -346,7 +344,9 @@ class _ConversationTile extends StatelessWidget {
           child: InkWell(
             onTap: onTap,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+              // 14 vertical: conversations stack with no divider, so the
+              // padding is what separates one from the next.
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
                   // The person, from this phone first: their photo as a
@@ -514,7 +514,6 @@ class _ConversationTile extends StatelessWidget {
             ),
           ),
         ),
-        Divider(height: 1, thickness: 0.5, indent: 82, endIndent: 0, color: colors.borderHairline),
       ],
     );
   }
@@ -4329,10 +4328,7 @@ class _ReplyPreviewBar extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsetsDirectional.fromSTEB(12, 6, 2, 6),
-      decoration: BoxDecoration(
-        color: c.surfaceRaised,
-        border: Border(top: BorderSide(color: c.border)),
-      ),
+      color: c.surfaceRaised,
       child: Row(
         children: [
           Container(

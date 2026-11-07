@@ -641,7 +641,6 @@ class _NotificationRowState extends State<_NotificationRow> {
       );
     }
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -653,26 +652,19 @@ class _NotificationRowState extends State<_NotificationRow> {
           onTap: () => setState(() => _expanded = !_expanded),
         ),
         if (_expanded)
+          // The indent alone says "these belong to the row above" — no rule
+          // down the left edge.
           Padding(
             padding: const EdgeInsets.only(left: 26),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border(
-                  left: BorderSide(
-                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+            child: Column(
+              children: [
+                for (final n in group.items.skip(1))
+                  _NotificationTile(
+                    notification: n,
+                    dense: true,
+                    onTap: () => widget.onTap(n),
                   ),
-                ),
-              ),
-              child: Column(
-                children: [
-                  for (final n in group.items.skip(1))
-                    _NotificationTile(
-                      notification: n,
-                      dense: true,
-                      onTap: () => widget.onTap(n),
-                    ),
-                ],
-              ),
+              ],
             ),
           ),
       ],

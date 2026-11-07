@@ -290,11 +290,15 @@ class ProfileScreen extends StatelessWidget {
                         color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                       ),
                     ),
+                    // An ACTION, not a destination, so no chevron. It used to
+                    // draw the generic ">" beside a logout glyph that points
+                    // LEFT — two arrows disagreeing about which way it goes.
                     child: _SettingsTile(
                       icon: AppIcons.signOut,
                       title: 'Sign out',
                       iconColor: AppTheme.errorRed,
                       titleColor: AppTheme.errorRed,
+                      showChevron: false,
                       onTap: () => _showLogoutDialog(context, auth),
                     ),
                   );
@@ -1041,8 +1045,8 @@ class _SettingsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // SectionHeader owns the gap above AND below, which is what [_gapAbove]
-    // was invented for here. AppRowGroup owns the surface, the hairline and
-    // the dividers between rows.
+    // was invented for here. AppRowGroup owns the surface and its outline;
+    // the rows are separated by whitespace, never by a line.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1084,6 +1088,10 @@ class _SettingsTile extends StatelessWidget {
   final Color? iconColor;
   final Color? titleColor;
 
+  /// False for rows that perform an action in place (Sign out) rather than
+  /// open a screen — a chevron promises navigation.
+  final bool showChevron;
+
   const _SettingsTile({
     required this.icon,
     required this.title,
@@ -1092,6 +1100,7 @@ class _SettingsTile extends StatelessWidget {
     this.onTap,
     this.iconColor,
     this.titleColor,
+    this.showChevron = true,
   });
 
   @override
@@ -1103,6 +1112,7 @@ class _SettingsTile extends StatelessWidget {
       trailing: trailing,
       onTap: onTap,
       tone: titleColor ?? iconColor,
+      showChevron: showChevron,
     );
   }
 }

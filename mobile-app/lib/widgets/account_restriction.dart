@@ -216,10 +216,7 @@ class RestrictedComposerNotice extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg, vertical: AppSpace.md),
-      decoration: BoxDecoration(
-        color: c.surfaceSunken,
-        border: Border(top: BorderSide(color: c.borderHairline)),
-      ),
+      color: c.surfaceSunken,
       child: Row(
         children: [
           Icon(AppIcons.locked, size: 18, color: c.contentSecondary),

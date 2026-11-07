@@ -424,9 +424,7 @@ class _ApproveOrDisputeScreenState extends State<ApproveOrDisputeScreen> {
                   ],
                 ),
                 if (_providerNote != null && _providerNote!.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  const Divider(height: 1),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: AppSpace.xl),
                   Text('Provider Note',
                       style: TextStyle(
                           color: textSecondary,

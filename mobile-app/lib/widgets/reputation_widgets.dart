@@ -259,80 +259,59 @@ class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
             style: TextStyle(color: muted, fontSize: 12),
           );
         }
-        return Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            // Provider STATUS — single source of truth: rep.tier. Always shown,
-            // for new and established providers alike.
-            TierBadge(tier: rep.tier, label: rep.tierLabel),
-            _pill(
-              icon: AppIcons.completedWork,
-              iconColor: AppTheme.successGreen,
-              text: '${rep.completedJobs} ${rep.completedJobs == 1 ? 'Job' : 'Jobs'} Completed',
-              muted: muted,
-              isDark: isDark,
-            ),
-            // Reviews — a SEPARATE concept. Absence shows "No Reviews Yet" and
-            // never alters the status badge above.
-            if (rep.hasReviews)
-              _pill(
-                icon: AppIcons.reviewFilled,
-                iconColor: AppTheme.warningOrange,
-                text: '${rep.averageRating.toStringAsFixed(1)} · ${rep.totalReviews} '
-                    '${rep.totalReviews == 1 ? 'Review' : 'Reviews'}',
-                muted: muted,
-                isDark: isDark,
-              )
-            else
-              _pill(
-                icon: AppIcons.review,
-                iconColor: muted,
-                text: 'No Reviews Yet',
-                muted: muted,
-                isDark: isDark,
+        // ONE LINE OF TYPE, NOT THREE PILLS.
+        //
+        // This was a tier chip plus two tinted pills, each with its own icon
+        // — three boxes saying three short facts. They are a sentence:
+        // "New Provider · 0 jobs completed · No reviews yet". The tier leads
+        // in the stronger tone because it is the summary; the counts follow
+        // as plain facts. Status, jobs and reviews stay SEPARATE clauses, so
+        // "new" still reads as new rather than as bad.
+        final c = AppColors.of(context);
+        final base = AppTypeScale.bodyS.copyWith(
+          fontFamily: AppTypeScale.family,
+          color: c.contentTertiary,
+        );
+        // Each clause is glued with non-breaking spaces, so the line can only
+        // wrap at a separator — never strand "yet" on a line of its own.
+        String glued(String s) => s.replaceAll(' ', ' ');
+        const sep = '  ·  ';
+        final jobs = rep.completedJobs;
+        final reviews = rep.hasReviews
+            ? '${rep.averageRating.toStringAsFixed(1)} rating$sep'
+                '${glued('${rep.totalReviews} ${rep.totalReviews == 1 ? 'review' : 'reviews'}')}'
+            : glued('No reviews yet');
+        return Text.rich(
+          TextSpan(
+            style: base,
+            children: [
+              // Provider STATUS — single source of truth: rep.tier.
+              TextSpan(
+                text: glued(rep.tierLabel),
+                style: TextStyle(
+                  color: c.contentSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-          ],
+              TextSpan(text: '$sep${glued('$jobs ${jobs == 1 ? 'job' : 'jobs'} completed')}'),
+              // Reviews — a SEPARATE concept; absence never alters the tier.
+              TextSpan(text: '$sep$reviews'),
+            ],
+          ),
         );
       },
     );
   }
 
-  Widget _pill({
-    required IconData icon,
-    required Color iconColor,
-    required String text,
-    required Color muted,
-    required bool isDark,
-  }) {
+  Widget _loadingBars(Color muted) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      width: 220,
+      height: 14,
       decoration: BoxDecoration(
-        color: (isDark ? AppTheme.darkBackground : AppTheme.lightBackground),
-        borderRadius: AppRadius.pillAll,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: iconColor),
-          const SizedBox(width: 4),
-          Text(text, style: TextStyle(color: muted, fontSize: 11.5, fontWeight: FontWeight.w600)),
-        ],
+        color: muted.withValues(alpha: 0.12),
+        borderRadius: AppRadius.smAll,
       ),
     );
-  }
-
-  Widget _loadingBars(Color muted) {
-    Widget bar(double w) => Container(
-          width: w,
-          height: 18,
-          decoration: BoxDecoration(
-            color: muted.withValues(alpha: 0.12),
-            borderRadius: AppRadius.pillAll,
-          ),
-        );
-    return Wrap(spacing: 8, children: [bar(90), bar(110), bar(80)]);
   }
 }
 

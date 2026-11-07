@@ -523,7 +523,7 @@ class _WelcomeStepState extends State<_WelcomeStep> {
             primary: false,
           ),
           const SizedBox(height: 20),
-          const _OrDivider(),
+          const _OrLabel(),
           const SizedBox(height: 16),
           _GoogleSignInButton(
             loading: _googleLoading,
@@ -2601,32 +2601,28 @@ class _PrimaryButton extends StatelessWidget {
   }
 }
 
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
+class _OrLabel extends StatelessWidget {
+  const _OrLabel();
 
   @override
   Widget build(BuildContext context) {
+    // Type alone, centred in whitespace — no rules either side.
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final lineColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final textColor =
         isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
-    return Row(
-      children: [
-        Expanded(child: Divider(color: lineColor, thickness: 1)),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Text(
-            'OR',
-            style: TextStyle(
-              color: textColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.0,
-            ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
+      child: Center(
+        child: Text(
+          'OR',
+          style: TextStyle(
+            color: textColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.0,
           ),
         ),
-        Expanded(child: Divider(color: lineColor, thickness: 1)),
-      ],
+      ),
     );
   }
 }

@@ -394,7 +394,6 @@ class ProfileFieldRow extends StatelessWidget {
   final String? note;
 
   final VoidCallback? onTap;
-  final bool showDivider;
 
   /// Marks a value the user should revisit (legacy free-text profession).
   final bool needsAttention;
@@ -407,7 +406,6 @@ class ProfileFieldRow extends StatelessWidget {
     this.emptyHint = 'Not set',
     this.note,
     this.onTap,
-    this.showDivider = true,
     this.needsAttention = false,
   });
 
@@ -424,7 +422,9 @@ class ProfileFieldRow extends StatelessWidget {
         InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            // 18 vertical: these rows stack with no divider between them, so
+            // the padding is what tells one field from the next.
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -486,14 +486,6 @@ class ProfileFieldRow extends StatelessWidget {
             ),
           ),
         ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 1,
-            indent: 50,
-            color: (isDark ? AppTheme.darkBorder : AppTheme.lightBorder)
-                .withValues(alpha: 0.6),
-          ),
       ],
     );
   }

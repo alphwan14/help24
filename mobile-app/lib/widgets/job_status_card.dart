@@ -384,10 +384,9 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
   // the complete payment/dispute/payout timeline directly from the job chat
   // (previously reachable only via a notification tap).
   Widget _buildLifecycleLink(bool isDark) {
-    final divider = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     return Column(
       children: [
-        Divider(height: 1, color: divider),
+        const SizedBox(height: AppSpace.sm),
         InkWell(
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => JobLifecycleScreen(postId: widget.postId)),

@@ -255,7 +255,6 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                           label: 'Member since',
                           value: _memberSince(profile),
                           emptyHint: '—',
-                          showDivider: false,
                           onTap: null,
                         ),
                       ],
@@ -282,7 +281,6 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                           label: 'About you',
                           value: profile?.bio,
                           emptyHint: 'Add a short intro',
-                          showDivider: false,
                           onTap: () => _openEditorForKey('bio'),
                         ),
                       ],
@@ -527,9 +525,7 @@ class _CompletionCardState extends State<_CompletionCard> {
             ),
           ],
           if (_expanded) ...[
-            const SizedBox(height: 8),
-            const Divider(height: 1),
-            const SizedBox(height: 4),
+            const SizedBox(height: AppSpace.lg),
             for (final item in active)
               CompletionChecklistRow(
                 state: item,

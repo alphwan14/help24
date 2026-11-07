@@ -11,7 +11,7 @@ import '../../utils/kenyan_phone.dart';
 /// DESIGN DECISIONS
 /// ----------------
 /// 1. **The country code is furniture, not content.** `+254` sits in its own
-///    non-editable gutter, visually divided from the input by a hairline. A
+///    non-editable gutter, set apart from the input by tone and space. A
 ///    user cannot type into it, delete it, or duplicate it — which is what
 ///    made the previous `prefixText` version produce `+2540712345678`.
 /// 2. **The field cannot hold an illegal value.** A formatter reduces every
@@ -163,11 +163,9 @@ class _PhoneNumberFieldState extends State<PhoneNumberField> {
                     ],
                   ),
                 ),
-                Container(
-                  width: 1,
-                  height: 28,
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                ),
+                // No rule between gutter and input: the gutter's muted tone
+                // and this gap are the boundary.
+                const SizedBox(width: AppSpace.xs),
                 // ── The only editable region: 9 national digits ────────────
                 Expanded(
                   child: TextField(

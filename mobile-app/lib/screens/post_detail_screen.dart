@@ -201,9 +201,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       ),
                       const SizedBox(height: 10),
                       _buildCategoryRow(isDark),
-                      const SizedBox(height: 18),
-                      _PriceCard(post: post, isDark: isDark),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: AppSpace.xl),
+                      _PriceBlock(post: post, isDark: isDark),
+                      const SizedBox(height: AppSpace.xl),
                       _AuthorCard(
                         post: post,
                         isDark: isDark,
@@ -216,9 +216,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                 builder: (context, _) {
                                   final saved = SavedService.instance
                                       .isProviderSaved(post.authorUserId);
+                                  // A text action, not an outlined pill: the
+                                  // card's one boxed thing is the card.
                                   return SizedBox(
-                                    height: 34,
-                                    child: OutlinedButton.icon(
+                                    height: 36,
+                                    child: TextButton.icon(
                                       onPressed: () {
                                         AuthGuard.requireAuth(
                                           context,
@@ -244,10 +246,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                         size: 15,
                                       ),
                                       label: Text(saved ? 'Saved' : 'Save'),
-                                      style: OutlinedButton.styleFrom(
+                                      style: TextButton.styleFrom(
                                         foregroundColor: AppTheme.primaryAccent,
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 12),
+                                            horizontal: AppSpace.sm),
                                         tapTargetSize:
                                             MaterialTapTargetSize.shrinkWrap,
                                         textStyle: const TextStyle(
@@ -520,20 +522,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         ),
         child: Column(
           children: [
-            for (var i = 0; i < rows.length; i++) ...[
-              if (i > 0)
-                Divider(
-                  height: 1,
-                  indent: 46,
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                ),
+            // No line between rows: the tile's own padding separates them.
+            const SizedBox(height: AppSpace.xs),
+            for (final row in rows)
               _DetailTile(
-                icon: rows[i].$1,
-                label: rows[i].$2,
-                value: rows[i].$3,
+                icon: row.$1,
+                label: row.$2,
+                value: row.$3,
                 isDark: isDark,
               ),
-            ],
+            const SizedBox(height: AppSpace.xs),
           ],
         ),
       ),
@@ -552,7 +550,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     required bool isSelectedProvider,
   }) {
     final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
-    final border = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
 
     Widget content;
     if (isAuthor && showPayButton) {
@@ -822,10 +819,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
 
     return Container(
-      decoration: BoxDecoration(
-        color: surface,
-        border: Border(top: BorderSide(color: border)),
-      ),
+      // No top rule: the bar's surface tone against the page is the edge.
+      color: surface,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -1210,30 +1205,28 @@ class _MetaChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.13),
-        borderRadius: AppRadius.smAll,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (dot) ...[
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 5),
-          ],
-          Text(
-            label,
-            style: TextStyle(
-                color: color, fontSize: 12, fontWeight: FontWeight.w600),
+    // Type, not a tinted box: a dot and a word in the tone colour, the same
+    // weight as the OFFER / REQUEST label it sits beside.
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (dot) ...[
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
+          const SizedBox(width: 6),
         ],
-      ),
+        Text(
+          label,
+          style: AppTypeScale.meta.copyWith(
+            fontFamily: AppTypeScale.family,
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1257,11 +1250,11 @@ class _SectionHeader extends StatelessWidget {
 
 /// Price block — the money question answered up front, in the intent's own
 /// language (Budget / Starting price / Salary).
-class _PriceCard extends StatelessWidget {
+class _PriceBlock extends StatelessWidget {
   final PostModel post;
   final bool isDark;
 
-  const _PriceCard({required this.post, required this.isDark});
+  const _PriceBlock({required this.post, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
@@ -1281,53 +1274,49 @@ class _PriceCard extends StatelessWidget {
       price: post.price,
       pricingType: post.pricingType,
     );
-    final isPlaceholder = value == 'Open to offers';
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpace.lg, vertical: AppSpace.lg),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: AppRadius.lgAll,
-        border: Border.all(color: c.borderHairline),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  detailMoneyLabel(post.type),
-                  style: AppTypeScale.meta.copyWith(
-                    fontFamily: AppTypeScale.family,
-                    color: c.contentTertiary,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: AppTypeScale.mono.copyWith(
-                    fontFamily: AppTypeScale.family,
-                    fontSize: isPlaceholder ? 18 : 22,
-                    fontWeight:
-                        isPlaceholder ? FontWeight.w500 : FontWeight.w600,
-                    color: isPlaceholder
-                        ? c.contentSecondary
-                        : c.contentPrimary,
-                  ),
-                ),
-              ],
+    //
+    // NO BOX, AND NOTHING BESIDE IT. The price used to share a card's width
+    // with two chips ("Accepts M-Pesa", "Not yet verified"), which squeezed
+    // "From KES 150 · Per day" into a one-word-per-line column five lines
+    // tall. It is now flat type under the title, with the full width to
+    // itself; the vetting state lives once, under the provider's name.
+    //
+    // Any unpriced listing is a placeholder ("Open to offers", "Ask for a
+    // quote", "Negotiable") — not only the request one this used to test for.
+    final isPlaceholder = post.price <= 0;
+    final acceptsMpesa = post.type == PostType.offer && post.authorHasPhone;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          detailMoneyLabel(post.type),
+          style: AppTypeScale.meta.copyWith(
+            fontFamily: AppTypeScale.family,
+            color: c.contentTertiary,
+          ),
+        ),
+        const SizedBox(height: AppSpace.xs),
+        Text(
+          value,
+          style: AppTypeScale.mono.copyWith(
+            fontFamily: AppTypeScale.family,
+            fontSize: isPlaceholder ? 18 : 24,
+            height: 1.25,
+            fontWeight: isPlaceholder ? FontWeight.w500 : FontWeight.w600,
+            color: isPlaceholder ? c.contentSecondary : c.contentPrimary,
+          ),
+        ),
+        if (acceptsMpesa) ...[
+          const SizedBox(height: AppSpace.xs),
+          Text(
+            'Accepts M-Pesa',
+            style: AppTypeScale.bodyS.copyWith(
+              fontFamily: AppTypeScale.family,
+              color: c.contentSecondary,
             ),
           ),
-          if (post.type == PostType.offer && post.authorHasPhone)
-            _MetaChip(label: 'Accepts M-Pesa', color: AppTheme.successGreen),
-          if (post.vettingLabel == 'certificate_pending' && post.type == PostType.offer)
-            _MetaChip(label: 'Certificate pending', color: AppTheme.warningOrange, dot: true),
-          if (post.vettingLabel == 'not_verified' && post.type == PostType.offer)
-            _MetaChip(label: 'Not yet verified', color: AppTheme.warningOrange, dot: true),
         ],
-      ),
+      ],
     );
   }
 }
@@ -1342,20 +1331,20 @@ class _AuthorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final tertiary = isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
+    final c = AppColors.of(context);
     final roleLabel = switch (post.type) {
       PostType.offer => 'Service provider',
       PostType.job => 'Hiring',
       PostType.request => 'Posted by',
     };
+    final explanation = listingVettingExplanation(post);
     return Container(
-      padding: const EdgeInsets.all(14),
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpace.lg),
       decoration: BoxDecoration(
-        color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+        color: c.surface,
         borderRadius: AppRadius.lgAll,
-        border:
-            Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+        border: Border.all(color: c.borderHairline),
       ),
       // THE TRUST BLOCK SITS UNDER THE NAME, ACROSS THE FULL CARD.
       //
@@ -1369,14 +1358,18 @@ class _AuthorCard extends StatelessWidget {
       // completed-job count and the review count as separate concepts, so "new
       // provider" reads as new rather than as bad. It wraps, so it needs the
       // card's full width rather than the narrow column beside the avatar.
+      //
+      // The vetting state is said ONCE, here, as type under the name. It used
+      // to appear as a chip in the price card, a chip under the name AND a
+      // sentence restating it — three copies of "not yet verified".
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               CircleAvatar(
-                radius: 22,
-                backgroundColor: AppColors.of(context).surfaceSunken,
+                radius: 24,
+                backgroundColor: c.surfaceSunken,
                 backgroundImage: post.authorAvatar.isNotEmpty
                     ? NetworkImage(post.authorAvatar)
                     : null,
@@ -1386,56 +1379,62 @@ class _AuthorCard extends StatelessWidget {
                             ? post.authorName[0].toUpperCase()
                             : '?',
                         style: TextStyle(
-                          color: AppColors.of(context).contentSecondary,
+                          color: c.contentSecondary,
                           fontWeight: FontWeight.w600,
                           fontSize: 17,
                         ),
                       )
                     : null,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpace.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       roleLabel,
-                      style: TextStyle(fontSize: 11.5, color: tertiary),
+                      style: AppTypeScale.meta.copyWith(
+                        fontFamily: AppTypeScale.family,
+                        color: c.contentTertiary,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       post.authorName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: textPrimary,
-                        fontWeight: FontWeight.w600,
+                      style: AppTypeScale.headingS.copyWith(
+                        fontFamily: AppTypeScale.family,
                         fontSize: 17,
+                        color: c.contentPrimary,
                       ),
                     ),
                     // Provider vetting (migration 135): "Care checked" /
                     // "ID verified", or the caution label on an offer.
                     if (listingVettingLabel(post) != null) ...[
-                      const SizedBox(height: 4),
-                      VettingBadge(post: post),
+                      const SizedBox(height: AppSpace.xs),
+                      VettingLine(post: post),
                     ],
                   ],
                 ),
               ),
               if (trailing != null) ...[
-                const SizedBox(width: 10),
+                const SizedBox(width: AppSpace.sm),
                 trailing!,
               ],
             ],
           ),
-          if (listingVettingExplanation(post) != null) ...[
-            const SizedBox(height: 10),
+          if (explanation != null) ...[
+            const SizedBox(height: AppSpace.md),
             Text(
-              listingVettingExplanation(post)!,
-              style: TextStyle(fontSize: 12.5, color: tertiary, height: 1.35),
+              explanation,
+              style: AppTypeScale.bodyS.copyWith(
+                fontFamily: AppTypeScale.family,
+                color: c.contentTertiary,
+              ),
             ),
           ],
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpace.lg),
           ReputationTrustBlock(providerId: post.authorUserId),
         ],
       ),
@@ -1523,7 +1522,7 @@ class _DetailTile extends StatelessWidget {
     final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
     final secondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       child: Row(
         children: [
           // A plain glyph. It used to be a tinted rounded square, and every

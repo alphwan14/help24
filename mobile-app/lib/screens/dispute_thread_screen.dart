@@ -449,10 +449,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       top: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-          border: Border(top: BorderSide(color: (isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary).withValues(alpha: 0.15))),
-        ),
+        color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [

@@ -680,14 +680,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
               bottom: MediaQuery.of(context).padding.bottom + 20,
               top: 12,
             ),
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-              border: Border(
-                top: BorderSide(
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                ),
-              ),
-            ),
+            color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
             child: Row(
               children: [
                 Expanded(

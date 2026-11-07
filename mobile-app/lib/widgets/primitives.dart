@@ -253,12 +253,14 @@ class AppRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: ConstrainedBox(
-        // 56, down from 74. Material's minimum target is 48.
-        constraints: const BoxConstraints(minHeight: 56),
+        // 60. Rows in a group have no divider between them, so the row's own
+        // height IS the separation — 56 read as a crowded list once the
+        // hairlines went. Material's minimum target is 48.
+        constraints: const BoxConstraints(minHeight: 60),
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpace.lg,
-            vertical: AppSpace.md,
+            vertical: AppSpace.md + AppSpace.xs,
           ),
           child: Row(
             children: [
@@ -318,7 +320,15 @@ class AppRow extends StatelessWidget {
   }
 }
 
-/// A group of [AppRow]s sharing one surface, with hairlines between them.
+/// A group of [AppRow]s sharing one surface — and NOTHING between them.
+///
+/// ── No inner lines ──────────────────────────────────────────────────────
+/// The card's rounded outline is the only line a group draws. Rows are
+/// separated by whitespace alone: each row is tall enough (see [AppRow]) that
+/// the gap between two titles reads as a boundary, and the group pads its own
+/// top and bottom so the first and last rows do not hug the outline. A
+/// divider between rows is a second device doing the whitespace's job — see
+/// the "no divider lines" gate in `test/design_tokens_test.dart`.
 class AppRowGroup extends StatelessWidget {
   const AppRowGroup({super.key, required this.children});
 
@@ -327,19 +337,6 @@ class AppRowGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final rows = <Widget>[];
-    for (var i = 0; i < children.length; i++) {
-      if (i > 0) {
-        // Indented to the text column, so the group reads as one object
-        // rather than as a stack of separate bars.
-        rows.add(Padding(
-          padding: const EdgeInsets.only(left: AppSpace.lg + 20 + AppSpace.md),
-          child: Divider(height: 1, thickness: 1, color: c.borderHairline),
-        ));
-      }
-      rows.add(children[i]);
-    }
-
     return Material(
       color: c.surface,
       shape: RoundedRectangleBorder(
@@ -347,7 +344,10 @@ class AppRowGroup extends StatelessWidget {
         side: BorderSide(color: c.borderHairline),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(mainAxisSize: MainAxisSize.min, children: rows),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+        child: Column(mainAxisSize: MainAxisSize.min, children: children),
+      ),
     );
   }
 }

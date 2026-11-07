@@ -41,12 +41,17 @@ VettingLabel? listingVettingLabel(PostModel post) {
 }
 
 /// The longer sentence for a listing's detail page, or null.
+///
+/// Only when it says something the label does not. "Not yet verified" used to
+/// be followed by "This provider has not verified their identity yet." — the
+/// same fact twice, under a third copy of it in the price card. A pending
+/// certificate DOES need the sentence: the label cannot say that the provider
+/// is messageable but not yet hireable for care work.
 String? listingVettingExplanation(PostModel post) {
   if (post.type != PostType.offer) return null;
   return switch (post.vettingLabel) {
     'certificate_pending' =>
       'ID verified. Certificate of Good Conduct pending. You can message this provider, but they cannot be hired for care work yet.',
-    'not_verified' => 'This provider has not verified their identity yet.',
     _ => null,
   };
 }

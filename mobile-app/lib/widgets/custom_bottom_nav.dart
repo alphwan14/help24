@@ -52,10 +52,9 @@ class CustomBottomNav extends StatelessWidget {
       decoration: BoxDecoration(
         // navSurface, not surface: this has to equal what Android paints the
         // system navigation bar, or a seam appears along the bottom edge.
+        // No top rule and no shadow: the bar's surface tone against the page
+        // is its only edge. Help24 draws no divider lines.
         color: c.navSurface,
-        // A border OR a shadow, never both. The bar sits in the page plane,
-        // so it takes the border.
-        border: Border(top: BorderSide(color: c.borderHairline)),
       ),
       child: SafeArea(
         top: false,

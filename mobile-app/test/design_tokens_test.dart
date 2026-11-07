@@ -195,4 +195,38 @@ void main() {
       expect(declared.length, rungs.length);
     });
   });
+
+  // ── NO DIVIDER LINES ────────────────────────────────────────────────────
+  // Decided 2026-11-07: Help24 is a minimal UI that separates content with
+  // whitespace, typography and flat alignment — never with a rule. A card
+  // keeps its rounded outline; nothing inside it, and no bar at the edge of a
+  // screen, draws a line. Before this gate there were ~35 dividers across 17
+  // files (settings groups, receipts, the conversation list, chat menus, the
+  // bottom nav's top edge), each a second device doing the whitespace's job.
+  //
+  // To separate two things, add space (AppSpace) or change the type — weight,
+  // size, tone. ThemeData also paints Material's own dividers transparent, so
+  // a TabBar or ExpansionTile cannot sneak one back in.
+  group('no divider lines', () {
+    test('no file draws a divider or a one-sided rule', () {
+      final banned = RegExp(
+        r'\b(Divider|VerticalDivider|PopupMenuDivider)\(|'
+        r'ListTile\.divideTiles|'
+        r'\bBorder(Directional)?\(\s*(top|bottom|left|right|start|end):',
+      );
+      final offenders = <String>[];
+      for (final file in libSources()) {
+        final hits = banned.allMatches(file.value).length;
+        if (hits > 0) offenders.add('${file.key}: $hits');
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason: 'Help24 separates content with whitespace, not lines. '
+            'Replace the divider with SizedBox(height: AppSpace.*) or a '
+            'change of type; keep only a card\'s full rounded outline.\n'
+            '${offenders.join('\n')}',
+      );
+    });
+  });
 }

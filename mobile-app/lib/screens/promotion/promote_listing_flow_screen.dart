@@ -403,7 +403,8 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
                   label: 'Visibility',
                   value: 'Discover · Search · Categories · Nearby',
                 ),
-                const Divider(height: 24),
+                // Whitespace, not a rule, sets the total apart.
+                const SizedBox(height: AppSpace.lg),
                 _SummaryRow(
                   label: 'Total',
                   value: 'KES ${pkg.priceKes}',

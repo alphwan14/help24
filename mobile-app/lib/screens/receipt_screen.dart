@@ -298,7 +298,7 @@ class _ReceiptDocument extends StatelessWidget {
                 ),
               ),
 
-              Divider(height: 1, color: border),
+              const SizedBox(height: AppSpace.sm),
 
               // ── Service ─────────────────────────────────────────────────
               _Block(
@@ -309,7 +309,7 @@ class _ReceiptDocument extends StatelessWidget {
                   if (receipt.location != null) _Row('Location', receipt.location!),
                 ],
               ),
-              Divider(height: 1, color: border),
+              const SizedBox(height: AppSpace.sm),
 
               // ── Parties ─────────────────────────────────────────────────
               _Block(
@@ -319,7 +319,7 @@ class _ReceiptDocument extends StatelessWidget {
                   _Row('Provider', receipt.providerName ?? '—'),
                 ],
               ),
-              Divider(height: 1, color: border),
+              const SizedBox(height: AppSpace.sm),
 
               // ── Payment ─────────────────────────────────────────────────
               // The mobile-money reference sits here, under the payment
@@ -340,7 +340,7 @@ class _ReceiptDocument extends StatelessWidget {
                   if (receipt.settledAt != null) _Row('Settled', _fmtDate(receipt.settledAt)),
                 ],
               ),
-              Divider(height: 1, color: border),
+              const SizedBox(height: AppSpace.sm),
 
               // ── Money ───────────────────────────────────────────────────
               Padding(
@@ -363,9 +363,8 @@ class _ReceiptDocument extends StatelessWidget {
                       ),
                     ],
                     if (receipt.totalPaid != null) ...[
-                      const SizedBox(height: 12),
-                      Divider(height: 1, color: border),
-                      const SizedBox(height: 12),
+                      // Whitespace, not a rule, sets the total apart.
+                      const SizedBox(height: AppSpace.xl),
                       Row(
                         children: [
                           const Text(

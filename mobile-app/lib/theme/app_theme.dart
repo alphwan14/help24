@@ -271,7 +271,19 @@ class AppTheme {
         side: BorderSide(color: c.borderHairline),
       ),
 
-      dividerTheme: DividerThemeData(color: c.borderHairline, thickness: 1),
+      // NO DIVIDER LINES, ANYWHERE. Help24 separates content with whitespace
+      // and typography; a card keeps its rounded outline and nothing inside
+      // it draws a rule. App code is held to that by the gate in
+      // test/design_tokens_test.dart; these three make the Material widgets
+      // that draw their own dividers (TabBar's underline track, ExpansionTile,
+      // any stray Divider) paint nothing.
+      dividerColor: Colors.transparent,
+      dividerTheme: const DividerThemeData(
+        color: Colors.transparent,
+        thickness: 0,
+        space: AppSpace.lg,
+      ),
+      tabBarTheme: const TabBarThemeData(dividerColor: Colors.transparent),
 
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: c.surface,

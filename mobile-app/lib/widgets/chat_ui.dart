@@ -30,6 +30,26 @@ import 'job_status_card.dart';
 /// Actions offered by the conversation three-dot menu.
 enum ChatMenuAction { viewPost, jobStatus, search, mute, clear, report }
 
+/// Whitespace between groups of popup-menu items — where a PopupMenuDivider
+/// would draw a line. Help24 separates groups with space, never with a rule.
+class _MenuGap<T> extends PopupMenuEntry<T> {
+  const _MenuGap();
+
+  @override
+  double get height => AppSpace.sm;
+
+  @override
+  bool represents(T? value) => false;
+
+  @override
+  State<_MenuGap<T>> createState() => _MenuGapState<T>();
+}
+
+class _MenuGapState<T> extends State<_MenuGap<T>> {
+  @override
+  Widget build(BuildContext context) => const SizedBox(height: AppSpace.sm);
+}
+
 /// Builds the three-dot menu entries. Contextual actions (post, job) appear
 /// only when the chat is scoped to a post — no dead items, no clutter.
 List<PopupMenuEntry<ChatMenuAction>> buildChatMenuItems(
@@ -53,7 +73,7 @@ List<PopupMenuEntry<ChatMenuAction>> buildChatMenuItems(
       icon: isMuted ? AppIcons.unmute : AppIcons.mute,
       label: isMuted ? 'Unmute notifications' : 'Mute notifications',
     ),
-    PopupMenuDivider(height: 9, color: c.borderHairline),
+    const _MenuGap<ChatMenuAction>(),
     _menuItem(context, ChatMenuAction.clear,
         icon: AppIcons.clearChat,
         label: 'Clear conversation',
@@ -190,7 +210,6 @@ class JobStatusSheet extends StatelessWidget {
                 ],
               ),
             ),
-            Divider(height: 1, thickness: 0.5, color: c.borderHairline),
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(4, 10, 4, 16),
@@ -402,7 +421,7 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
                 ),
               ),
             ),
-            Divider(height: 1, thickness: 0.5, color: c.borderHairline),
+            const SizedBox(height: AppSpace.sm),
             Expanded(child: _buildBody(c)),
           ],
         ),
@@ -440,13 +459,7 @@ class _ConversationSearchSheetState extends State<ConversationSearchSheet> {
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 6),
       itemCount: _results.length,
-      separatorBuilder: (_, __) => Divider(
-        height: 1,
-        thickness: 0.5,
-        indent: 16,
-        endIndent: 16,
-        color: c.borderHairline,
-      ),
+      separatorBuilder: (_, __) => const SizedBox(height: AppSpace.xs),
       itemBuilder: (context, index) {
         final m = _results[index];
         return _SearchResultRow(
@@ -538,7 +551,7 @@ class _SearchResultRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -796,8 +809,7 @@ class _MessageContextMenu extends StatelessWidget {
                       _actionRow(
                           context, AppIcons.messageInfo, 'Info', onInfo!),
                     if (hasPrimary && hasDestructive)
-                      Divider(
-                          height: 1, thickness: 0.5, color: c.borderHairline),
+                      const SizedBox(height: AppSpace.sm),
                     if (onDeleteForMe != null)
                       _actionRow(context, AppIcons.delete, 'Delete for me',
                           onDeleteForMe!,

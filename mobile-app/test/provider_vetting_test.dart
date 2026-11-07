@@ -95,6 +95,10 @@ void main() {
           contains('cannot be hired for care work'));
       expect(listingVettingExplanation(PostModel.fromJson(_row(idVerified: true))), isNull);
     });
+
+    test('"Not yet verified" is said once — no sentence repeating the label', () {
+      expect(listingVettingExplanation(PostModel.fromJson(_row(vettingLabel: 'not_verified'))), isNull);
+    });
   });
 
   group('VerificationStatus mirrors the database rules', () {

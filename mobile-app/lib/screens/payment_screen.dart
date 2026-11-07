@@ -535,9 +535,7 @@ class _IdleView extends StatelessWidget {
                   textPrimary: textPrimary,
                   textSecondary: textSecondary,
                 ),
-                const SizedBox(height: 10),
-                Divider(color: borderColor, height: 1),
-                const SizedBox(height: 10),
+                const SizedBox(height: AppSpace.md),
                 _BreakdownRow(
                   label: 'Platform fee',
                   value: formatPriceDisplay(platformFee),
@@ -546,9 +544,8 @@ class _IdleView extends StatelessWidget {
                   isSmall: true,
                   tooltip: 'Covers payment protection & support',
                 ),
-                const SizedBox(height: 10),
-                Divider(color: borderColor, height: 1),
-                const SizedBox(height: 12),
+                // Whitespace, not a rule, sets the total apart.
+                const SizedBox(height: AppSpace.xl),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -980,9 +977,7 @@ class _FailedView extends StatelessWidget {
 
           // Debug panel — sandbox only
           if (kDebugMode) ...[
-            const SizedBox(height: 32),
-            const Divider(),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpace.xxxl),
             Text('DEBUG — Sandbox STK test',
                 style: TextStyle(
                     color: textSecondary,
