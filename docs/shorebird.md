@@ -52,19 +52,50 @@ active phones × patches passes about 5,000.
 
 ## 1. One-time setup (owner's machine, WSL)
 
-```bash
-# Install the CLI (it brings its own Flutter; your normal Flutter is untouched)
-curl --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/shorebirdtech/install/main/install.sh -sSf | bash
-shorebird login            # opens a browser; uses your Shorebird account
-shorebird doctor
+**Done 2026-11-07.** Shorebird 1.6.138 in WSL (`~/.shorebird`), logged in
+as alphwan14@gmail.com, app **Help24**, `app_id`
+`e8c759a0-94da-4dcb-b4af-ca2447dae137` (in `mobile-app/shorebird.yaml`, which
+is also a pubspec asset). `shorebird doctor`: no issues.
 
-cd ~/path/to/help24/mobile-app
-shorebird init             # creates shorebird.yaml (app_id) and adds it to pubspec assets
-git add shorebird.yaml pubspec.yaml && git commit -m "chore(app): Shorebird app id"
+To redo it on another machine:
+
+```bash
+# WSL has no system unzip; the build toolchain's copy works
+export PATH="$HOME/h24build/opt/unzip/usr/bin:$PATH"
+curl --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/shorebirdtech/install/main/install.sh -sSf | bash
+shorebird login            # prints a link; open it in the Windows browser
+shorebird doctor
 ```
+
+`shorebird init` needs `android/gradlew` and `android/local.properties`,
+which git does not track. Run it in a scratch copy with the Gradle wrapper
+copied in and `flutter pub get` done first, not in the Windows tree (it would
+rewrite `.dart_tool` with Linux paths). Copy back only `shorebird.yaml` and add
+`- shorebird.yaml` to the pubspec assets by hand: `init` re-serialises
+`pubspec.yaml` and drops its comments. Its macOS entitlement fixes are not
+needed; Help24 ships no macOS app.
 
 `shorebird.yaml`'s `app_id` is not a secret; commit it. Never commit
 `android/key.properties` or the keystore.
+
+### What the scripts do for you
+
+`scripts/shorebird/prepare.sh` (used by `release.sh` and `patch.sh`) mirrors
+`~/h24build/scripts/build-release.sh`:
+
+- source from `git archive <commit>`, never the working copy;
+- the Gradle wrapper and `pubspec.lock` from the Windows working tree, because git
+  does not track them. `release.sh` keeps the release's resolved lock in
+  `~/h24build/shorebird/locks/<version>/`, and `patch.sh` builds against it,
+  so a patch has exactly its release's dependencies;
+- signing from the Windows `android/key.properties`, read into the
+  environment (`HELP24_KEYSTORE_*`) and never written anywhere. Set
+  `H24_KEY_PROPERTIES` only to use a different file, and its `storeFile` must
+  be a WSL path;
+- the JDK and Android SDK from `~/h24build/opt`.
+
+Patch signing is on by default: the release embeds a key Shorebird manages,
+and devices install only patches signed with it.
 
 ## 2. Pick the Flutter version
 
@@ -73,8 +104,7 @@ Shorebird builds with its own copy of a named Flutter version. Use the one the
 environment). Export it once per shell:
 
 ```bash
-export H24_FLUTTER_VERSION=3.x.y        # what `flutter --version` prints
-export H24_KEY_PROPERTIES=~/h24build/key.properties   # storeFile must be an absolute path
+export H24_FLUTTER_VERSION=3.44.4       # 1.0.9's Flutter (~/h24build/opt/flutter); Shorebird offers it
 ```
 
 ## 3. The first Shorebird release (1.0.10) — members install this once

@@ -124,6 +124,9 @@ flutter:
     # the four .ttf a second time and add ~1.7 MB for nothing.
     - assets/fonts/OFL.txt
 
+    # Shorebird's app id, read by the updater at start-up (docs/shorebird.md).
+    - shorebird.yaml
+
   # THE TYPEFACE IS BUNDLED, NOT FETCHED.
   #
   # The theme used to call `GoogleFonts.poppinsTextTheme()` with no `fonts:`
