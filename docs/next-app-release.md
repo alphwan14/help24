@@ -1,9 +1,15 @@
 # Next app release — changes waiting on it
 
-The changes below are merged on `main` but are **not on members' phones** until
-the next Android release. Published today: **v1.0.9** (versionCode 10, release
-commit `367c367`). The next release must be **≥ 1.0.10+11** — check
-`gh release list` first; parallel sessions have shipped versions before.
+The changes below are merged on `main` but are **not on members' phones** yet.
+Published today: **v1.0.10** (versionCode 11, release commit `fae8c20`), the
+first **Shorebird** release.
+
+From 1.0.10 on, a Dart-only change ships as a **patch** to installed 1.0.10
+phones (`scripts/shorebird/patch.sh`, docs/shorebird.md), with no new APK and
+no version bump. A full release is needed only for native code, assets,
+permissions, plugins or a Flutter upgrade; the next one must be
+**≥ 1.0.11+12**. Check `gh release list` first; parallel sessions have shipped
+versions before.
 
 Keep this file current: add a row when a change to `mobile-app/` lands, and
 clear the table (moving it under "Shipped in …") when a release goes out.
@@ -12,13 +18,44 @@ Build in WSL from a commit, never from Windows:
 `wsl -d Ubuntu -- bash -lc 'bash ~/h24build/scripts/build-release.sh <commit>'`
 (see the wsl-release-build notes). Windows builds are arm64-only test builds.
 
-## Waiting for release
+## Waiting (as a patch to 1.0.10)
 
 | Commit | Change | Why members need it | Verified |
 |---|---|---|---|
-| _(this commit)_ | The approve screen says when an unanswered job **approves automatically** (`auto_approve_at`, backend migration 134) | Without it the client learns of the 48 h window only from the pushes; 1.0.9 still gets the reminders and routes them to this screen | Unit + widget test (`test/auto_approve_test.dart`) |
-| `feat/provider-vetting` | **Verify your identity** (Profile → Business), the ID / Care check upload flow, a sheet before posting or applying in a vetted category, listing labels ("Care checked", "ID verified", "Certificate pending", "Not yet verified"), verification notifications (docs/provider-vetting.md) | Without it a provider in Babysitting, Caregiving, Tutoring, Driver, Security Guard or House Cleaning is refused by the database with a generic message and has no way to verify | `test/provider_vetting_test.dart` — **written without a Flutter toolchain; run `flutter analyze` + `flutter test` first**. Needs migrations 135–136 and the backend live first |
-| (release itself) | **First Shorebird release** — build 1.0.10 with `scripts/shorebird/release.sh` instead of the normal build, then raise `ops.min_version` to 1.0.10 (docs/shorebird.md) | Every later Dart-only fix ships as a patch with no reinstall | — |
+| _(uncommitted, another session)_ | Profile and UI changes in 25 Dart files (profile screen and widgets, theme, auth, post detail, reputation widgets, vetting badge) | — | Dart only, so it ships as Patch 2 once committed and checked: `patch.sh <commit>` (staging), check on a phone, then promote |
+
+## Shipped in 1.0.10 (2026-11-07)
+
+Release commit `fae8c20`, tag `v1.0.10`: 81,407,359 bytes, sha256
+`915baef5…3edc` (matches GitHub), cert `48f1d72b…`, all three ABIs with the
+engine, permissions identical to 1.0.9, `shorebird.yaml` bundled. Built with
+`scripts/shorebird/release.sh` (Shorebird 1.6.138, Flutter 3.44.4). Website
+`327f56d` serves it. `ops.min_version` not changed (owner's call).
+
+On the S20+ it installed over the published 1.0.9 (Play Protect ALLOW) and
+stayed signed in. The Shorebird updater checks app `e8c759a0…`, release
+`1.0.10+11`, stable channel. Checks passed: Verify your identity opens (live
+status); Offer → Babysitting shows "Care check needed" before the form;
+Discover → All includes a job; Messages loads.
+
+| Commit | Change | Why members need it | Verified |
+|---|---|---|---|
+| `9418f8e` | The approve screen says when an unanswered job **approves automatically** (`auto_approve_at`, migration 134) | Before, the client learned of the 48 h window only from the pushes | Unit and widget test (`test/auto_approve_test.dart`) |
+| `46e0322` `a2e1d46` `441f77b` | **Verify your identity** (Profile → Business), the ID and Care check upload flow, a sheet as soon as a vetted category is picked, listing labels, verification notifications, plain copy (docs/provider-vetting.md) | Without it a provider in a vetted category is refused by the database with no way to verify | `flutter analyze` clean in branch code; `flutter test` 1609 passed (3 environmental); on the S20+ (provider-vetting.md § Rollout log). No document upload was exercised in production |
+| `8f49bd8` | Shorebird app id | Patches without reinstalling | — |
+
+### Patch 1 (stable, 2026-11-07)
+
+`9d6e1f9`, the first patch: Discover pages 30 at a time, and feed thumbnails
+decode at 384 px instead of the 1200 px upload (about 0.5 MB of memory each
+instead of 5.8 MB). It was staged, then promoted to stable with the owner's
+approval while the test phone was the only 1.0.10 install.
+
+On the S20+: start 1 ran the release code, found Patch 1 and downloaded
+617 KB. Start 2 verified its signature and booted it. The feed then
+installed `posts=30` from a ranked `n=30` request, plus the patch's new
+one-line fallback log. Every phone that installs 1.0.10 gets Patch 1 at its
+first start and runs it from the second.
 
 ## Shipped in 1.0.9 (2026-11-04)
 

@@ -190,6 +190,9 @@ The admin dashboard does not auto-deploy (`vercel --prod` from
 `admin-dashboard/`). The Verifications and Provider cards pages appear there
 only after that deploy.
 
-Not related to this deploy: `/feed?page=1` returns fewer items as `page_size`
-grows (20 → 20, 30 → 11, 40 → 1, 50 → 0, of 41 candidates). The deploy changed
-only two select columns. The app pages at 20.
+Correction: a note here first called `/feed` returning fewer items as
+`page_size` grew a pre-existing bug. It was a probe error. `page` is 0-based, so
+`page=1` is the second page (41 candidates: 20, 11, 1 and 0 items for sizes
+20, 30, 40 and 50). With `page=0`, sizes 20, 30 and 50 return 20, 30 and 41
+items, with `has_more` correct. HANDOFF §5's `page=1` recipe reads the second
+page. It answers 200, which is all it checks.

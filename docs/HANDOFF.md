@@ -6,16 +6,22 @@ re-deriving anything. Read this first, then the linked reports.
 > **Resume points (2026-11-07)** — each with a "Where we stopped" section at
 > the top of its doc:
 >
-> - **Provider vetting (ID check / Care check): built, waiting for approval to
->   apply** — [`provider-vetting.md`](provider-vetting.md). Migrations 135–136,
->   backend, admin Verifications queue and app 1.0.10 screens on branch
->   `feat/provider-vetting`. Deploy order and the owner's decisions are in the doc.
-> - **Card analytics: built** — migration 137 + help24_website `/api/e`;
->   Partners → Provider cards in the dashboard. Needs 137 applied and the
->   website deployed.
-> - **Shorebird (over-the-air Dart patches): set up, not run** —
->   [`shorebird.md`](shorebird.md). Needs `shorebird login`/`init` on the
->   owner's machine, then 1.0.10 as the first Shorebird release.
+> - **Provider vetting (ID check / Care check): LIVE 2026-11-07.**
+>   [`provider-vetting.md`](provider-vetting.md) § Rollout log. 135–137 applied
+>   and verified, backend `abb66a5` live (`[VETTING] sweep started`), app
+>   v1.0.10 published. Two pre-vetting offers (Babysitting, Caregiving) hide
+>   on **2026-11-21 14:04 UTC** unless their authors verify. **Still owed:**
+>   (1) deploy the admin dashboard (`vercel --prod` from `admin-dashboard/`;
+>   the Verifications queue is not live until then, so submissions cannot be
+>   reviewed); (2) the owner's Data Protection Commissioner registration and
+>   privacy-policy text; (3) a first real verification, reviewed end to end.
+> - **Card analytics: LIVE.** 137 applied, website `/api/e` deployed
+>   (`1e58521`). One test open of the owner's own card is row 1.
+> - **Shorebird: LIVE.** [`shorebird.md`](shorebird.md). v1.0.10 is the first
+>   Shorebird release, and Patch 1 (30 per page, lighter thumbnails) is on
+>   stable. **Next:** the owner decides on raising `ops.min_version` to 1.0.10.
+>   Another session's uncommitted profile and UI work (25 Dart files) ships as
+>   Patch 2 once committed ([`next-app-release.md`](next-app-release.md)).
 > - **"Book me" — providers booked with payment protection:**
 >   [`provider-card.md`](provider-card.md). The card (Phase A) is live in
 >   v1.0.9. **Phase B is the next priority once M-Pesa is in production and
@@ -85,7 +91,9 @@ re-deriving anything. Read this first, then the linked reports.
 ### Production fingerprints (verify these still hold before changing anything)
 
 ```
-escrow            17 rows, sum 73,250, md5 351c0047cd783dd30bfc8fdea0bf262a
+escrow            17 rows, sum 73,250   (2026-11-07, docs/sql/trust-safety-fingerprints.sql:
+                  escrow md5 77a7509e…, transactions md5 99b22200…; the older 351c0047
+                  recipe is not comparable)
 feed_settings     13 rows,            md5 6d886892465d1f1fd95084c9d82bfc8f
 app_settings       6 rows
 transactions      45 rows
@@ -205,7 +213,7 @@ rm -rf dist-bootcheck
 ```bash
 B=https://help24-backend.onrender.com
 curl -s "$B/health"; curl -s "$B/health/events"
-curl -s -o /dev/null -w "%{http_code}\n" "$B/feed?page=1&page_size=3"
+curl -s -o /dev/null -w "%{http_code}\n" "$B/feed?page=0&page_size=3"   # page is 0-based
 curl -s -o /dev/null -w "%{http_code}\n" "$B/promotions/campaigns?user_id=x"  # expect 401
 ```
 

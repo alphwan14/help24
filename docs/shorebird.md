@@ -1,8 +1,21 @@
 # Shorebird — over-the-air updates for the Android app
 
-Status: **set up in the repository, not yet run.** The scripts and this runbook
-are in place. Nothing changes for members until step 3 (the first Shorebird
-release) goes out.
+Status: **live since 2026-11-07.** Release `1.0.10+11` (v1.0.10, `fae8c20`) is
+the first Shorebird release, published on GitHub and help24.co.ke. **Patch 1**
+(`9d6e1f9`: 30 posts per page, lighter thumbnails) is on stable and was
+checked on the S20+: downloaded on one start, booted on the next. The release's
+`pubspec.lock` is kept in `~/h24build/shorebird/locks/1.0.10+11/` for later
+patches. `ops.min_version` is not raised yet; that is the owner's call
+(§3, step 3).
+
+Two things learned on the first run:
+
+- `shorebird preview` runs in WSL, which cannot see a USB phone. Exposing the
+  Windows adb server to WSL was refused as a safety measure. Until a release
+  has members on it, testing on stable is equivalent; after that, use a
+  custom track or wireless adb.
+- `wsl.exe` expands `$VARS` in its argument string. Run Shorebird commands
+  from a script file.
 
 ## What it does, in one paragraph
 
