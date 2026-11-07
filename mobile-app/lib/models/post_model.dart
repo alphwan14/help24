@@ -262,11 +262,6 @@ String _userAvatarUrl(dynamic usersJson) {
   return (a != null && a.isNotEmpty) ? a : ((b != null && b.isNotEmpty) ? b : '');
 }
 
-/// Returns true if the author has a phone_number (M-Pesa) registered.
-///
-/// `has_phone` is what `public_profiles` sends; the raw number is no longer
-/// shared with other people. A row that still carries `phone_number` (an older
-/// server, a cached feed) is read the old way rather than shown as "no phone".
 /// Provider vetting (migration 135): public_profiles.id_verified.
 bool _userIdVerified(dynamic usersJson) {
   if (usersJson == null || usersJson is! Map) return false;
@@ -287,6 +282,11 @@ String? _parseVettingLabel(dynamic raw) {
   return (v == 'certificate_pending' || v == 'not_verified') ? v : null;
 }
 
+/// Returns true if the author has a phone_number (M-Pesa) registered.
+///
+/// `has_phone` is what `public_profiles` sends; the raw number is no longer
+/// shared with other people. A row that still carries `phone_number` (an older
+/// server, a cached feed) is read the old way rather than shown as "no phone".
 bool _userHasPhone(dynamic usersJson) {
   if (usersJson == null || usersJson is! Map) return false;
   final flag = usersJson['has_phone'];

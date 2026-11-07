@@ -2077,6 +2077,7 @@ class _PostScreenState extends State<PostScreen> {
     });
 
     final provider = context.read<AppProvider>();
+    final currentUserId = context.read<AuthProvider>().currentUserId;
     final price = _effectivePrice;
     // Same string shape this screen has always written ("Area, City" or
     // "City"), so every existing post, filter and card keeps working.
@@ -2128,7 +2129,6 @@ class _PostScreenState extends State<PostScreen> {
           attributesSchemaVersion: schemaVersion,
         );
 
-        final currentUserId = context.read<AuthProvider>().currentUserId;
         final createdJob = await provider.createJob(
           job,
           currentUserId: currentUserId,
@@ -2178,7 +2178,6 @@ class _PostScreenState extends State<PostScreen> {
           attributesSchemaVersion: schemaVersion,
         );
 
-        final currentUserId = context.read<AuthProvider>().currentUserId;
         final createdPost = await provider.createPost(
           post,
           currentUserId: currentUserId,

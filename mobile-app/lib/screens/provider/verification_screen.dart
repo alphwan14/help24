@@ -383,20 +383,30 @@ class _SubmitScreenState extends State<_SubmitScreen> {
           if (widget.only == null) ...[
             Text('Which document will you use?', style: AppTypeScale.headingS.copyWith(color: c.contentPrimary)),
             const SizedBox(height: AppSpace.sm),
-            for (final d in _choices)
-              RadioListTile<VerificationDocument>(
-                value: d,
-                groupValue: _document,
-                contentPadding: EdgeInsets.zero,
-                title: Text(d.label),
-                subtitle: d == VerificationDocument.receipt
-                    ? const Text('Applied but still waiting? Your receipt is accepted for 30 days.')
-                    : null,
-                onChanged: _sending ? null : (v) => setState(() {
-                      _document = v;
-                      _files.clear();
-                    }),
+            RadioGroup<VerificationDocument>(
+              groupValue: _document,
+              onChanged: (v) {
+                if (_sending) return;
+                setState(() {
+                  _document = v;
+                  _files.clear();
+                });
+              },
+              child: Column(
+                children: [
+                  for (final d in _choices)
+                    RadioListTile<VerificationDocument>(
+                      value: d,
+                      enabled: !_sending,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(d.label),
+                      subtitle: d == VerificationDocument.receipt
+                          ? const Text('Applied but still waiting? Your receipt is accepted for 30 days.')
+                          : null,
+                    ),
+                ],
               ),
+            ),
             const SizedBox(height: AppSpace.md),
           ],
           if (doc != null) ...[
