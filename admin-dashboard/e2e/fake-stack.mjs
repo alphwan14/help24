@@ -52,6 +52,11 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
   const partnerProgress = []; // partner_member_progress rows
   const partnerEvents = []; // { agent_id, action, reason, admin_email, created_at }
   const sha256 = (v) => createHash("sha256").update(v).digest("hex");
+  // Provider verifications (migration 135): submissions in memory, the
+  // decisions recorded, and stand-in document images served by this stack.
+  const verifications = new Map(); // id → row (as GET /admin/verifications/:id returns it, minus files)
+  const verificationReviews = []; // { id, decision, reason, admin_email }
+  const verificationPeople = new Map(); // user_id → person
 
   const recoveryTemplate = readFileSync(join(templatesDir, "recovery.html"), "utf8");
   const recoverySubject = JSON.parse(readFileSync(join(templatesDir, "manifest.json"), "utf8"))
@@ -265,6 +270,20 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       const senior = (a) => a && (a.role === "senior_admin" || a.role === "super_admin");
       const log = (agent_id, action, a, reason = null) =>
         partnerEvents.push({ agent_id, action, reason, admin_email: a?.email ?? null, created_at: new Date().toISOString() });
+      if (fn === "admin_provider_card_stats") {
+        // As migration 137 answers it: a week of card opens for two providers.
+        const day = (n) => new Date(Date.now() - n * 86400e3).toISOString().slice(0, 10);
+        return send(200, {
+          days: body.p_days ?? 30, opens: 14, opens_qr: 9, opens_link: 5, open_app_taps: 4, download_clicks: 21, providers_shared: 2,
+          by_day: [6, 5, 4, 3, 2, 1, 0].map((n, i) => ({ day: day(n), opens: [1, 3, 0, 2, 4, 1, 3][i] })).filter((d) => d.opens > 0),
+          by_platform: { android: 12, desktop: 2 },
+          top_providers: [
+            { provider_id: "fbcardprovider0000000000001", name: "Achieng Otieno", profession: "Nanny", opens: 11, qr: 8, open_app: 3, last_at: new Date().toISOString() },
+            { provider_id: "fbcardprovider0000000000002", name: "Brian Mwangi", profession: "Tutor", opens: 3, qr: 1, open_app: 1, last_at: new Date(Date.now() - 2 * 86400e3).toISOString() },
+          ],
+          first_event_at: new Date(Date.now() - 6 * 86400e3).toISOString(),
+        });
+      }
       if (fn === "admin_create_partner_agent") {
         const a = adminById(body.p_admin_id);
         if (!senior(a)) return pgError(403, "HELP24_PARTNER_FORBIDDEN: adding agents needs a senior admin");
@@ -404,6 +423,53 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     if (req.method === "GET" && p === "/admin/alerts") {
       return adminByToken() ? send(200, { generated_at: new Date().toISOString(), alerts: [], unavailable: [] }) : apiFail(401, "Invalid admin token.");
     }
+    if (req.method === "GET" && p.startsWith("/fake-doc/")) {
+      const label = decodeURIComponent(p.slice("/fake-doc/".length));
+      res.writeHead(200, { "Content-Type": "image/svg+xml", ...cors });
+      return res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200" fill="#dfe8f2"/><text x="160" y="105" font-size="18" text-anchor="middle" font-family="sans-serif">${label.replace(/[<&]/g, "")}</text></svg>`);
+    }
+    if (p === "/admin/verifications" || p.startsWith("/admin/verifications/")) {
+      const a = adminByToken();
+      if (!a) return apiFail(401, "Invalid admin token.");
+      const rest = p.slice("/admin/verifications".length);
+      const publicRow = (v) => { const { files, ...row } = v; return { ...row, person: verificationPeople.get(v.user_id) ?? null }; };
+      if (req.method === "GET" && rest === "/meta") {
+        return send(200, { rejection_reasons: ["The photo is blurred or too dark to read. Please retake it in good light.", "The document has expired. Please send a valid one."], document_labels: {}, review_target_hours: 24 });
+      }
+      if (req.method === "GET" && rest === "/summary") {
+        const pending = [...verifications.values()].filter((v) => v.status === "pending");
+        return send(200, { pending: pending.length, oldest_submitted_at: pending.map((v) => v.submitted_at).sort()[0] ?? null, overdue: pending.filter((v) => Date.now() - Date.parse(v.submitted_at) > 24 * 3600e3).length });
+      }
+      if (req.method === "GET" && rest === "") {
+        const status = url.searchParams.get("status") ?? "pending";
+        return send(200, { items: [...verifications.values()].filter((v) => v.status === status).map(publicRow) });
+      }
+      const m = /^\/([0-9a-f-]{36})(\/review)?$/.exec(rest);
+      const v = m && verifications.get(m[1]);
+      if (!v) return apiFail(404, "No such verification.");
+      const idApproved = () => [...verifications.values()].some((x) => x.user_id === v.user_id && x.kind === "id" && x.status === "approved");
+      if (req.method === "GET" && !m[2]) {
+        return send(200, {
+          ...publicRow(v),
+          files: v.files.map((role) => ({ role, is_pdf: false, url: `${origin}/fake-doc/${encodeURIComponent(role)}`, error: null })),
+          state: { id_verified: idApproved(), care_status: "none", care_expires_at: null },
+          history: [...verifications.values()].filter((x) => x.user_id === v.user_id && x.id !== v.id).map((x) => { const { files, ...r } = x; return r; }),
+          listings: [{ id: randomUUID(), title: "Evening babysitting in Nyali", category: "Babysitting", status: "open", vetting_label: "not_verified", vetting_hide_at: new Date(Date.now() + 9 * 86400e3).toISOString(), archived_by: null, created_at: "2026-10-01T08:00:00Z", tier: "care" }],
+        });
+      }
+      if (req.method === "POST" && m[2]) {
+        if (v.status !== "pending") return apiFail(409, `Someone already decided this one (this submission was already ${v.status}). Refresh to see it.`);
+        if (body.decision === "reject" && !String(body.reason ?? "").trim()) return apiFail(400, "Give the provider a reason — it is sent to them.");
+        if (body.decision === "approve" && v.kind === "care" && !idApproved()) return apiFail(400, "Approve this provider's ID first.");
+        v.status = body.decision === "approve" ? "approved" : "rejected";
+        v.reviewed_at = new Date().toISOString();
+        v.reviewed_by = a.id;
+        v.rejection_reason = body.decision === "reject" ? body.reason.trim() : null;
+        verificationReviews.push({ id: v.id, decision: body.decision, reason: body.reason ?? null, admin_email: a.email });
+        return send(200, { id: v.id, user_id: v.user_id, kind: v.kind, document_type: v.document_type, status: v.status, expires_at: null, listings_changed: 0 });
+      }
+      return apiFail(404, "Not found");
+    }
     if (req.method === "GET" && p === "/admin/config") {
       return adminByToken() ? send(200, { version: "fake", config: appConfig }) : apiFail(401, "Invalid admin token.");
     }
@@ -509,6 +575,20 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       });
     },
     partnerEvents,
+    verificationReviews,
+    verificationStatus: (id) => verifications.get(id)?.status,
+    /** A provider who sent documents (submit_provider_verification) `hoursAgo` ago. */
+    addVerification({ name, profession, kind, document_type, document_label, files, hoursAgo = 2 }) {
+      const userId = `fb_${name.toLowerCase().replace(/\W+/g, "_")}`;
+      verificationPeople.set(userId, { id: userId, name, profession, phone_number: "0712 345 678", avatar_url: null, profile_image: null, created_at: "2026-08-01T08:00:00Z" });
+      const id = randomUUID();
+      verifications.set(id, {
+        id, user_id: userId, kind, document_type, document_label, files, file_count: files.length, status: "pending",
+        submitted_at: new Date(Date.now() - hoursAgo * 3600e3).toISOString(), reviewed_at: null, reviewed_by: null,
+        rejection_reason: null, expires_at: null, files_deleted_at: null,
+      });
+      return id;
+    },
     password: (email) => byEmail(email)?.password,
     credentialCount: (email) => [...auth.values()].filter((u) => u.email.toLowerCase() === email.toLowerCase()).length,
     signInDirect(email, password) {

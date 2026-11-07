@@ -107,6 +107,7 @@ const NAV: NavItem[] = [
     children: [
       { label: "Reports",          href: "/dashboard/trust-safety/reports" },
       { label: "Moderation Queue", href: "/dashboard/trust-safety/queue" },
+      { label: "Verifications",    href: "/dashboard/trust-safety/verifications" },
       { label: "Suspended Users",  href: "/dashboard/trust-safety/suspended" },
       { label: "Banned Users",     href: "/dashboard/trust-safety/banned" },
       { label: "Audit Log",        href: "/dashboard/trust-safety/audit" },
@@ -118,6 +119,7 @@ const NAV: NavItem[] = [
     icon: UsersIcon,
     children: [
       { label: "Agents", href: "/dashboard/partners" },
+      { label: "Provider cards", href: "/dashboard/partners/cards" },
     ],
   },
   {

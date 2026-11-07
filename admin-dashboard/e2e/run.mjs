@@ -570,6 +570,68 @@ try {
   }
 
   /* ════════════════════════════════════════════════════════════════════ */
+  section("provider verifications");
+  {
+    const V = "/dashboard/trust-safety/verifications";
+    const idCheck = fake.addVerification({ name: "Achieng Otieno", profession: "Nanny", kind: "id", document_type: "national_id", document_label: "National ID", files: ["Front", "Back", "Selfie holding the ID"], hoursAgo: 30 });
+    const careCheck = fake.addVerification({ name: "Achieng Otieno", profession: "Nanny", kind: "care", document_type: "receipt", document_label: "eCitizen application receipt", files: ["Receipt"], hoursAgo: 29 });
+    const tutor = fake.addVerification({ name: "Brian Mwangi", profession: "Tutor", kind: "id", document_type: "passport", document_label: "Passport", files: ["Photo page", "Selfie holding the passport"], hoursAgo: 1 });
+
+    await goto(`${APP}${V}`);
+    await waitFor(`${bodyHas("Achieng Otieno")} && ${bodyHas("Brian Mwangi")}`, "verification queue");
+    check("the queue lists every waiting submission, and flags the ones past the 24-hour promise",
+      await evaluate(`/waiting over 24 h/i.test(document.body.innerText) && document.body.innerText.split("Over 24 h").length - 1 === 2`));
+    check("the queue is in the Trust & Safety tabs and the sidebar",
+      await evaluate(`!!document.querySelector('a[href="${V}"][aria-current="page"]') || [...document.querySelectorAll('a[href="${V}"]')].length >= 2`));
+
+    await goto(`${APP}${V}/${careCheck}`);
+    await waitFor(bodyHas("eCitizen application receipt"), "care check page");
+    check("a Care check cannot be approved before the ID it includes",
+      await evaluate(`${bodyHas("Review this provider's ID first")} && [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Approve…").disabled`));
+    check("the reviewer sees what is at stake: the provider's care listing and when it will be hidden",
+      await evaluate(`${bodyHas("Evening babysitting in Nyali")} && ${bodyHas("Not yet verified")}`));
+
+    await goto(`${APP}${V}/${idCheck}`);
+    await waitFor(`${bodyHas("Selfie holding the ID")} && document.querySelectorAll("figure img").length === 3`, "id check page");
+    check("each document is shown, named by what it is", await evaluate(`[...document.querySelectorAll("figcaption")].map(f => f.textContent).join("|") === "Front|Back|Selfie holding the ID"`));
+    await shot("15-verification-detail.png", true);
+    await clickText("Approve…");
+    await waitFor(bodyHas("Confirm approval"), "approval confirmation");
+    check("approving asks for one deliberate confirmation first", fake.verificationReviews.length === 0);
+    await clickText("Confirm approval");
+    await waitFor(`${bodyHas("Decisions are final")}`, "approved", 15000);
+    check("the approval is recorded once, by this admin", fake.verificationReviews.length === 1 && fake.verificationReviews[0].decision === "approve" && fake.verificationReviews[0].admin_email === ALICE);
+
+    await goto(`${APP}${V}/${tutor}`);
+    await waitFor(bodyHas("Passport"), "tutor page");
+    await clickText("Reject…");
+    await waitFor(`!!document.querySelector('[role="dialog"]')`, "reject dialog");
+    await clickText("The photo is blurred or too dark to read. Please retake it in good light.", '[role="dialog"] button');
+    await clickText("Reject", '[role="dialog"] button');
+    await waitFor(`${bodyHas("Reason sent: ")} && !document.querySelector('[role="dialog"]')`, "rejected", 15000);
+    check("a rejection carries the reason the provider will read", fake.verificationStatus(tutor) === "rejected" && /blurred/.test(fake.verificationReviews.at(-1).reason ?? ""));
+
+    await goto(`${APP}${V}`);
+    check("decided submissions leave the waiting list",
+      await waitFor(`${bodyHas("Achieng Otieno")} && !(${bodyHas("Brian Mwangi")})`, "queue after decisions", 15000).then(() => true, () => false));
+    await sleep(800);
+    await shot("14-verifications-queue.png", true);
+  }
+
+  /* ════════════════════════════════════════════════════════════════════ */
+  section("provider card analytics");
+  {
+    await goto(`${APP}/dashboard/partners/cards`);
+    await waitFor(`!!document.querySelector('[data-testid="provider-card-stats"]') && ${bodyHas("Achieng Otieno")}`, "card stats");
+    const text = await evaluate(`document.querySelector('[data-testid="provider-card-stats"]').innerText`);
+    check("the card page answers 'is it being shared?': opens, channel, providers, taps into the app",
+      /14/.test(text) && text.includes("9 from the QR code · 5 from a link") && /PROVIDERS WHOSE CARD WAS OPENED\s*2/i.test(text) && text.includes("Android 12"), text.slice(0, 200));
+    check("it is a tab of Partners, next to Agents", await evaluate(`[...document.querySelectorAll('a[href="/dashboard/partners/cards"]')].length >= 2`));
+    await sleep(500);
+    await shot("16-provider-cards.png", true);
+  }
+
+  /* ════════════════════════════════════════════════════════════════════ */
   section("partner portal");
   {
     const PARTNER = `http://127.0.0.1:${APP_PORT}`;
