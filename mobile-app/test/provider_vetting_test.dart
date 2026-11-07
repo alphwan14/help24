@@ -173,7 +173,7 @@ void main() {
         code: '42501',
       ));
       expect(f.title, 'ID check needed');
-      expect(f.message, contains('Applying for this work needs a verified ID'));
+      expect(f.message, contains('This work needs a verified ID'));
     });
 
     test('a listing hidden for verification', () {
@@ -196,8 +196,14 @@ void main() {
         message: 'HELP24_VERIFICATION_INVALID: send your ID first — the Care check includes it',
         code: '22023',
       ));
-      expect(f.message, 'Send your ID first — the Care check includes it.');
+      // The server's dash reads as two sentences: no dashes on screen.
+      expect(f.message, 'Send your ID first. The Care check includes it.');
       expect(f.message, isNot(contains('HELP24')));
+      final upload = ErrorMapper.toFailure(const PostgrestException(
+        message: 'HELP24_VERIFICATION_INVALID: a photo did not finish uploading — try again',
+        code: '22023',
+      ));
+      expect(upload.message, 'A photo did not finish uploading. Try again.');
       final pending = ErrorMapper.toFailure(const PostgrestException(
         message: 'HELP24_VERIFICATION_PENDING: we are still reviewing what you sent',
         code: '22023',

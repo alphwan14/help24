@@ -615,7 +615,7 @@ class ErrorMapper {
       if (s.contains('reopens when your verification')) {
         return const AppFailure(
           title: 'Hidden until you are verified',
-          message: 'This listing reopens by itself once Help24 approves your verification.',
+          message: 'It reopens once your verification is approved.',
           category: ErrorCategory.authorization,
         );
       }
@@ -623,11 +623,11 @@ class ErrorMapper {
         title: care ? 'Care check needed' : 'ID check needed',
         message: s.contains('applying')
             ? (care
-                ? 'Applying for care work needs a completed Care check, including your Certificate of Good Conduct. Open Profile → Verify your identity.'
-                : 'Applying for this work needs a verified ID. Open Profile → Verify your identity.')
+                ? 'Care jobs need a completed Care check. Go to Profile, then Verify your identity.'
+                : 'This work needs a verified ID. Go to Profile, then Verify your identity.')
             : (care
-                ? 'Offering care work needs a Care check. Open Profile → Verify your identity — an eCitizen receipt is enough to start.'
-                : 'Offering this work needs a verified ID. Open Profile → Verify your identity.'),
+                ? 'Care work needs a Care check. An eCitizen receipt is enough to start. Go to Profile, then Verify your identity.'
+                : 'This work needs a verified ID. Go to Profile, then Verify your identity.'),
         category: ErrorCategory.authorization,
       );
     }
@@ -635,8 +635,8 @@ class ErrorMapper {
       return AppFailure(
         title: 'This provider is not verified yet',
         message: s.contains('care check')
-            ? 'Care work can only go to a provider with a completed Care check. Choose another applicant, or message them to finish theirs.'
-            : 'This work can only go to a provider with a verified ID. Choose another applicant, or message them to verify.',
+            ? 'Care work needs a provider with a completed Care check. Choose another applicant or ask them to finish it.'
+            : 'This work needs a provider with a verified ID. Choose another applicant or ask them to verify.',
         category: ErrorCategory.conflict,
       );
     }
@@ -644,7 +644,11 @@ class ErrorMapper {
     // (submit_provider_verification) — show the sentence after the marker.
     final m = RegExp(r'help24_verification_(invalid|pending):\s*(.+)$', caseSensitive: false).firstMatch(raw.trim());
     if (m != null) {
-      final text = m.group(2)!.trim();
+      // A dash in the server's wording reads as two sentences on screen.
+      final text = m.group(2)!.trim().replaceAllMapped(
+            RegExp(r'\s*[—–]\s*(\w)'),
+            (d) => '. ${d.group(1)!.toUpperCase()}',
+          );
       final sentence = text.isEmpty ? text : '${text[0].toUpperCase()}${text.substring(1)}${RegExp(r'[.!?]$').hasMatch(text) ? '' : '.'}';
       return AppFailure(
         title: m.group(1)!.toLowerCase() == 'pending' ? 'Already in review' : 'Check what you sent',

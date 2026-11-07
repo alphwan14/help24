@@ -17,6 +17,7 @@ import '../services/auth_service.dart';
 import '../services/category_schema_service.dart';
 import '../services/location_registry.dart';
 import '../services/user_profile_service.dart';
+import '../services/verification_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
@@ -184,6 +185,14 @@ class _PostScreenState extends State<PostScreen> {
       _selectedType = type;
     });
   }
+
+  /// The provider's verification status, read once when the screen opens so
+  /// picking a vetted category can ask for verification without a wait.
+  /// Re-read after the sheet is shown, in case they verified in between.
+  Future<VerificationStatus?> _vettingStatus = _readVettingStatus();
+
+  static Future<VerificationStatus?> _readVettingStatus() =>
+      VerificationService.myStatus().then<VerificationStatus?>((s) => s).catchError((_) => null);
 
   @override
   void initState() {
@@ -1205,7 +1214,24 @@ class _PostScreenState extends State<PostScreen> {
   bool get _supportsCustomCategory => _isOfferFlow || _isRequestFlow;
 
   /// Select [category] and advance — shared by registry and custom tiles.
-  void _pickCategory(Category category) {
+  Future<void> _pickCategory(Category category) async {
+    // Offering care or in-home work needs a check (migration 135). Ask here,
+    // before the form, not after the provider has filled it in.
+    if (_isOfferFlow) {
+      final uid = context.read<AuthProvider>().currentUserId ?? '';
+      final vetted = await ensureVettedFor(
+        context,
+        uid: uid,
+        categoryName: category.name,
+        applying: false,
+        known: _vettingStatus,
+      );
+      if (!mounted) return;
+      if (!vetted) {
+        _vettingStatus = _readVettingStatus();
+        return;
+      }
+    }
     setState(() {
       // Different category → its questions (and old answers) no longer apply.
       if (category.name != _selectedCategory?.name) _attributes = {};

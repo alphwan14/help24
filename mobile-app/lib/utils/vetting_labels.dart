@@ -45,9 +45,8 @@ String? listingVettingExplanation(PostModel post) {
   if (post.type != PostType.offer) return null;
   return switch (post.vettingLabel) {
     'certificate_pending' =>
-      'This provider\'s ID is verified and their Certificate of Good Conduct is on its way. You can message them, but they cannot be hired for care work until Help24 has the certificate.',
-    'not_verified' =>
-      'This provider has not yet verified their identity, which this kind of work needs on Help24.',
+      'ID verified. Certificate of Good Conduct pending. You can message this provider, but they cannot be hired for care work yet.',
+    'not_verified' => 'This provider has not verified their identity yet.',
     _ => null,
   };
 }

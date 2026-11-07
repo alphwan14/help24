@@ -98,8 +98,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
             _CheckCard(
               title: 'ID check',
               subtitle: idTierCategories.isEmpty
-                  ? 'Shows "ID verified" on your profile.'
-                  : 'Needed for ${_list(idTierCategories)}. Shows "ID verified" on your profile — any provider can add it.',
+                  ? 'Adds an ID verified badge to your profile.'
+                  : 'Needed for ${_list(idTierCategories)}. Adds an ID verified badge to your profile.',
               state: _idState(s),
               onAction: s.idVerified || (s.latestId?.isPending ?? false) ? null : () => _start(VerificationKind.id, s),
               actionLabel: s.latestId?.isRejected ?? false ? 'Send again' : 'Verify my ID',
@@ -108,8 +108,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
             _CheckCard(
               title: 'Care check',
               subtitle: careTierCategories.isEmpty
-                  ? 'Your ID plus a Certificate of Good Conduct from the DCI.'
-                  : 'Needed for ${_list(careTierCategories)}: your ID plus a Certificate of Good Conduct from the DCI.',
+                  ? 'Your ID and a DCI Certificate of Good Conduct.'
+                  : 'Needed for ${_list(careTierCategories)}. Your ID and a DCI Certificate of Good Conduct.',
               state: _careState(s),
               onAction: _careAction(s) ? () => _start(VerificationKind.care, s) : null,
               actionLabel: s.certificatePending
@@ -134,8 +134,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   const SizedBox(width: AppSpace.sm),
                   Expanded(
                     child: Text(
-                      'Only Help24 reviewers see your documents, and they are deleted 30 days after we decide. '
-                      'Clients only ever see "ID verified" or "Care checked".',
+                      'Only Help24 reviewers see your documents. They are deleted 30 days after review.',
                       style: AppTypeScale.bodyS.copyWith(color: c.contentSecondary),
                     ),
                   ),
@@ -160,10 +159,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
     if (s.idVerified) return const _CheckState('ID verified', _Tone.positive);
     final l = s.latestId;
     if (l == null) return const _CheckState('Not started', _Tone.neutral);
-    if (l.isPending) return _CheckState('In review — sent ${_date(l.submittedAt)}. We aim to answer within 24 hours.', _Tone.neutral);
-    if (l.isRejected) return _CheckState('Not accepted: ${l.rejectionReason ?? 'please send it again.'}', _Tone.critical);
+    if (l.isPending) return _CheckState('In review since ${_date(l.submittedAt)}', _Tone.neutral);
+    if (l.isRejected) return _CheckState(_rejected(l.rejectionReason), _Tone.critical);
     return const _CheckState('Not started', _Tone.neutral);
   }
+
+  static String _rejected(String? reason) =>
+      reason == null || reason.trim().isEmpty ? 'Not accepted. Please send it again.' : 'Not accepted: $reason';
 
   _CheckState _careState(VerificationStatus s) {
     if (s.careChecked) return const _CheckState('Care checked', _Tone.positive);
@@ -172,18 +174,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
       final pendingUpload = l != null && l.isPending && l.document == VerificationDocument.certificate;
       return _CheckState(
         pendingUpload
-            ? 'Certificate in review. Your receipt is accepted until ${_date(s.careExpiresAt)}.'
-            : 'Certificate pending — upload it by ${_date(s.careExpiresAt)}. Until then your care listings show "Certificate pending", '
-                'and you cannot apply for care jobs or be hired for them.',
+            ? 'Certificate in review. Your receipt is valid until ${_date(s.careExpiresAt)}.'
+            : 'Upload your certificate by ${_date(s.careExpiresAt)}. Until then you can list care work but cannot be hired for it.',
         _Tone.caution,
       );
     }
     if (l == null) {
       final idSent = s.idVerified || (s.latestId?.isPending ?? false);
-      return _CheckState(idSent ? 'Not started' : 'Send your ID first — the Care check includes it.', _Tone.neutral);
+      return _CheckState(idSent ? 'Not started' : 'Starts after your ID check.', _Tone.neutral);
     }
-    if (l.isPending) return _CheckState('In review — sent ${_date(l.submittedAt)}. We aim to answer within 24 hours.', _Tone.neutral);
-    if (l.isRejected) return _CheckState('Not accepted: ${l.rejectionReason ?? 'please send it again.'}', _Tone.critical);
+    if (l.isPending) return _CheckState('In review since ${_date(l.submittedAt)}', _Tone.neutral);
+    if (l.isRejected) return _CheckState(_rejected(l.rejectionReason), _Tone.critical);
     if (l.isApproved && l.document == VerificationDocument.receipt) {
       return const _CheckState('Your receipt has expired. Upload your certificate to list care work again.', _Tone.critical);
     }
@@ -342,7 +343,7 @@ class _SubmitScreenState extends State<_SubmitScreen> {
       }
       if (picked == null || !mounted) return;
       if (picked.bytes.length > VerificationService.maxBytes) {
-        ActionFeedback.info(context, 'That file is larger than 8 MB. Take the photo again, or choose a smaller PDF.');
+        ActionFeedback.info(context, 'That file is over 8 MB. Retake the photo or pick a smaller PDF.');
         return;
       }
       setState(() => _files[step] = picked!);
@@ -401,7 +402,7 @@ class _SubmitScreenState extends State<_SubmitScreen> {
                       contentPadding: EdgeInsets.zero,
                       title: Text(d.label),
                       subtitle: d == VerificationDocument.receipt
-                          ? const Text('Applied but still waiting? Your receipt is accepted for 30 days.')
+                          ? const Text('Still waiting for the certificate? Your receipt works for 30 days.')
                           : null,
                     ),
                 ],
@@ -412,9 +413,9 @@ class _SubmitScreenState extends State<_SubmitScreen> {
           if (doc != null) ...[
             Text(
               doc.kind == VerificationKind.id
-                  ? 'Use a well-lit place. The whole card must be readable, and the selfie must show your face and the card together. '
-                      'The name must match your Help24 profile.'
-                  : 'Send the PDF from eCitizen, or a clear photo of every page. The name must match your Help24 profile.',
+                  ? 'Use good light and keep the whole card readable. In the selfie, hold the card next to your face. '
+                      'The name must match your profile.'
+                  : 'Send the eCitizen PDF or a clear photo of each page. The name must match your profile.',
               style: AppTypeScale.bodyS.copyWith(color: c.contentSecondary),
             ),
             const SizedBox(height: AppSpace.md),

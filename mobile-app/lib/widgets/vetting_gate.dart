@@ -17,14 +17,17 @@ Future<bool> ensureVettedFor(
   required String uid,
   required String categoryName,
   required bool applying,
+  Future<VerificationStatus?>? known,
 }) async {
   if (uid.isEmpty) return true;
-  VerificationStatus status;
-  try {
-    status = await VerificationService.myStatus();
-  } catch (e) {
-    debugPrint('[VETTING_GATE] status read failed, failing open: $e');
-    return true;
+  VerificationStatus? status = known == null ? null : await known;
+  if (status == null) {
+    try {
+      status = await VerificationService.myStatus();
+    } catch (e) {
+      debugPrint('[VETTING_GATE] status read failed, failing open: $e');
+      return true;
+    }
   }
   if (!context.mounted) return false;
 
@@ -33,21 +36,20 @@ Future<bool> ensureVettedFor(
   if (applying ? status.canApply(categoryName) : status.canOffer(categoryName)) return true;
 
   final care = tier == 'care';
+  final certificatePending = status.certificatePending;
+  final work = categoryName.isEmpty ? 'This work' : categoryName;
   final String title;
   final String body;
   if (care && applying && status.certificatePending) {
-    title = 'Your certificate is still pending';
-    body = 'You can list care work while Help24 waits for your Certificate of Good Conduct, '
-        'but applying for care jobs needs the certificate itself.';
+    title = 'Certificate still pending';
+    body = 'You can list care work now. Applying for care jobs needs the certificate.';
   } else if (care) {
-    title = 'Care work needs a Care check';
-    body = '${categoryName.isEmpty ? 'This work' : categoryName} means looking after children or vulnerable people, so Help24 '
-        'checks your ID and your Certificate of Good Conduct first. Applied but still waiting? '
-        'Your eCitizen receipt lets you list care work for 30 days.';
+    title = 'Care check needed';
+    body = '$work needs your ID and a DCI Certificate of Good Conduct. '
+        'An eCitizen receipt lets you start for 30 days.';
   } else {
-    title = 'Verify your ID first';
-    body = '${categoryName.isEmpty ? 'This work' : categoryName} means working in people\'s homes or with their families, '
-        'so Help24 checks your ID first. It takes a few minutes, and we review within 24 hours.';
+    title = 'ID check needed';
+    body = '$work needs a verified ID. It takes a few minutes and is reviewed within 24 hours.';
   }
 
   final go = await showModalBottomSheet<bool>(
@@ -77,7 +79,7 @@ Future<bool> ensureVettedFor(
                 height: 50,
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(sheet, true),
-                  child: Text(care && status.certificatePending ? 'Upload my certificate' : 'Verify now'),
+                  child: Text(care && certificatePending ? 'Upload my certificate' : 'Verify now'),
                 ),
               ),
               const SizedBox(height: AppSpace.sm),
