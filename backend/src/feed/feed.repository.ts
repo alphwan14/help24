@@ -91,7 +91,7 @@ export interface CandidateQuery {
 // `users:` alias keeps the JSON key the app parses. Byte-identical to
 // PostService.feedRowSelect in mobile-app/lib/services/post_service.dart.
 const FEED_ROW_SELECT =
-  '*, users:public_profiles!author_user_id(name, profile_image, avatar_url, has_phone), ' +
+  '*, users:public_profiles!author_user_id(name, profile_image, avatar_url, has_phone, id_verified, care_status), ' +
   'post_images(image_url), ' +
   'applications(*, users:public_profiles!applicant_user_id(name, profile_image, avatar_url, profession))';
 

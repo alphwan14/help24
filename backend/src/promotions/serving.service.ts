@@ -99,7 +99,7 @@ export class ServingService {
         .select(
           'id, owner_user_id, posts!inner(*, ' +
             // public_profiles, not users: see FEED_ROW_SELECT in feed.repository.ts.
-            'users:public_profiles!author_user_id(name, profile_image, avatar_url, has_phone), ' +
+            'users:public_profiles!author_user_id(name, profile_image, avatar_url, has_phone, id_verified, care_status), ' +
             'post_images(image_url))',
         )
         .eq('status', 'active')

@@ -117,6 +117,7 @@ export class AdminAlertsService {
       isolate('jobs', () => this.jobAlerts(now)),
       isolate('requests', () => this.requestAlerts(now)),
       isolate('promotions', () => this.promotionAlerts()),
+      isolate('verifications', () => this.verificationAlerts(now)),
       isolate('access', () => this.accessAlerts()),
     ]);
 
@@ -636,6 +637,31 @@ export class AdminAlertsService {
         amount_kes: c.price_kes ?? null,
         href: `/dashboard/promotion/${c.id}`,
       })), () => 'Paid for and waiting to go live.'),
+    ];
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Verifications — a provider is waiting to be allowed to work (migration 135)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private async verificationAlerts(now: number): Promise<Array<AdminAlert | null>> {
+    const { data } = await must<Row[]>(this.db.from('provider_verifications')
+      .select('id, kind, document_type, submitted_at')
+      .eq('status', 'pending')
+      .order('submitted_at', { ascending: true })
+      .limit(200));
+    const label: Record<string, string> = {
+      national_id: 'National ID', passport: 'Passport', alien_id: 'Alien ID',
+      certificate: 'Certificate of Good Conduct', receipt: 'eCitizen receipt',
+    };
+    return [
+      buildAlert('verifications_waiting', (data ?? []).map((v): AlertItem => ({
+        id: v.id,
+        label: v.kind === 'care' ? 'Care check' : 'ID check',
+        detail: [label[v.document_type as string] ?? v.document_type, `sent ${ageOf(v.submitted_at, now)} ago`].join(' · '),
+        at: v.submitted_at,
+        href: `/dashboard/trust-safety/verifications/${v.id}`,
+      })), () => 'Providers were told they would hear back within 24 hours. Until then they cannot offer or apply for this work.'),
     ];
   }
 

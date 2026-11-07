@@ -267,6 +267,26 @@ String _userAvatarUrl(dynamic usersJson) {
 /// `has_phone` is what `public_profiles` sends; the raw number is no longer
 /// shared with other people. A row that still carries `phone_number` (an older
 /// server, a cached feed) is read the old way rather than shown as "no phone".
+/// Provider vetting (migration 135): public_profiles.id_verified.
+bool _userIdVerified(dynamic usersJson) {
+  if (usersJson == null || usersJson is! Map) return false;
+  return usersJson['id_verified'] == true;
+}
+
+/// Provider vetting (migration 135): public_profiles.care_status —
+/// 'checked' | 'pending' | null.
+String? _userCareStatus(dynamic usersJson) {
+  if (usersJson == null || usersJson is! Map) return null;
+  final v = usersJson['care_status']?.toString();
+  return (v == 'checked' || v == 'pending') ? v : null;
+}
+
+/// posts.vetting_label (migration 135): 'certificate_pending' | 'not_verified'.
+String? _parseVettingLabel(dynamic raw) {
+  final v = raw?.toString();
+  return (v == 'certificate_pending' || v == 'not_verified') ? v : null;
+}
+
 bool _userHasPhone(dynamic usersJson) {
   if (usersJson == null || usersJson is! Map) return false;
   final flag = usersJson['has_phone'];
@@ -391,6 +411,21 @@ class PostModel {
   /// Lifecycle state of the post: open | assigned | completed | disputed.
   final String status;
 
+  /// Provider vetting (migration 135), set by Help24 only:
+  /// 'certificate_pending' — the author's Care check rests on an eCitizen
+  ///   receipt; they cannot be hired for care work until the certificate is in;
+  /// 'not_verified' — the author has not completed the check this category
+  ///   needs (listings from before vetting, shown for 14 days).
+  /// Null for everything else.
+  final String? vettingLabel;
+
+  /// The author holds an approved ID check ("ID verified").
+  final bool authorIdVerified;
+
+  /// The author's Care check: 'checked' ("Care checked"), 'pending'
+  /// (certificate pending) or null.
+  final String? authorCareStatus;
+
   /// Smart Posting: category-specific answers (posts.attributes JSONB).
   /// Empty for legacy posts and categories without a question schema.
   final Map<String, dynamic> attributes;
@@ -432,6 +467,9 @@ class PostModel {
     this.selectedProviderUserId,
     this.authorHasPhone = false,
     this.status = 'open',
+    this.vettingLabel,
+    this.authorIdVerified = false,
+    this.authorCareStatus,
     this.attributes = const {},
     this.attributesSchemaVersion,
   }) : createdAt = createdAt ?? DateTime.now();
@@ -494,6 +532,9 @@ class PostModel {
       selectedProviderUserId: json['selected_provider_id']?.toString(),
       authorHasPhone: _userHasPhone(authorUsers),
       status: json['status']?.toString() ?? 'open',
+      vettingLabel: _parseVettingLabel(json['vetting_label']),
+      authorIdVerified: _userIdVerified(authorUsers),
+      authorCareStatus: _userCareStatus(authorUsers),
       attributes: json['attributes'] is Map
           ? Map<String, dynamic>.from(json['attributes'] as Map)
           : const {},
@@ -675,6 +716,9 @@ class PostModel {
     String? selectedProviderUserId,
     bool? authorHasPhone,
     String? status,
+    String? vettingLabel,
+    bool? authorIdVerified,
+    String? authorCareStatus,
     // Smart Posting answers were absent from this list, so EVERY copyWith
     // silently reset them to `{}`: the freshly created post lost its category
     // answers on the way back from PostService (no time-signal chip, no
@@ -711,6 +755,9 @@ class PostModel {
       selectedProviderUserId: selectedProviderUserId ?? this.selectedProviderUserId,
       authorHasPhone: authorHasPhone ?? this.authorHasPhone,
       status: status ?? this.status,
+      vettingLabel: vettingLabel ?? this.vettingLabel,
+      authorIdVerified: authorIdVerified ?? this.authorIdVerified,
+      authorCareStatus: authorCareStatus ?? this.authorCareStatus,
       attributes: attributes ?? this.attributes,
       attributesSchemaVersion:
           attributesSchemaVersion ?? this.attributesSchemaVersion,

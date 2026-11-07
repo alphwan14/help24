@@ -316,6 +316,13 @@ class ErrorMapper {
     final restricted = _restrictionFailure(error);
     if (restricted != null) return restricted;
 
+    // 5b) Provider vetting (migration 135): work that needs an ID check or a
+    //     Care check, refused by the database trigger or by the backend's
+    //     select-provider. Also before the permission branches: "you don't
+    //     have permission" hides that a few minutes of verifying fixes it.
+    final vetting = _verificationFailure(error);
+    if (vetting != null) return vetting;
+
     // 6) Session.
     if (_looksLikeExpiredSession(error)) return _session;
 
@@ -594,6 +601,58 @@ class ErrorMapper {
       'messaging_restricted' => _messagingRestricted,
       _ => _marketplaceRestricted,
     };
+  }
+
+  /// Provider vetting refusals (migration 135), by their machine markers or
+  /// by the backend's select-provider sentences (JobsService).
+  static AppFailure? _verificationFailure(Object? error) {
+    final raw = _rawMessageOf(error) ?? '';
+    final s = raw.toLowerCase();
+    if (s.isEmpty) return null;
+
+    if (s.contains('help24_verification_required')) {
+      final care = s.contains('care check');
+      if (s.contains('reopens when your verification')) {
+        return const AppFailure(
+          title: 'Hidden until you are verified',
+          message: 'This listing reopens by itself once Help24 approves your verification.',
+          category: ErrorCategory.authorization,
+        );
+      }
+      return AppFailure(
+        title: care ? 'Care check needed' : 'ID check needed',
+        message: s.contains('applying')
+            ? (care
+                ? 'Applying for care work needs a completed Care check, including your Certificate of Good Conduct. Open Profile → Verify your identity.'
+                : 'Applying for this work needs a verified ID. Open Profile → Verify your identity.')
+            : (care
+                ? 'Offering care work needs a Care check. Open Profile → Verify your identity — an eCitizen receipt is enough to start.'
+                : 'Offering this work needs a verified ID. Open Profile → Verify your identity.'),
+        category: ErrorCategory.authorization,
+      );
+    }
+    if (s.contains('has not completed the care check') || s.contains('has not verified their id')) {
+      return AppFailure(
+        title: 'This provider is not verified yet',
+        message: s.contains('care check')
+            ? 'Care work can only go to a provider with a completed Care check. Choose another applicant, or message them to finish theirs.'
+            : 'This work can only go to a provider with a verified ID. Choose another applicant, or message them to verify.',
+        category: ErrorCategory.conflict,
+      );
+    }
+    // Submission problems are written for people at the raise site
+    // (submit_provider_verification) — show the sentence after the marker.
+    final m = RegExp(r'help24_verification_(invalid|pending):\s*(.+)$', caseSensitive: false).firstMatch(raw.trim());
+    if (m != null) {
+      final text = m.group(2)!.trim();
+      final sentence = text.isEmpty ? text : '${text[0].toUpperCase()}${text.substring(1)}${RegExp(r'[.!?]$').hasMatch(text) ? '' : '.'}';
+      return AppFailure(
+        title: m.group(1)!.toLowerCase() == 'pending' ? 'Already in review' : 'Check what you sent',
+        message: sentence,
+        category: ErrorCategory.validation,
+      );
+    }
+    return null;
   }
 
   static const AppFailure _banned = AppFailure(

@@ -53,6 +53,9 @@ const _backendTypes = <String>[
   'account_restricted',
   'account_restored',
   'content_removed',
+  // Provider vetting (backend/src/verifications, migration 135).
+  'verification_approved',
+  'verification_rejected',
 ];
 
 AppNotification _n(

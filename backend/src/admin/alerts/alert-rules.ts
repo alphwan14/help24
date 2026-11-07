@@ -19,7 +19,6 @@ import { createHash } from 'crypto';
  *           look when the queue is clear.
  *
  * And deliberately NOT here (see docs in the dashboard panel):
- *   - provider verifications — the product has no verification step to act on;
  *   - failed STK attempts — people cancel prompts; that is not an incident;
  *   - dead-lettered system events — an engineering signal for logs/monitoring;
  *   - new signups/listings — information, not attention.
@@ -39,6 +38,7 @@ export type AlertId =
   | 'dispute_awaiting_admin'
   | 'reports_urgent'
   | 'reports_untriaged'
+  | 'verifications_waiting'
   | 'dashboard_login_unlinked'
   | 'completion_overdue'
   | 'paid_stalled'
@@ -229,6 +229,15 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     href: '/dashboard/trust-safety/queue?scope=new',
     action: 'Triage',
     title: (n) => `${plural(n, 'report', 'reports')} awaiting triage`,
+  },
+  // Providers were promised a decision within 24 h (migration 135). Medium:
+  // a queue waiting on an admin; nobody's money is at risk.
+  verifications_waiting: {
+    category: 'trust_safety',
+    priority: 'medium',
+    href: '/dashboard/trust-safety/verifications',
+    action: 'Review the documents',
+    title: (n) => `${plural(n, 'provider verification is', 'provider verifications are')} waiting for review`,
   },
   // A staff member whose password works is being turned away, and nothing they
   // can do will change that — only a super admin linking the login can. Before

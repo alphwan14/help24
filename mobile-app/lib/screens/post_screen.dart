@@ -28,6 +28,7 @@ import '../widgets/post_preview_card.dart';
 import '../widgets/schema_question_flow.dart';
 import 'place_picker_screen.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
+import '../widgets/vetting_gate.dart';
 
 /// Represents a selected image with cross-platform support
 class SelectedImage {
@@ -2052,6 +2053,20 @@ class _PostScreenState extends State<PostScreen> {
 
   Future<void> _submitPost() async {
     if (_isSubmitting) return;
+
+    // Offering care or in-home work needs an ID check or a Care check
+    // (migration 135). The database refuses the listing otherwise; asking
+    // first means the provider is sent to verify instead of seeing a refusal.
+    if (_selectedType == PostType.offer && _selectedCategory != null) {
+      final uid = context.read<AuthProvider>().currentUserId ?? '';
+      final vetted = await ensureVettedFor(
+        context,
+        uid: uid,
+        categoryName: _selectedCategory!.name,
+        applying: false,
+      );
+      if (!mounted || !vetted) return;
+    }
 
     setState(() {
       _isSubmitting = true;

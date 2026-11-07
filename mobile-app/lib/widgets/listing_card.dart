@@ -14,6 +14,7 @@ import '../utils/time_utils.dart';
 import 'marketplace_card_components.dart';
 import 'primitives.dart';
 import 'reputation_widgets.dart';
+import '../utils/vetting_labels.dart';
 
 /// ONE CARD FOR EVERY LISTING.
 ///
@@ -205,6 +206,10 @@ class _TextColumn extends StatelessWidget {
       // place competed and BOTH ellipsised: "Alpho... New Provider  Momb...".
       // It is also the most decision-relevant fact after the title.
       post.location.isEmpty ? 'Kenya' : post.location,
+      // Provider vetting (migration 135) sits right after the place: on care
+      // and in-home work it is a deciding fact, and this line ellipsises from
+      // the tail.
+      if (listingVettingLabel(post) != null) listingVettingLabel(post)!.text,
       if (distanceLabel != null) distanceLabel!,
       // A job's employment type. The old JobCard showed this as a chip and the
       // Jobs tab FILTERS on it, so folding the two cards together without it

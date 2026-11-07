@@ -30,6 +30,10 @@ export function fakeSupabase(resolve: Resolver = () => ({ data: null })) {
   const signed: Array<{ bucket: string; path: string }> = [];
   /** Objects that do not exist: signing one fails the way Storage does. */
   const missing = new Set<string>();
+  /** Every object removed, with its bucket. */
+  const removed: Array<{ bucket: string; path: string }> = [];
+  /** Set to make Storage refuse removals with this message. */
+  const storageErrors: { remove?: string } = {};
 
   const chain = (call: Call): unknown => {
     const proxy: unknown = new Proxy(
@@ -71,11 +75,16 @@ export function fakeSupabase(resolve: Resolver = () => ({ data: null })) {
           signed.push({ bucket, path });
           return { data: { signedUrl: `https://view.test/${path}` }, error: null };
         },
+        remove: async (paths: string[]) => {
+          if (storageErrors.remove) return { data: null, error: { message: storageErrors.remove } };
+          for (const path of paths) removed.push({ bucket, path });
+          return { data: paths.map((name) => ({ name })), error: null };
+        },
       }),
     },
   };
 
-  return { supabase: { client, url: 'https://ref.supabase.test' } as never, calls, signed, missing };
+  return { supabase: { client, url: 'https://ref.supabase.test' } as never, calls, signed, missing, removed, storageErrors };
 }
 
 /** The arguments of the first recorded op with this name on a call. */
