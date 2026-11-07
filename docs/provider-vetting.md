@@ -156,3 +156,40 @@ rule 4). After each one, a read confirmed that nothing was left behind.
 | 7 | Dry run 137 | `HELP24_DRY_RUN_OK`. `site_events` with RLS on; anon has no SELECT or INSERT; functions `record_site_event`, `admin_provider_card_stats`. Afterwards: nothing left |
 | 8 | Apply 137 | 14:06:15 UTC |
 | 9 | Verify 137 | RLS on. `has_table_privilege` anon SELECT/INSERT false, authenticated SELECT false. anon may EXECUTE `record_site_event` and may not EXECUTE `admin_provider_card_stats`. 0 rows. From outside with the anon key: `GET /rest/v1/site_events` → 401 `42501 permission denied`, `rpc/admin_provider_card_stats` → 401, `GET /rest/v1/provider_verifications` → 401 |
+
+### App on a phone, before the backend deploy
+
+These checks used release-signed test builds of the branch (WSL `build-release.sh`,
+cert `48f1d72b…`, versioned 1.0.9+10, not published), installed with
+`adb install -r` over v1.0.9 on the S20+ (`R5CN218ZKZY`, alphwan14).
+
+| Check | Result |
+|---|---|
+| Install over 1.0.9 | Kept the session (`[AUTH][BRIDGE] ok=true`), no crash, Discover loads |
+| Discover | Neema's Babysitting offer shows "Not yet verified", against the old backend too |
+| Profile → Verify your identity | Opens and reads "Not started" from `my_verification_status()`. ID check → National ID selects (RadioGroup) and shows the instructions. **No documents were uploaded**: that would put real ID images in production |
+| Offer → Babysitting, first build `0ea12f3` | **Defect:** no sheet. The provider went straight into the form, and the gate fired only at submit, after every step |
+| Same, after the fix (`441f77b`) | "Care check needed" sheet as soon as Babysitting is picked. "Not now" stays on the category list, "Verify now" opens the screen with the Care check first, and Plumbing goes straight to the form |
+| Listing detail | "Not yet verified" chip plus "This provider has not verified their identity yet." |
+
+The owner also asked for plainer copy, with no dashes, on the new pages. App
+(`441f77b`) and admin (`409fa88`) copy were rewritten. The database's own
+submission messages from 135 still contain dashes, and the app shows them as two
+sentences.
+
+### Backend, dashboard, website (2026-11-07)
+
+| # | Step | Evidence |
+|---|---|---|
+| 10 | Merge `main` into the branch | `ba1a90e` (admin Google sign-in, from a parallel session) merged cleanly. Admin unit 155/155. e2e: one run aborted in App controls (timeout, unrelated), and the re-run passed 144/144 |
+| 11 | Merge PR #3 | `abb66a5`. Render `dep-dbnm7lqvcj2c738iu7t0` live at 17:47:08 UTC (69 s). Rollback target: `dep-dblorlfb9u1s73dkl7b0` (`9418f8e`) |
+| 12 | Verify backend | `/health` 200 (`degraded` = Redis, as before). `/admin/verifications` 401 with no token and with a forged token, 404 before the deploy. `/feed?page=1&page_size=3` 200, carrying `vetting_label`/`vetting_hide_at` and `users.id_verified`/`care_status`; Silas's Caregiving offer reads `not_verified`, hidden at 2026-11-21 14:04:22 UTC. `/promotions/campaigns` 401. Logs: `[VETTING] sweep started — interval=10m`, `153 routes … undeclared=0 (mode=enforce)`, moderation and admin self-checks ✓, **no error-level lines** |
+| 13 | Website | help24_website PR #1 merged (`1e58521`), Vercel deploy success, `POST /api/e` 404 → 204. One headless-Edge open of `help24.co.ke/p/k4DZSM…` (the owner's own card) wrote `site_events` row 1: `provider_card_open`, source `link`, desktop, edge, app_version 1.0.9, path without the query string |
+
+The admin dashboard does not auto-deploy (`vercel --prod` from
+`admin-dashboard/`). The Verifications and Provider cards pages appear there
+only after that deploy.
+
+Not related to this deploy: `/feed?page=1` returns fewer items as `page_size`
+grows (20 → 20, 30 → 11, 40 → 1, 50 → 0, of 41 candidates). The deploy changed
+only two select columns. The app pages at 20.
