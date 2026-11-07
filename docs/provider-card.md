@@ -1,7 +1,8 @@
 # Provider card — "Find me on Help24"
 
 Status: **Phase A live in v1.0.9 (2026-11-04). Phase B ("Book me", payment
-protected) designed, decided, not built — blocked.**
+protected) designed, decided, not built — the NEXT PRIORITY once M-Pesa is in
+production and the blockers below are lifted (owner, 2026-11-07).**
 
 ## Where we stopped (2026-11-06)
 
@@ -10,17 +11,15 @@ Read this first when picking the work up.
 **Live:** the card in the app (v1.0.9, published and checked on the owner's
 S20+ from the release APK) and `help24.co.ke/p/<uid>` on the website.
 
-**Not known yet: whether providers share it.** The website pushes
-`provider_card_open` (and `provider_card_open_app`, `qr_scan`) into
-`window.dataLayer`, but **no analytics tool is installed** (see
-`help24_website/lib/analytics.ts`), so nothing is collected. Phase B's go/no-go
-test below cannot be read until one of these exists:
-
-- an analytics tool on the website that consumes `dataLayer` (Vercel Web
-  Analytics custom events, GA4/GTM, Plausible …) — owner's choice; or
-- server-side counting: card attribution stored at sign-up (needed for the
-  waiver anyway, see Phase B) gives "members who joined through a card" from
-  the database without any website analytics.
+**Measuring card use (built 2026-11-07, owner chose first-party).** The
+website beacons its events to its own `/api/e`, which writes them to Help24's
+database through `record_site_event()` (migration 137): no cookies, no IP, no
+device id, nothing third-party. Admin dashboard → Partners → **Provider cards**
+shows opens (QR vs link), how many providers' cards were opened, "Open in
+Help24" taps, and the providers whose card is used most. Goes live when
+migration 137 is applied and the website is deployed. Still not counted:
+*members who joined through a card*. That needs card attribution stored at
+sign-up, which Phase B's waiver needs anyway.
 
 **Phase B blockers, as last checked:**
 
@@ -60,8 +59,13 @@ written):
    that app version.
 4. Only then change the card copy to the Phase B line.
 
-**Related open thread — vetting providers for sensitive work** (proposed
-2026-11-04 in the same session, nothing built). Booking a stranger safely
+**Related thread — vetting providers for sensitive work: BUILT 2026-11-07,
+not yet applied — see [`provider-vetting.md`](provider-vetting.md).** The
+owner accepted the two tiers, the eCitizen receipt for 30 days (listed and
+messageable, labelled "Certificate pending", but not able to apply or be
+hired until the certificate is in), 14 days' notice for existing listings,
+and the optional ID badge for every provider. The proposal as written on
+2026-11-04: Booking a stranger safely
 matters most for care work, so it belongs next to Phase B:
 
 - **ID check** (national ID / passport / alien ID, front and back, plus a selfie
