@@ -413,10 +413,20 @@ try {
   await sleep(1000);
   check("Google switched off in Supabase: no Google button", !(await evaluate(bodyHas("Continue with Google"))));
   fake.setGoogle(true);
+  // The button must not shift the page when it lands: its space is in the first HTML,
+  // and the email box does not move when Google's button replaces the stand-in.
+  const firstHtml = await (await fetch(`${APP}/login`)).text();
+  check("the Google button's space is reserved in the page's first HTML", firstHtml.includes("gsi-placeholder"));
+  await goto(`${APP}/login`);
+  await waitFor("!!document.querySelector('#admin-email')", "login form");
+  const emailTopBefore = await evaluate("Math.round(document.querySelector('#admin-email').getBoundingClientRect().top)");
+  await waitFor(`!!document.querySelector('[data-testid="google-button"] button')`, "Google button drawn", 15000);
+  const emailTopAfter = await evaluate("Math.round(document.querySelector('#admin-email').getBoundingClientRect().top)");
+  check("the sign-in form does not move when Google's button arrives", emailTopBefore === emailTopAfter, `${emailTopBefore} → ${emailTopAfter}`);
   const googleIn = async (account) => {
     fake.chooseGoogleAccount(account);
     await goto(`${APP}/login`);
-    await waitFor(bodyHas("Continue with Google"), "Google button", 15000);
+    await waitFor(`!!document.querySelector('[data-testid="google-button"] button')`, "Google button", 15000);
     // Google draws its own button (an iframe in production), outside React: click it directly.
     await evaluate(`document.querySelector('[data-testid="google-button"] button').click()`);
   };

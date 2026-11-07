@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { preload } from "react-dom";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import {
   GOOGLE_CLIENT_ID,
@@ -72,14 +73,34 @@ function isDark(): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
+/** Google's "G", in its four brand colours, for the placeholder. */
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
+  );
+}
+
 /**
  * Google's own "Continue with Google" button (Google Identity Services), then
  * Supabase, then the admin gate — see lib/google-sign-in.ts.
  *
- * Renders nothing until Google is on in Supabase and Google's script has
- * loaded, so a blocked script or a provider switched off leaves the page as
- * it was: email and password only. `onDone` reports the outcome; the page
- * navigates on success and shows the message otherwise.
+ * The page must not shift when it arrives. So from the first paint this
+ * reserves the exact space with a stand-in drawn like Google's large button
+ * (outline in light, filled black in dark), and Google's real button is drawn
+ * ON TOP of it the moment it is ready — the swap is not visible. Google's
+ * script is requested during the first render (`preload`), and the three
+ * things the button needs — Google switched on in Supabase, the script, a
+ * nonce — are fetched at the same time, not one after another.
+ *
+ * If Google turns out to be off in Supabase, or its script cannot load
+ * (blocked, offline), the stand-in is removed and the page is email and
+ * password only. `onDone` reports the outcome; the page navigates on success
+ * and shows the message otherwise.
  */
 export default function GoogleButton({
   onBusy,
@@ -88,8 +109,9 @@ export default function GoogleButton({
   onBusy: (busy: boolean) => void;
   onDone: (result: GoogleResult) => void;
 }) {
+  preload(GOOGLE_GSI_SRC, { as: "script" });
   const slot = useRef<HTMLDivElement>(null);
-  const [shown, setShown] = useState(false);
+  const [state, setState] = useState<"loading" | "ready" | "off">("loading");
   // The latest handlers, so Google's callback (registered once) never calls a stale one.
   const handlers = useRef({ onBusy, onDone });
   handlers.current = { onBusy, onDone };
@@ -97,15 +119,16 @@ export default function GoogleButton({
   useEffect(() => {
     let live = true;
     void (async () => {
-      if (!(await googleEnabled())) return;
-      let google: GoogleId;
-      try {
-        google = await loadGoogleId();
-      } catch {
+      const [enabled, google, nonce] = await Promise.all([
+        googleEnabled(),
+        loadGoogleId().catch(() => null),
+        makeNonce(),
+      ]);
+      if (!live) return;
+      if (!enabled || !google || !slot.current) {
+        setState("off");
         return;
       }
-      const nonce = await makeNonce();
-      if (!live || !slot.current) return;
 
       google.initialize({
         client_id: GOOGLE_CLIENT_ID,
@@ -140,19 +163,35 @@ export default function GoogleButton({
         text: "continue_with",
         shape: "rectangular",
         logo_alignment: "center",
-        // Measured on the form: this slot is still hidden, so it has no width yet.
-        width: Math.max(200, Math.min(400, slot.current.closest("form")?.offsetWidth ?? 320)),
+        width: Math.max(200, Math.min(400, slot.current.offsetWidth)),
       });
-      setShown(true);
+      setState("ready");
     })();
     return () => {
       live = false;
     };
   }, []);
 
+  if (state === "off") return null;
+
   return (
-    <div className={shown ? "space-y-5" : "hidden"}>
-      <div ref={slot} className="flex min-h-[44px] w-full justify-center" data-testid="google-button" />
+    <div className="space-y-5">
+      {/* 40 px: the height of Google's "large" button, so nothing moves when it lands. */}
+      <div className="relative mx-auto h-10 w-full max-w-[400px]">
+        <div
+          aria-hidden="true"
+          className="gsi-placeholder pointer-events-none absolute inset-0 flex items-center justify-center gap-2.5 rounded text-sm font-medium"
+        >
+          <GoogleMark />
+          Continue with Google
+        </div>
+        <div
+          ref={slot}
+          className="absolute inset-0 flex justify-center"
+          data-testid="google-button"
+          aria-busy={state === "loading"}
+        />
+      </div>
       <div className="flex items-center gap-3 text-xs text-gray-400" aria-hidden="true">
         <span className="h-px flex-1 bg-gray-200" />
         or

@@ -91,3 +91,26 @@
 .nav-content-enter {
   animation: navContentEnter 0.15s ease-out;
 }
+
+/* Stand-in for Google's "Continue with Google" while its script loads
+   (components/auth/GoogleButton.tsx). Google's colours, deliberately not ours:
+   Google's real button (outline in light, filled black in dark) is drawn on
+   top of this, so the two must match. Same theme selectors as the token
+   sheet, so it is right from the first paint. */
+.gsi-placeholder {
+  background: #fff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+}
+:root[data-theme="dark"] .gsi-placeholder {
+  background: #202124;
+  color: #e8eaed;
+  border-color: #202124;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .gsi-placeholder {
+    background: #202124;
+    color: #e8eaed;
+    border-color: #202124;
+  }
+}
