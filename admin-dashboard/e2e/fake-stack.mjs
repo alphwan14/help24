@@ -411,8 +411,8 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
         return send(200, [...rows].reverse());
       }
       if (table === "partner_agents") {
-        const id = eq("id");
-        return send(200, [...partnerAgents.values()].filter((g) => (id ? g.id === id : true)).reverse());
+        const id = eq("id"), em = eq("email");
+        return send(200, [...partnerAgents.values()].filter((g) => (id ? g.id === id : true) && (em ? g.email === em : true)).reverse());
       }
       if (table === "partner_member_progress") {
         const aid = eq("agent_id");

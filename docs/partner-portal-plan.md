@@ -119,13 +119,13 @@ Nothing is credited retroactively. Members who joined before P1 have no agent.
   - what the agent sees in their portal;
   - pause and invite controls, with a history of who did what.
 
-**Sign-in for partners:** an admin adds the agent and sends the one-time invitation link (WhatsApp works). The agent sets a password at `/accept`. A new invitation also resets a forgotten password. No email is sent, because Supabase's default mailer only delivers to project team members.
+**Sign-in for partners:** an admin adds the agent and sends the one-time invitation link (WhatsApp works). The agent sets a password at `/accept`. A forgotten password is reset with **Forgot password?** on `/login` (since 2026-11-07, see below); a new invitation still resets it too.
 
 **To switch the portal on (the team does these steps, not code):**
 1. Vercel → the admin-dashboard project → Domains → add `partners.help24.co.ke`.
 2. DNS: add a CNAME from `partners` to the target Vercel shows.
 
-No new environment variables are needed. `PARTNER_HOSTS` defaults to `partners.help24.co.ke` and `PARTNER_PORTAL_URL` to `https://partners.help24.co.ke`. Supabase Auth needs no change, because partners sign in with a password and are never redirected.
+No new environment variables are needed. `PARTNER_HOSTS` defaults to `partners.help24.co.ke` and `PARTNER_PORTAL_URL` to `https://partners.help24.co.ke`. Supabase Auth needs one entry: `https://partners.help24.co.ke/auth/callback` under Authentication → URL Configuration → Redirect URLs, for the reset link (without it Supabase sends the Site URL and the link is broken).
 
 **Still open:**
 - The amount per qualified member, and how agents are paid (P5).
@@ -155,7 +155,8 @@ on a small screen. It also covers the portal's real gap: there is **no
    instead of creating a password. The token is accepted **only when the
    Google account's email matches the invited email**, so a forwarded
    invitation link is useless to anyone else.
-3. **Forgot password on `/login`**, built like the admin one
+3. **Forgot password on `/login`** — **BUILT 2026-11-07**, ahead of the rest of
+   this package. Built like the admin one
    (`app/api/admin/password-reset`). The server decides who gets the email,
    and every address gets the same answer and the same delay. The reset link
    must land on the partner host. Reset emails now go out through Help24's
@@ -171,3 +172,21 @@ screen will show the verified Help24 branding, "help24.co.ke".
 **Limits to state to agents:** Google works only when their Google email is
 the email they were invited with. Everyone else uses a password, which part 3
 lets them recover.
+
+### Forgot password — as built (2026-11-07)
+
+- **Request:** "Forgot password?" on `/login` (or `/login?reset=1`) posts to
+  `requestPartnerPasswordReset` (`app/partners/actions.ts`). Only an **active
+  agent with a login** is emailed; every address gets the same reply, cookie
+  and delay (`lib/password-reset.ts`, shared with the admin console). An agent
+  who never accepted an invitation has no password: their invitation is the
+  way in.
+- **Link:** lands on the partner host's `/auth/callback` (the admin handler,
+  redirecting by path only), then `/auth/continue` and `/reset-password`, all
+  public on the partner host. It works only in the browser that asked.
+- **After saving:** the agent lands on their overview.
+- **The email** is the one reset email Supabase sends for admins and partners
+  alike, so it says "your Help24 account" and "Reset your Help24 password".
+- **Owner setup:** add `https://partners.help24.co.ke/auth/callback` to
+  Supabase's Redirect URLs, and re-paste the reset template and its subject
+  (`admin-dashboard/supabase-auth-emails/html/recovery.html`).

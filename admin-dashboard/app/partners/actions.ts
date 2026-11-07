@@ -3,7 +3,10 @@
 import { passwordProblem } from "@/lib/admin-password";
 import { resolvePartnerAccess } from "@/lib/partners/access";
 import { hashInviteToken } from "@/lib/partners/rules";
+import { headers } from "next/headers";
 import { createServiceClient, createSessionWriter } from "@/lib/supabase-server";
+import { plausibleEmail, sendResetUniformly, tooManyResetRequests } from "@/lib/password-reset";
+import { recoveryRedirectUrl } from "@/lib/recovery-session";
 
 /**
  * `done` means "signed in — navigate to /". The actions never redirect
@@ -43,8 +46,8 @@ export async function signInPartner(_prev: FormState, form: FormData): Promise<F
  *
  * The invitation names the email (the admin entered it); the partner only
  * chooses a password. Accepting a NEW invitation when the agent already has a
- * login resets that login's password — how a forgotten password is handled
- * without email delivery. An email that already belongs to some OTHER login
+ * login resets that login's password — still a way back in for an agent whose
+ * email does not arrive ("Forgot password" below is the usual one). An email that already belongs to some OTHER login
  * (an admin's, say) is refused, never linked.
  */
 export async function acceptPartnerInvite(_prev: FormState, form: FormData): Promise<FormState> {
@@ -103,4 +106,54 @@ export async function acceptPartnerInvite(_prev: FormState, form: FormData): Pro
   const { error: signInError } = await supabase.auth.signInWithPassword({ email: agent.email as string, password });
   if (signInError) return { error: "Your account is ready, but signing in failed. Sign in with your email and new password." };
   return { done: true };
+}
+
+/** `sent` is the address the reset was asked for; the page says the same thing for every address. */
+export type ResetState = { sent?: string; error?: string };
+
+/**
+ * Whether this address may get a partner reset email: an ACTIVE agent that
+ * already has a login (an agent who never accepted an invitation has no
+ * password to reset — their invitation is the way in). Null when it could not
+ * be checked, which says nothing about the address.
+ */
+async function partnerMayReset(email: string): Promise<boolean | null> {
+  const db = createServiceClient();
+  const { data: agents, error } = await db.from("partner_agents").select("id, status").eq("email", email).limit(1);
+  if (error) {
+    console.error("[partners] reset lookup failed:", error.message);
+    return null;
+  }
+  const agent = agents?.[0];
+  if (!agent || agent.status !== "active") return false;
+  const { data: logins, error: loginError } = await db.from("partner_logins").select("agent_id").eq("agent_id", agent.id).limit(1);
+  if (loginError) {
+    console.error("[partners] reset lookup failed:", loginError.message);
+    return null;
+  }
+  return (logins ?? []).length > 0;
+}
+
+/**
+ * "Forgot password" on the partner sign-in page. The server decides who gets
+ * the email and every address gets the same answer (lib/password-reset.ts,
+ * shared with the admin console). The link comes back to this host's
+ * /auth/callback, which must be in Supabase's Redirect URLs.
+ */
+export async function requestPartnerPasswordReset(_prev: ResetState, form: FormData): Promise<ResetState> {
+  const started = Date.now();
+  const email = plausibleEmail(form.get("email"));
+  if (!email) return { error: "Enter a valid email address." };
+
+  const asked = await headers();
+  const ip = asked.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  if (tooManyResetRequests(`partner:${ip}`, started)) return { error: "Too many attempts. Wait a few minutes, then try again." };
+  // The partner host, as the browser sees it (a server action's request URL can
+  // carry the server's own host behind the rewrite — see ./signout).
+  const origin = asked.get("origin");
+  const eligible = origin ? await partnerMayReset(email) : null;
+  if (!origin || eligible === null) return { error: "We couldn't send the reset email just now. Try again." };
+
+  await sendResetUniformly({ email, eligible, redirectTo: recoveryRedirectUrl(origin), started });
+  return { sent: email };
 }

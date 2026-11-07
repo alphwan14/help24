@@ -293,7 +293,9 @@ only) to 30 an hour (Authentication → Rate Limits). That is plenty for admins.
 
 **9 — Supabase → Authentication → URL Configuration.** Site URL
 `https://admin.help24.co.ke`. Redirect URLs: exactly
-`https://admin.help24.co.ke/auth/callback` — no wildcards. Supabase silently
+`https://admin.help24.co.ke/auth/callback` and
+`https://partners.help24.co.ke/auth/callback` (the partner portal's "Forgot
+password", since 2026-11-07) — no wildcards. Supabase silently
 sends any link whose `redirectTo` is not allowed to the Site URL instead. For
 local development against production, add the exact
 `http://localhost:3001/auth/callback` only while needed.
@@ -328,7 +330,7 @@ Use **your own** admin account; never another admin's.
 
 1. After 6–10: sign out, **Forgot password?** with your address.
 2. In the email check: From `Help24 Security <security@help24.co.ke>`, subject
-   "Reset your Help24 admin password", Help24 layout. Gmail → *Show original*:
+   "Reset your Help24 password", Help24 layout. Gmail → *Show original*:
    SPF, DKIM (`d=help24.co.ke`) and DMARC all **PASS**.
 3. Supabase → Logs → Auth: the `mail.send` line shows `mail_from: security@help24.co.ke`.
 4. Stop here for a zero-impact check — the unused link expires on its own. To

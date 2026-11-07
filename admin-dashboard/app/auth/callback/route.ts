@@ -26,6 +26,11 @@ export const dynamic = "force-dynamic";
  * Public by construction: middleware does not match /auth/*, and the code is
  * worthless without the verifier cookie, which only the browser that asked has.
  * The landing path is fixed, so there is nothing here to redirect elsewhere.
+ *
+ * The partner portal serves this same handler at its own /auth/callback
+ * (app/partners/auth/callback). So every redirect is a path with no host:
+ * behind the partner host's rewrite, request.url can carry the server's own
+ * host, and an absolute URL built from it would land on the admin site.
  */
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
@@ -33,7 +38,7 @@ export async function GET(request: NextRequest) {
   // The email's own link: no query at all, the token after the `#`, which the
   // browser keeps across this redirect and never sends here.
   if (request.nextUrl.search === "") {
-    return NextResponse.redirect(new URL(RECOVERY_CONTINUE_PATH, request.url));
+    return go(RECOVERY_CONTINUE_PATH);
   }
 
   let problem: RecoveryLinkError | null = "link-invalid";
@@ -45,7 +50,10 @@ export async function GET(request: NextRequest) {
   }
   // No code: Supabase itself refused the link (`?error=access_denied&error_code=otp_expired`).
 
-  const target = new URL(RESET_PASSWORD_PATH, request.url);
-  if (problem) target.searchParams.set("error", problem);
-  return NextResponse.redirect(target);
+  return go(problem ? `${RESET_PASSWORD_PATH}?error=${problem}` : RESET_PASSWORD_PATH);
+}
+
+/** A redirect to a path on the host the browser is on. */
+function go(path: string): NextResponse {
+  return new NextResponse(null, { status: 307, headers: { Location: path } });
 }

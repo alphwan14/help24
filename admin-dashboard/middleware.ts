@@ -9,11 +9,13 @@ import { resolvePartnerAccess } from "@/lib/partners/access";
  * The partner portal (partners.help24.co.ke) — the same app, a different
  * host. Every path there is served from app/partners/* ("/members" →
  * "/partners/members"), and nothing else in the app is reachable from it.
- * Signed-in partners only, except the sign-in and invitation pages. Partner
+ * Signed-in partners only, except the sign-in, invitation and password-reset
+ * pages (the reset link's /auth/callback and /auth/continue, and
+ * /reset-password, which reads its own recovery session). Partner
  * logins are linked in partner_logins, never given the admin role, so the
  * admin gate below refuses them even on the admin host.
  */
-const PARTNER_PUBLIC = new Set(["/login", "/accept"]);
+const PARTNER_PUBLIC = new Set(["/login", "/accept", "/auth/callback", "/auth/continue", "/reset-password"]);
 
 async function partnerMiddleware(request: NextRequest): Promise<NextResponse> {
   let external = request.nextUrl.pathname;

@@ -2,7 +2,7 @@
   {
     "key": "recovery",
     "dashboardName": "Reset password",
-    "subject": "Reset your Help24 admin password",
+    "subject": "Reset your Help24 password",
     "file": "html/recovery.html",
     "managementApi": {
       "subject": "mailer_subjects_recovery",
@@ -62,7 +62,7 @@
   {
     "key": "password_changed_notification",
     "dashboardName": "Password changed (security notification)",
-    "subject": "Your Help24 admin password was changed",
+    "subject": "Your Help24 password was changed",
     "file": "html/password_changed_notification.html",
     "managementApi": {
       "subject": "mailer_subjects_password_changed_notification",

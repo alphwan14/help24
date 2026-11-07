@@ -37,7 +37,8 @@ const C = tokens.color.light;
 
 /** Served by the dashboard itself (public/help24.png), so it ships with every deploy. */
 export const LOGO_URL = "https://admin.help24.co.ke/help24.png";
-export const DASHBOARD_URL = "https://admin.help24.co.ke";
+/** The footer's link: Help24 itself, since admins and partners both get these emails. */
+export const SITE_URL = "https://help24.co.ke";
 export const SUPPORT_EMAIL = "support@help24.co.ke";
 
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -53,11 +54,13 @@ export const TEMPLATES = [
   {
     key: "recovery",
     dashboardName: "Reset password",
-    subject: "Reset your Help24 admin password",
+    // One reset email for admins and partners alike (partners.help24.co.ke
+    // has a "Forgot password" too), so it names neither.
+    subject: "Reset your Help24 password",
     preheader: "Use this link to choose a new password. It works once.",
     heading: "Reset your password",
     paragraphs: [
-      "Someone asked to reset the password for the Help24 admin account <strong>{{ .Email }}</strong>. If that was you, choose a new password below.",
+      "Someone asked to reset the password for the Help24 account <strong>{{ .Email }}</strong>. If that was you, choose a new password below.",
       "For your security the link works once, expires soon, and only opens in the browser where you asked for it.",
     ],
     action: { label: "Choose a new password", url: RECOVERY_LINK },
@@ -123,7 +126,7 @@ export const TEMPLATES = [
     key: "password_changed_notification",
     dashboardName: "Password changed (security notification)",
     notification: true,
-    subject: "Your Help24 admin password was changed",
+    subject: "Your Help24 password was changed",
     preheader: "If this wasn't you, contact Help24 straight away.",
     heading: "Your password was changed",
     // No claim that other devices are already signed out: Supabase ends the
@@ -132,7 +135,7 @@ export const TEMPLATES = [
     // flow is deployed and tested — contacting support is the remedy that
     // works today.
     paragraphs: [
-      "The password for the Help24 admin account <strong>{{ .Email }}</strong> was just changed. Devices signed in to this account will need to sign in again.",
+      "The password for the Help24 account <strong>{{ .Email }}</strong> was just changed. Devices signed in to this account will need to sign in again.",
       "If this was you, there's nothing more to do.",
     ],
     notice: "If you didn't make this change, email " + SUPPORT_EMAIL + " straight away so we can secure your account.",
@@ -191,7 +194,7 @@ export function render(t) {
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                   <tr>
                     <td style="padding-right:12px;"><img src="${LOGO_URL}" width="40" height="40" alt="Help24" style="display:block;border:0;border-radius:10px;"></td>
-                    <td style="font-family:${FONT};font-size:17px;font-weight:700;line-height:20px;color:${C.contentPrimary};">Help24<br><span style="font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:${C.contentTertiary};">Admin security</span></td>
+                    <td style="font-family:${FONT};font-size:17px;font-weight:700;line-height:20px;color:${C.contentPrimary};">Help24<br><span style="font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:${C.contentTertiary};">Account security</span></td>
                   </tr>
                 </table>
               </td>
@@ -206,8 +209,8 @@ export function render(t) {
             </tr>
             <tr>
               <td style="padding:20px 4px 0;font-family:${FONT};font-size:12px;line-height:18px;color:${C.contentTertiary};">
-                You're receiving this because of activity on a Help24 admin account. Help24 will never ask for your password by email or phone.<br>
-                Help24 · <a href="${DASHBOARD_URL}" target="_blank" style="color:${C.contentTertiary};">admin.help24.co.ke</a> · <a href="mailto:${SUPPORT_EMAIL}" style="color:${C.contentTertiary};">${SUPPORT_EMAIL}</a>
+                You're receiving this because of activity on your Help24 account. Help24 will never ask for your password by email or phone.<br>
+                Help24 · <a href="${SITE_URL}" target="_blank" style="color:${C.contentTertiary};">help24.co.ke</a> · <a href="mailto:${SUPPORT_EMAIL}" style="color:${C.contentTertiary};">${SUPPORT_EMAIL}</a>
               </td>
             </tr>
           </table>

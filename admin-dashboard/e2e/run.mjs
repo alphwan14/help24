@@ -57,7 +57,8 @@ const restorable = ["tsconfig.json", "next-env.d.ts"].map((f) => [join(ADMIN, f)
 const fake = await startFakeStack({
   port: FAKE_PORT,
   siteUrl: APP,
-  redirectAllowList: [CALLBACK],
+  // The partner host's callback too — as in Supabase's Redirect URLs.
+  redirectAllowList: [CALLBACK, `http://127.0.0.1:${APP_PORT}/auth/callback`],
   templatesDir: join(ADMIN, "supabase-auth-emails", "html"),
 });
 const FAKE = fake.origin;
@@ -332,7 +333,7 @@ try {
   }
   let mail = await requestReset(ALICE);
   check("the reset email links to Help24's own callback, the token after the # (never sent to a server)", mail && mail.link.startsWith(`${CALLBACK}#pkce_`), mail?.link.replace(/#.*/, "#…"));
-  check("the email is Help24's template, subject included", mail.subject === "Reset your Help24 admin password" && mail.html.includes("Reset your password") && !/supabase/i.test(mail.html.replaceAll(mail.link, "")));
+  check("the email is Help24's template, subject included", mail.subject === "Reset your Help24 password" && mail.html.includes("Reset your password") && !/supabase/i.test(mail.html.replaceAll(mail.link, "")));
   check("the email's button and printed link are Help24's, and the provider's address appears nowhere", mail.html.split(mail.link).length - 1 === 3 && !mail.html.includes(FAKE) && !mail.html.includes("/auth/v1/"));
   // Preview copy only: the logo from this checkout, so rendering it fetches nothing live.
   writeFileSync(join(ARTIFACTS, "reset-email.html"),
@@ -771,6 +772,37 @@ try {
     await waitFor(bodyHas("isn't a Help24 partner account"), "admin refused on partner host", 15000);
     check("an admin login is refused by the partner portal", true);
 
+    // Forgot password on the partner host: the same answer for every address,
+    // and an email only for an active agent with a login.
+    const PARTNER_PW2 = "Partner-reset-2026x";
+    const askReset = async (email) => {
+      await goto(`${PARTNER}/login?reset=1`);
+      await waitFor(bodyHas("Send reset link"), "partner reset mode");
+      await fill("#partner-reset-email", email);
+      await clickText("Send reset link");
+      return waitFor(bodyHas(`sent a reset link to ${email}`), "partner reset answered", 15000).then(() => true, () => false);
+    };
+    const outboxBefore = fake.outbox.length;
+    const sameForOthers = (await askReset(CAROL)) && (await askReset("nobody@help24.test"));
+    await sleep(1500);
+    check("partner Forgot password: a member's login and an unknown address get the same answer, and no email", sameForOthers && fake.outbox.length === outboxBefore);
+    const agentAnswered = await askReset(AGENT_EMAIL);
+    for (let i = 0; i < 40 && fake.outbox.length === outboxBefore; i++) await sleep(100);
+    const pmail = fake.lastEmailTo(AGENT_EMAIL);
+    check("partner Forgot password: the agent is emailed a link back to the partner host",
+      agentAnswered && !!pmail && pmail.link.startsWith(`${PARTNER}/auth/callback#pkce_`), pmail?.link.replace(/#.*/, "#…"));
+    check("the reset email speaks to any Help24 account, not to admins",
+      !!pmail && pmail.subject === "Reset your Help24 password" && !/admin (account|security|password)/i.test(pmail.html));
+    await goto(pmail.link);
+    await waitFor(`location.origin === ${JSON.stringify(PARTNER)} && ${bodyHas("Set a new password")}`, "partner reset form", 20000);
+    await fill('input[name="new-password"]', PARTNER_PW2);
+    await fill('input[name="confirm-password"]', PARTNER_PW2);
+    await click("form button[type=submit]");
+    const partnerHome = await waitFor(`location.origin === ${JSON.stringify(PARTNER)} && !!document.querySelector('[data-testid="partner-code"]')`, "partner overview after reset", 20000).then(() => true, () => false);
+    check("the link sets a new password on the partner host and lands on the agent's overview", partnerHome && fake.password(AGENT_EMAIL) === PARTNER_PW2);
+    await clickText("Sign out");
+    await waitFor(`location.pathname === "/login"`, "partner signed out after reset");
+
     await goto(`${APP}/dashboard/partners/${agent.id}`);
     await clickText("Pause agent");
     await waitFor(`!!document.querySelector('[role="dialog"] textarea')`, "pause dialog");
@@ -781,7 +813,7 @@ try {
       fake.partnerEvents.some((e) => e.agent_id === agent.id && e.action === "suspended" && e.reason === "Testing the pause" && e.admin_email === ALICE));
     await goto(`${PARTNER}/login`);
     await fill('input[name="email"]', AGENT_EMAIL);
-    await fill('input[name="password"]', AGENT_PW);
+    await fill('input[name="password"]', PARTNER_PW2);
     await clickText("Sign in");
     await waitFor(bodyHas("partner account is paused"), "paused agent refused", 15000);
     check("a paused agent can no longer sign in", true);

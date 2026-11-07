@@ -1,5 +1,3 @@
-import AuthShell from "@/components/auth/AuthShell";
-import { SIGN_IN_HELP } from "@/lib/auth-audiences";
 import LoginForm from "./LoginForm";
 
 const REASONS: Record<string, string> = {
@@ -8,17 +6,12 @@ const REASONS: Record<string, string> = {
   unavailable: "We couldn't check your account just now. Please try again.",
 };
 
-export default async function PartnerLoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const { error } = await searchParams;
-  return (
-    <AuthShell
-      product="Help24 Partners"
-      notice="Partner access is by invitation"
-      help={SIGN_IN_HELP}
-      title="Sign in"
-      below={<p>New, or forgot your password? Open the latest invitation Help24 sent you.</p>}
-    >
-      <LoginForm notice={error ? REASONS[error] : undefined} />
-    </AuthShell>
-  );
+/** `?reset=1` (from "Request a new link" on /reset-password) opens the form in reset mode. */
+export default async function PartnerLoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; reset?: string }>;
+}) {
+  const { error, reset } = await searchParams;
+  return <LoginForm notice={error ? REASONS[error] : undefined} startInReset={reset === "1"} />;
 }

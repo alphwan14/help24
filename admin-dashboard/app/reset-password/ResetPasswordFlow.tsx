@@ -39,8 +39,18 @@ const EMPTY: PasswordResetInput = { newPassword: "", confirmPassword: "" };
  *   signed-in → an ordinary session; send them to Settings, which asks for
  *               the current password — this page is not a way around that
  *   none      → the link failed; say why, and offer a new one
+ *
+ * `audience` is who is resetting: the admin console (this page) or the partner
+ * portal (app/partners/reset-password), which shares everything but where a
+ * finished reset goes and what a signed-in visitor is told.
  */
-export default function ResetPasswordFlow({ linkError }: { linkError: RecoveryLinkError | null }) {
+export default function ResetPasswordFlow({
+  linkError,
+  audience = "admin",
+}: {
+  linkError: RecoveryLinkError | null;
+  audience?: "admin" | "partner";
+}) {
   const router = useRouter();
   const hintId = useId();
   const [view, setView] = useState<View>("checking");
@@ -114,6 +124,12 @@ export default function ResetPasswordFlow({ linkError }: { linkError: RecoveryLi
 
     setValues(EMPTY);
     setView("done");
+    if (audience === "partner") {
+      // A full load through middleware: the partner host serves "/" from
+      // app/partners, which a client-side navigation would not consult.
+      window.location.assign("/");
+      return;
+    }
     // A forgotten password is also how a stolen one gets fixed, so retire the
     // arbitration token any other device held, as Settings does. Best effort.
     await restoreArbitration(true);
@@ -128,7 +144,9 @@ export default function ResetPasswordFlow({ linkError }: { linkError: RecoveryLi
         {view === "done" ? (
           <div>
             <h2 className="text-lg font-bold text-gray-900">Password updated</h2>
-            <p className="text-sm text-gray-500 mt-1">Taking you to the dashboard…</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {audience === "partner" ? "Taking you to your overview…" : "Taking you to the dashboard…"}
+            </p>
           </div>
         ) : (
           <p className="text-sm text-gray-500">Checking your reset link…</p>
@@ -158,6 +176,22 @@ export default function ResetPasswordFlow({ linkError }: { linkError: RecoveryLi
         <Link href="/login" className="inline-block text-sm text-gray-500 hover:text-gray-700">
           Back to sign in
         </Link>
+      </div>
+    );
+  }
+
+  if (view === "signed-in" && audience === "partner") {
+    return (
+      <div className="card p-6 text-center space-y-3">
+        <h2 className="text-base font-bold text-gray-900">You&apos;re already signed in</h2>
+        <p className="text-sm text-gray-700">
+          To choose a new password, sign out, then use <strong>Forgot password?</strong> on the sign-in page.
+        </p>
+        <form method="post" action="/signout">
+          <button type="submit" className="btn-primary w-full">
+            Sign out
+          </button>
+        </form>
       </div>
     );
   }
