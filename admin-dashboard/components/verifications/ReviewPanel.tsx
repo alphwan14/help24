@@ -32,10 +32,10 @@ export default function ReviewPanel({
 
   const approveEffect =
     kind === "id"
-      ? "The profile shows “ID verified”, and they can offer and apply for tutoring, driving, security and house-cleaning work."
+      ? "Their profile shows ID verified. They can offer and apply for tutoring, driving, security and house-cleaning work."
       : documentType === "receipt"
-        ? "Their care listings go live marked “Certificate pending” for 30 days. They still cannot apply for care jobs or be hired until a certificate is approved."
-        : "The profile shows “Care checked”, and they can offer, apply for and be hired for care work.";
+        ? "Their care listings show Certificate pending for 30 days. They cannot apply for or be hired for care work until a certificate is approved."
+        : "Their profile shows Care checked. They can offer, apply for and be hired for care work.";
 
   function approve() {
     setError(null);
@@ -117,7 +117,7 @@ export default function ReviewPanel({
         open={rejectOpen}
         onClose={() => setRejectOpen(false)}
         title="Reject this submission"
-        description="The provider receives this reason word for word, so say what to fix. They can send new photos straight away."
+        description="The provider sees this reason as written. Say what to fix. They can send new photos right away."
         reasonLabel="Reason sent to the provider"
         reasonHint="Also recorded with your name."
         suggestions={reasons}

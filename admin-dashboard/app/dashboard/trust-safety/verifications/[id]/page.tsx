@@ -43,8 +43,8 @@ export default async function VerificationPage({ params }: PageProps) {
   const approveBlockedReason =
     v.kind === "care" && !v.state?.id_verified
       ? idPending
-        ? "Review this provider's ID first — the Care check includes it. Their ID is waiting in the queue."
-        : "This provider has no approved ID. The Care check includes the ID check, so it cannot be approved yet."
+        ? "Review this provider's ID first. It is waiting in the queue."
+        : "This provider has no approved ID, so the Care check cannot be approved yet."
       : null;
 
   return (
@@ -71,10 +71,10 @@ export default async function VerificationPage({ params }: PageProps) {
           <section className="card p-4">
             <h3 className="text-[13px] font-semibold text-gray-900">Documents</h3>
             <p className="text-[12px] text-gray-500 mt-0.5">
-              Links expire after 5 minutes — reload the page to see them again. Documents are deleted 30 days after the decision.
+              Links expire after 5 minutes. Reload to see them again. Documents are deleted 30 days after the decision.
             </p>
             {v.files_deleted_at ? (
-              <p className="text-[13px] text-gray-600 mt-3">Deleted on {fmtDate(v.files_deleted_at)}, as promised to the provider.</p>
+              <p className="text-[13px] text-gray-600 mt-3">Deleted on {fmtDate(v.files_deleted_at)}.</p>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 mt-3">
                 {v.files.map((f, i) => (
@@ -128,8 +128,8 @@ export default async function VerificationPage({ params }: PageProps) {
                   <li key={h.id} className="py-2 text-[12.5px] text-gray-600">
                     <Link href={`${BASE}/${h.id}`} className="font-medium text-gray-900 hover:underline">
                       {KIND_LABELS[h.kind]} · {h.document_label}
-                    </Link>{" "}
-                    — {STATUS_LABELS[h.status].toLowerCase()} {h.reviewed_at ? fmtDate(h.reviewed_at) : `(sent ${fmtDate(h.submitted_at)})`}
+                    </Link>
+                    {" · "}{STATUS_LABELS[h.status].toLowerCase()} {h.reviewed_at ? fmtDate(h.reviewed_at) : `(sent ${fmtDate(h.submitted_at)})`}
                     {h.rejection_reason && <span className="text-gray-500"> · “{h.rejection_reason}”</span>}
                   </li>
                 ))}

@@ -7,7 +7,7 @@ export default function TrustSafetyLayout({ children }: { children: React.ReactN
     <div>
       <div className="page-header">
         <h1>Trust &amp; Safety</h1>
-        <p>Reports, investigations, provider verifications and account decisions — every action recorded</p>
+        <p>Reports, investigations, provider verifications and account decisions. Every action is recorded.</p>
       </div>
       <SectionTabs
         tabs={[

@@ -99,7 +99,7 @@ export default async function VerificationsPage({ searchParams }: PageProps) {
                         {v.status === "pending"
                           ? ` · sent ${age(v.submitted_at)} ago`
                           : ` · ${v.status} ${fmtDateTime(v.reviewed_at)}`}
-                        {v.status === "rejected" && v.rejection_reason ? ` — ${v.rejection_reason}` : ""}
+                        {v.status === "rejected" && v.rejection_reason ? `: ${v.rejection_reason}` : ""}
                       </p>
                     </div>
                     {overdue && (

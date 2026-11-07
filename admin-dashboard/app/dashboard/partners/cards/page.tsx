@@ -49,8 +49,8 @@ export default async function ProviderCardsPage({ searchParams }: PageProps) {
     <div className="space-y-5" data-testid="provider-card-stats">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[13px] text-gray-500 max-w-2xl">
-          Opens of providers&apos; card pages on help24.co.ke, from the QR code or a shared link. Counted first-party — no
-          cookies — so these are opens, not unique people.
+          Opens of provider card pages on help24.co.ke, from a QR code or a shared link. No cookies are used, so these
+          count opens, not people.
           {s?.first_event_at ? ` Collecting since ${fmtDate(s.first_event_at)}.` : ""}
         </p>
         <nav aria-label="Time window" className="flex gap-2">
