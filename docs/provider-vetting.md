@@ -1,9 +1,8 @@
 # Provider vetting — ID check and Care check
 
-Status: **built, not applied.** Migrations 135–136, backend, admin dashboard
-and app are on branch `feat/provider-vetting`. Nothing is live until the
-migrations are applied (owner approval — standing rule) and the backend is
-deployed.
+Status: **migrations 135–137 applied to production 2026-11-07** (owner
+approval in chat, same day). See § Rollout log. Backend, dashboard and app
+follow in the deploy order below.
 
 ## Owner decisions (2026-11-07)
 
@@ -103,3 +102,57 @@ labels. Raising `ops.min_version` to 1.0.10 closes that gap.
   `backend/src/jobs/select-provider.vetting.spec.ts`.
 - Admin e2e: `admin-dashboard/e2e/run.mjs` § provider verifications.
 - `mobile-app/test/provider_vetting_test.dart` (not run — see above).
+
+## Rollout log
+
+Owner approval: applying 135, 136 and 137 to production, given in chat on
+2026-11-07. All SQL went through `supabase db query --remote` (linked project
+`taohzhnvaitrpxcyjflq`), and every read used `--read-only`.
+
+### Before (2026-11-07 ~14:00 UTC)
+
+Pre-flight on branch `feat/provider-vetting` (`a2e1d46`):
+
+- backend: `tsc` clean, jest 878 passed; boot check `153 routes … undeclared=0 (mode=enforce)`
+- DB replica: trust-safety 80/80, vetting 25/25, site-events 4/4
+- admin: 155 unit, e2e 137/137. help24_website: 94/94
+- app: `flutter analyze` 0 errors, with no issues in branch code after `a2e1d46`.
+  `flutter test` (WSL): 1609 passed, 3 known environmental failures
+
+HANDOFF §1 fingerprints:
+
+| | HANDOFF | 2026-11-07 |
+|---|---|---|
+| escrow rows / sum | 17 / 73,250 | 17 / 73,250 |
+| transactions rows | 45 | 45 (sum 136,375) |
+| app_settings / feed_settings rows | 6 / 13 | 6 / 13 |
+| dead-lettered `payment.success` | 1 | 1 |
+| escrow md5 (`docs/sql/trust-safety-fingerprints.sql`) | `ec96a938…` (2026-09-27) | `77a7509e…` |
+| transactions md5 | `5d2651c6…` (2026-09-27) | `99b22200…` |
+| `/config` ETag | `W/"3b6c0888a44bf4c1"` | `W/"34a90feef291bf06"` |
+
+The hash drift has a known cause. The 2026-10-29 pre-launch audit opened a
+sandbox dispute, `escrow.disputed` and `dispute.opened` at 17:20 UTC, and left
+it open for the owner (`prelaunch-audit-2026-10-29.md`, row "Dispute"). That
+moved one escrow row and one transaction to `disputed`. Counts and sums are
+unchanged, there have been no settlements or finance actions since
+2026-09-27, and no migration since then alters either table. The ETag moved
+with the App controls edits of 2026-10-26. HANDOFF's `351c0047…` came from an
+older recipe and cannot be compared. **New money baseline:
+`77a7509e…` / `99b22200…`.** It was identical after every step below.
+
+Each dry run is one `DO` block that `EXECUTE`s the whole file, reports, and
+then `RAISE EXCEPTION`s, so rollback is guaranteed by construction (HANDOFF §0
+rule 4). After each one, a read confirmed that nothing was left behind.
+
+| # | Step | Evidence |
+|---|---|---|
+| 1 | Dry run 135 | `HELP24_DRY_RUN_OK`. Tiers `babysitting=care, caregiving=care, driver=id, house-cleaning=id, security-guard=id, tutoring=id`. **2 existing offers get the 14-day `not_verified` label** (Babysitting 1, Caregiving 1; 2 authors), out of 2 open offers in vetted categories. No other post column changed and nothing was archived. `public_profiles` gains `id_verified, care_status` after the existing 10 columns. Money unchanged. Afterwards: no `vetting_tier` column, no table, `public_profiles` still 10 columns |
+| 2 | Apply 135 | 14:04:16 UTC, one transaction |
+| 3 | Verify 135 | Tiers exactly as in the dry run. `public_profiles` = `…,is_online,id_verified,care_status`, still granted to anon. The two offers are labelled with `vetting_hide_at` **2026-11-21 14:04:22 UTC**. `trg_posts_vetting_guard` and `trg_applications_vetting_guard` are enabled (`O`). `provider_verifications` has RLS on and no SELECT for anon or authenticated. Nothing is `archived_by = 'vetting'`. Money unchanged |
+| 4 | Dry run 136 | `HELP24_DRY_RUN_OK`. Bucket private, 8 MB, jpeg/png/webp/pdf; one policy `provider_verifications_insert_own:INSERT`. Afterwards: no bucket, no policy |
+| 5 | Apply 136 | 14:05:33 UTC |
+| 6 | Verify 136 | `storage.buckets` `provider-verifications` has `public = false`, 8,388,608 bytes, the four MIME types. The only policy is INSERT for `authenticated`. Public URL `/object/public/provider-verifications/…` → 400 |
+| 7 | Dry run 137 | `HELP24_DRY_RUN_OK`. `site_events` with RLS on; anon has no SELECT or INSERT; functions `record_site_event`, `admin_provider_card_stats`. Afterwards: nothing left |
+| 8 | Apply 137 | 14:06:15 UTC |
+| 9 | Verify 137 | RLS on. `has_table_privilege` anon SELECT/INSERT false, authenticated SELECT false. anon may EXECUTE `record_site_event` and may not EXECUTE `admin_provider_card_stats`. 0 rows. From outside with the anon key: `GET /rest/v1/site_events` → 401 `42501 permission denied`, `rpc/admin_provider_card_stats` → 401, `GET /rest/v1/provider_verifications` → 401 |
