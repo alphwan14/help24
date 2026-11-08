@@ -150,7 +150,7 @@ class _PaymentScreenState extends State<PaymentScreen>
       _transition(
         PaymentState.failed,
         error: 'Payments are temporarily unavailable. '
-            'Please try again shortly — nothing has been charged.',
+            'Please try again shortly. Nothing has been charged.',
       );
       return;
     }
@@ -978,7 +978,7 @@ class _FailedView extends StatelessWidget {
           // Debug panel — sandbox only
           if (kDebugMode) ...[
             const SizedBox(height: AppSpace.xxxl),
-            Text('DEBUG — Sandbox STK test',
+            Text('DEBUG: Sandbox STK test',
                 style: TextStyle(
                     color: textSecondary,
                     fontSize: 11,

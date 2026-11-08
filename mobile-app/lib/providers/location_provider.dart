@@ -310,7 +310,7 @@ class LocationProvider extends ChangeNotifier {
       await prefs.setString(_cityKey(uid), selection.cityName);
     }
     debugPrint('[LOCATION] stored "${selection.label}" '
-        '(${selection.subCounty ?? '—'}, ${selection.county ?? '—'}) '
+        '(${selection.subCounty ?? '-'}, ${selection.county ?? '-'}) '
         '±${selection.accuracyMeters?.toStringAsFixed(0) ?? '?'} m');
     notifyListeners();
   }

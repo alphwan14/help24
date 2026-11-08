@@ -480,11 +480,11 @@ class _ApplicantTrustStripState extends State<ApplicantTrustStrip> {
     final (icon, text) = switch (outcome) {
       ReputationOutcome.offline => (
           AppIcons.offline,
-          "You're offline — ratings will appear when you reconnect",
+          "You're offline. Ratings will appear when you reconnect",
         ),
       _ => (
           AppIcons.unreachable,
-          "Couldn't load ratings — pull down to retry",
+          "Couldn't load ratings. Pull down to retry",
         ),
     };
     return Row(

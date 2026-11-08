@@ -743,7 +743,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       return;
     }
     debugPrint('[FEED] ranking still out at ${_rankingPatience.inMilliseconds}ms '
-        '— showing the chronological page meanwhile');
+        '- showing the chronological page meanwhile');
     _install(FeedSnapshot(
       posts: posts,
       source: FeedSource.fallback,
@@ -1079,7 +1079,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // every other path, at the cost of one read on the only path where the
       // answer is "there is nothing here".
       if (result.items.isEmpty) {
-        debugPrint('[FEED] empty page for "${identity.queryKey}" — confirming');
+        debugPrint('[FEED] empty page for "${identity.queryKey}" - confirming');
         final confirmation =
             await PostService.fetchPosts(filters: filters.forScope(scope));
         if (seq != _postsRequestSeq) return;
@@ -1106,7 +1106,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         _install(snapshot);
       } else if (_worthOffering(snapshot)) {
         _pending = snapshot;
-        debugPrint('[FEED] rebuild held (${reason.name}) — offering it instead');
+        debugPrint('[FEED] rebuild held (${reason.name}) - offering it instead');
       } else {
         // Computed, remembered, and deliberately silent: it is a re-ranking of
         // posts already on screen, or the only thing new in it is the reader's
@@ -1114,7 +1114,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         // `_snapshotsByQuery` and lands free the next time installing costs
         // nothing.
         _dropPendingFeed();
-        debugPrint('[FEED] rebuild held (${reason.name}) — nothing to announce');
+        debugPrint('[FEED] rebuild held (${reason.name}) - nothing to announce');
       }
 
       // Written from the SNAPSHOT, not from `_posts` — this page may have been
@@ -2289,7 +2289,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       // touching it, or restored the filter that was already in force. Silence
       // is the correct response; a reload here would re-rank a feed somebody is
       // reading in exchange for the same posts.
-      debugPrint('[FILTER] unchanged — no request');
+      debugPrint('[FILTER] unchanged - no request');
       return false;
     }
 
@@ -2401,7 +2401,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
         latitude: latitude,
         longitude: longitude,
       )) {
-        debugPrint('[FEED] viewer resolved — launch ranking already answers it');
+        debugPrint('[FEED] viewer resolved - launch ranking already answers it');
         return;
       }
       unawaited(loadPosts(reason: FeedInvalidation.explicit));

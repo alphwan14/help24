@@ -129,7 +129,7 @@ class _ProviderCardScreenState extends State<ProviderCardScreen> {
     if (!mounted) return;
     ActionFeedback.success(
       context,
-      fallback ? "Couldn't open sharing, so your link is copied — paste it anywhere." : 'Link copied — paste it anywhere.',
+      fallback ? "Couldn't open sharing, so your link is copied. Paste it anywhere." : 'Link copied. Paste it anywhere.',
     );
   }
 

@@ -222,7 +222,7 @@ class MpesaService {
       response = await api.get(Uri.parse(url)).timeout(_timeout);
     } catch (e) {
       debugPrint('[MpesaService] poll network error: $e');
-      throw MpesaException('Network error — check your connection');
+      throw MpesaException('Network error. Check your connection');
     }
 
     debugPrint('[MpesaService] poll ${response.statusCode}');

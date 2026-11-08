@@ -307,7 +307,7 @@ class NotificationStore extends ChangeNotifier implements SessionScoped {
       // Offline is not emptiness and not a failure: the cached register stays
       // exactly as it is, fully readable. ReconnectListener re-runs this the
       // moment the connection is back.
-      debugPrint('[NOTIFICATIONS] offline — keeping the cached register');
+      debugPrint('[NOTIFICATIONS] offline - keeping the cached register');
       if (_loading) {
         _loading = false;
         notifyListeners();

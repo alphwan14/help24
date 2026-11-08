@@ -131,7 +131,7 @@ class KenyanPhone {
       final missing = nationalLength - nationalDigits.length;
       return missing == 1
           ? 'One more digit to go.'
-          : 'That number is too short — $missing digits to go.';
+          : 'That number is too short. $missing digits to go.';
     }
     return null;
   }

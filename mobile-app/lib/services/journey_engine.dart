@@ -232,7 +232,7 @@ class JourneyEngine with WidgetsBindingObserver {
     final stale = since == null ||
         DateTime.now().difference(since) > beatKeepalive * 2;
     if (!stale) return;
-    debugPrint('JourneyEngine: resumed with a stale pipeline — restarting stream');
+    debugPrint('JourneyEngine: resumed with a stale pipeline - restarting stream');
     _reconnectTimer?.cancel();
     if (snapshot.state == JourneyState.travelling ||
         snapshot.state == JourneyState.nearby) {
@@ -706,7 +706,7 @@ class JourneyEngine with WidgetsBindingObserver {
       final dwell = confident ? arrivalDwell : arrivalDwellUnconfident;
 
       if (_dwellTimer == null && (state == JourneyState.travelling || state == JourneyState.nearby)) {
-        debugPrint('JourneyEngine: inside ${arrivalRadiusM.toInt()} m — dwell started '
+        debugPrint('JourneyEngine: inside ${arrivalRadiusM.toInt()} m - dwell started '
             '(${dwell.inSeconds}s, confident=$confident'
             '${routeRemaining == null ? '' : ', route ${routeRemaining.round()} m'}'
             '${speed == null ? '' : ', ${speed.toStringAsFixed(1)} m/s'})');
@@ -714,7 +714,7 @@ class JourneyEngine with WidgetsBindingObserver {
         _dwellTimer = Timer(dwell, () {
           _dwellTimer = null;
           if (snapshot.isLive) {
-            debugPrint('JourneyEngine: dwell complete — auto arrival');
+            debugPrint('JourneyEngine: dwell complete - auto arrival');
             arrive(auto: true);
           }
         });
@@ -722,7 +722,7 @@ class JourneyEngine with WidgetsBindingObserver {
         // Conditions improved mid-dwell (they parked, or the route caught up):
         // restart on the shorter, confident timer rather than making a
         // genuinely-arrived provider wait out the cautious one.
-        debugPrint('JourneyEngine: arrival confidence rose — shortening dwell');
+        debugPrint('JourneyEngine: arrival confidence rose - shortening dwell');
         _dwellTimer!.cancel();
         _dwellStartedConfident = true;
         _dwellTimer = Timer(arrivalDwell, () {
@@ -735,7 +735,7 @@ class JourneyEngine with WidgetsBindingObserver {
       // two consecutive ones (or real movement) do.
       _dwellExitStrikes++;
       if (_dwellExitStrikes >= 2) {
-        debugPrint('JourneyEngine: left arrival radius — dwell cancelled');
+        debugPrint('JourneyEngine: left arrival radius - dwell cancelled');
         _dwellTimer?.cancel();
         _dwellTimer = null;
         _dwellExitStrikes = 0;
@@ -821,7 +821,7 @@ class JourneyEngine with WidgetsBindingObserver {
       if (!hasPermission) {
         // Permission revoked mid-journey: unrecoverable. Close the row so the
         // watcher is not left staring at a frozen "live" marker.
-        debugPrint('JourneyEngine: permission revoked mid-journey — failing');
+        debugPrint('JourneyEngine: permission revoked mid-journey - failing');
         final messageId = snapshot.messageId;
         _stopPipeline();
         if (messageId != null) {

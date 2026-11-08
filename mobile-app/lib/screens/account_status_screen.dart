@@ -47,7 +47,7 @@ class _AccountStatusScreenState extends State<AccountStatusScreen> {
   }
 
   Future<void> _email(String? reference) async {
-    final subject = reference == null ? 'Question about my Help24 account' : 'Appeal — reference $reference';
+    final subject = reference == null ? 'Question about my Help24 account' : 'Appeal, reference $reference';
     final uri = Uri(
       scheme: 'mailto',
       path: AppSupport.email,
@@ -117,7 +117,7 @@ class _AccountStatusScreenState extends State<AccountStatusScreen> {
                   status.restrictions.isEmpty
                       ? 'If one of your listings was hidden, contact us with its title and we will explain why and review it.'
                       : 'To appeal, contact us and quote the reference above. A person reviews every appeal. '
-                          'Explain what happened and include anything that shows it — screenshots, receipts or messages.',
+                          'Explain what happened and include anything that shows it: screenshots, receipts or messages.',
                   style: AppTypeScale.bodyS.copyWith(color: c.contentSecondary),
                 ),
                 const SizedBox(height: AppSpace.lg),

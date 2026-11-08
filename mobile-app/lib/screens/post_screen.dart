@@ -1281,7 +1281,7 @@ class _PostScreenState extends State<PostScreen> {
         TextField(
           controller: _categorySearchController,
           decoration: const InputDecoration(
-            hintText: 'Search — fundi, cleaner, tutor…',
+            hintText: 'Search: fundi, cleaner, tutor…',
             prefixIcon: Icon(AppIcons.search, size: 20),
           ),
           onChanged: (_) => setState(() {}),
@@ -1290,8 +1290,8 @@ class _PostScreenState extends State<PostScreen> {
           const SizedBox(height: 8),
           Text(
             _isOfferFlow
-                ? 'Not listed? Type your service above to add your own — e.g. "CCTV Installer".'
-                : 'Not listed? Type the service you need above to add it — e.g. "TV Repair".',
+                ? 'Not listed? Type your service above to add your own, e.g. "CCTV Installer".'
+                : 'Not listed? Type the service you need above to add it, e.g. "TV Repair".',
             style: TextStyle(
               fontSize: 12.5,
               color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
@@ -1335,7 +1335,7 @@ class _PostScreenState extends State<PostScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 24),
             child: Text(
-              'Nothing matches — try another word.',
+              'Nothing matches. Try another word.',
               style: TextStyle(
                 color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
               ),
@@ -1358,15 +1358,15 @@ class _PostScreenState extends State<PostScreen> {
           textCapitalization: TextCapitalization.sentences,
           decoration: InputDecoration(
             hintText: _isOfferFlow
-                ? 'e.g. "Fundi wa magari — engine na brakes"'
+                ? 'e.g. "Fundi wa magari, engine na brakes"'
                 : _isJobFlow
-                    ? 'e.g. "Tunatafuta cleaner — Westlands office"'
+                    ? 'e.g. "Tunatafuta cleaner, Westlands office"'
                     : 'e.g. "Nahitaji fundi wa fridge"',
           ),
         ),
         const SizedBox(height: 10),
         Text(
-          'Write it the way you\'d say it — English, Kiswahili or Sheng.',
+          'Write it the way you\'d say it: English, Kiswahili or Sheng.',
           style: TextStyle(
             fontSize: 13,
             color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
@@ -1641,7 +1641,7 @@ class _PostScreenState extends State<PostScreen> {
       children: [
         Text(
           _isOfferFlow
-              ? 'Show your work — before/after photos win clients.'
+              ? 'Show your work. Before and after photos win clients.'
               : 'A photo helps providers understand the problem before they arrive.',
           style: TextStyle(
             fontSize: 13,
@@ -1685,16 +1685,16 @@ class _PostScreenState extends State<PostScreen> {
                 ? 'What you do, your experience, what makes you reliable…'
                 : _isJobFlow
                     ? 'Duties, working hours, requirements, how to apply…'
-                    : 'Anything providers should know — gate colour, best time to call…',
+                    : 'Anything providers should know: gate colour, best time to call…',
           ),
         ),
         const SizedBox(height: 10),
         Text(
           _isOfferFlow
-              ? 'Optional — but offers with a description win more clients.'
+              ? 'Optional, but offers with a description win more clients.'
               : _isJobFlow
-                  ? 'Required — a clear role attracts serious applicants.'
-                  : 'Optional — your answers already describe the job.',
+                  ? 'Required. A clear role attracts serious applicants.'
+                  : 'Optional. Your answers already describe the job.',
           style: TextStyle(
             fontSize: 13,
             color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
@@ -2017,7 +2017,7 @@ class _PostScreenState extends State<PostScreen> {
           out.addAll(step.options.where((o) => values.contains(o.value)).map((o) => o.label));
           break;
         case 'boolean':
-          out.add('${step.question.replaceAll('?', '')} — ${answer == true ? 'Yes' : 'No'}');
+          out.add('${step.question.replaceAll('?', '')}: ${answer == true ? 'Yes' : 'No'}');
           break;
         default:
           out.add(answer.toString());

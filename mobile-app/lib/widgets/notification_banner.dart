@@ -90,7 +90,7 @@ class NotificationBannerOverlay {
     // to an unhandled exception on the notification path.
     final resolved = overlay ?? Overlay.maybeOf(context, rootOverlay: true);
     if (resolved == null) {
-      debugPrint('[BANNER] no overlay available — in-app banner skipped');
+      debugPrint('[BANNER] no overlay available - in-app banner skipped');
       return;
     }
 

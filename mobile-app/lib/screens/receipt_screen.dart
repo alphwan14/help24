@@ -158,7 +158,7 @@ class _ReceiptDocument extends StatelessWidget {
   String _statusLabel() => receipt.statusLabel;
 
   String _fmtDate(DateTime? d) {
-    if (d == null) return '—';
+    if (d == null) return 'Not recorded';
     const months = [
       'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December',
@@ -315,8 +315,8 @@ class _ReceiptDocument extends StatelessWidget {
               _Block(
                 isDark: isDark,
                 rows: [
-                  _Row('Customer', receipt.customerName ?? '—'),
-                  _Row('Provider', receipt.providerName ?? '—'),
+                  _Row('Customer', receipt.customerName ?? 'Unknown'),
+                  _Row('Provider', receipt.providerName ?? 'Unknown'),
                 ],
               ),
               const SizedBox(height: AppSpace.sm),
@@ -443,7 +443,7 @@ class _ReceiptDocument extends StatelessWidget {
   /// Transaction ids are UUIDs; the leading segment is enough to quote to
   /// support and short enough to read. The full id is never needed on screen.
   static String _shortId(String id) {
-    if (id.isEmpty) return '—';
+    if (id.isEmpty) return 'Unknown';
     final head = id.split('-').first;
     return head.toUpperCase();
   }

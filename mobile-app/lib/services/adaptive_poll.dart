@@ -111,7 +111,7 @@ class AdaptivePoll {
     });
 
     if (NetworkHealth.isOffline) {
-      if (kDebugMode) debugPrint('[$debugLabel] offline — poll parked');
+      if (kDebugMode) debugPrint('[$debugLabel] offline - poll parked');
       return;
     }
     if (tickOnStart) _fire();

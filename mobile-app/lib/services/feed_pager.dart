@@ -154,7 +154,7 @@ abstract final class FeedPager {
         // The engine went away mid-scroll (Render sleeping, a deploy, a 5xx).
         // That is not the end of the feed — the tail serves the same corpus
         // straight from the database and skips whatever is already on screen.
-        debugPrint('[FEED][PAGE] ranked head unavailable ($e) — continuing in the tail');
+        debugPrint('[FEED][PAGE] ranked head unavailable ($e) - continuing in the tail');
         current = FeedCursor.tailStart;
         break;
       }

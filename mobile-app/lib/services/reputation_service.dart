@@ -250,7 +250,7 @@ class ReputationService {
       for (final id in blank) {
         _failures[id] = ReputationOutcome.offline;
       }
-      debugPrint('[REPUTATION] warmAll skipped — offline '
+      debugPrint('[REPUTATION] warmAll skipped - offline '
           '(${blank.length}/${ids.length} providers have nothing cached)');
       return blank.isEmpty ? ReputationOutcome.ok : ReputationOutcome.offline;
     }

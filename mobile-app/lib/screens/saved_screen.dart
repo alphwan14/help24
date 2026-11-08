@@ -222,7 +222,7 @@ class _SavedScreenState extends State<SavedScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Tap the bookmark on any post — or save a provider from their service page — to build your shortlist.',
+                'Tap the bookmark on any post, or save a provider from their service page, to build your shortlist.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: secondary, fontSize: 13, height: 1.45),
               ),

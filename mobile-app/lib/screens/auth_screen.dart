@@ -1699,7 +1699,7 @@ class _ProfileSetupStepState extends State<_ProfileSetupStep> {
     final typed = _agentCode.text.trim();
     final agentCode = typed.isEmpty ? null : AgentCodeService.normalize(typed);
     if (typed.isNotEmpty && agentCode == null) {
-      setState(() => _agentCodeError = 'Agent codes look like H24-7K3Q — or leave this empty.');
+      setState(() => _agentCodeError = 'Agent codes look like H24-7K3Q. You can also leave this empty.');
       return;
     }
     setState(() => _agentCodeError = null);

@@ -135,14 +135,14 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // stale webhook, DB trigger) — log it loudly so the duplicate source is named.
   if (type == 'chat_message' && emitter != 'nestjs') {
     debugPrint('[FCM][FOREIGN_EMITTER] chat push without emitter=nestjs '
-        '(emitter=$emitter hasNotification=$hasNotif) — THIS is the duplicate source. '
+        '(emitter=$emitter hasNotification=$hasNotif) - THIS is the duplicate source. '
         'title=${message.notification?.title} body=${message.notification?.body}');
   }
   if (hasNotif) {
     // Data-only chat pushes never carry a notification block. If one does, the
     // OS may also auto-display it → duplicate. Name it.
     debugPrint('[FCM][AUTO_NOTIFICATION_RISK] push carries a notification block '
-        'title=${message.notification?.title} — OS may auto-display a second card');
+        'title=${message.notification?.title} - OS may auto-display a second card');
   }
 
   if (type != 'chat_message' || chatId == null) return;
@@ -163,7 +163,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Muted chats: honor the device-local mute even when the app is killed —
   // possible because chat pushes are data-only (we render, not the OS).
   if (await ChatLocalPrefs.isMuted(chatId)) {
-    debugPrint('[CHAT_NOTIFY][MUTED] chatId=$chatId — notification suppressed');
+    debugPrint('[CHAT_NOTIFY][MUTED] chatId=$chatId - notification suppressed');
     await ack;
     await stored;
     return;
@@ -271,7 +271,7 @@ Future<void> _showMessagingStyleNotif({
     // MessagingStyle is unavailable (old device / missing dependency).
     // Show a plain notification rather than silently dropping it.
     // We log this so it's easy to spot during QA.
-    debugPrint('[CHAT_NOTIFY][FALLBACK_BLOCKED] MessagingStyle failed — falling back to plain: $e');
+    debugPrint('[CHAT_NOTIFY][FALLBACK_BLOCKED] MessagingStyle failed - falling back to plain: $e');
     try {
       await _localNotifications.show(
         notifId, latestSender, latestBody,
@@ -325,11 +325,11 @@ class NotificationService {
 
   static Future<void> initialize() async {
     if (!AppFirebase.isReady) {
-      debugPrint('[FCM][INIT] Firebase not ready — skipping');
+      debugPrint('[FCM][INIT] Firebase not ready - skipping');
       return;
     }
     if (_initialized) {
-      debugPrint('[FCM][INIT] already initialized — skipping (idempotency guard)');
+      debugPrint('[FCM][INIT] already initialized - skipping (idempotency guard)');
       return;
     }
     _initialized = true;
@@ -439,7 +439,7 @@ class NotificationService {
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
     if (!shouldRouteTap(response, DateTime.now())) {
-      debugPrint('[FCM][TAP] the same tap delivered twice — routed once');
+      debugPrint('[FCM][TAP] the same tap delivered twice - routed once');
       return;
     }
     try {
@@ -458,7 +458,7 @@ class NotificationService {
     required void Function(RemoteMessage message) onNotificationTap,
   }) {
     if (_handlersAttached) {
-      debugPrint('[FCM][SETUP] handlers already attached — skipping (idempotency guard)');
+      debugPrint('[FCM][SETUP] handlers already attached - skipping (idempotency guard)');
       return;
     }
     _handlersAttached = true;
@@ -483,14 +483,14 @@ class NotificationService {
           debugPrint('[FCM][FOREIGN_EMITTER] foreground chat push without emitter=nestjs '
               '(emitter=$emitter hasNotification=$hasNotif '
               'title=${message.notification?.title} body=${message.notification?.body}) '
-              '— THIS is the duplicate source.');
+              '- THIS is the duplicate source.');
         }
 
         // Foreground path: the in-app banner is the ONLY notification shown.
         // No _localNotifications.show() here — the OS tray notification is
         // exclusively the background isolate's job. (Showing one here was the
         // original double-notification bug.)
-        debugPrint('[FCM][AUTO_NOTIFICATION_BLOCKED] type=$type foreground=true — OS notification suppressed; in-app banner only');
+        debugPrint('[FCM][AUTO_NOTIFICATION_BLOCKED] type=$type foreground=true - OS notification suppressed; in-app banner only');
         // The push means the message reached this phone: the sender's
         // second tick. (An open chat then marks it read on its own.)
         final pushedChat = message.data['chat_id'] as String?;

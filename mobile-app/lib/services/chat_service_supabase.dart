@@ -251,7 +251,7 @@ class ChatServiceSupabase {
       );
       return (row: row, ok: true);
     } catch (e) {
-      debugPrint('ChatServiceSupabase findExistingChat: lookup FAILED — $e');
+      debugPrint('ChatServiceSupabase findExistingChat: lookup FAILED - $e');
       return (row: null, ok: false);
     }
   }
@@ -292,7 +292,7 @@ class ChatServiceSupabase {
         ok: true,
       );
     } catch (e) {
-      debugPrint('ChatServiceSupabase findMostRecentChatForPair: FAILED — $e');
+      debugPrint('ChatServiceSupabase findMostRecentChatForPair: FAILED - $e');
       return (row: null, ok: false);
     }
   }
@@ -796,7 +796,7 @@ class ChatServiceSupabase {
       retryAttempt = retryAttempt >= 5 ? 5 : retryAttempt + 1;
       final delay = Duration(seconds: 1 << (retryAttempt - 1)); // 1,2,4,8,16s
       debugPrint(
-        'ChatServiceSupabase watchMessages: $reason — resubscribing in '
+        'ChatServiceSupabase watchMessages: $reason - resubscribing in '
         '${delay.inSeconds}s (attempt $retryAttempt)',
       );
       retryTimer = Timer(delay, () {
@@ -975,7 +975,7 @@ class ChatServiceSupabase {
           .eq('id', clientMessageId)
           .maybeSingle();
       if (!isReplayOf(existing, insert)) rethrow;
-      debugPrint('[OUTBOX][IDEMPOTENT] id=$clientMessageId already stored — '
+      debugPrint('[OUTBOX][IDEMPOTENT] id=$clientMessageId already stored - '
           'treating the retry as delivered');
       return existing!;
     }

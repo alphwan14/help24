@@ -364,7 +364,7 @@ class _ReportSheetState extends State<ReportSheet> {
           Text(
             received
                 ? 'Thank you. Our team will review this report.'
-                : "You've already reported this — our team is reviewing it.",
+                : "You've already reported this. Our team is reviewing it.",
             textAlign: TextAlign.center,
             style: AppTypeScale.bodyM.copyWith(color: c.contentSecondary),
           ),

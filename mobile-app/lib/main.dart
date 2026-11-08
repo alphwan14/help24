@@ -53,6 +53,7 @@ import 'services/startup_prefetch.dart';
 import 'services/supabase_auth_bridge.dart';
 import 'theme/app_theme.dart';
 import 'utils/error_mapper.dart';
+import 'utils/plain_copy.dart';
 import 'theme/system_bars.dart';
 import 'widgets/launch_splash.dart';
 import 'widgets/notification_banner.dart';
@@ -356,17 +357,18 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
               message.notification?.body ??
               '';
     } else {
-      title = message.notification?.title ??
+      // System copy from the server: no em dashes (utils/plain_copy.dart).
+      title = plainCopy(message.notification?.title ??
               (data['title'] as String?) ??
-              'Help24';
-      body  = message.notification?.body ??
+              'Help24');
+      body  = plainCopy(message.notification?.body ??
               (data['body'] as String?) ??
-              'You have a new notification';
+              'You have a new notification');
     }
 
     final context = _navigatorKey.currentContext;
     if (context == null || !context.mounted) {
-      debugPrint('main: foreground context unavailable — OS notification shown by NotificationService');
+      debugPrint('main: foreground context unavailable - OS notification shown by NotificationService');
       return;
     }
 
@@ -650,7 +652,7 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
         debugPrint('[NAV][OPEN_CHAT] resolved chatId=$foundChatId for postId=$postId');
         await _openChat(context, foundChatId, uid);
       } else if (context.mounted) {
-        debugPrint('[NAV][OPEN_CHAT] no chat found for postId=$postId — fallback');
+        debugPrint('[NAV][OPEN_CHAT] no chat found for postId=$postId - fallback');
         _openNotificationsScreen(context);
       }
     } catch (e) {
@@ -723,7 +725,7 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
     void navigate() {
       final context = _navigatorKey.currentContext;
       if (context == null || !context.mounted) {
-        debugPrint('[NAV][NOTIFICATION_OPEN] context not ready — deferring to next frame');
+        debugPrint('[NAV][NOTIFICATION_OPEN] context not ready - deferring to next frame');
         WidgetsBinding.instance.addPostFrameCallback((_) => navigate());
         return;
       }
@@ -880,7 +882,7 @@ class _StartupGateState extends State<StartupGate> {
     // logo never leaves the screen, and the app simply appears under it.
     if (LaunchSequence.handedOver) {
       debugPrint('[LAUNCH] +${LaunchSequence.sinceStart}ms launch already over '
-          '— handing straight to the app, no Flutter splash');
+          '- handing straight to the app, no Flutter splash');
       _open = true;
       _splashRetired = true;
       LaunchSequence.lift();
@@ -916,7 +918,7 @@ class _StartupGateState extends State<StartupGate> {
   @override
   void dispose() {
     debugPrint('[LAUNCH] +${LaunchSequence.sinceStart}ms StartupGate DISPOSED '
-        '(open=$_open) — anything after this is a second launch screen');
+        '(open=$_open) - anything after this is a second launch screen');
     super.dispose();
   }
 

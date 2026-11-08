@@ -522,7 +522,7 @@ class _BioEditorSheetState extends State<_BioEditorSheet> {
     final meetsBar = length >= ProfileFacts.minBioLength;
     return ProfileEditorSheet(
       title: 'About you',
-      subtitle: 'A short introduction — what you do, and how long you have done it.',
+      subtitle: 'A short introduction: what you do, and how long you have done it.',
       children: [
         if (_error != null) InlineErrorBanner(message: _error!),
         TextField(

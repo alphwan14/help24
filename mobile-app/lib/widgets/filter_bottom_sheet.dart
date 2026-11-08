@@ -414,7 +414,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                             autofocus: true,
                             textCapitalization: TextCapitalization.words,
                             decoration: const InputDecoration(
-                              hintText: 'Enter a service — e.g. Nyama Choma',
+                              hintText: 'Enter a service, e.g. Nyama Choma',
                               contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             ),
                             onChanged: (_) => setState(() {}),

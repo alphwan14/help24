@@ -148,7 +148,7 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     // switch can never blend two accounts — even if the previous sign-out was
     // interrupted or never completed cleanly.
     if (previousUid != null && previousUid.isNotEmpty && previousUid != uid) {
-      debugPrint('[SESSION] account switch detected — clearing prior session');
+      debugPrint('[SESSION] account switch detected - clearing prior session');
       // BOTH CREDENTIAL CACHES FIRST, SYNCHRONOUSLY.
       //
       // A switch does not always pass through null: signing in with a second

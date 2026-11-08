@@ -1,5 +1,5 @@
 /// The steps that turn a new member into a provider who can be hired and paid,
-/// shown on Profile as one "Complete your profile" row.
+/// shown on Profile as one "Get ready to work" row.
 ///
 /// Order is the order the work depends on: fill in the professional profile
 /// (photo, name, phone, profession, about), offer services (a confirmed

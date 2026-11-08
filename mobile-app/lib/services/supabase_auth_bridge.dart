@@ -113,7 +113,7 @@ class SupabaseAuthBridge {
     } catch (e) {
       if (!_loggedExchangeUnavailable) {
         _loggedExchangeUnavailable = true;
-        debugPrint('[AUTH][BRIDGE] ok=false — exchange error: $e (using anon key)');
+        debugPrint('[AUTH][BRIDGE] ok=false - exchange error: $e (using anon key)');
       }
       return false;
     }
@@ -131,13 +131,13 @@ class SupabaseAuthBridge {
         method: HttpMethod.post,
       );
       if (response.status != 200) {
-        debugPrint('[AUTH][BRIDGE] ok=false — status=${response.status} data=${response.data}');
+        debugPrint('[AUTH][BRIDGE] ok=false - status=${response.status} data=${response.data}');
         return false;
       }
       final data = response.data as Map<String, dynamic>?;
       final accessToken = data?['access_token'] as String?;
       if (accessToken == null || accessToken.isEmpty) {
-        debugPrint('[AUTH][BRIDGE] ok=false — 200 but no access_token in response');
+        debugPrint('[AUTH][BRIDGE] ok=false - 200 but no access_token in response');
         return false;
       }
       _accessToken = accessToken;
@@ -154,12 +154,12 @@ class SupabaseAuthBridge {
       // rejects at authorisation time — a permanently dead subscription.
       await _updateRealtimeAuth(accessToken);
 
-      debugPrint('[AUTH][BRIDGE] ok=true — authenticated JWT active for RLS');
+      debugPrint('[AUTH][BRIDGE] ok=true - authenticated JWT active for RLS');
       return true;
     } catch (e) {
       if (!_loggedExchangeUnavailable) {
         _loggedExchangeUnavailable = true;
-        debugPrint('[AUTH][BRIDGE] ok=false — exchange error: $e (using anon key)');
+        debugPrint('[AUTH][BRIDGE] ok=false - exchange error: $e (using anon key)');
       }
       return false;
     }

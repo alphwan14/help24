@@ -253,7 +253,7 @@ class DeliveryReceipts {
   }
 
   static Future<void> _markUnavailable() async {
-    debugPrint('[RECEIPTS] server has no $column yet (migration 120) — '
+    debugPrint('[RECEIPTS] server has no $column yet (migration 120) - '
         'pausing delivered receipts for ${recheckAfter.inHours}h');
     try {
       final prefs = await SharedPreferences.getInstance();

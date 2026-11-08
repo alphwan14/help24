@@ -454,7 +454,7 @@ class ChatAttachmentCache {
       if (!m.deletedForEveryone || !(m.isImage || m.isFile)) continue;
       final id = m.id.toLowerCase();
       if (_evicted.contains(id) || !_messageId.hasMatch(id)) continue;
-      debugPrint('[ATTACHMENT] ${id.substring(0, 8)} deleted for everyone — removing local copies');
+      debugPrint('[ATTACHMENT] ${id.substring(0, 8)} deleted for everyone - removing local copies');
       unawaited(evict(id));
     }
   }

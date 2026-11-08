@@ -189,7 +189,7 @@ class StartupPrefetch {
     try {
       return await run();
     } catch (e) {
-      debugPrint('[STARTUP_PREFETCH] $label prefetch unavailable ($e) — normal load path takes over');
+      debugPrint('[STARTUP_PREFETCH] $label prefetch unavailable ($e) - normal load path takes over');
       return null;
     }
   }

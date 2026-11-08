@@ -161,7 +161,7 @@ class RemoteConfigService extends ChangeNotifier {
     } catch (e) {
       // A corrupt cache is indistinguishable from no cache, and both mean the
       // same thing: use the compiled defaults.
-      debugPrint('[CONFIG] cache read failed — using defaults: $e');
+      debugPrint('[CONFIG] cache read failed - using defaults: $e');
       _config = RemoteConfig.defaults;
     }
 
@@ -214,7 +214,7 @@ class RemoteConfigService extends ChangeNotifier {
         return;
       }
       if (response.statusCode != 200) {
-        debugPrint('[CONFIG] refresh got HTTP ${response.statusCode} — keeping current config');
+        debugPrint('[CONFIG] refresh got HTTP ${response.statusCode} - keeping current config');
         return;
       }
 

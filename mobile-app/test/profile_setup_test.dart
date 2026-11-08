@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:help24/models/profile_setup.dart';
 
 void main() {
-  group('Complete your profile', () {
+  group('Get ready to work', () {
     test('a new member has four steps and none done', () {
       final s = ProfileSetup.evaluate(
         profileComplete: false,

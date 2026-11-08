@@ -144,7 +144,7 @@ class _SchemaQuestionFlowState extends State<SchemaQuestionFlow> {
                 Icon(AppIcons.urgent, size: 16, color: AppTheme.errorRed),
                 const SizedBox(width: 6),
                 Text(
-                  'Quick post — only the essentials',
+                  'Quick post, only the essentials',
                   style: TextStyle(color: AppTheme.errorRed, fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ],

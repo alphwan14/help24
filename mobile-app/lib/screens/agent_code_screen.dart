@@ -183,8 +183,8 @@ String agentThanks(AgentClaimResult r) {
   final who = r.agentName ?? 'Your agent';
   return switch (r.status) {
     'unchanged' => '$who is already credited for helping you join.',
-    'changed' => 'Changed — $who is now credited for helping you join.',
-    _ => 'Thanks — $who is credited for helping you join.',
+    'changed' => 'Changed. $who is now credited for helping you join.',
+    _ => 'Thanks. $who is credited for helping you join.',
   };
 }
 
@@ -219,7 +219,7 @@ class AgentCodeSheet extends StatelessWidget {
           const SizedBox(height: 16),
           AgentCodeForm(buttonLabel: 'Add code', onClaimed: (_) => Navigator.of(context).pop()),
           const SizedBox(height: 4),
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('No one — skip')),
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('No one, skip')),
         ],
       ),
     );

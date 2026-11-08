@@ -70,15 +70,25 @@ class _PromoteBusinessScreenState extends State<PromoteBusinessScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Promote Business'),
+          title: const Text('Promote business'),
           bottom: const TabBar(
             tabs: [Tab(text: 'Campaigns'), Tab(text: 'Payments')],
           ),
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _startPromotionFlow,
-          icon: const Icon(AppIcons.promote),
-          label: const Text('Promote a listing'),
+        // ONE "Promote a listing", never two. With no campaigns the empty
+        // state carries the button in context, and this floating copy used to
+        // sit underneath it saying the same thing. It appears once there are
+        // campaigns to add to.
+        floatingActionButton: FutureBuilder<List<PromotionCampaign>>(
+          future: _campaigns,
+          builder: (context, snap) {
+            if ((snap.data ?? const []).isEmpty) return const SizedBox.shrink();
+            return FloatingActionButton.extended(
+              onPressed: _startPromotionFlow,
+              icon: const Icon(AppIcons.promote),
+              label: const Text('Promote a listing'),
+            );
+          },
         ),
         // A failed load refills itself when the connection returns, the same
         // as every other screen that owns its fetch.
@@ -145,8 +155,8 @@ class _CampaignsTab extends StatelessWidget {
                   Text('Get discovered', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
                   Text(
-                    'Feature one of your service listings across Help24 — '
-                    'search, categories and the discover feed.',
+                    'Feature one of your service listings across Help24: '
+                    'search, categories and the Discover feed.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
@@ -248,7 +258,7 @@ class _PaymentsTab extends StatelessWidget {
                 child: ListTile(
                   leading: Icon(icon, color: color),
                   title: Text(
-                    '${p.packageName.isEmpty ? 'Promotion' : p.packageName} — KES ${p.amountKes}',
+                    '${p.packageName.isEmpty ? 'Promotion' : p.packageName}, KES ${p.amountKes}',
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   subtitle: Text(

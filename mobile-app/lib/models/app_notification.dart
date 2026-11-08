@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
+import '../utils/plain_copy.dart';
 
 /// One notification, exactly as the `notifications` table stores it.
 @immutable
@@ -29,8 +30,9 @@ class AppNotification {
     return AppNotification(
       id: json['id']?.toString() ?? '',
       type: json['type'] as String? ?? '',
-      title: json['title'] as String? ?? '',
-      body: json['body'] as String? ?? '',
+      // Server-written copy: shown without em dashes (utils/plain_copy.dart).
+      title: plainCopy(json['title'] as String? ?? ''),
+      body: plainCopy(json['body'] as String? ?? ''),
       data: rawData is Map ? Map<String, dynamic>.from(rawData) : const {},
       read: json['read'] as bool? ?? false,
       createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '')?.toLocal() ??

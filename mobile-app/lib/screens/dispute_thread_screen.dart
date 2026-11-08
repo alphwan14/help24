@@ -124,7 +124,7 @@ class _DisputeThreadScreenState extends State<DisputeThreadScreen> {
       final ext = (f.extension ?? '').toLowerCase();
       final mime = _extToMime[ext];
       if (bytes == null || mime == null) {
-        _toast('Skipped "${f.name}" — only JPG, PNG, WEBP, PDF are allowed.');
+        _toast('Skipped "${f.name}" . Only JPG, PNG, WEBP and PDF are allowed.');
         continue;
       }
       uploads.add(EvidenceUpload(fileName: f.name, mimeType: mime, bytes: bytes));

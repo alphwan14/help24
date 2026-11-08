@@ -74,7 +74,7 @@ class LocationIntents {
       icon: AppIcons.location,
       color: c.success,
       title: 'Send a place',
-      subtitle: 'Drop a pin — the gate, the building, the exact spot',
+      subtitle: 'Drop a pin on the gate, the building or the exact spot',
       onTap: () {
         Navigator.pop(context);
         onSendPlace();

@@ -61,7 +61,7 @@ class LocationPermissionExplainerScreen extends StatelessWidget {
                     color: AppTheme.warningOrange.withValues(alpha: 0.15),
                   ),
                   child: const Text(
-                    'Permission blocked — open Settings to enable location.',
+                    'Permission blocked. Open Settings to turn on location.',
                   ),
                 ),
               ],

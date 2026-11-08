@@ -334,7 +334,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
         // Scenario B: denial is a scenario, not an error — pin placement works.
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Location is off — you can still place the pin by moving the map.'),
+            content: Text('Location is off. You can still place the pin by moving the map.'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -594,7 +594,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                       decoration: InputDecoration(
                         counterText: '',
                         prefixIcon: const Icon(AppIcons.location, size: 18),
-                        hintText: 'Label this spot — “Black gate, next to kiosk” (optional)',
+                        hintText: 'Label this spot, like “Black gate, next to kiosk” (optional)',
                         hintStyle: TextStyle(
                           fontSize: 13.5,
                           color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,

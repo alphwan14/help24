@@ -300,7 +300,7 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
                 if (s.state == 'split_settled' && s.providerOwed != null) ...[
                   const SizedBox(height: 6),
                   Text(
-                    'Provider owed ${formatPriceDisplay(s.providerOwed!)} — settled manually.',
+                    'Provider owed ${formatPriceDisplay(s.providerOwed!)}, settled manually.',
                     style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: color),
                   ),
                 ],
@@ -625,14 +625,14 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
       case 'FULL_RELEASE':
         headline = settled
             ? 'Full payment released to the provider.'
-            : 'Full payment approved — payout awaiting confirmation.';
+            : 'Full payment approved. Payout awaiting confirmation.';
         break;
       case 'FULL_REFUND':
         headline = 'Full refund issued to the client.';
         break;
       case 'PARTIAL_SPLIT':
         headline =
-            'Payment split — provider ${formatPriceDisplay(providerAmt)}, client refund ${formatPriceDisplay(refundAmt)}.';
+            'Payment split: provider ${formatPriceDisplay(providerAmt)}, client refund ${formatPriceDisplay(refundAmt)}.';
         break;
       default:
         headline = 'Dispute resolved.';

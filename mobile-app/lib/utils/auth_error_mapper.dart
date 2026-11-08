@@ -204,7 +204,7 @@ class AuthErrorMapper {
           title: "That didn't work",
           message:
               "That password didn't match. If you first joined with Google, "
-              "you won't have set one — continue with Google instead.",
+              "you won't have set one. Continue with Google instead.",
           recovery: AuthRecovery.useGoogle,
         );
       case 'invalid-email':
@@ -273,7 +273,7 @@ class AuthErrorMapper {
       case 'missing-phone-number':
         return const AuthFailure(
           title: 'Check your number',
-          message: 'Enter your number without the leading 0 — for example 712 345 678.',
+          message: 'Enter your number without the leading 0, for example 712 345 678.',
         );
       case 'invalid-verification-code':
         return const AuthFailure(
@@ -337,7 +337,7 @@ class AuthErrorMapper {
             title: 'Give it a few minutes',
             message:
                 "We've already sent a confirmation email to this address. "
-                'Check your inbox and your spam folder — asking again will not '
+                'Check your inbox and your spam folder. Asking again will not '
                 'make one arrive sooner.',
           );
         }
@@ -429,14 +429,14 @@ class AuthErrorMapper {
           title: "We couldn't send that email",
           message:
               "We couldn't send the confirmation email just now. You're still "
-              'signed in — please try again shortly.',
+              'signed in. Please try again shortly.',
         );
       case AuthFlow.linkMethod:
         return const AuthFailure(
           title: "We couldn't add that",
           message:
               "We couldn't add that way of signing in just now. You're still "
-              'signed in — please try again.',
+              'signed in. Please try again.',
         );
       case AuthFlow.generic:
         return const AuthFailure(

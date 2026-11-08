@@ -89,8 +89,8 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            'These are the ways you can sign in to this Help24 account. Adding one keeps everything — '
-            'your jobs, chats and payments — on the same account.',
+            'These are the ways you can sign in to this Help24 account. Adding one keeps '
+            'your jobs, chats and payments on the same account.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 16),

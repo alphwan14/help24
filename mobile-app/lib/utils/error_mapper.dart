@@ -12,6 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart'
 import '../models/post_model.dart' show PostType;
 import '../services/auth_service.dart' show ProfileUnavailableException;
 import 'auth_error_mapper.dart';
+import 'plain_copy.dart';
 
 /// What KIND of thing went wrong, independent of how it is worded.
 ///
@@ -234,7 +235,14 @@ class ErrorMapper {
           '"${failure.title}" / "${failure.message}"');
       return _fallback(context, failure.category);
     }
-    return failure;
+    // No em dashes on screen, including in server wording a branch passed
+    // through (utils/plain_copy.dart).
+    return AppFailure(
+      title: plainCopy(failure.title),
+      message: plainCopy(failure.message),
+      category: failure.category,
+      detail: detail == null ? null : plainCopy(detail),
+    );
   }
 
   /// The [ErrorCategory] of [error], without logging or side effects.
@@ -703,7 +711,7 @@ class ErrorMapper {
 
   static const AppFailure _selfApplicationFailure = AppFailure(
     title: 'This is your post',
-    message: "You can't apply to your own post — open it to manage applicants.",
+    message: "You can't apply to your own post. Open it to manage applicants.",
     category: ErrorCategory.validation,
   );
 

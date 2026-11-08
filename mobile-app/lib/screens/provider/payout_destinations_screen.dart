@@ -242,7 +242,7 @@ class _PayoutDestinationsScreenState extends State<PayoutDestinationsScreen> {
         icon: AppIcons.pending,
         title: 'Not available yet',
         subtitle:
-            'Payout number verification is being rolled out. Check back soon — your earnings are unaffected.',
+            'Payout number verification is being rolled out. Check back soon. Your earnings are unaffected.',
       );
     }
     if (_error != null) {
@@ -257,7 +257,7 @@ class _PayoutDestinationsScreenState extends State<PayoutDestinationsScreen> {
         icon: AppIcons.payoutDestination,
         title: 'No payout number yet',
         subtitle:
-            'Add the M-Pesa number your earnings should be sent to. You will verify it with a code — money only ever goes to a number you have proven.',
+            'Add the M-Pesa number your earnings should be sent to. You will verify it with a code. Money only ever goes to a number you have proven.',
         actions: [
           FilledButton.icon(
             onPressed: _addDestination,
@@ -353,7 +353,7 @@ class _DestinationCard extends StatelessWidget {
                 const Icon(AppIcons.defaultChoiceSet, size: 14, color: AppTheme.primaryAccent),
                 const SizedBox(width: 6),
                 Text(
-                  'Default — new jobs pay out here',
+                  'Default. New jobs pay out here',
                   style: TextStyle(
                     fontSize: 12,
                     color: isDark

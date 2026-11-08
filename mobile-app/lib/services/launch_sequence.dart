@@ -132,7 +132,7 @@ abstract final class LaunchSequence {
   /// longer free — they answer to [FeedArrival] like anything else.
   static void lift() {
     _lifted = true;
-    debugPrint('[LAUNCH] +${sinceStart}ms lifted — arrivals are no longer free');
+    debugPrint('[LAUNCH] +${sinceStart}ms lifted - arrivals are no longer free');
   }
 
   static void _settle(String reason) {

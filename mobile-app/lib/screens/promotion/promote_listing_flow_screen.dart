@@ -109,7 +109,7 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
       setState(() {
         _phase = _PayPhase.failed;
         _payMessage = 'Promotions are temporarily unavailable. '
-            'Please try again shortly — nothing has been charged.';
+            'Please try again shortly. Nothing has been charged.';
       });
       return;
     }
@@ -179,8 +179,8 @@ class _PromoteListingFlowScreenState extends State<PromoteListingFlowScreen> {
           _phase = _PayPhase.success;
           _campaignStatus = campaignStatus;
           _payMessage = campaignStatus == 'active'
-              ? 'Payment received — your promotion is live!'
-              : 'Payment received — your promotion is being reviewed and '
+              ? 'Payment received. Your promotion is live!'
+              : 'Payment received. Your promotion is being reviewed and '
                   'usually goes live within a few hours.';
         });
         return;

@@ -78,7 +78,7 @@ class AuthGuard {
       // Developer detail stays in the log. The user gets a calm, actionable
       // sentence that says nothing about which service is unavailable or why —
       // "not configured" is a fact about our deployment, not about them.
-      debugPrint('[AUTH][GUARD] identity backend unavailable — action blocked');
+      debugPrint('[AUTH][GUARD] identity backend unavailable - action blocked');
       // Routed through ActionFeedback so it clears itself. It previously
       // carried a "Dismiss" action, which — because Flutter defaults `persist`
       // to `action != null` — is precisely what made dismissing it necessary.

@@ -80,7 +80,7 @@ void main() {
       expect(
         closedListingReason(
             makePost(status: 'completed', payoutInProgress: true)),
-        'This job is completed — payment is being finalised.',
+        'This job is completed. Payment is being finalised.',
       );
     });
 

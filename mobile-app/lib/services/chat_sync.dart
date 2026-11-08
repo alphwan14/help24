@@ -308,7 +308,7 @@ class ChatSync with WidgetsBindingObserver {
       } catch (e) {
         // THE "?" BUG, STOPPED HERE. The rows are good; the people are not
         // known this time. Store the rows and leave every name as it was.
-        debugPrint('[CHAT_SYNC] profiles unavailable ($e) — keeping known names');
+        debugPrint('[CHAT_SYNC] profiles unavailable ($e) - keeping known names');
       }
     }
 

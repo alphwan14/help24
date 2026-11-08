@@ -529,7 +529,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
   late Stream<UserModel?> _stream = UserProfileService.watchUser(widget.uid);
   bool _ensureAttempted = false;
 
-  // ── Setup state for "Complete your profile" ─────────────────────────────
+  // ── Setup state for "Get ready to work" ─────────────────────────────
   // Read here, not in the row, because the Business rows depend on it too:
   // while the row shows, the rows for the same steps are hidden.
   bool? _idVerified;
@@ -739,7 +739,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
               title: 'Account',
               children: [
                 // No meter here any more: how complete the profile is counts
-                // as a step in "Complete your profile". This row is just the
+                // as a step in "Get ready to work". This row is just the
                 // way to edit it.
                 _SettingsTile(
                   icon: AppIcons.account,
@@ -804,7 +804,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
     );
   }
 
-  /// Opens one setup step. Shared by the "Complete your profile" row and the
+  /// Opens one setup step. Shared by the "Get ready to work" row and the
   /// Business rows, so both always land on the same screen.
   Future<void> _openSetupStep(SetupStep step, UserModel? profile) async {
     final route = switch (step) {
@@ -960,7 +960,7 @@ class _LoggedInProfile extends StatelessWidget {
   }
 }
 
-/// "Complete your profile": how many setup steps are done, as "1 of 3" and a
+/// "Get ready to work": how many setup steps are done, as "1 of 3" and a
 /// thin bar. Tapping opens the first step that is not done. The parent only
 /// builds it while setup is known and incomplete.
 class _ProfileSetupRow extends StatelessWidget {
@@ -992,7 +992,7 @@ class _ProfileSetupRow extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        'Complete your profile',
+                        'Get ready to work',
                         style: AppTypeScale.bodyL.copyWith(
                           fontFamily: AppTypeScale.family,
                           fontSize: 15,
@@ -1172,6 +1172,12 @@ class _AccountStandingBanner extends StatelessWidget {
 }
 
 /// The one action in the footer (Sign out, or Sign in): text alone, centred.
+///
+/// THE BUTTON IS THE WORD, NOT THE LINE. This was a full-width button, so a
+/// press anywhere along the line lit up a red strip across the screen: the
+/// behaviour of a list row on something styled as a text action. Now the tap
+/// target and the press highlight hug the label (48 px tall, 16 px either
+/// side), the way text actions behave in platform settings screens.
 class _FooterAction extends StatelessWidget {
   final String label;
   final Color color;
@@ -1180,12 +1186,15 @@ class _FooterAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 48,
+    return Center(
       child: TextButton(
         onPressed: onTap,
-        style: TextButton.styleFrom(foregroundColor: color),
+        style: TextButton.styleFrom(
+          foregroundColor: color,
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
+          shape: const RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
+        ),
         child: Text(
           label,
           style: AppTypeScale.bodyL.copyWith(
@@ -1230,15 +1239,14 @@ class _FooterLink extends StatelessWidget {
 ///
 /// These were two rows in two sections ("Payment number" under Account,
 /// "Payout destinations" under Business) that members read as one thing.
-/// They are two parts of one screen now, and each part says only what is
-/// true today (payout_authority.dart, §M4):
+/// They are one screen now (payout_authority.dart, §M4).
 ///
-///   * payout numbers live: the verified payout number decides, and the
-///     payment number has no payout role;
-///   * payout numbers switched off: earnings still settle to the payment
-///     number, so the screen says so instead of offering an empty section;
-///   * unknown (offline, error): claim nothing, and link to the payout
-///     screen, which explains its own state.
+/// "You get paid to" appears ONLY once the server confirms payout numbers are
+/// live. It used to render a row while the check was in flight and then swap
+/// it for a note once the answer came back ("payouts are off"), so the
+/// section flickered and changed under the member's thumb. With payout
+/// numbers off, earnings settle to the payment number and the payment sheet's
+/// own note already says so; offline or on error, nothing is claimed.
 class _PaymentsScreen extends StatefulWidget {
   final String uid;
   const _PaymentsScreen({required this.uid});
@@ -1326,28 +1334,14 @@ class _PaymentsScreenState extends State<_PaymentsScreen> {
                   ),
                 ],
               ),
-              if (_authority == PayoutAuthority.profileNumber) ...[
-                const SectionHeader('You get paid to'),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
-                  child: Text(
-                    'Your earnings go to your payment number for now.',
-                    style: AppTypeScale.bodyS.copyWith(
-                      fontFamily: AppTypeScale.family,
-                      color: c.contentSecondary,
-                    ),
-                  ),
-                ),
-              ] else
+              if (_authority == PayoutAuthority.destinations)
                 _SettingsSection(
                   title: 'You get paid to',
                   children: [
                     _SettingsTile(
                       icon: AppIcons.payoutDestination,
                       title: 'Payout number',
-                      value: _authority == PayoutAuthority.destinations
-                          ? (_payout != null ? maskPhone(_payout!.destination) : 'Not set')
-                          : null,
+                      value: _payout != null ? maskPhone(_payout!.destination) : 'Not set',
                       trailing: const Icon(AppIcons.disclosure),
                       onTap: () => Navigator.push(
                         context,

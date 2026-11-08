@@ -272,7 +272,7 @@ class AuthService {
       await linked.reload();
       final current = _firebaseAuth?.currentUser ?? linked;
       debugPrint(
-        '[AUTH][LINK] password attached to ${current.uid} — '
+        '[AUTH][LINK] password attached to ${current.uid} - '
         'methods=${current.providerData.map((p) => p.providerId).join(",")}',
       );
       // The address is now a credential, not just a contact field. Prove it,
@@ -335,7 +335,7 @@ class AuthService {
       await linked.reload();
       final current = _firebaseAuth?.currentUser ?? linked;
       debugPrint(
-        '[AUTH][LINK] phone attached to ${current.uid} — '
+        '[AUTH][LINK] phone attached to ${current.uid} - '
         'methods=${current.providerData.map((p) => p.providerId).join(",")}',
       );
       unawaited(_syncUserToSupabase(current, phoneNumber: current.phoneNumber));
@@ -660,7 +660,7 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       if (_continueUrlRejections.contains(e.code)) {
         debugPrint(
-          '[AUTH][CONFIG] continue URL rejected (${e.code}) — '
+          '[AUTH][CONFIG] continue URL rejected (${e.code}) - '
           'add ${AppUrls.website} to the identity console authorized domains. '
           'Falling back to an unbranded link.',
         );
@@ -757,7 +757,7 @@ class AuthService {
       // account must never be blocked by our branding being unfinished.
       if (_continueUrlRejections.contains(e.code)) {
         debugPrint(
-          '[AUTH][CONFIG] reset continue URL rejected (${e.code}) — '
+          '[AUTH][CONFIG] reset continue URL rejected (${e.code}) - '
           'falling back to an unbranded link.',
         );
         try {
@@ -846,7 +846,7 @@ class AuthService {
         ? '${cause.code} ${cause.message}'
         : cause.toString();
     debugPrint(
-      '[AUTH][PROFILE] cannot create users row for ${firebaseUser.uid} — $detail',
+      '[AUTH][PROFILE] cannot create users row for ${firebaseUser.uid} - $detail',
     );
 
     if (cause is ProfileSessionUnavailable) {

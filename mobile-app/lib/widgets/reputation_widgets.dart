@@ -254,8 +254,8 @@ class _ReputationTrustBlockState extends State<ReputationTrustBlock> {
           final offline = snap.data?.outcome == ReputationOutcome.offline;
           return Text(
             offline
-                ? "You're offline — ratings will appear when you reconnect"
-                : "Couldn't load ratings — pull down to retry",
+                ? "You're offline. Ratings will appear when you reconnect"
+                : "Couldn't load ratings. Pull down to retry",
             style: TextStyle(color: muted, fontSize: 12),
           );
         }
@@ -435,7 +435,7 @@ class _ReputationProfileSectionState extends State<ReputationProfileSection> {
                 Expanded(
                   child: Text(
                     offline
-                        ? "You're offline — this provider's record will load when you reconnect."
+                        ? "You're offline. This provider's record will load when you reconnect."
                         : "Couldn't load this provider's record. Pull down to retry.",
                     style: TextStyle(color: muted),
                   ),

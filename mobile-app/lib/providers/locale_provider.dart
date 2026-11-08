@@ -86,7 +86,7 @@ class LocaleProvider extends ChangeNotifier {
   /// rendered app came to disagree in the first place.
   Future<void> setLanguage(String languageCode) async {
     if (!canDeliver(languageCode)) {
-      debugPrint('[LOCALE] refused "$languageCode" — not deliverable yet');
+      debugPrint('[LOCALE] refused "$languageCode" - not deliverable yet');
       return;
     }
     final uid = AuthService.currentUserId;

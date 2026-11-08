@@ -31,7 +31,7 @@ extension RequestWhenX on RequestWhen {
   String get subtitle {
     switch (this) {
       case RequestWhen.rightNow:
-        return 'Emergency — providers see it first';
+        return 'Emergency: providers see it first';
       case RequestWhen.today:
         return 'Sometime today';
       case RequestWhen.thisWeek:

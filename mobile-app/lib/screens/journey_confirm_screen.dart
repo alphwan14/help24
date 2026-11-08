@@ -393,7 +393,7 @@ class _JourneyConfirmScreenState extends State<JourneyConfirmScreen>
         const SizedBox(height: 7),
         _ReassuranceRow(
           icon: AppIcons.locked,
-          text: 'Only this chat can see it — stop anytime',
+          text: 'Only this chat can see it. Stop anytime',
           isDark: isDark,
         ),
         const SizedBox(height: 16),

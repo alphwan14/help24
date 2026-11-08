@@ -241,7 +241,7 @@ class FeedService {
         if (page > 0) {
           throw FeedPageUnavailable('HTTP ${response.statusCode}');
         }
-        debugPrint('[FEED][REQ $seq] HTTP ${response.statusCode} +${wireMs}ms — falling back');
+        debugPrint('[FEED][REQ $seq] HTTP ${response.statusCode} +${wireMs}ms - falling back');
         return _degrade(fallback);
       }
 
@@ -255,7 +255,7 @@ class FeedService {
       // thing to say wrongly. Confirm against the direct read before believing
       // it.
       if (result.items.isEmpty && page == 0) {
-        debugPrint('[FEED] ranked feed empty — confirming against Supabase');
+        debugPrint('[FEED] ranked feed empty - confirming against Supabase');
         return _degrade(fallback);
       }
 
@@ -269,7 +269,7 @@ class FeedService {
         debugPrint('[FEED] ranked page $page failed ($e)');
         throw e is FeedPageUnavailable ? e : FeedPageUnavailable('$e');
       }
-      debugPrint('[FEED] ranked feed failed ($e) — falling back');
+      debugPrint('[FEED] ranked feed failed ($e) - falling back');
       return _degrade(fallback);
     }
   }

@@ -470,7 +470,7 @@ class UserProfileService {
         });
       } on PostgrestException catch (e) {
         if (!isMissingFunction(code: e.code, message: e.message)) rethrow;
-        debugPrint('[FCM][TOKEN_SAVE] register_fcm_token unavailable — direct upsert');
+        debugPrint('[FCM][TOKEN_SAVE] register_fcm_token unavailable - direct upsert');
         await _client.from('fcm_tokens').upsert(
           {
             'user_id':    uid,

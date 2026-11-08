@@ -188,7 +188,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                       _MetricTile(label: 'Clicks', value: '${a.clicks}', icon: AppIcons.taps),
                       _MetricTile(
                         label: 'CTR',
-                        value: a.impressions > 0 ? '${(a.ctr * 100).toStringAsFixed(1)}%' : '—',
+                        value: a.impressions > 0 ? '${(a.ctr * 100).toStringAsFixed(1)}%' : 'None yet',
                         icon: AppIcons.rate,
                       ),
                       _MetricTile(

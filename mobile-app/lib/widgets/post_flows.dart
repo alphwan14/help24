@@ -34,7 +34,7 @@ String? closedListingReason(PostModel post) {
   if (post.status == 'open') return null;
   if (post.status == 'completed') {
     return post.payoutInProgress
-        ? 'This job is completed — payment is being finalised.'
+        ? 'This job is completed. Payment is being finalised.'
         : 'This job is completed.';
   }
   if (post.status == 'disputed') return 'This job is in dispute.';
