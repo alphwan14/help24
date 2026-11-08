@@ -1,10 +1,12 @@
 # Shorebird — over-the-air updates for the Android app
 
-Status: **live since 2026-11-07.** Release `1.0.10+11` (v1.0.10, `fae8c20`) is
-the first Shorebird release, published on GitHub and help24.co.ke, and
-`ops.min_version` is 1.0.10. Patches 1 to 3 are on stable (list in
-docs/next-app-release.md). The release's `pubspec.lock` is kept in
-`~/h24build/shorebird/locks/1.0.10+11/` for later patches.
+Status: **live since 2026-11-07.** The current release is `1.0.11+12`
+(v1.0.11, `1b473b7`, Flutter 3.44.9), published on GitHub and help24.co.ke on
+2026-11-08; the owner raises `ops.min_version` to it from the admin dashboard.
+`1.0.10+11` (`fae8c20`) was the first Shorebird release and keeps its Patches
+1 to 3. Patch lists for both are in docs/next-app-release.md. Each release's
+`pubspec.lock` is kept in `~/h24build/shorebird/locks/<version>/` for later
+patches.
 
 **Check patches only on the published APK.** On 2026-11-08 the test phone was
 found running a Windows arm64 build from another session. It is built with
@@ -46,7 +48,27 @@ which 1.0.9 already contains, so they could ship as a patch to a Shorebird
 release. They will go out with the first Shorebird release (1.0.10) itself.
 
 `shorebird patch` warns when a change touches native code or assets. Treat
-that warning as "this needs a full release".
+that warning as "this needs a full release", with one exception below.
+
+### Asset diffs that are safe to allow (learned on 1.0.11 Patch 1)
+
+Shorebird compares the patch's bundled files with the release's and refuses
+on any difference. Two differences come from Dart changes alone:
+
+- **The tree-shaken icon font** (`iconsax.ttf`, `MaterialIcons-Regular.otf`).
+  It holds only the glyphs the code uses, so it changes whenever a screen
+  starts or stops using an icon. A patch keeps the release's font. **Dropping
+  icons is safe; adding one the release never used is not** (it renders
+  blank). Check before allowing: compare `AppIcons.*` and `Iconsax.*` usages
+  between the release commit and the patch commit (`git grep -hoE` over
+  `mobile-app/lib`); the patch must add none.
+- **`assets/l10n/en.json`.** A patch cannot change it, so any copy a patch
+  needs must not depend on a new value there. Profile cases its labels in
+  Dart (`_sentenceCase`) for this reason.
+
+When both checks pass, publish with `shorebird patch ... --allow-asset-diffs`.
+Note that `patch.sh` pipes through `tee`, so a refused patch can still print
+exit 0: read the end of the log for "Not publishing".
 
 ## Free plan (checked 2026-11-07, shorebird.dev/pricing)
 
@@ -116,12 +138,15 @@ and devices install only patches signed with it.
 
 ## 2. Pick the Flutter version
 
-Shorebird builds with its own copy of a named Flutter version. Use the one the
-1.0.9 release was built with (`flutter --version` in the WSL build
-environment). Export it once per shell:
+Shorebird builds with its own copy of a named Flutter version, and every
+patch builds on its release's version automatically. Changing it is always a
+full release. 1.0.10 was built on 3.44.4; **1.0.11 moved to 3.44.9** (same
+Dart 3.12.2, Android hotfixes). The Shorebird CLI defaults to the newest
+stable Flutter (3.47.x as of 2026-11-08), so always set it. Export it once
+per shell:
 
 ```bash
-export H24_FLUTTER_VERSION=3.44.4       # 1.0.9's Flutter (~/h24build/opt/flutter); Shorebird offers it
+export H24_FLUTTER_VERSION=3.44.9       # 1.0.11's Flutter; `shorebird flutter versions list` shows what is offered
 ```
 
 ## 3. The first Shorebird release (1.0.10) — members install this once

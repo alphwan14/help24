@@ -1,15 +1,16 @@
 # Next app release — changes waiting on it
 
 The changes below are merged on `main` but are **not on members' phones** yet.
-Published today: **v1.0.10** (versionCode 11, release commit `fae8c20`), the
-first **Shorebird** release.
+Current release: **v1.0.11** (versionCode 12, release commit `1b473b7`,
+Flutter 3.44.9), published 2026-11-08.
 
-From 1.0.10 on, a Dart-only change ships as a **patch** to installed 1.0.10
-phones (`scripts/shorebird/patch.sh`, docs/shorebird.md), with no new APK and
-no version bump. A full release is needed only for native code, assets,
-permissions, plugins or a Flutter upgrade; the next one must be
-**≥ 1.0.11+12**. Check `gh release list` first; parallel sessions have shipped
-versions before.
+A Dart-only change ships as a **patch** to installed phones of the current
+release (`scripts/shorebird/patch.sh`, docs/shorebird.md), with no new APK and
+no version bump. Patches now target **1.0.11+12**; 1.0.10 phones keep their
+Patches 1 to 3 and get nothing newer until they install 1.0.11. A full release
+is needed only for native code, assets, permissions, plugins or a Flutter
+upgrade; the next one must be **≥ 1.0.12+13**. Check `gh release list` first;
+parallel sessions have shipped versions before.
 
 Keep this file current: add a row when a change to `mobile-app/` lands, and
 clear the table (moving it under "Shipped in …") when a release goes out.
@@ -20,7 +21,34 @@ Build in WSL from a commit, never from Windows:
 
 ## Waiting
 
-Nothing. `ops.min_version` is 1.0.10 (raised by the owner, 2026-11-07).
+Nothing for a full release. `ops.min_version` goes to 1.0.11 (block), set by
+the owner from the admin dashboard on 2026-11-08.
+
+Bundled-file changes on `main` that a patch cannot carry, so they wait for
+1.0.12: `assets/l10n/en.json` sentence-case labels (Profile already cases
+them in Dart, so nothing looks wrong meanwhile).
+
+## Patches on 1.0.11 (stable)
+
+Checked on the S20+ running the published v1.0.11 APK (sha `84c88140…`).
+
+| Patch | Commit | Change | Verified |
+|---|---|---|---|
+| 1 | `6bc76f5` (`a25e7b4` + label casing) | Profile redesign: "Complete your profile" setup row (4 steps, payout step left out while payout numbers are off), Payments screen merging Payment number and Payout destinations, Business rows by provider state, stats only after a completed job, account status banner, text footer, 52 px rows, sentence case, em dashes removed from touched copy | 1627 tests. Published 2026-11-08 17:05 (about 1.3 MB per ABI). On the S20+ running the published APK: start 1 downloaded and installed patch 1, start 2 verified its signature and ran it (`active path …/patches/1`); Profile shows "2 of 3", Payments, the text footer, sentence-case labels despite the old en.json, and "Help24 v1.0.11". First attempt was refused by Shorebird for asset diffs (en.json, tree-shaken iconsax.ttf); republished with `--allow-asset-diffs` after checking the patch adds no icons (docs/shorebird.md). A second attempt died when WSL ran out of memory (idle Gradle daemons); `prepare.sh` now turns the daemon off |
+
+## Shipped in 1.0.11 (2026-11-08)
+
+Release commit `1b473b7`, tag `v1.0.11`: 84,776,447 bytes, sha256
+`84c88140…9714` (matches GitHub), cert `48f1d72b…`, all three ABIs with the
+engine, permissions identical to 1.0.10, `shorebird.yaml` bundled. Built with
+`scripts/shorebird/release.sh` (Shorebird 1.6.138, **Flutter 3.44.9**, up from
+3.44.4). Website `help24_website@eaf7b90` serves it. App code is the same as
+1.0.10 with Patches 1 to 3. On the S20+ it installed over a test build as
+1.0.11 (versionCode 12), stayed signed in, loaded Discover, Messages and
+Profile, and the updater reported `release_version changed 1.0.10+11 ->
+1.0.11+12` and checked the stable channel. Right after upload, GitHub's public
+asset link answered 504 for several minutes while the API served the file;
+it then redirected normally.
 
 ## Patches on 1.0.10 (all on stable)
 

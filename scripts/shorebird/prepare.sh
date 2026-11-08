@@ -25,6 +25,12 @@ if [ -d "$H24/opt/jdk17" ]; then
 fi
 export PATH="$HOME/.shorebird/bin:$PATH"
 
+# No Gradle daemon. WSL here has 7.8 GB, and each build used to leave a Gradle
+# daemon (about 3 GB) plus Kotlin compile daemons (about 1.3 GB) behind. The
+# next build or test run then ran out of memory and froze WSL (twice on
+# 2026-11-08). Exiting after each build costs a few seconds of start-up.
+export GRADLE_OPTS="${GRADLE_OPTS:-} -Dorg.gradle.daemon=false -Dkotlin.compiler.execution.strategy=in-process"
+
 prepare_source() {
   local commit="$1"
   command -v shorebird >/dev/null || { echo "shorebird CLI not found (docs/shorebird.md §1)"; exit 1; }
