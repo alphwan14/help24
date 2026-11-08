@@ -18,11 +18,26 @@ Build in WSL from a commit, never from Windows:
 `wsl -d Ubuntu -- bash -lc 'bash ~/h24build/scripts/build-release.sh <commit>'`
 (see the wsl-release-build notes). Windows builds are arm64-only test builds.
 
-## Waiting (as a patch to 1.0.10)
+## Waiting
 
-| Commit | Change | Why members need it | Verified |
+Nothing. `ops.min_version` is 1.0.10 (raised by the owner, 2026-11-07).
+
+## Patches on 1.0.10 (all on stable)
+
+A phone gets the latest patch at its first start after it is published, and
+runs it from the next start. Checked on the S20+ running the published
+v1.0.10 APK (sha `915baef5…`). A Windows arm64 test build has no Shorebird
+engine and never receives patches, so never check a patch on one.
+
+| Patch | Commit | Change | Verified |
 |---|---|---|---|
-| _(uncommitted, another session)_ | Profile and UI changes in 25 Dart files (profile screen and widgets, theme, auth, post detail, reputation widgets, vetting badge) | — | Dart only, so it ships as Patch 2 once committed and checked: `patch.sh <commit>` (staging), check on a phone, then promote |
+| 1 | `9d6e1f9` | Discover pages 30 at a time; feed thumbnails decode at 384 px | Downloaded on one start, booted on the next; ranked `n=30` |
+| 2 | `4f1e3d8` | Minimal UI: no divider lines; post detail reworked as type (from another session) | 1614 tests on a clean copy; on the phone, active path `patches/2`, and the post detail shows the redesign |
+| 3 | `84f582a` | Feed cards load a small JPEG made at upload (`posts/<id>.thumb.jpg`, about 37 KB instead of about 190 KB) | 1622 tests; Shorebird reported no native or asset diffs; the phone check was pending when this was written |
+
+The 49 photos from before Patch 3 were given thumbnails on 2026-11-08, with
+the owner's approval (`mobile-app/tool/backfill_post_thumbnails.dart`: 9.3 MB
+of photos, 1.8 MB of thumbnails, 0 failed). A re-run found nothing to do.
 
 ## Shipped in 1.0.10 (2026-11-07)
 

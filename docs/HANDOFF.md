@@ -10,18 +10,20 @@ re-deriving anything. Read this first, then the linked reports.
 >   [`provider-vetting.md`](provider-vetting.md) § Rollout log. 135–137 applied
 >   and verified, backend `abb66a5` live (`[VETTING] sweep started`), app
 >   v1.0.10 published. Two pre-vetting offers (Babysitting, Caregiving) hide
->   on **2026-11-21 14:04 UTC** unless their authors verify. **Still owed:**
->   (1) deploy the admin dashboard (`vercel --prod` from `admin-dashboard/`;
->   the Verifications queue is not live until then, so submissions cannot be
->   reviewed); (2) the owner's Data Protection Commissioner registration and
->   privacy-policy text; (3) a first real verification, reviewed end to end.
+>   on **2026-11-21 14:04 UTC** unless their authors verify. Admin dashboard
+>   deployed 2026-11-07 (`6a06cg8o4` from `4f1e3d8`), so the Verifications
+>   queue is live. **Still owed:** (1) the owner's Data Protection
+>   Commissioner registration and privacy-policy text; (2) a first real
+>   verification, reviewed end to end; (3) rotate the Supabase secret key (part
+>   of it was printed in a session's output on 2026-11-08), then update
+>   `backend/.env` and Render.
 > - **Card analytics: LIVE.** 137 applied, website `/api/e` deployed
 >   (`1e58521`). One test open of the owner's own card is row 1.
 > - **Shorebird: LIVE.** [`shorebird.md`](shorebird.md). v1.0.10 is the first
->   Shorebird release, and Patch 1 (30 per page, lighter thumbnails) is on
->   stable. **Next:** the owner decides on raising `ops.min_version` to 1.0.10.
->   Another session's uncommitted profile and UI work (25 Dart files) ships as
->   Patch 2 once committed ([`next-app-release.md`](next-app-release.md)).
+>   Shorebird release, and the owner has raised `ops.min_version` to it.
+>   Patches 1 to 3 are on stable ([`next-app-release.md`](next-app-release.md)):
+>   30 per page; the minimal UI; upload-time feed thumbnails, with the 49
+>   existing photos backfilled.
 > - **"Book me" — providers booked with payment protection:**
 >   [`provider-card.md`](provider-card.md). The card (Phase A) is live in
 >   v1.0.9. **Phase B is the next priority once M-Pesa is in production and

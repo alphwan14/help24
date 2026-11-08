@@ -1,12 +1,16 @@
 # Shorebird — over-the-air updates for the Android app
 
 Status: **live since 2026-11-07.** Release `1.0.10+11` (v1.0.10, `fae8c20`) is
-the first Shorebird release, published on GitHub and help24.co.ke. **Patch 1**
-(`9d6e1f9`: 30 posts per page, lighter thumbnails) is on stable and was
-checked on the S20+: downloaded on one start, booted on the next. The release's
-`pubspec.lock` is kept in `~/h24build/shorebird/locks/1.0.10+11/` for later
-patches. `ops.min_version` is not raised yet; that is the owner's call
-(§3, step 3).
+the first Shorebird release, published on GitHub and help24.co.ke, and
+`ops.min_version` is 1.0.10. Patches 1 to 3 are on stable (list in
+docs/next-app-release.md). The release's `pubspec.lock` is kept in
+`~/h24build/shorebird/locks/1.0.10+11/` for later patches.
+
+**Check patches only on the published APK.** On 2026-11-08 the test phone was
+found running a Windows arm64 build from another session. It is built with
+stock Flutter, so it has no updater: no `[shorebird]` lines in logcat, and no
+patch ever arrives. Reinstall the release APK (same signer and versionCode,
+so the session is kept) before checking a patch.
 
 Two things learned on the first run:
 
