@@ -40,7 +40,7 @@ class _ApiError implements Exception {
   String toString() => 'ApiError($statusCode): $message';
 }
 
-/// A Help24 service exception that wraps the original failure in its text —
+/// A Help24 service exception that wraps the original failure in its text,
 /// the `'Failed to create post: $e'` pattern, which carries no status.
 class _WrappingError implements Exception {
   _WrappingError(this.message);
@@ -182,7 +182,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    /// Every string on screen, so a leak anywhere fails the test — not only in
+    /// Every string on screen, so a leak anywhere fails the test, not only in
     /// the widget the test happens to look for.
     List<String> allText(WidgetTester tester) => tester
         .widgetList<Text>(find.byType(Text))
@@ -288,7 +288,7 @@ void main() {
       }
     });
 
-    test('401 is the session, 403 is permission — different problems', () {
+    test('401 is the session, 403 is permission: different problems', () {
       final signIn = ErrorMapper.toFailure(_ApiError('Your session could not be verified.', 401));
       expect(signIn.category, ErrorCategory.authentication);
       expect(signIn.message, 'Your session has expired. Please sign in again.');
@@ -324,7 +324,7 @@ void main() {
       expect(replaced.category, ErrorCategory.validation);
 
       // After a tap with nothing typed, "check the details" would be advice
-      // about details that do not exist — the action's sentence is used.
+      // about details that do not exist, the action's sentence is used.
       final onDelete = ErrorMapper.toFailure(_ApiError('user_id is required.', 400),
           context: ErrorContext.delete);
       expect(onDelete.message, "We couldn't remove this. Please try again.");
@@ -478,7 +478,7 @@ void main() {
 
     test('the posting slot round-trips: AppProvider maps, PostScreen re-maps', () {
       // AppProvider stores the mapped sentence; PostScreen re-throws it as
-      // Exception(message) and maps again — the wording must survive.
+      // Exception(message) and maps again, the wording must survive.
       final stored =
           ErrorMapper.toMessage(_productionError(), context: ErrorContext.createOffer);
       expect(
@@ -562,7 +562,7 @@ void main() {
     });
   });
 
-  group('no mapped message ever leaks — every error × every context', () {
+  group('no mapped message ever leaks, every error × every context', () {
     final corpus = <Object?>[
       _productionError(),
       const SocketException("Failed host lookup: 'api.help24.co.ke'",
@@ -657,7 +657,7 @@ void main() {
       expect(
         MpesaFailureCopy.forInitiation(
             _ApiError('Please add your M-Pesa number to your profile to make payments.', 400)),
-        contains('Profile → Payment Number'),
+        contains('Profile → Payments'),
       );
       expect(
         MpesaFailureCopy.forInitiation(_ApiError(

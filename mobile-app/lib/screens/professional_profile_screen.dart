@@ -15,17 +15,17 @@ import '../utils/phone_utils.dart';
 import '../widgets/profile_editors.dart';
 import '../widgets/profile_widgets.dart';
 
-/// The Professional Profile — the hub that replaced the flat Edit Profile form.
+/// The Professional Profile, the hub that replaced the flat Edit Profile form.
 ///
 /// STRUCTURE (spec §1): identity header with a completion ring, then two
-/// sections — Personal Information and Professional Information. Each row
+/// sections, Personal Information and Professional Information. Each row
 /// opens a focused editor for ONE field. Nothing is a long form; nothing is
 /// saved implicitly.
 ///
 /// PHONE IS READ-ONLY HERE, BY DESIGN. The number lives in Account behind
 /// device authentication (Payment Number). Duplicating the editor here would
 /// create a second write path for the most security-sensitive field on the
-/// account, so this screen shows it and points back — one source of truth, one
+/// account, so this screen shows it and points back, one source of truth, one
 /// flow.
 class ProfessionalProfileScreen extends StatefulWidget {
   final String uid;
@@ -53,7 +53,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
   bool _loading = false;
   bool _uploadingPhoto = false;
 
-  /// True once anything was saved — returned to the caller so the Account tab
+  /// True once anything was saved, returned to the caller so the Account tab
   /// refreshes its hero without polling.
   bool _changed = false;
 
@@ -130,7 +130,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
   }
 
   /// The phone is managed in Account. Rather than opening a second editor, we
-  /// say so and take the user back there — the sheet lives on the Account tab
+  /// say so and take the user back there, the sheet lives on the Account tab
   /// behind its biometric gate.
   void _explainPhoneIsManagedInAccount() {
     showModalBottomSheet<void>(
@@ -140,9 +140,7 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
         title: 'Phone number',
         subtitle:
             'This is the M-Pesa number you pay from, and how clients reach you. '
-            'It is changed in Account → Payment Number with device authentication, '
-            'and shown here for reference only. Where your earnings are SENT is set '
-            'separately, under Business → Payout Destinations.',
+            'Change it in Profile → Payments. Your device lock protects it.',
         children: [
           SizedBox(
             width: double.infinity,
@@ -150,11 +148,11 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
             child: FilledButton.icon(
               onPressed: () {
                 Navigator.pop(sheetContext);
-                // Back to Account → Payment Number, the one place it changes.
+                // Back to Profile → Payments, the one place it changes.
                 Navigator.of(context).pop(_changed);
               },
               icon: const Icon(AppIcons.back, size: 18),
-              label: const Text('Change in Account'),
+              label: const Text('Change in Payments'),
             ),
           ),
         ],
@@ -240,21 +238,21 @@ class _ProfessionalProfileScreenState extends State<ProfessionalProfileScreen> {
                         ProfileFieldRow(
                           icon: AppIcons.call,
                           label: 'Phone number',
-                          // Masked here exactly as it is on the Account tile —
+                          // Masked here exactly as it is on the Account tile,
                           // the full value is only revealed behind the
                           // biometric gate.
                           value: phone.isEmpty ? null : maskPhone(phone),
                           emptyHint: 'Not set',
                           note: phone.isEmpty
-                              ? 'Add it in Account so clients can reach you'
-                              : 'Managed in Account',
+                              ? 'Add it in Payments'
+                              : 'Managed in Payments',
                           onTap: _explainPhoneIsManagedInAccount,
                         ),
                         ProfileFieldRow(
                           icon: AppIcons.verified,
                           label: 'Member since',
                           value: _memberSince(profile),
-                          emptyHint: '—',
+                          emptyHint: 'Unknown',
                           onTap: null,
                         ),
                       ],
@@ -495,7 +493,7 @@ class _CompletionCardState extends State<_CompletionCard> {
                       completion.isComplete
                           ? 'Clients see everything they need to hire you.'
                           : next != null
-                              ? 'Next: ${next.label.toLowerCase()} — ${next.hint.toLowerCase()}'
+                              ? 'Next: ${next.label.toLowerCase()}, ${next.hint.toLowerCase()}'
                               : '$done of ${active.length} steps done',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
@@ -538,7 +536,7 @@ class _CompletionCardState extends State<_CompletionCard> {
   }
 }
 
-/// Roadmap group. Declared fields that are not live yet — visible so the
+/// Roadmap group. Declared fields that are not live yet, visible so the
 /// profile reads as something that grows, but EXCLUDED from the percentage so
 /// nobody is stuck below 100% waiting for a feature.
 class _ComingSoonCard extends StatelessWidget {

@@ -13,14 +13,14 @@ import '../../widgets/provider_gate.dart';
 import '../professional_profile_screen.dart';
 import 'payout_destinations_screen.dart';
 
-/// Provider onboarding — the one screen that answers "what is left before I
+/// Provider onboarding, the one screen that answers "what is left before I
 /// can work and get paid?".
 ///
 /// A provider on Help24 is derived, not registered: a confirmed profession plus
 /// a contact number makes you hireable (ProviderReadiness), and a VERIFIED
 /// payout destination makes you payable. This screen tracks all three and
 /// routes into the flow that completes each one. There is no server-side
-/// "provider account" to create — finishing the steps IS the registration.
+/// "provider account" to create, finishing the steps IS the registration.
 class ProviderOnboardingScreen extends StatefulWidget {
   final String uid;
   final UserModel? initialProfile;
@@ -223,7 +223,7 @@ class _ProviderOnboardingScreenState extends State<ProviderOnboardingScreen> {
             icon: AppIcons.profession,
             title: 'Choose your profession',
             detail: professionDone
-                ? 'Confirmed — clients can see what you do.'
+                ? 'Confirmed. Clients can see what you do.'
                 : 'Clients need to know what you do before they can hire you.',
             actionLabel: professionDone ? 'Edit' : 'Choose',
             onTap: _openProfessionalProfile,
@@ -234,9 +234,8 @@ class _ProviderOnboardingScreenState extends State<ProviderOnboardingScreen> {
             icon: AppIcons.call,
             title: 'Add your contact number',
             detail: phoneDone
-                ? 'On file — clients and Help24 can reach you.'
-                : 'Added under Account → Payment Number, protected by your device lock. '
-                    'This is your contact number — not where payouts are sent.',
+                ? 'On file. Clients and Help24 can reach you.'
+                : 'Add it in Profile → Payments. Your device lock protects it.',
             actionLabel: phoneDone ? 'Edit' : 'Add',
             onTap: _openProfessionalProfile,
           ),
@@ -252,9 +251,9 @@ class _ProviderOnboardingScreenState extends State<ProviderOnboardingScreen> {
               _PayoutStepState.pending =>
                 'A number is waiting for its verification code.',
               _PayoutStepState.needsDefault =>
-                'Verified — now choose which number is your default.',
+                'Verified. Now choose which number is your default.',
               _PayoutStepState.complete =>
-                'Verified — payouts go to your default M-Pesa number.',
+                'Verified. Payouts go to your default M-Pesa number.',
               _PayoutStepState.unavailable =>
                 'Rolling out soon. Your other steps still count.',
               _PayoutStepState.error =>

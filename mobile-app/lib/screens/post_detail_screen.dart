@@ -42,7 +42,7 @@ import '../widgets/report_sheet.dart';
 import '../utils/vetting_labels.dart';
 import '../widgets/vetting_badge.dart';
 
-/// Production post detail — the conversion surface of Help24.
+/// Production post detail, the conversion surface of Help24.
 ///
 /// Replaces the old 85%-height discover bottom sheet AND the simplified
 /// `_PostDetailPage` that chat used, so there is exactly ONE detail
@@ -56,9 +56,9 @@ import '../widgets/vetting_badge.dart';
 /// duplicate-apply guard, M-Pesa prechecks, payment-secured lock, provider
 /// selection, job lifecycle actions, archive-on-delete.
 ///
-/// THE CANONICAL OWNER SURFACE. Every entry point that opens a listing — the
+/// THE CANONICAL OWNER SURFACE. Every entry point that opens a listing, the
 /// Discover feed, the Jobs tab, Profile → My Posts, Saved, a chat's post
-/// banner — lands here, so the author gets the same management experience
+/// banner, lands here, so the author gets the same management experience
 /// regardless of where they came from. Its owner affordances are gated on
 /// [listingTakesApplications], NOT on `type == PostType.request`: that
 /// mis-gate is what left a job author with a dead sentence ("You posted this
@@ -73,11 +73,11 @@ class PostDetailScreen extends StatefulWidget {
 }
 
 class _PostDetailScreenState extends State<PostDetailScreen> {
-  /// Local selection override — updated immediately after "Select" so the
+  /// Local selection override, updated immediately after "Select" so the
   /// payment button appears without waiting for a feed reload.
   String? _selectedProviderId;
 
-  /// Applied state — set by a one-shot background check or after submitting
+  /// Applied state, set by a one-shot background check or after submitting
   /// an offer. Drives the "Applied" state in the action bar.
   bool _hasApplied = false;
   bool _appliedChecked = false;
@@ -101,7 +101,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   // One-shot checks mirror the old sheet: they run from build the first time
   // their preconditions hold (auth may arrive after the screen opens).
   void _runOneShotChecks(String currentUserId, bool isAuthor) {
-    // Job posts take applications too — checking only requests meant a user who
+    // Job posts take applications too, checking only requests meant a user who
     // had already applied to a job was invited to apply again from here.
     if (!_appliedChecked &&
         !isAuthor &&
@@ -152,7 +152,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     return Consumer2<AuthProvider, ConnectivityProvider>(
       builder: (context, auth, connectivity, _) {
         final currentUserId = auth.currentUserId ?? '';
-        // Shared rule — see utils/post_ownership.dart.
+        // Shared rule, see utils/post_ownership.dart.
         final isAuthor = isListingOwner(
           authorUserId: post.authorUserId,
           viewerUserId: currentUserId,
@@ -277,7 +277,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       // requests and job posts alike. This condition used to
                       // read `post.type == PostType.request`, so a job author
                       // opening their own post from Discover was shown nothing
-                      // to manage — the bug this whole change exists to fix.
+                      // to manage, the bug this whole change exists to fix.
                       if (listingTakesApplications(post.type) && isAuthor) ...[
                         const SizedBox(height: 24),
                         _ApplicantsSection(
@@ -412,7 +412,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               );
             },
           ),
-        // Report — behind a ⋮ rather than a flag in the bar: it is an action
+        // Report, behind a ⋮ rather than a flag in the bar: it is an action
         // most people never need, and a flag beside Save reads as an accusation
         // hanging over every listing.
         if (!isAuthor && post.authorUserId.isNotEmpty)
@@ -685,7 +685,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         ),
       );
     } else if (!isAuthor) {
-      // Full-width CTA. The price deliberately does NOT repeat here — it is
+      // Full-width CTA. The price deliberately does NOT repeat here, it is
       // already prominent in the price card above; echoing it in the bar
       // squeezed the CTA label into truncation on narrow screens. (The owner's
       // "Secure Service · KES total" keeps its number because that is the
@@ -703,7 +703,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 PostType.offer => 'request this service',
               },
               // Jobs go through the SAME guarded apply flow as requests (it was
-              // "Contact Poster" here while the Jobs tab said "Apply" — two
+              // "Contact Poster" here while the Jobs tab said "Apply", two
               // answers for one listing). Offers are enquired about in chat.
               onAuthenticated: () => listingTakesApplications(post.type)
                   ? applyToListing(context, post)
@@ -738,7 +738,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       );
     } else if (listingTakesApplications(post.type)) {
       // Author of a request or a JOB POST with no selection yet. One full-size
-      // element — the applicant count folds into the button label (the
+      // element, the applicant count folds into the button label (the
       // Applicants section above already shows the detail; a side-by-side text
       // + small button squeezed both).
       //
@@ -752,8 +752,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               alignment: Alignment.center,
               child: Text(
                 post.type == PostType.job
-                    ? 'No applicants yet — they will appear here'
-                    : 'No offers yet — providers will apply here',
+                    ? 'No applicants yet. They will appear here'
+                    : 'No offers yet. Providers will apply here',
                 style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
@@ -795,7 +795,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             );
     } else {
       // Author viewing their own OFFER. An offer has no applicants and no
-      // lifecycle — it is a standing advert, so a statement is the honest
+      // lifecycle, it is a standing advert, so a statement is the honest
       // answer here. (Jobs no longer land in this branch.)
       content = Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -963,7 +963,7 @@ class _ImageCarouselState extends State<_ImageCarousel> {
   }
 }
 
-/// Full-screen swipeable, zoomable gallery — every photo is a [ZoomableImage].
+/// Full-screen swipeable, zoomable gallery, every photo is a [ZoomableImage].
 class _FullScreenGallery extends StatefulWidget {
   final List<String> images;
   final int initialIndex;
@@ -1120,7 +1120,7 @@ class _CircleIconButton extends StatelessWidget {
   final IconData icon;
 
   /// What a screen reader says. Required: an icon alone is announced as a
-  /// nameless "Button" — found on device 2026-10-29 for Back and Delete.
+  /// nameless "Button", found on device 2026-10-29 for Back and Delete.
   final String label;
   final bool isDark;
   final bool onScrim;
@@ -1174,7 +1174,7 @@ class _TypeBadge extends StatelessWidget {
   /// TYPOGRAPHIC, NOT CHROMATIC.
   ///
   /// This was a solid fill in Material 2014's `#2196F3` / `#4CAF50` /
-  /// `#9C27B0` — white caps at w800 with 1.1 letter-spacing, which made the
+  /// `#9C27B0`, white caps at w800 with 1.1 letter-spacing, which made the
   /// least informative element on the screen the loudest. The card below the
   /// title already says what kind of listing this is, and so does the verb on
   /// the action bar ("Offer Service" / "Enquire" / "Apply").
@@ -1248,7 +1248,7 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-/// Price block — the money question answered up front, in the intent's own
+/// Price block, the money question answered up front, in the intent's own
 /// language (Budget / Starting price / Salary).
 class _PriceBlock extends StatelessWidget {
   final PostModel post;
@@ -1262,9 +1262,9 @@ class _PriceBlock extends StatelessWidget {
     // A PRICE IS NOT A SUCCESS.
     //
     // This was a green-tinted, green-bordered box with a 21px w800 green
-    // number — the most decorated element on the screen, in the colour the
+    // number, the most decorated element on the screen, in the colour the
     // app uses for "completed" and "paid out", spent on a figure that is
-    // simply a fact. Worse, "Open to offers" — the ABSENCE of a budget —
+    // simply a fact. Worse, "Open to offers", the ABSENCE of a budget,
     // rendered in exactly the same celebratory green.
     //
     // Green now means settled. A price is ink, on the same surface as
@@ -1282,7 +1282,7 @@ class _PriceBlock extends StatelessWidget {
     // itself; the vetting state lives once, under the provider's name.
     //
     // Any unpriced listing is a placeholder ("Open to offers", "Ask for a
-    // quote", "Negotiable") — not only the request one this used to test for.
+    // quote", "Negotiable"), not only the request one this used to test for.
     final isPlaceholder = post.price <= 0;
     final acceptsMpesa = post.type == PostType.offer && post.authorHasPhone;
     return Column(
@@ -1321,7 +1321,7 @@ class _PriceBlock extends StatelessWidget {
   }
 }
 
-/// Who is behind this post — avatar, name, live reputation.
+/// Who is behind this post, avatar, name, live reputation.
 class _AuthorCard extends StatelessWidget {
   final PostModel post;
   final bool isDark;
@@ -1350,7 +1350,7 @@ class _AuthorCard extends StatelessWidget {
       //
       // This is the screen where a stranger decides to let another stranger
       // into their home, and it used to carry a name, an avatar and a single
-      // compact line — which renders as *nothing at all* for a provider with
+      // compact line, which renders as *nothing at all* for a provider with
       // no reviews. The facts the platform already computes were not on it.
       //
       // `ReputationTrustBlock` was written for exactly this job and was
@@ -1361,7 +1361,7 @@ class _AuthorCard extends StatelessWidget {
       //
       // The vetting state is said ONCE, here, as type under the name. It used
       // to appear as a chip in the price card, a chip under the name AND a
-      // sentence restating it — three copies of "not yet verified".
+      // sentence restating it, three copies of "not yet verified".
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1442,7 +1442,7 @@ class _AuthorCard extends StatelessWidget {
   }
 }
 
-/// Collapsible description — expands past 6 lines only when the text needs it.
+/// Collapsible description, expands past 6 lines only when the text needs it.
 class _ExpandableText extends StatefulWidget {
   final String text;
   final bool isDark;
@@ -1526,7 +1526,7 @@ class _DetailTile extends StatelessWidget {
       child: Row(
         children: [
           // A plain glyph. It used to be a tinted rounded square, and every
-          // row in the card got the same tint — so the squares differentiated
+          // row in the card got the same tint, so the squares differentiated
           // nothing and cost 46 px of row width each.
           Icon(icon, size: 18, color: AppColors.of(context).contentTertiary),
           const SizedBox(width: 12),
@@ -1554,7 +1554,7 @@ class _DetailTile extends StatelessWidget {
   }
 }
 
-/// Trust explainer for paid requests — outcome language, not financial jargon.
+/// Trust explainer for paid requests, outcome language, not financial jargon.
 class _PaymentProtectionCard extends StatelessWidget {
   final bool isDark;
 
@@ -1563,7 +1563,7 @@ class _PaymentProtectionCard extends StatelessWidget {
   /// TWO PEOPLE READ THIS CARD AND THEY ARE NOT DOING THE SAME THING.
   /// It used to take no role at all, so a provider looking at a request they
   /// might offer service on was told to "pay through Help24" and that "the
-  /// provider is paid only after YOUR approval" — the buyer's script, read by
+  /// provider is paid only after YOUR approval", the buyer's script, read by
   /// the person being paid. Verified on the S20+: the same screen that says
   /// "Offer Service" carried the client's wording verbatim.
   final bool isAuthor;
@@ -1612,7 +1612,7 @@ class _PaymentProtectionCard extends StatelessWidget {
   }
 }
 
-/// Link to the Job Lifecycle Detail — payment, completion, dispute, timeline.
+/// Link to the Job Lifecycle Detail, payment, completion, dispute, timeline.
 ///
 /// That screen is the money view; this one is the listing view. Profile → My
 /// Posts used to open it *instead of* the listing, which is how the same job
@@ -1646,7 +1646,7 @@ class _LifecycleLink extends StatelessWidget {
   }
 }
 
-// ─── Applicants (request owner) — moved unchanged from the old sheet ─────────
+// ─── Applicants (request owner), moved unchanged from the old sheet ─────────
 
 class _ApplicantsSection extends StatefulWidget {
   final PostModel post;
@@ -1656,8 +1656,8 @@ class _ApplicantsSection extends StatefulWidget {
   /// Whether choosing an applicant starts the escrow lifecycle (select →
   /// secure payment → mark complete → approve).
   ///
-  /// True for REQUESTS only. An employment job post has no payment step — the
-  /// action bar's "Secure Service" button is request-gated — so accepting an
+  /// True for REQUESTS only. An employment job post has no payment step, the
+  /// action bar's "Secure Service" button is request-gated, so accepting an
   /// applicant there would move the post to 'assigned' with no way to pay,
   /// complete or release it. The job owner gets the full applicant list, trust
   /// signals and messaging; hiring is concluded in conversation, not escrow.
@@ -1688,7 +1688,7 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
   /// different times.
   ///
   /// Only the FIRST warm gates the list. A later one (a realtime application
-  /// arriving) runs behind the cards already on screen — re-gating would blank
+  /// arriving) runs behind the cards already on screen, re-gating would blank
   /// a list the owner is reading in order to reload data they already have.
   bool _warmSettled = false;
 
@@ -1722,7 +1722,7 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    // Card colours now live inside ApplicantCard — this section only lays out
+    // Card colours now live inside ApplicantCard, this section only lays out
     // the header and the list.
     final textSecondary =
         isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
@@ -1803,7 +1803,7 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
           // The SAME card the Applications screen renders. These two lists are
           // the same decision on two surfaces; keeping one widget is what stops
           // them drifting apart again (this one used to show no trust signals
-          // at all — just a name and a timestamp).
+          // at all, just a name and a timestamp).
           ...widget.post.applications.map((app) {
             final isSelected = app.applicantUserId == effectiveSelectedId;
             final isSelecting = _selecting == app.applicantUserId;
@@ -1870,14 +1870,14 @@ class _ApplicantsSectionState extends State<_ApplicantsSection> {
   }
 }
 
-// ─── Job lifecycle status — moved unchanged from the old sheet ───────────────
+// ─── Job lifecycle status, moved unchanged from the old sheet ───────────────
 
 class _JobStatusCard extends StatelessWidget {
   final JobCompletionStatus status;
   final bool isDark;
   // Role-aware wording: the CLIENT reviews/approves; the PROVIDER waits on them.
   final bool isAuthor;
-  // Canonical post status — lets a resolved dispute (post 'completed') override a
+  // Canonical post status, lets a resolved dispute (post 'completed') override a
   // stale job_completions='disputed' so this card agrees with the discover card.
   final String postStatus;
 
@@ -1899,7 +1899,7 @@ class _JobStatusCard extends StatelessWidget {
           AppTheme.warningOrange,
         ),
       'approved' => (
-          'Job completed — payment released',
+          'Job completed, payment released',
           AppIcons.successFilled,
           AppTheme.successGreen.withValues(alpha: 0.12),
           AppTheme.successGreen,
@@ -1908,13 +1908,13 @@ class _JobStatusCard extends StatelessWidget {
       // "admin reviewing" once the case is closed.
       'disputed' => resolved
           ? (
-              'Dispute resolved — job completed',
+              'Dispute resolved, job completed',
               AppIcons.successFilled,
               AppTheme.successGreen.withValues(alpha: 0.12),
               AppTheme.successGreen,
             )
           : (
-              'Dispute opened — admin reviewing',
+              'Dispute opened, admin reviewing',
               AppIcons.dispute,
               AppTheme.errorRed.withValues(alpha: 0.10),
               AppTheme.errorRed,
@@ -2014,7 +2014,7 @@ class _ApplicantCardSkeleton extends StatelessWidget {
   }
 }
 
-// ─── Secure Service button — moved unchanged from the old sheet ──────────────
+// ─── Secure Service button, moved unchanged from the old sheet ──────────────
 
 enum _SecureButtonState { loading, ready, paid }
 
@@ -2065,7 +2065,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
       setState(() =>
           _btnState = secured ? _SecureButtonState.paid : _SecureButtonState.ready);
     } catch (_) {
-      // 404 = no transaction yet — show the button.
+      // 404 = no transaction yet, show the button.
       if (mounted) setState(() => _btnState = _SecureButtonState.ready);
     }
   }
@@ -2096,11 +2096,11 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
       if (!mounted) return;
 
       // Fallback: for phone-auth users the Firebase phone number is the same
-      // M-Pesa number — use it when the Supabase profile hasn't been explicitly set.
+      // M-Pesa number, use it when the Supabase profile hasn't been explicitly set.
       if ((rawPhone == null || rawPhone.isEmpty)) {
         final fbPhone = context.read<AuthProvider>().currentUser?.phoneNumber;
         if (fbPhone != null && fbPhone.isNotEmpty) {
-          debugPrint('[SecureBtn] DB phone missing — falling back to Firebase phone');
+          debugPrint('[SecureBtn] DB phone missing, falling back to Firebase phone');
           rawPhone = fbPhone;
         }
       }
@@ -2117,7 +2117,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
               SizedBox(width: 10),
               Flexible(
                   child: Text(
-                      'Add a valid M-Pesa number in Profile → Payment Number.')),
+                      'Add a valid M-Pesa number in Profile → Payments.')),
             ]),
             backgroundColor: AppTheme.warningOrange,
             behavior: SnackBarBehavior.floating,
@@ -2132,7 +2132,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
       final providerUserId =
           widget.providerUserId ?? widget.post.selectedProviderUserId;
       if (providerUserId != null && providerUserId.isNotEmpty) {
-        // Whether they HAVE a number is all this check needs — another
+        // Whether they HAVE a number is all this check needs, another
         // person's number itself is no longer readable (migration 123).
         final providerHasPhone = await UserProfileService.hasMpesaPhone(providerUserId);
         if (!mounted) return;
@@ -2164,7 +2164,7 @@ class _SecureServiceButtonState extends State<_SecureServiceButton> {
       //  in case the user tapped "Secure Service" twice or state is stale.)
       if (_btnState == _SecureButtonState.paid) return;
 
-      // All checks passed — proceed to payment.
+      // All checks passed, proceed to payment.
       widget.onTap(normalizedPhone);
     } finally {
       if (mounted) setState(() => _checking = false);

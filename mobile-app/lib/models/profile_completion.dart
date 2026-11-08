@@ -14,7 +14,7 @@ enum ProfileSection {
 ///
 /// `comingSoon` fields are DECLARED but excluded from the percentage, so the
 /// profile is completable to 100% right now while the roadmap stays visible.
-/// Shipping one later is a one-line status flip — no redesign, no recompute,
+/// Shipping one later is a one-line status flip, no redesign, no recompute,
 /// no migration of anybody's percentage.
 enum ProfileFieldStatus { active, comingSoon }
 
@@ -22,7 +22,7 @@ enum ProfileFieldStatus { active, comingSoon }
 ///
 /// A value object rather than a raw [UserModel] so the registry stays pure and
 /// unit-testable, and so the ONE judgement that needs the profession registry
-/// — "is this a confirmed trade or legacy free text?" — is made in exactly one
+///, "is this a confirmed trade or legacy free text?", is made in exactly one
 /// place ([ProfileFacts.from]).
 class ProfileFacts {
   final bool hasPhoto;
@@ -66,7 +66,7 @@ class ProfileFacts {
 
 /// One completable item on the Professional Profile.
 class ProfileFieldSpec {
-  /// Stable key — used by analytics and deep links. Never rename.
+  /// Stable key, used by analytics and deep links. Never rename.
   final String key;
   final String label;
   final ProfileSection section;
@@ -109,7 +109,7 @@ class ProfileFieldState {
 /// ADDING A FUTURE FIELD is a single entry in [fields]:
 ///   1. add the spec with `status: ProfileFieldStatus.comingSoon`,
 ///   2. when it ships, add its fact to [ProfileFacts] and flip the status.
-/// Nothing else in the app changes — the hub screen, the ring, the checklist
+/// Nothing else in the app changes, the hub screen, the ring, the checklist
 /// and the become-a-provider gate all read this list.
 class ProfileCompletion {
   ProfileCompletion._({
@@ -195,8 +195,8 @@ class ProfileCompletion {
       weight: 20,
       // Deliberately points at Account: the number is managed there, behind
       // device authentication, and must never gain a second editor.
-      // Not "needed to get paid" (§M4) — that is Payout Destinations' job.
-      hint: 'Verified in Account · how clients reach you',
+      // Not "needed to get paid" (§M4), that is Payout Destinations' job.
+      hint: 'How clients reach you, set in Payments',
       satisfiedBy: (f) => f.hasPhone,
     ),
 
@@ -214,7 +214,7 @@ class ProfileCompletion {
       label: 'About you',
       section: ProfileSection.professional,
       weight: 25,
-      hint: 'A short intro — what you do and how long you have done it',
+      hint: 'A short intro: what you do and how long you have done it',
       satisfiedBy: (f) => f.hasBio,
     ),
 

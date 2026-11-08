@@ -13,10 +13,10 @@ import '../utils/error_mapper.dart';
 import 'profile_widgets.dart';
 
 // =============================================================================
-// Become a Provider — ONE gate, checked in ONE place.
+// Become a Provider, ONE gate, checked in ONE place.
 //
 // Before this existed, offering on a request required an M-Pesa number
-// (post_flows.dart) while applying to a JOB required nothing at all — two
+// (post_flows.dart) while applying to a JOB required nothing at all, two
 // different bars for the same act of offering to work. Both paths now call
 // [ensureProviderReady].
 //
@@ -27,7 +27,7 @@ import 'profile_widgets.dart';
 //
 // so it can never drift out of sync with the profile it describes, and
 // nothing has to be migrated or backfilled. Profession is required HERE and
-// nowhere else — sign-up stays frictionless (spec §3), and a browsing/posting
+// nowhere else, sign-up stays frictionless (spec §3), and a browsing/posting
 // user is never asked for it.
 // =============================================================================
 
@@ -76,7 +76,7 @@ class ProviderReadiness {
 /// Gate an "offer to work" action.
 ///
 /// Returns true when the user may proceed. When they may not, an explanatory
-/// sheet is shown that routes to the Professional Profile — the flow the spec
+/// sheet is shown that routes to the Professional Profile, the flow the spec
 /// asks for (Become Provider → Complete Professional Profile → Profession
 /// required → Continue) rather than a dead-end snackbar.
 ///
@@ -155,7 +155,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
             ProviderReadiness.of(_profile, fallbackPhone: widget.fallbackPhone);
         _checking = false;
       });
-      // Everything is satisfied — hand control straight back to the action the
+      // Everything is satisfied, hand control straight back to the action the
       // user originally tapped, rather than making them tap it again.
       if (mounted && _readiness.isReady) Navigator.pop(context, true);
     } catch (e) {
@@ -195,7 +195,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
       title: 'Complete your professional profile',
       subtitle:
           'Before you can ${widget.action}, clients need to know who they are '
-          'hiring — and we need a way to pay you.',
+          'hiring, and we need a way to pay you.',
       children: [
         for (final requirement in ProviderRequirement.values)
           Padding(
@@ -223,9 +223,8 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Your number is added in Account → Payment Number, '
-                    'protected by your device lock. Where your earnings are '
-                    'sent is set separately, under Payout Destinations.',
+                    'Add your number in Profile → Payments. '
+                    'Your device lock protects it.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:help24/services/payout_authority.dart';
 
-/// §M4 — "there is exactly ONE authoritative UI for configuring where provider
+/// §M4, "there is exactly ONE authoritative UI for configuring where provider
 /// payouts are sent". These tests pin both halves of that: the decision
 /// function that decides what the legacy screen may claim, and a copy guard
 /// that fails if the removed language ever comes back.
@@ -49,7 +49,8 @@ void main() {
     test('destinations disclaims payout authority and names the real surface', () {
       final note = payoutNoteFor(PayoutAuthority.destinations)!;
       expect(note, contains('NOT'));
-      expect(note, contains('Payout Destinations'));
+      // Payout numbers live in Payments since the 2026-11-08 merge.
+      expect(note, contains('payout number you verified in Payments'));
     });
 
     test('profileNumber admits the number governs payouts today', () {
@@ -70,7 +71,7 @@ void main() {
     });
   });
 
-  group('copy guard — the legacy surface must not re-acquire payout language', () {
+  group('copy guard: the legacy surface must not re-acquire payout language', () {
     /// Files that describe the PROFILE number (users.phone_number). The payout
     /// screens are excluded because saying "earnings are sent here" is their
     /// actual job.

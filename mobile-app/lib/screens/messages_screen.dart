@@ -140,7 +140,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
         children: [
           // Header
           // The title, and under it the one line that says where chat stands
-          // with the server — "Waiting for network", "Connecting…" or
+          // with the server, "Waiting for network", "Connecting…" or
           // nothing. Content below never waits on it.
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
@@ -170,12 +170,12 @@ class _MessagesScreenState extends State<MessagesScreen> {
                   //
                   // Checked BEFORE the skeleton: a skeleton offline promises a
                   // load that cannot happen. And it is only reachable with
-                  // nothing stored — the list is read from the database first,
+                  // nothing stored, the list is read from the database first,
                   // so any history at all is on screen instead.
                   if (connectivity.isOffline) {
                     return OfflineEmptyView(
                       message: 'Connect to the internet to load your chats',
-                      detail: "Once they've loaded, they stay on this phone — even offline.",
+                      detail: "Once they've loaded, they stay on this phone, even offline.",
                       onRetry: () {
                         connectivity.checkNow();
                         _refreshConversations();
@@ -185,7 +185,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                   if (provider.isLoadingConversations) {
                     return const ConversationSkeletonList();
                   }
-                  // "We couldn't load your chats" is not "you have no chats" —
+                  // "We couldn't load your chats" is not "you have no chats",
                   // same distinction the Discover feed makes.
                   if (provider.messagesError != null) {
                     return ErrorRetryView(
@@ -207,7 +207,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                   );
                 }
 
-                // Every conversation the database holds — sync pages the whole
+                // Every conversation the database holds, sync pages the whole
                 // list in, so there is no "load more" to wait on.
                 return RefreshIndicator(
                   onRefresh: _refreshConversations,
@@ -289,7 +289,7 @@ class _ConversationTile extends StatelessWidget {
     } else if (diff.inDays < 7) {
       return '${diff.inDays}d ago';
     } else {
-      // e.g. "Apr 3" — unambiguous, never looks like a fraction
+      // e.g. "Apr 3", unambiguous, never looks like a fraction
       return '${_months[time.month]} ${time.day}';
     }
   }
@@ -312,7 +312,7 @@ class _ConversationTile extends StatelessWidget {
     // leave no trace here at all: the row kept showing the PREVIOUS message as
     // the latest one, and the user's own words were missing from the list with
     // nothing to explain why. What is queued is newer than what the server
-    // knows, and it is shown as such — marked, never disguised as delivered.
+    // knows, and it is shown as such, marked, never disguised as delivered.
     final pending = OutboxStore.instance.pendingFor(currentUserId, conversation.id);
     final hasFailure = OutboxStore.instance.hasFailure(currentUserId, conversation.id);
     // Worded exactly as the server will write it once delivered, so a queued
@@ -322,7 +322,7 @@ class _ConversationTile extends StatelessWidget {
         : ChatServiceSupabase.previewFor(type: pending.type, content: pending.text);
     final previewTime = pending?.timestamp ?? conversation.lastMessageTime;
     // Three states, three honest labels. "Sending…" is reserved for a request
-    // that is genuinely open RIGHT NOW — asked of the store, not read off the
+    // that is genuinely open RIGHT NOW, asked of the store, not read off the
     // message's persisted status, because a status survives being killed
     // mid-send and would then claim a request that no longer exists. Anything
     // else says the true thing, which is that it has NOT been sent.
@@ -403,7 +403,7 @@ class _ConversationTile extends StatelessWidget {
                         Row(
                           children: [
                             // The unsent marker. A clock for "waiting for a
-                            // network", a warning for "this did not go" — the
+                            // network", a warning for "this did not go", the
                             // two must not look alike, because only one of them
                             // needs the user to do something.
                             if (pending != null) ...[
@@ -469,7 +469,7 @@ class _ConversationTile extends StatelessWidget {
                                 child: Text(
                                   conversation.unreadCount.toString(),
                                   style: TextStyle(
-                                    // The theme's own "on error" — the label for this fill.
+                                    // The theme's own "on error", the label for this fill.
                                     color: Theme.of(context).colorScheme.onError,
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
@@ -480,7 +480,7 @@ class _ConversationTile extends StatelessWidget {
                             ],
                           ],
                         ),
-                        // Post context — always visible when available
+                        // Post context, always visible when available
                         if (conversation.postTitle != null && conversation.postTitle!.isNotEmpty) ...[
                           const SizedBox(height: 4),
                           Row(
@@ -520,7 +520,7 @@ class _ConversationTile extends StatelessWidget {
 }
 
 /// The thread's padding below the newest message (the reversed list's
-/// leading edge) — the sticky day pill reads the list in the same frame.
+/// leading edge), the sticky day pill reads the list in the same frame.
 const double _kListPaddingBottom = 8;
 
 class ChatScreen extends StatefulWidget {
@@ -531,7 +531,7 @@ class ChatScreen extends StatefulWidget {
   ///
   /// The conversation is then resolved to the most recently active thread with
   /// this person, whatever its post, instead of always targeting the general
-  /// (`post_id IS NULL`) one — so "message this provider" continues the
+  /// (`post_id IS NULL`) one, so "message this provider" continues the
   /// conversation you were already having (§D2). Contextual entry points
   /// (application, post, job) leave it false and keep resolving their own
   /// specific `post_id`.
@@ -563,7 +563,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // below stays as the fallback.
   RealtimeChannel? _chatRowChannel;
   Timer? _typingExpireTimer;
-  // Fallback typing poll — retired the moment the realtime channel proves
+  // Fallback typing poll, retired the moment the realtime channel proves
   // alive (first chats-row event). Built in one place so both start sites (an
   // existing chat, and a pending chat that just got its first message) share
   // one cadence and one offline policy.
@@ -598,7 +598,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // no message-id booleans. JourneyEngine is the single app-level owner; this
   // screen renders its snapshot and forwards user intent. That is what lets a
   // journey survive navigating away, activity recreation and app restart.
-  /// True when the thread has nothing to show AND the load failed — lets the
+  /// True when the thread has nothing to show AND the load failed, lets the
   /// empty state tell the truth ("couldn't load") instead of claiming the
   /// conversation is empty.
   bool _loadFailed = false;
@@ -607,11 +607,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // Rebuild filter: engine snapshots change on every GPS fix; only state /
   // ownership / coarse distance changes are visually relevant here.
   String _journeyUiKey = '';
-  // Post behind this chat — fetched lazily (first location intent) for the
+  // Post behind this chat, fetched lazily (first location intent) for the
   // journey destination, picker centering and role-aware intent ordering.
   PostModel? _chatPost;
   Future<void>? _chatPostFetch;
-  // Viewer's last-known position for card distance labels. Primed silently —
+  // Viewer's last-known position for card distance labels. Primed silently,
   // rendering must never trigger a permission dialog.
   double? _myLat, _myLng;
   // Ticks only to expire journey UI (strip/cards) when no realtime event fires.
@@ -636,11 +636,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   };
 
   /// The other person's `users.profession` (a registry key or legacy text),
-  /// read with their presence — the header's "Plumber · ★ 4.8 · 34 jobs".
+  /// read with their presence, the header's "Plumber · ★ 4.8 · 34 jobs".
   String? _partnerProfession;
 
-  /// The other person as the chat database knows them — name, photo file,
-  /// profession — read at open, so the header is right with no network.
+  /// The other person as the chat database knows them, name, photo file,
+  /// profession, read at open, so the header is right with no network.
   ChatPerson? _partner;
 
   /// The conversation's own copy of its participant's last known name: the
@@ -649,15 +649,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Who the other person is, for every place this screen names them. The
   /// person record wins, then the entry point's name, then the conversation's
-  /// copy — and when none is known, `ChatPeople.unknownName`. Never "?".
+  /// copy, and when none is known, `ChatPeople.unknownName`. Never "?".
   String get _partnerName => ChatPeople.displayName(
         _partner?.name ??
             ChatPeople.knownOrNull(widget.conversation.userName) ??
             _storedPartnerName,
       );
 
-  /// Writes to the chat database by anyone else — a sync, a push the
-  /// background isolate stored — reach the open thread through this.
+  /// Writes to the chat database by anyone else, a sync, a push the
+  /// background isolate stored, reach the open thread through this.
   StreamSubscription<ChatChange>? _storeSub;
   Timer? _storeMerge;
 
@@ -675,7 +675,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   static final Map<String, JobLifecycle> _lifecycleMemo = {};
 
   // ── Thread presentation ──
-  /// The rows last built — the sticky day pill reads them on scroll.
+  /// The rows last built, the sticky day pill reads them on scroll.
   List<ChatThreadEntry> _entries = const [];
   final GlobalKey _listKey = GlobalKey();
 
@@ -703,21 +703,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // _scrollToMessage (reply-quote jumps).
   final Map<String, int> _itemIndexByKey = {};
 
-  // Mutable chat ID — empty string = pending (no DB row yet).
+  // Mutable chat ID, empty string = pending (no DB row yet).
   // Populated on first message send via _ensureChatCreated().
   late String _activeChatId;
 
   /// AppProvider, captured in [initState] while the element is still active.
   ///
   /// `dispose()` runs from `StatefulElement.unmount()`, which has already
-  /// released the element's widget — so `context.read<AppProvider>()` there
+  /// released the element's widget, so `context.read<AppProvider>()` there
   /// walks into `Element.widget` and throws a null check on a null value. That
   /// is not a debug assert; it happens in release, on every close, and it
   /// aborts the rest of dispose(). See the note in [_markSeenNow]: the
   /// BuildContext stops being safe, the provider does not.
   late final AppProvider _appProvider;
 
-  /// Whether a conversation exists — see `chat_resolution.dart`. Never let
+  /// Whether a conversation exists, see `chat_resolution.dart`. Never let
   /// `resolving` or `unresolved` render the start-conversation state.
   ChatResolution _resolution = ChatResolution.resolving;
 
@@ -742,7 +742,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   String? _resolvedPostId;
   String? _resolvedPostTitle;
 
-  /// What the CHAT is about — the adopted thread's post wins over the entry
+  /// What the CHAT is about, the adopted thread's post wins over the entry
   /// point's. Used for display and post-dependent actions only; the lookup key
   /// and lazy creation deliberately keep using `widget.conversation.postId`.
   String? get _postId => _resolvedPostId ?? widget.conversation.postId;
@@ -753,12 +753,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Everything that must happen once a canonical chat UUID is known.
   ///
   /// Extracted so the initState path (id supplied by the caller) and the
-  /// resolver path (id discovered by lookup) are literally the same code —
+  /// resolver path (id discovered by lookup) are literally the same code,
   /// the divergence between them is what §D1 was.
   void _beginExistingChat() {
     _loadLocalPrefs();
     // FIRST FRAME: if this thread is already mirrored in memory, seed it
-    // synchronously so the chat opens with its history on screen — no spinner
+    // synchronously so the chat opens with its history on screen, no spinner
     // at all, not even the one frame the async disk read used to cost.
     // A null peek means "not known yet", NOT "no messages": the async read
     // below is still authoritative.
@@ -785,7 +785,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _markSeenNow();
   }
 
-  /// Take [chatId] as this screen's conversation — found in the chat database
+  /// Take [chatId] as this screen's conversation, found in the chat database
   /// or by the server lookup; the two paths are the same code from here on.
   Future<void> _adoptExistingChat(
     String chatId, {
@@ -816,7 +816,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Resolve "does a conversation already exist?" when the caller had no id.
   ///
-  /// Read-only — creates nothing. A failed lookup resolves to `unresolved`,
+  /// Read-only, creates nothing. A failed lookup resolves to `unresolved`,
   /// never to `absent`: offline, offering "Start the conversation" would invite
   /// a second conversation beside one that already exists.
   Future<void> _resolveExistingChat() async {
@@ -832,7 +832,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
 
     // The chat database first. A conversation this phone already holds opens
-    // with no request at all — offline included — under the same identity
+    // with no request at all, offline included, under the same identity
     // rules the server lookup applies: this post's own thread, or the most
     // recently active one for a profile entry point.
     final local = await ChatStore.instance.findConversationFor(
@@ -859,7 +859,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         : await ChatServiceSupabase.findExistingChat(
             user1Id: widget.currentUserId,
             user2Id: otherId,
-            // The ENTRY POINT's post, not `_postId` — this is the lookup key,
+            // The ENTRY POINT's post, not `_postId`, this is the lookup key,
             // and nothing has been adopted yet.
             postId: widget.conversation.postId,
           );
@@ -925,7 +925,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Idempotent per uid.
     unawaited(OutboxStore.instance.start(widget.currentUserId));
     _loadOutbox();
-    // The reconnect edge AND the store's short transient-retry timer — one
+    // The reconnect edge AND the store's short transient-retry timer, one
     // signal, so this thread and every other thread retry on the same cue.
     _reconnectSub = OutboxStore.instance.retrySignal.listen((_) {
       if (mounted) _flushOutbox();
@@ -934,7 +934,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _resolution = ChatResolution.existing;
       _beginExistingChat();
     } else {
-      // The id being unknown is NOT proof that no conversation exists — that
+      // The id being unknown is NOT proof that no conversation exists, that
       // conflation was the bug (§D1). Ask, and show progress while asking.
       _resolution = ChatResolution.resolving;
       _loadingMessages = true;
@@ -946,7 +946,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _loadOnlineStatus();
     // Both chat pollers park while offline and resume with one immediate run.
     // At 3s and 30s they were the app's chattiest timers, and neither can
-    // possibly succeed without a network — a chat open in a tunnel used to fire
+    // possibly succeed without a network, a chat open in a tunnel used to fire
     // roughly twenty doomed requests a minute.
     _onlineStatusPoll = AdaptivePoll(
       interval: const Duration(seconds: 30),
@@ -1004,7 +1004,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // parts are NOT optional: without them a newly-arrived route changed no
     // other field on a stationary device, the key compared equal, setState was
     // skipped, and the ETA never appeared even though the engine had it.
-    // Bucketed so the filter still does its job — route identity changes ~once
+    // Bucketed so the filter still does its job, route identity changes ~once
     // per 90s, and the ETA is rendered in whole minutes.
     final key = '${s.state.name}:${s.messageId ?? ''}:'
         '${s.distanceToDestinationM == null ? '' : (s.distanceToDestinationM! / 25).round()}:'
@@ -1019,7 +1019,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     switch (event) {
       case JourneyEvent.autoArrived:
-        // Same human close as manual arrival — offer the heads-up. Only when
+        // Same human close as manual arrival, offer the heads-up. Only when
         // this chat is the journey's chat (engine outlives navigation).
         if (_journey.chatId == _chatId || _journey.chatId == null) {
           _offerArrivalNotify();
@@ -1036,7 +1036,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Android may tear the Realtime websocket down while backgrounded without
   /// the client seeing a close event. Rebuilding the subscription on resume
   /// re-joins the channels and runs one catch-up fetch, so anything that landed
-  /// while we were away appears immediately. Lifecycle edge only — not a poll.
+  /// while we were away appears immediately. Lifecycle edge only, not a poll.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
@@ -1055,7 +1055,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     // Clear active chat so notifications resume for other chats.
     //
-    // Through the captured reference, NEVER `context.read` — this line used to
+    // Through the captured reference, NEVER `context.read`, this line used to
     // throw on every close, and because it sits second in dispose() it took
     // everything below it with it: the realtime subscription, the chats-row
     // channel, six timers, the journey listener and the cache flush all
@@ -1150,7 +1150,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// Fold what the database holds for this thread into what is on screen —
+  /// Fold what the database holds for this thread into what is on screen,
   /// messages a sync or a push stored while the screen was open. By id, so a
   /// message already shown is only replaced when the stored copy differs.
   Future<void> _mergeFromStore() async {
@@ -1193,8 +1193,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       a.longitude == b.longitude &&
       a.attachmentUrl == b.attachmentUrl;
 
-  /// The pinned job bar as the chat database last saw it — the post and its
-  /// lifecycle — so an offline open shows the real stage and price instead of
+  /// The pinned job bar as the chat database last saw it, the post and its
+  /// lifecycle, so an offline open shows the real stage and price instead of
   /// "No job agreed yet". The live refresh replaces it as soon as it can.
   Future<void> _restoreJobSnapshot() async {
     if (_chatId.isEmpty || (_lifecycle != null && _chatPost != null)) return;
@@ -1246,7 +1246,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Idempotent: three paths can reach here (initState, app resume, lazy chat
   /// creation on first send). Without dropping the previous subscription each
   /// call opened another pair of channels, so every message was delivered once
-  /// per live stream — harmless visually (upsert dedupes by id) but a real
+  /// per live stream, harmless visually (upsert dedupes by id) but a real
   /// socket/CPU leak that grows with each resume.
   void _startRealtimeMessages() {
     _realtimeSubscription?.cancel();
@@ -1257,7 +1257,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       // An EMPTY emission must never wipe what's already on screen. Offline, the
       // fetch behind a resync yields nothing (the error is swallowed into an
-      // empty page), and a resync always emits — so without this guard a
+      // empty page), and a resync always emits, so without this guard a
       // background refresh while offline would replace a cached, readable thread
       // with the "Start the conversation" empty state. Keep the history; only a
       // real, non-empty update ever changes it.
@@ -1268,8 +1268,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         });
         return;
       }
-      // Merge with older messages already on screen — from pagination or from
-      // the cache hydration — so the visible history never shrinks to the
+      // Merge with older messages already on screen, from pagination or from
+      // the cache hydration, so the visible history never shrinks to the
       // realtime window size.
       final List<Message> merged;
       if (_messages.isNotEmpty) {
@@ -1283,7 +1283,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         merged = messages;
       }
       final hadNew = messages.length > _lastMessageCount;
-      // The server now has these rows, so any queued copy of them is done —
+      // The server now has these rows, so any queued copy of them is done,
       // whichever sender delivered it (this screen, or OutboxStore draining
       // the thread before it was opened). The queued id names the row
       // exactly, so this is a match, not a guess.
@@ -1318,13 +1318,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _logPaint(_loggedFirstPaint ? 'NET_REFRESH' : 'NET_PAINT', messages.length);
         _loggedFirstPaint = true;
         // Initial page. The reversed list is already anchored on the newest
-        // message — no scroll command needed.
+        // message, no scroll command needed.
         _lastMessageCount = messages.length;
         _markSeenNow();
       } else if (hadNew) {
         final arrived = messages.length - _lastMessageCount;
         _lastMessageCount = messages.length;
-        // Follow along only when the user is already near the bottom — don't
+        // Follow along only when the user is already near the bottom, don't
         // hijack their position while they read older messages. Up there,
         // the scroll-down button counts what arrived instead.
         if (_isNearBottom) {
@@ -1351,7 +1351,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Realtime on this chat's `chats` row: typing_user_id/typing_at updates
   /// arrive instantly instead of via the 3s poll. The first event proves the
   /// channel works and retires the poll. Needs migration 083; without it no
-  /// events fire and the poll keeps running — zero regression.
+  /// events fire and the poll keeps running, zero regression.
   void _startChatRowRealtime() {
     if (_chatId.isEmpty || _chatRowChannel != null) return;
     _chatRowChannel = Supabase.instance.client
@@ -1367,7 +1367,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           callback: (payload) {
             if (!mounted) return;
-            // Realtime proved itself — the fallback poll is redundant.
+            // Realtime proved itself, the fallback poll is redundant.
             _typingPoll?.dispose();
             _typingPoll = null;
             final row = payload.newRecord;
@@ -1414,7 +1414,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         final chatId = _chatId;
         final uid = widget.currentUserId;
         // Into the database, then make sure its photos have thumbnails on
-        // this phone — the copy an offline open draws.
+        // this phone, the copy an offline open draws.
         CacheService.saveMessages(uid, chatId, _capForCache(messages)).then((_) {
           if (!NetworkHealth.isOffline) {
             unawaited(ChatMediaStore.ensureThumbs(uid, [chatId], limit: 30));
@@ -1457,7 +1457,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     //   Unhandled Exception: Null check operator used on a null value
     //   #0 Element.widget  #2 Provider.of  #4 _ChatScreenState._markSeenNow
     // AppProvider lives above this route, so holding the reference across the
-    // await is safe — it is the BuildContext that stops being safe, not the
+    // await is safe, it is the BuildContext that stops being safe, not the
     // provider.
     final app = context.read<AppProvider>();
     await ChatServiceSupabase.markMessagesSeen(_chatId, widget.currentUserId);
@@ -1524,7 +1524,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       } else if (lastSeen != null) {
         label = _lastSeenLabel(lastSeen.toLocal());
       }
-      // Only rebuild when the label actually changed — this runs on a timer
+      // Only rebuild when the label actually changed, this runs on a timer
       // and a no-op setState would rebuild the whole screen every 30s.
       if (label != _onlineStatus) {
         setState(() => _onlineStatus = label);
@@ -1532,9 +1532,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  /// The header's second line: who this person is on Help24 — "Plumber ·
+  /// The header's second line: who this person is on Help24, "Plumber ·
   /// ★ 4.8 · 34 jobs" for a provider, "Customer · Bamburi, Mombasa" for the
-  /// customer — rather than when they last opened the app. Presence is the
+  /// customer, rather than when they last opened the app. Presence is the
   /// fallback when none of that is known. ("typing…" is the header's own.)
   String? _headerSubtitle() {
     final presence = _onlineStatus.isEmpty ? null : _onlineStatus;
@@ -1583,8 +1583,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Load older messages (cursor-based). Prepends to _messages.
   ///
-  /// The database first — history this phone already has costs no network
-  /// and works on a plane — then the server, whose page is stored before it
+  /// The database first, history this phone already has costs no network
+  /// and works on a plane, then the server, whose page is stored before it
   /// is shown, so it is there next time too.
   Future<void> _loadOlderMessages() async {
     if (_chatId.isEmpty || _loadingOlder || !_hasMoreOlder || _messages.isEmpty) return;
@@ -1651,7 +1651,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _updateStickyDay();
   }
 
-  /// Which day the message at the top of the viewport belongs to — the pill
+  /// Which day the message at the top of the viewport belongs to, the pill
   /// pinned there while the thread scrolls.
   ///
   /// Read straight off the list's laid-out children: the reversed sliver puts
@@ -1698,7 +1698,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (day != _stickyDay) setState(() => _stickyDay = day);
   }
 
-  /// In the reversed list the newest message sits at offset 0 — the list
+  /// In the reversed list the newest message sits at offset 0, the list
   /// OPENS there by construction (no scroll command, no layout race, no
   /// image-height dependence). This helper only exists for follow-along on
   /// new arrivals and the scroll-to-bottom button.
@@ -1740,7 +1740,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         user2Id: user2Id,
         currentUserId: widget.currentUserId,
         // The ENTRY POINT's post. Creation only happens when resolution found
-        // nothing, so there is no adopted thread whose context could apply —
+        // nothing, so there is no adopted thread whose context could apply,
         // and Provider Profile (postId null) correctly creates the general one.
         postId: widget.conversation.postId,
         // So the row lands in the Messages tab already able to name its post,
@@ -1757,7 +1757,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         // point brought one. Reading it here closes the last way the post-name
         // invariant could be broken: a caller that knew `postId` but not
         // `postTitle` would create a genuinely post-scoped chat whose banner
-        // stayed empty for the life of the screen — the Messages tab would
+        // stayed empty for the life of the screen, the Messages tab would
         // show the 📌 and the open conversation would not. No entry point does
         // that today; this makes it impossible for a new one to.
         _resolvedPostId ??= conv.postId;
@@ -1786,7 +1786,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     await _sendText(text, fromComposer: true);
   }
 
-  /// Every typed message — the composer, a quick reply, the arrival notice —
+  /// Every typed message, the composer, a quick reply, the arrival notice,
   /// goes into the thread through the outbox, so all of them wait out an
   /// outage the same way.
   Future<void> _sendText(String text, {bool fromComposer = false}) async {
@@ -1794,7 +1794,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!RestrictionGate.allows(context, Capability.message)) return;
 
     // Capture reply state before clearing it. Only what was typed answers the
-    // quoted message — a quick reply or the arrival notice is never a reply.
+    // quoted message, a quick reply or the arrival notice is never a reply.
     final replyingTo = fromComposer ? _replyToMessage : null;
     if (fromComposer) _messageController.clear();
     _typingDebounce?.cancel();
@@ -1804,7 +1804,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
 
     // The message enters the thread immediately as an outbox entry. It is never
-    // discarded on failure — it stays visible (clock while queued, retry chip
+    // discarded on failure, it stays visible (clock while queued, retry chip
     // when it fails) and is resent automatically on reconnect. So composing a
     // message offline is a normal, safe action, not an error.
     final optimistic = Message(
@@ -1818,7 +1818,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       timestamp: DateTime.now(),
       isMe: true,
       type: 'text',
-      // Queued until a request is actually open for it — see [OutboxStatus].
+      // Queued until a request is actually open for it, see [OutboxStatus].
       // `sending` used to cover both, so an offline message showed a spinner
       // for work that was not happening.
       status: OutboxStatus.queued,
@@ -1834,14 +1834,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     await _enqueue([optimistic]);
   }
 
-  /// EVERY OUTBOUND MESSAGE ENTERS THE THREAD HERE — text, photo, document,
+  /// EVERY OUTBOUND MESSAGE ENTERS THE THREAD HERE, text, photo, document,
   /// place, location request.
   ///
   /// It is on screen and persisted before any network work starts, so losing
   /// the connection can never lose it: offline it waits with a clock and goes
   /// out on the reconnect edge; online it is sent now. Photos, documents and
   /// places used to bypass this entirely and upload on the spot, which is why
-  /// they could not be sent offline at all — a failed upload had nowhere to
+  /// they could not be sent offline at all, a failed upload had nowhere to
   /// wait and was simply dropped.
   Future<void> _enqueue(List<Message> messages) async {
     if (messages.isEmpty) return;
@@ -1854,14 +1854,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _persistOutbox();
     _scrollToBottom();
 
-    // Offline: don't burn a long timeout — leave it queued (clock) and reassure
+    // Offline: don't burn a long timeout, leave it queued (clock) and reassure
     // the user it will go out on its own. Online: try now, in order.
-    // One definition of offline for the whole send path — see `_attemptSend`.
+    // One definition of offline for the whole send path, see `_attemptSend`.
     if (NetworkHealth.isOffline) {
-      // Reassure once, not on every queued message — the clock on each bubble
+      // Reassure once, not on every queued message, the clock on each bubble
       // already shows they're waiting to send.
       if (!hadQueue) {
-        _showInfo("No internet — we'll send this when you're back online.");
+        _showInfo("No internet. We'll send this when you're back online.");
       }
       return;
     }
@@ -1873,15 +1873,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Try to deliver one queued message. Removes it from the outbox on success;
   /// on failure, [OutboxStore.statusAfterFailure] decides between queued
   /// (waiting for a network, retried automatically) and failed (Retry). Safe
-  /// to call repeatedly — an in-flight id is skipped.
+  /// to call repeatedly, an in-flight id is skipped.
   Future<void> _attemptSend(Message pending) async {
     // The claim is shared with OutboxStore, which drains every OTHER thread on
     // the reconnect edge. Two senders holding the same message is how one
     // message becomes two.
     if (OutboxStore.instance.isSending(pending.id)) return;
 
-    // NetworkHealth, not `context.read<ConnectivityProvider>()`. Same verdict —
-    // ConnectivityProvider is the only thing that publishes it — but reachable
+    // NetworkHealth, not `context.read<ConnectivityProvider>()`. Same verdict,
+    // ConnectivityProvider is the only thing that publishes it, but reachable
     // without an Element.
     //
     // This path is driven by a STREAM, not by a tap. Device evidence: on the
@@ -1892,7 +1892,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // which aborted the flush, and the queued message was still undelivered
     // afterwards. `mounted` did not protect it: the guard was true while the
     // element was already unusable. A send must not depend on a widget being
-    // alive — the message belongs to the account, not to the screen.
+    // alive, the message belongs to the account, not to the screen.
     if (NetworkHealth.isOffline) {
       _updatePendingStatus(pending.id, OutboxStatus.queued);
       return;
@@ -1925,14 +1925,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         },
       );
       OutboxStore.instance.clearFailures(pending.id);
-      // Clear it from the outbox FIRST, even if the screen has since closed —
+      // Clear it from the outbox FIRST, even if the screen has since closed,
       // the send succeeded, so it must never be resent (that would duplicate the
       // message). UI updates below are best-effort and only when still mounted.
       _pendingMessages.removeWhere((m) => m.id == pending.id);
       _persistOutbox();
       if (!mounted) return;
       setState(() {
-        // Add the confirmed row directly — don't rely on realtime for own messages.
+        // Add the confirmed row directly, don't rely on realtime for own messages.
         if (!_messages.any((m) => m.id == confirmed.id)) {
           _messages = [..._messages, confirmed];
         }
@@ -1989,7 +1989,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Stop sending a queued or uploading photo or document: its upload is
   /// abandoned at the next chunk, it leaves the outbox, and its queued copy is
-  /// deleted. Only a message the server does not have yet can be stopped —
+  /// deleted. Only a message the server does not have yet can be stopped,
   /// once its row is written it is delivered, and "delete for everyone" is
   /// the way back.
   void _cancelPending(Message m) {
@@ -2029,7 +2029,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // THE SINGLE CHOKE POINT. Every add, status change and successful send
     // passes through here, so publishing from this one place is what lets the
     // Messages tab show an unsent message without this screen knowing the tab
-    // exists — and what clears the pending preview the moment it is delivered.
+    // exists, and what clears the pending preview the moment it is delivered.
     OutboxStore.instance.publish(widget.currentUserId, _chatId, queue);
   }
 
@@ -2120,7 +2120,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Each photo becomes its own queued message, so a failure part-way leaves
-  /// the others delivered rather than holding the batch hostage — and the
+  /// the others delivered rather than holding the batch hostage, and the
   /// caption rides the first one, matching how every messenger treats a
   /// captioned set. Each is copied out of the picker's cache into durable
   /// app storage BEFORE it is queued: the queue outlives this screen, and the
@@ -2192,7 +2192,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Pick a document and queue it. Like a photo, nothing here needs the
-  /// network — it used to wait on a session exchange before the picker would
+  /// network, it used to wait on a session exchange before the picker would
   /// even open, and then upload on the spot, so offline the document was lost.
   Future<void> _pickAndSendFile() async {
     FilePickerResult? result;
@@ -2329,8 +2329,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return null;
   }
 
-  /// The journey the header strip narrates: a live one, or — for a graceful
-  /// close — the newest ARRIVED journey for ~60s after it concluded, so both
+  /// The journey the header strip narrates: a live one, or, for a graceful
+  /// close, the newest ARRIVED journey for ~60s after it concluded, so both
   /// sides watch the strip evolve "on the way → arrived" before it leaves.
   Message? get _stripJourney {
     final live = _activeJourney;
@@ -2342,13 +2342,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           DateTime.now().difference(m.liveUntil!) < const Duration(seconds: 60)) {
         return m;
       }
-      return null; // newest journey is ended/stale — no strip
+      return null; // newest journey is ended or stale, so no strip
     }
     return null;
   }
 
   /// When the last realtime update for each live journey landed on THIS
-  /// device — watcher-side signal honesty ("Updated 2m ago"). Keyed by
+  /// device, watcher-side signal honesty ("Updated 2m ago"). Keyed by
   /// message id; fingerprint dedupes non-position emissions.
   final Map<String, DateTime> _journeyEventAt = {};
   final Map<String, String> _journeyEventFingerprint = {};
@@ -2364,7 +2364,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// The other side asked for a location and no place has been sent since —
+  /// The other side asked for a location and no place has been sent since,
   /// their request is still standing.
   bool get _hasOpenLocationRequest {
     for (var i = _messages.length - 1; i >= 0; i--) {
@@ -2376,7 +2376,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return false;
   }
 
-  /// The newest journey concluded as ARRIVED within the last 10 minutes —
+  /// The newest journey concluded as ARRIVED within the last 10 minutes,
   /// the natural moment to close the loop (rate the provider).
   bool get _recentlyArrivedJourney {
     for (var i = _messages.length - 1; i >= 0; i--) {
@@ -2392,10 +2392,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Lifecycle-driven quick action (at most one; null = no bar). Priority:
   /// answer an open request > start the journey you're expected to make >
   /// rate the provider after arrival. "Stop sharing" intentionally lives in
-  /// the journey strip — never duplicated here.
+  /// the journey strip, never duplicated here.
   ({IconData icon, String label, VoidCallback onTap})? _contextAction() {
     if (_isSending) return null;
-    // 1) They asked "where exactly?" — answering beats everything else.
+    // 1) They asked "where exactly?", answering beats everything else.
     if (_hasOpenLocationRequest) {
       return (
         icon: AppIcons.location,
@@ -2466,7 +2466,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// If the newest live share in this thread belongs to the current user and
   /// the engine doesn't own it (fresh process, engine idle), hand it to the
-  /// engine, which resumes beats with the REMAINING safety window. Idempotent —
+  /// engine, which resumes beats with the REMAINING safety window. Idempotent,
   /// the engine no-ops when it already owns the row.
   void _readoptOwnLiveJourney() {
     Message? mine;
@@ -2488,8 +2488,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Where this journey is headed, best knowledge first: the post's own
   /// coordinates, else the most recent pinned place in the thread (the gate,
-  /// the stalled car — by convention the job location), else none. Null keeps
-  /// the journey valid — it just cannot auto-arrive or show "nearby".
+  /// the stalled car, by convention the job location), else none. Null keeps
+  /// the journey valid, it just cannot auto-arrive or show "nearby".
   GeoPoint? _journeyDestination() {
     final post = _chatPost;
     if (post?.latitude != null && post?.longitude != null) {
@@ -2504,7 +2504,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return null;
   }
 
-  /// Viewer position for card distance labels — silent, never prompts.
+  /// Viewer position for card distance labels, silent, never prompts.
   Future<void> _primeViewerPosition() async {
     final pos = await LocationService.getCurrentPosition(requestIfNeeded: false);
     if (mounted && pos != null) {
@@ -2532,7 +2532,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Role-aware intent ordering: the person who did NOT author a request/job
   /// post is usually the one travelling, so "On my way" leads for them. For
   /// offer posts it is inverted (the author is the provider). Falls back to
-  /// traveller-first — the most common marketplace action — until the post is
+  /// traveller-first, the most common marketplace action, until the post is
   /// known. Ordering only; every intent stays available to both sides.
   bool get _travellerFirst {
     final post = _chatPost;
@@ -2561,7 +2561,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// recent pinned place in the thread), then hand the journey to the engine.
   /// The confirm screen owns the permission scenario.
   Future<void> _startJourneyFlow() async {
-    // A journey is LIVE — it streams the traveller's position as they move —
+    // A journey is LIVE, it streams the traveller's position as they move,
     // so it is the one location intent that cannot wait in the queue: sent
     // later, "on my way" would describe a moment that has passed. Say so, and
     // offer the intent that can wait. Without this the engine tried, failed,
@@ -2571,7 +2571,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         icon: AppIcons.unreachable,
         title: "You're offline",
         body: 'Sharing your journey needs a connection, because it sends your '
-            'position as you move. You can send a place instead — it will go '
+            'position as you move. You can send a place instead. It will go '
             "out as soon as you're back online.",
         actionLabel: 'Send a place',
         onAction: _openPlacePicker,
@@ -2612,8 +2612,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (picked != null && mounted) await _sendPickedPlace(picked);
   }
 
-  /// A place is a pin the user chose on the map — a spot, not a claim about
-  /// where they are right now — so it keeps its meaning however long it waits
+  /// A place is a pin the user chose on the map, a spot, not a claim about
+  /// where they are right now, so it keeps its meaning however long it waits
   /// in the queue. Queued like any other message: picked offline (the picker
   /// works from GPS and a draggable pin), it goes out on reconnect.
   Future<void> _sendPickedPlace(PickedPlace place) async {
@@ -2634,7 +2634,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ]);
   }
 
-  /// "Request location": sends immediately — no second UI (by design). It
+  /// "Request location": sends immediately, no second UI (by design). It
   /// carries no coordinates, so it can wait in the queue like text.
   Future<void> _sendLocationRequest() async {
     await _enqueue([
@@ -2684,7 +2684,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           title: 'Location access is off',
           body: 'Help24 needs your location to share your journey with '
               '${_partnerName.isEmpty ? 'them' : _partnerName}. '
-              'You can turn it on in Settings — nothing is shared until you start a journey.',
+              'You can turn it on in Settings. Nothing is shared until you start a journey.',
           actionLabel: 'Open settings',
           onAction: ph.openAppSettings,
         );
@@ -2706,7 +2706,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           icon: AppIcons.warning,
           title: "Couldn't start the journey",
           body: 'Something went wrong on our side. Check your connection and '
-              'try again — you can also just send a place instead.',
+              'try again. You can also send a place instead.',
           actionLabel: 'Try again',
           onAction: () async {
             if (mounted) await _startJourneyFlow();
@@ -2772,7 +2772,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// The human close of a journey (manual or automatic): offer to send the
   /// other party a one-tap heads-up message.
   Future<void> _offerArrivalNotify() async {
-    // Arrival is the journey's payoff — and with auto-arrival it can happen
+    // Arrival is the journey's payoff, and with auto-arrival it can happen
     // while the phone is in a pocket, so it deserves a distinct physical cue
     // rather than only a visual one.
     HapticFeedback.mediumImpact();
@@ -2808,7 +2808,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _openPlacePicker();
   }
 
-  /// Opens the FULL production post detail screen — the exact same screen
+  /// Opens the FULL production post detail screen, the exact same screen
   /// Discover uses (PostService.getPostById → PostDetailScreen).
   bool _openingPost = false;
 
@@ -2849,11 +2849,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Scrolls the list so the message whose [id] equals [targetId] is visible.
   /// Used when user taps the quoted block in a reply bubble.
   void _scrollToMessage(String targetId) {
-    // _itemIndexByKey holds reversed indices, rebuilt on every build — always
+    // _itemIndexByKey holds reversed indices, rebuilt on every build, always
     // in sync with what the ListView is showing.
     final index = _itemIndexByKey['m_$targetId'];
     if (index == null || !_scrollController.hasClients) return;
-    // Estimate item height — accurate enough to land near the message.
+    // Estimate item height, accurate enough to land near the message.
     const estimatedItemH = 60.0;
     final targetOffset = (index * estimatedItemH)
         .clamp(0.0, _scrollController.position.maxScrollExtent);
@@ -3024,7 +3024,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final muted = await ChatLocalPrefs.toggleMuted(_chatId);
     if (!mounted) return;
     setState(() => _isMuted = muted);
-    // The tile's mute icon reads ChatLocalPrefs — repaint the list too.
+    // The tile's mute icon reads ChatLocalPrefs, repaint the list too.
     context.read<AppProvider>().touchConversations();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -3038,7 +3038,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _deleteForEveryone(Message message) async {
-    // Optimistic update — show tombstone immediately on sender's device.
+    // Optimistic update, show tombstone immediately on sender's device.
     // The Realtime UPDATE propagates the change to the receiver's device.
     setState(() {
       final idx = _messages.indexWhere((m) => m.id == message.id);
@@ -3054,7 +3054,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       message.timestamp,
     );
     if (result == DeleteForEveryoneResult.success && (message.isImage || message.isFile)) {
-      // The sender's own copy goes too — even if this screen has closed.
+      // The sender's own copy goes too, even if this screen has closed.
       unawaited(ChatAttachmentCache.evict(message.id));
     }
     if (!mounted) return;
@@ -3069,7 +3069,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       });
       _showError(result == DeleteForEveryoneResult.windowExpired
-          ? 'Cannot delete for everyone — messages can only be deleted within 15 minutes.'
+          ? 'Cannot delete for everyone. Messages can only be deleted within 15 minutes.'
           : 'Could not delete the message. Please try again.');
     }
     // If success: Realtime UPDATE in watchMessages propagates tombstone to receiver.
@@ -3096,7 +3096,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _jobRefreshing = false;
 
   /// Whether this chat is between the job's customer and its SELECTED
-  /// provider — the only pair the lifecycle belongs to.
+  /// provider, the only pair the lifecycle belongs to.
   bool get _chatIsTheJob {
     final post = _chatPost;
     if (post == null) return false;
@@ -3109,7 +3109,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Re-read the post (who is selected can change) and, when this chat is the
-  /// job's own pair, the lifecycle aggregate. A failure keeps what is shown —
+  /// job's own pair, the lifecycle aggregate. A failure keeps what is shown,
   /// the bar never goes blank because a poll missed.
   Future<void> _refreshJob({bool postAlreadyFresh = false}) async {
     final postId = _postId;
@@ -3241,7 +3241,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (mounted) unawaited(_refreshJob());
   }
 
-  /// Pay into Help24's hold — the same path as the Job status sheet: the
+  /// Pay into Help24's hold, the same path as the Job status sheet: the
   /// saved M-Pesa number (or the sign-in phone), the platform fee, then the
   /// payment screen.
   Future<void> _payForJob(String title) async {
@@ -3256,7 +3256,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     final phone = raw == null ? null : normalizeKenyanNumber(raw);
     if (phone == null) {
-      _showInfo('Add a valid M-Pesa number in Profile → Payment Number.');
+      _showInfo('Add a valid M-Pesa number in Profile → Payments.');
       return;
     }
     await Navigator.of(context).push(MaterialPageRoute<void>(
@@ -3365,7 +3365,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   ///
   /// Like a photo: the first open downloads it once through the files
   /// endpoint with the user's own token (participant and deletion checked
-  /// there), every later open is the copy already on the phone — no network.
+  /// there), every later open is the copy already on the phone, no network.
   /// The bubble shows the download's progress from the moment it starts.
   Future<void> _openDocument(String messageId) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -3477,7 +3477,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final state = mine ? chatSendStateOf(m) : null;
     final time = chatBubbleTime(context, m.timestamp);
     final hasUrl = m.attachmentUrl != null && m.attachmentUrl!.isNotEmpty;
-    // A queued attachment has no URL yet — only the copy on this phone. It is
+    // A queued attachment has no URL yet, only the copy on this phone. It is
     // drawn from that copy, never from a server address it does not have.
     final localFile = pending && m.localPath != null ? m.localPath : null;
     final stoppable = pending && state != ChatSendState.failed;
@@ -3615,7 +3615,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Offline, with nothing of this thread on the phone. Not an error, and not
-  /// "No messages yet" — which would be a claim about a conversation this
+  /// "No messages yet", which would be a claim about a conversation this
   /// phone simply has not seen. It says what will happen instead.
   Widget _offlineThreadNotice() {
     _lastMessageCount = 0;
@@ -3638,7 +3638,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
 
     // Still asking whether a conversation exists. Progress, never an empty
-    // state — "Start the conversation" here was §D1.
+    // state, "Start the conversation" here was §D1.
     if (showsResolvingProgress(_resolution) && combined.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -3699,7 +3699,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _entries = entries;
     // Reversed presentation: ListView index 0 == the NEWEST row. The list is
     // anchored at offset 0 (the visual bottom), which makes "open exactly on
-    // the latest message" a structural property — layout timing, image sizes,
+    // the latest message" a structural property, layout timing, image sizes,
     // keyboard insets and pagination cannot affect it. The "load older" row
     // lives past the oldest row (the visual top).
     _itemIndexByKey.clear();
@@ -3765,7 +3765,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           SafeArea(
             bottom: false,
             // The second line yields to "Waiting for network" / "Connecting…"
-            // while chat is not in touch with the server — the same small
+            // while chat is not in touch with the server, the same small
             // status the Messages tab shows under its title.
             child: ChatSyncPhaseBuilder(
               builder: (context, syncLabel) => ChatHeader(
@@ -3800,7 +3800,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onOpen: _postId != null && _postId!.isNotEmpty ? () => _openPostFromChat(_postId!) : null,
               onAction: () => _onJobAction(jobBar),
             ),
-          // Journey strip — narrates the journey as it evolves: on the way →
+          // Journey strip, narrates the journey as it evolves: on the way →
           // nearby → reconnecting → arrived (brief), then leaves. One strip,
           // phase-driven; tap opens the live map.
           if (_stripJourney != null)
@@ -3875,7 +3875,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ],
             ),
           ),
-          // Context action — the marketplace already knows who travels, who
+          // Context action, the marketplace already knows who travels, who
           // hosts, what was asked and where the journey stands; surface the
           // single next action instead of making users dig through menus.
           Builder(builder: (context) {
@@ -3892,7 +3892,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               replies: ChatQuickReplies.onTheWay,
               onTap: (text) => _sendText(text),
             ),
-          // Reply preview bar — visible when user long-pressed a message to reply.
+          // Reply preview bar, visible when user long-pressed a message to reply.
           if (_replyToMessage != null)
             _ReplyPreviewBar(
               replyTo: _replyToMessage!,
@@ -3975,7 +3975,7 @@ class _AttachOption extends StatelessWidget {
 
 // ── Full-screen map ────────────────────────────────────────────────────────
 
-/// A shared place or a journey, full screen, in the theme's map style — with
+/// A shared place or a journey, full screen, in the theme's map style, with
 /// Directions and Copy address for either side of the conversation.
 class _FullScreenMapScreen extends StatefulWidget {
   final String conversationId;
@@ -4058,7 +4058,7 @@ class _FullScreenMapScreenState extends State<_FullScreenMapScreen> {
   }
 
   /// What "Copy address" puts on the clipboard: the sender's name for the
-  /// place, the area, and the coordinates — which every maps app can find.
+  /// place, the area, and the coordinates, which every maps app can find.
   String get _addressText {
     final lat = _message.latitude!.toStringAsFixed(5);
     final lng = _message.longitude!.toStringAsFixed(5);

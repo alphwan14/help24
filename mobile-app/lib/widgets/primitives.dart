@@ -6,7 +6,7 @@ import '../theme/tokens.dart';
 ///
 /// Four widgets that every surface is built from, so a screen stops inventing
 /// its own decoration. They are deliberately small and unopinionated about
-/// content — the job here is to end the drift, not to encode any one screen's
+/// content, the job here is to end the drift, not to encode any one screen's
 /// layout.
 ///
 /// ── What each of these replaces ─────────────────────────────────────────
@@ -30,20 +30,20 @@ import '../theme/tokens.dart';
 /// What a chip MEANS. Colour follows from this and is never passed in.
 ///
 /// Passing a raw `Color` is how the old `_SmallTag` ended up rendering a
-/// `Soon` tag in `#FF9800` beside a `Payment Protected` tag in `#F59E0B` — two
+/// `Soon` tag in `#FF9800` beside a `Payment Protected` tag in `#F59E0B`, two
 /// ambers, two pixels apart, on one card.
 enum ChipTone {
   /// The default, and what most chips should be. Context, not status:
   /// a category, an answer, a count.
   neutral,
 
-  /// The brand moment. Selection only — never a status.
+  /// The brand moment. Selection only, never a status.
   accent,
 
   /// Money settled, work completed, available now.
   positive,
 
-  /// Soon, pending, funds held. Terracotta, not gold — see [AppColors].
+  /// Soon, pending, funds held. Terracotta, not gold, see [AppColors].
   caution,
 
   /// Urgent, disputed, expired.
@@ -78,7 +78,7 @@ class AppChip extends StatelessWidget {
   final ChipSize size;
 
   /// Filled with the tone's full-strength colour instead of its tint. Reserve
-  /// this for the ONE chip on a surface that has to be seen first — a live
+  /// this for the ONE chip on a surface that has to be seen first, a live
   /// countdown, a dispute. A screen with two solid chips has none.
   final bool solid;
 
@@ -146,7 +146,7 @@ class AppChip extends StatelessWidget {
 /// A surface that holds content.
 ///
 /// ONE separation, never two. Every card in the app used to carry a white
-/// fill AND a 1 px border AND a drop shadow, sitting on a grey page — three
+/// fill AND a 1 px border AND a drop shadow, sitting on a grey page, three
 /// devices doing one job, which is why nothing on a Help24 screen receded.
 class AppCard extends StatelessWidget {
   const AppCard({
@@ -179,7 +179,7 @@ class AppCard extends StatelessWidget {
       padding: margin ?? EdgeInsets.zero,
       // Material + InkWell rather than a decorated GestureDetector, so the
       // press feedback is clipped to the card instead of spilling onto the
-      // nearest Material ancestor — which is what painted a grey block across
+      // nearest Material ancestor, which is what painted a grey block across
       // the settings list.
       child: Material(
         color: c.surface,
@@ -204,14 +204,14 @@ class AppCard extends StatelessWidget {
 /// There is no `subtitle`. There is a [value], and it is right-aligned.
 ///
 /// That is not a cosmetic difference. A subtitle invites a DESCRIPTION of the
-/// destination — "Payout Destinations / Where your M-Pesa earnings are sent",
-/// "Saved / Your shortlist of posts & providers" — nine of which shipped in a
+/// destination, "Payout Destinations / Where your M-Pesa earnings are sent",
+/// "Saved / Your shortlist of posts & providers", nine of which shipped in a
 /// row on the Profile screen, three of them reading "Sign in", which is what
 /// tapping the row does anyway.
 ///
 /// A [value] can only hold STATE: `14 active posts`, `Device Default`,
 /// `English`, `Not set`. If a row has no state worth showing, it shows
-/// nothing, and the title does the work — which it can, because the
+/// nothing, and the title does the work, which it can, because the
 /// destination explains itself the moment it opens.
 class AppRow extends StatelessWidget {
   const AppRow({
@@ -253,14 +253,13 @@ class AppRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: ConstrainedBox(
-        // 60. Rows in a group have no divider between them, so the row's own
-        // height IS the separation — 56 read as a crowded list once the
-        // hairlines went. Material's minimum target is 48.
-        constraints: const BoxConstraints(minHeight: 60),
+        // 52. At 60 the rows read as a list of separate bars and a group of
+        // five filled the screen. Material's minimum target is 48.
+        constraints: const BoxConstraints(minHeight: 52),
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpace.lg,
-            vertical: AppSpace.md + AppSpace.xs,
+            vertical: AppSpace.sm,
           ),
           child: Row(
             children: [
@@ -320,20 +319,25 @@ class AppRow extends StatelessWidget {
   }
 }
 
-/// A group of [AppRow]s sharing one surface — and NOTHING between them.
+/// A group of [AppRow]s sharing one surface, and NOTHING between them.
 ///
 /// ── No inner lines ──────────────────────────────────────────────────────
 /// The card's rounded outline is the only line a group draws. Rows are
 /// separated by whitespace alone: each row is tall enough (see [AppRow]) that
 /// the gap between two titles reads as a boundary, and the group pads its own
 /// top and bottom so the first and last rows do not hug the outline. A
-/// divider between rows is a second device doing the whitespace's job — see
+/// divider between rows is a second device doing the whitespace's job, see
 /// the "no divider lines" gate in `test/design_tokens_test.dart`.
 class AppRowGroup extends StatelessWidget {
   const AppRowGroup({super.key, required this.children});
 
   final List<Widget> children;
 
+  // Faint inset lines (8% ink, starting after the icon) were tried side by
+  // side with this on the S20+ on 2026-11-08, at 52 px rows. Without them was
+  // calmer: the lines added ten marks to the screen and made each group read
+  // as a table. The rhythm the lines were meant to restore came from the row
+  // height (60 px read as separate bars; 52 px reads as one group).
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
@@ -359,7 +363,7 @@ class AppRowGroup extends StatelessWidget {
 /// The label above a group.
 ///
 /// Owns the space above AND below it, so a section can never be the one that
-/// forgets its gap — which is exactly what happened to "Support" on the
+/// forgets its gap, which is exactly what happened to "Support" on the
 /// Profile screen, where a missing `SizedBox` left one heading hard against
 /// the card above it while every other heading had air.
 class SectionHeader extends StatelessWidget {
@@ -374,8 +378,8 @@ class SectionHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(
         top: AppSpace.section,
-        bottom: AppSpace.md,
-        left: AppSpace.xs,
+        bottom: AppSpace.sm,
+        left: AppSpace.lg,
       ),
       child: Row(
         children: [
@@ -397,7 +401,7 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
-/// A dot-separated line of context — `Request · Plumbing · Leak · Toilet`.
+/// A dot-separated line of context, `Request · Plumbing · Leak · Toilet`.
 ///
 /// This is what replaces a row of identical chips. On the live feed a single
 /// card rendered the category badge and two Smart Posting highlight answers as
@@ -442,15 +446,15 @@ class MetaLine extends StatelessWidget {
 /// Money. Always tabular, always the same weight, never green.
 ///
 /// The price used to render in `successGreen`, which measured **2.54:1** on
-/// white — the least readable colour in the app on the most important number
-/// on the card — and which put a second saturated element next to the CTA.
+/// white, the least readable colour in the app on the most important number
+/// on the card, and which put a second saturated element next to the CTA.
 /// Green now means *settled*, not *costs*.
 class MoneyLabel extends StatelessWidget {
   const MoneyLabel(this.label, {super.key, this.muted = false});
 
   final String label;
 
-  /// For "Open to offers" — the ABSENCE of a price is not a price.
+  /// For "Open to offers", the ABSENCE of a price is not a price.
   final bool muted;
 
   @override
@@ -477,7 +481,7 @@ class MoneyLabel extends StatelessWidget {
 /// The grab bar at the top of a bottom sheet.
 ///
 /// ── Why this is a widget ────────────────────────────────────────────────
-/// It was written by hand FOURTEEN times — in the composer, the filter sheet,
+/// It was written by hand FOURTEEN times, in the composer, the filter sheet,
 /// the application modal, both location sheets, the chat sheet, three profile
 /// sheets, the auth sheet, the dispute sheet and the permission explainer. The
 /// copies had drifted to two widths (36 and 40), three different colours and
@@ -486,13 +490,13 @@ class MoneyLabel extends StatelessWidget {
 ///
 /// ── The contrast bug the copies shared ──────────────────────────────────
 /// Twelve of them drew the bar in the HAIRLINE border colour, which is
-/// `#E3E0D9` on white — **1.29:1**. A hairline is meant to be a boundary you
+/// `#E3E0D9` on white, **1.29:1**. A hairline is meant to be a boundary you
 /// do not notice; this is a control, and the only thing on the screen saying
 /// "this sheet can be dragged away". It was effectively invisible in light
 /// mode, which is the same failure as the empty state whose icon box sat at
 /// 1.05:1 on the page it existed to fill.
 ///
-/// It is [AppColors.borderStrong] now — 3.30:1, the threshold for a non-text
+/// It is [AppColors.borderStrong] now, 3.30:1, the threshold for a non-text
 /// element that carries meaning.
 class SheetHandle extends StatelessWidget {
   const SheetHandle({

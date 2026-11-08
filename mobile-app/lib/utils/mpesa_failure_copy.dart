@@ -6,9 +6,9 @@ enum _MpesaOutcome { cancelled, wrongPin, insufficient, busy, unreachable, expir
 ///
 /// WHY THIS IS ONE FILE
 /// --------------------
-/// Two flows take M-Pesa payments — Secure Service (payment_screen.dart) and
+/// Two flows take M-Pesa payments, Secure Service (payment_screen.dart) and
 /// Promote Business (promote_listing_flow_screen.dart, plus its Payments
-/// history) — and each grew its own reading of Daraja's text. Every one of
+/// history), and each grew its own reading of Daraja's text. Every one of
 /// them ended in a pass-through: "if it is short, show it". Daraja's text is
 /// written for integrators, so users read
 ///
@@ -21,7 +21,7 @@ enum _MpesaOutcome { cancelled, wrongPin, insufficient, busy, unreachable, expir
 /// this file passes provider or server text through; what it does not
 /// recognise it answers in Help24's own words.
 ///
-/// Pure Dart, so the copy is testable without a screen — see
+/// Pure Dart, so the copy is testable without a screen, see
 /// test/error_mapper_test.dart.
 class MpesaFailureCopy {
   MpesaFailureCopy._();
@@ -36,7 +36,7 @@ class MpesaFailureCopy {
   ///   1001       another M-Pesa transaction is in progress for this number
   ///   1019       the transaction expired
   ///   1031/1032  cancelled on the phone
-  ///   1037       DS timeout — the phone could not be reached
+  ///   1037       DS timeout, the phone could not be reached
   ///   2001       wrong PIN, reported as "The initiator information is invalid."
   static String forResult(String? resultDesc) => switch (_classify(resultDesc)) {
         _MpesaOutcome.cancelled =>
@@ -54,7 +54,7 @@ class MpesaFailureCopy {
         _MpesaOutcome.other => notCompleted,
       };
 
-  /// The same outcome as a short label, for a payment HISTORY row — where the
+  /// The same outcome as a short label, for a payment HISTORY row, where the
   /// payment is in the past and "please try again" would be advice about an
   /// attempt the user is no longer making.
   static String summary(String? resultDesc) => switch (_classify(resultDesc)) {
@@ -72,13 +72,13 @@ class MpesaFailureCopy {
     if (s.isEmpty) return _MpesaOutcome.other;
     // A result code counts only when the stored reason IS the code. Matched as
     // a substring, the server fault '…"errorCode":"500.001.1001"…' read as
-    // 1001 — "another payment is in progress" — for a failure on our side.
+    // 1001, "another payment is in progress", for a failure on our side.
     final code = RegExp(r'^\d+$').hasMatch(s) ? s : null;
     if (s.contains('cancel') || code == '1031' || code == '1032') {
       return _MpesaOutcome.cancelled;
     }
-    // "The initiator information is invalid." is Daraja's text for 2001 — a
-    // wrong PIN — and contains neither "PIN" nor the code, which is how it
+    // "The initiator information is invalid." is Daraja's text for 2001, a
+    // wrong PIN, and contains neither "PIN" nor the code, which is how it
     // used to slip past the wrong-PIN rule and reach users verbatim.
     if (s.contains('wrong pin') ||
         s.contains('invalid pin') ||
@@ -102,17 +102,17 @@ class MpesaFailureCopy {
     return _MpesaOutcome.other;
   }
 
-  /// Why a payment could not be STARTED — [error] is what the start-payment
+  /// Why a payment could not be STARTED, [error] is what the start-payment
   /// call threw (an MpesaException, a PromotionException, or a transport
   /// failure).
   static String forInitiation(Object? error) {
     final category = ErrorMapper.classify(error);
-    // No response came back, so the prompt may or may not be on its way — say
+    // No response came back, so the prompt may or may not be on its way, say
     // so rather than claiming nothing happened. A retry is safe: the backend
     // answers a second attempt with "already in progress" (409).
     if (category == ErrorCategory.networkTimeout) {
       return "We didn't get a response in time. If an M-Pesa prompt appears "
-          'on your phone, complete it — otherwise try again.';
+          'on your phone, complete it. Otherwise, try again.';
     }
     if (category == ErrorCategory.networkOffline ||
         category == ErrorCategory.serverUnavailable) {
@@ -120,7 +120,7 @@ class MpesaFailureCopy {
     }
 
     final s = _messageOf(error).toLowerCase();
-    // State first: "A payment is already in progress — check your phone for
+    // State first: "A payment is already in progress, check your phone for
     // the M-Pesa prompt." mentions a phone, and is not about a phone number.
     if (s.contains('already been made')) {
       return 'This has already been paid for.';
@@ -129,7 +129,7 @@ class MpesaFailureCopy {
     if (s.contains('already in progress')) {
       return 'A payment is already in progress. Check your phone for the M-Pesa prompt.';
     }
-    // The PROVIDER's number is missing — checked before the payer's rule,
+    // The PROVIDER's number is missing, checked before the payer's rule,
     // which also matches "M-Pesa number" and used to send the payer to fix
     // their own profile for a problem on the other side.
     if (s.contains('provider') && s.contains('m-pesa number')) {
@@ -140,7 +140,7 @@ class MpesaFailureCopy {
         s.contains('phone number') ||
         s.contains('valid phone') ||
         s.contains('invalid phone')) {
-      return 'Add a valid M-Pesa number in Profile → Payment Number, then try again.';
+      return 'Add a valid M-Pesa number in Profile → Payments, then try again.';
     }
     if (s.contains('no provider')) {
       return 'Choose a provider for this job before paying.';
@@ -161,7 +161,7 @@ class MpesaFailureCopy {
       final message = e.message;
       if (message is String) return message;
     } catch (_) {
-      // No `.message` — use the text form.
+      // No `.message`, use the text form.
     }
     return error.toString();
   }

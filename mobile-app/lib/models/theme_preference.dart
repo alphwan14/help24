@@ -4,20 +4,20 @@ import '../theme/app_icons.dart';
 /// The user's theme choice: Device Default, Light or Dark.
 ///
 /// Replaces the old boolean `isDarkMode`. A boolean cannot express "follow the
-/// device", which is what a modern app defaults to — and what the OS-level
+/// device", which is what a modern app defaults to, and what the OS-level
 /// dark-mode schedule expects.
 ///
 /// The enum wraps [ThemeMode] rather than replacing it so `MaterialApp` is fed
 /// the framework's own type and every existing `Theme.of(context).brightness`
 /// read across the app keeps working untouched.
 enum ThemePreference {
-  system('system', 'Device Default', 'Match your device settings', AppIcons.themeSystem),
+  system('system', 'Device default', 'Match your device settings', AppIcons.themeSystem),
   light('light', 'Light', 'Always light', AppIcons.themeLight),
   dark('dark', 'Dark', 'Always dark', AppIcons.themeDark);
 
   const ThemePreference(this.storageKey, this.label, this.description, this.icon);
 
-  /// Persisted value. Stable — never rename; it is what is in SharedPreferences.
+  /// Persisted value. Stable, never rename; it is what is in SharedPreferences.
   final String storageKey;
   final String label;
   final String description;

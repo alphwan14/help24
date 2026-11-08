@@ -22,7 +22,7 @@ import '../screens/job_lifecycle_screen.dart';
 
 enum _JobState {
   loading,
-  noProvider,       // no selected_provider_id — card should not render
+  noProvider,       // no selected_provider_id, so the card should not render
   awaitingPayment,  // STATE 1: provider selected, payment not secured
   paymentSecured,   // STATE 2: payment locked in escrow, waiting for completion
   completionPending,// STATE 3: provider marked complete, waiting for client approval
@@ -57,7 +57,7 @@ class _JobData {
     }
 
     // Payout dispatched but not yet confirmed by the B2C callback. This is NOT a
-    // released/completed state — it must never render as "paid"/"completed" even
+    // released/completed state, it must never render as "paid"/"completed" even
     // when the completion was approved or the dispute ruled FULL_RELEASE. Checked
     // BEFORE completion.isApproved so a stuck payout_pending can't read as settled.
     if (transactionStatus == 'payout_pending' || escrowStatus == 'payout_pending') {
@@ -128,7 +128,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
     WidgetsBinding.instance.addObserver(this);
     _loadData();
     // Poll every 30 seconds to stay in sync with backend events. Parks while
-    // offline and refreshes once immediately on reconnect — a job whose state
+    // offline and refreshes once immediately on reconnect, a job whose state
     // changed during an outage is exactly what the user needs to see first.
     _poll = AdaptivePoll(
       interval: const Duration(seconds: 30),
@@ -140,7 +140,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Refresh when app is brought back to foreground — important after leaving to pay.
+    // Refresh when app is brought back to foreground, important after leaving to pay.
     if (state == AppLifecycleState.resumed) _loadData(silent: true);
   }
 
@@ -237,7 +237,7 @@ class JobStatusCardState extends State<JobStatusCard> with WidgetsBindingObserve
 
       if (normalizedPhone == null) {
         _showSnack(
-          'Add a valid M-Pesa number in Profile → Payment Number.',
+          'Add a valid M-Pesa number in Profile → Payments.',
           color: AppTheme.warningOrange,
           icon: AppIcons.device,
         );

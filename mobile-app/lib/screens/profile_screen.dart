@@ -13,7 +13,9 @@ import '../utils/external_links.dart';
 import '../utils/phone_utils.dart';
 import '../l10n/app_localizations.dart';
 import '../models/moderation.dart';
+import '../models/payout_models.dart';
 import '../models/profile_completion.dart';
+import '../models/profile_setup.dart';
 import '../models/theme_preference.dart';
 import '../models/user_model.dart';
 import '../providers/app_provider.dart';
@@ -27,6 +29,8 @@ import '../services/notification_service.dart';
 import '../services/notification_toggle_state.dart';
 import '../services/payout_authority.dart';
 import '../services/payout_service.dart';
+import '../services/reputation_service.dart';
+import '../services/verification_service.dart';
 import '../services/user_profile_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_icons.dart';
@@ -37,7 +41,6 @@ import '../widgets/primitives.dart';
 import '../widgets/auth/email_verification_banner.dart';
 import '../widgets/auth_guard.dart';
 import '../widgets/profile_widgets.dart';
-import '../widgets/reputation_widgets.dart';
 import 'professional_profile_screen.dart';
 import 'sign_in_methods_screen.dart';
 import 'agent_code_screen.dart';
@@ -57,17 +60,15 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return SafeArea(
       top: false,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppSpace.gutter),
         child: Column(
           children: [
-            const SizedBox(height: 20),
+            const SizedBox(height: AppSpace.xl),
 
-            // Identity + trust + activity + account — everything that needs the
+            // Identity + trust + activity + account, everything that needs the
             // user's row is fed by ONE stream inside _LoggedInSections (the old
             // layout ran two parallel 15s pollers on the same row).
             Consumer<AuthProvider>(
@@ -81,7 +82,7 @@ class ProfileScreen extends StatelessWidget {
                         children: [
                           _SettingsTile(
                             icon: AppIcons.account,
-                            title: 'Professional Profile',
+                            title: 'Professional profile',
                             trailing: const Icon(AppIcons.disclosure),
                             onTap: () => _showAuthModalForEditProfile(context),
                           ),
@@ -93,7 +94,7 @@ class ProfileScreen extends StatelessWidget {
                 return Column(
                   children: [
                     // Asks (never forces) an email-account holder to confirm
-                    // their address — the account-recovery path depends on it.
+                    // their address, the account-recovery path depends on it.
                     const EmailVerificationBanner(),
                     _LoggedInSections(
                       uid: auth.currentUserId ?? '',
@@ -107,7 +108,7 @@ class ProfileScreen extends StatelessWidget {
             _SettingsSection(
               title: AppLocalizations.of(context)?.t('preferences') ?? 'Preferences',
               children: [
-                // Theme — three explicit choices instead of a boolean switch.
+                // Theme, three explicit choices instead of a boolean switch.
                 // "Device Default" is a first-class option (and the default for
                 // new installs), so the app can follow the OS schedule.
                 Consumer<AppProvider>(
@@ -141,15 +142,15 @@ class ProfileScreen extends StatelessWidget {
                     if (!auth.isLoggedIn) {
                       return _SettingsTile(
                         icon: AppIcons.location,
-                        title: 'Location Access',
+                        title: 'Location access',
                         trailing: const Icon(AppIcons.disclosure),
                         onTap: () => _navigateToAuth(context),
                       );
                     }
                     final uid = auth.currentUserId ?? '';
                     // STATE, NOT INSTRUCTIONS. Every branch used to append what
-                    // to do about it — "tap to turn on", "enable in settings",
-                    // "Turn on location in device settings" — which is both
+                    // to do about it, "tap to turn on", "enable in settings",
+                    // "Turn on location in device settings", which is both
                     // longer than the column and redundant: the row is
                     // tappable, and the screen it opens says what to do. The
                     // distinction between "we cannot ask again" (Denied) and
@@ -160,20 +161,20 @@ class ProfileScreen extends StatelessWidget {
                       subtitle =
                           location.isPermanentlyDenied ? 'Denied' : 'Off';
                     } else if (!location.serviceEnabled) {
-                      // Permission granted but the OS location toggle is off —
+                      // Permission granted but the OS location toggle is off,
                       // mirror that immediately instead of claiming "On".
                       subtitle = 'Off in settings';
                     } else if (location.isLocationOn) {
                       subtitle = location.city == null || location.city!.isEmpty
                           ? 'On'
-                          : 'On · ${location.city}';
+                          : 'On, ${location.city}';
                     } else {
                       // OS is fine, but the user disabled location in-app.
                       subtitle = 'Off';
                     }
                     return _SettingsTile(
                       icon: AppIcons.location,
-                      title: 'Location Access',
+                      title: 'Location access',
                       value: subtitle,
                       trailing: const Icon(AppIcons.disclosure),
                       onTap: () async {
@@ -181,7 +182,7 @@ class ProfileScreen extends StatelessWidget {
                         await locationProvider.initializeForUser(uid);
                         if (!context.mounted) return;
                         if (locationProvider.isGranted) {
-                          // Permission already granted — show manage sheet.
+                          // Permission already granted, show manage sheet.
                           await showModalBottomSheet<void>(
                             context: context,
                             isScrollControlled: true,
@@ -189,7 +190,7 @@ class ProfileScreen extends StatelessWidget {
                             builder: (_) => _LocationSettingsSheet(userId: uid),
                           );
                         } else {
-                          // Permission not yet granted — show the explainer.
+                          // Permission not yet granted, show the explainer.
                           await showModalBottomSheet<bool>(
                             context: context,
                             isScrollControlled: true,
@@ -211,7 +212,7 @@ class ProfileScreen extends StatelessWidget {
                     );
                   },
                 ),
-                // LANGUAGE — shown only when there is more than one language
+                // LANGUAGE, shown only when there is more than one language
                 // the app can actually be used in.
                 //
                 // There is one. The row opened a sheet whose only selectable
@@ -221,7 +222,7 @@ class ProfileScreen extends StatelessWidget {
                 // version of "Kiswahili is not ready" is not offering it.
                 //
                 // `LocaleProvider._deliverable` is the switch, and its doc
-                // records the coverage that has to exist first — 39 keys today,
+                // records the coverage that has to exist first, 39 keys today,
                 // every call site inside this one file. Restore this row in the
                 // same change that adds 'sw' to it.
                 if (LocaleProvider.offersAChoice)
@@ -251,89 +252,67 @@ class ProfileScreen extends StatelessWidget {
               children: [
                 _SettingsTile(
                   icon: AppIcons.help,
-                  title: AppLocalizations.of(context)?.t('help_center') ?? 'Help Centre',
+                  title: AppLocalizations.of(context)?.t('help_center') ?? 'Help centre',
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openHelpCenter(context),
                 ),
                 _SettingsTile(
                   icon: AppIcons.support,
-                  title: AppLocalizations.of(context)?.t('contact_support') ?? 'Contact Support',
+                  title: AppLocalizations.of(context)?.t('contact_support') ?? 'Contact support',
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openSupport(context),
                 ),
-                _SettingsTile(
-                  icon: AppIcons.legal,
-                  title: AppLocalizations.of(context)?.t('terms_of_service') ?? 'Terms of Service',
-                  trailing: const _ExternalTrailing(),
+              ],
+            ),
+            const SizedBox(height: AppSpace.xl),
+
+            // THE FOOTER IS TYPE, NOT ROWS.
+            //
+            // Sign out was a red row in a card of its own, and Terms and
+            // Privacy were full rows beside Help and Support. A footer of
+            // plain text reads calmer: one action, two quiet links, the
+            // version. Sign out is an action in place, so it has no chevron
+            // and no icon arguing about direction.
+            Consumer<AuthProvider>(
+              builder: (context, auth, _) => _FooterAction(
+                label: auth.isLoggedIn ? 'Sign out' : 'Sign in',
+                color: auth.isLoggedIn
+                    ? AppColors.of(context).criticalText
+                    : AppColors.of(context).contentPrimary,
+                onTap: auth.isLoggedIn
+                    ? () => _showLogoutDialog(context, auth)
+                    : () => _navigateToAuth(context),
+              ),
+            ),
+            const SizedBox(height: AppSpace.lg),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _FooterLink(
+                  label: AppLocalizations.of(context)?.t('terms_of_service') ?? 'Terms of service',
                   onTap: () => _openTerms(context),
                 ),
-                _SettingsTile(
-                  icon: AppIcons.verified,
-                  title: AppLocalizations.of(context)?.t('privacy_policy') ?? 'Privacy Policy',
-                  trailing: const _ExternalTrailing(),
+                const SizedBox(width: AppSpace.xl),
+                _FooterLink(
+                  label: AppLocalizations.of(context)?.t('privacy_policy') ?? 'Privacy policy',
                   onTap: () => _openPrivacy(context),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpace.sm),
 
-            // Sign in / sign out
-            Consumer<AuthProvider>(
-              builder: (context, auth, _) {
-                if (auth.isLoggedIn) {
-                  return Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                      borderRadius: AppRadius.lgAll,
-                      border: Border.all(
-                        color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                      ),
-                    ),
-                    // An ACTION, not a destination, so no chevron. It used to
-                    // draw the generic ">" beside a logout glyph that points
-                    // LEFT — two arrows disagreeing about which way it goes.
-                    child: _SettingsTile(
-                      icon: AppIcons.signOut,
-                      title: 'Sign out',
-                      iconColor: AppTheme.errorRed,
-                      titleColor: AppTheme.errorRed,
-                      showChevron: false,
-                      onTap: () => _showLogoutDialog(context, auth),
-                    ),
-                  );
-                } else {
-                  return Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                      borderRadius: AppRadius.lgAll,
-                      border: Border.all(
-                        color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                      ),
-                    ),
-                    child: _SettingsTile(
-                      icon: AppIcons.signIn,
-                      title: 'Sign in',
-                      iconColor: AppTheme.primaryAccent,
-                      titleColor: AppTheme.primaryAccent,
-                      onTap: () => _navigateToAuth(context),
-                    ),
-                  );
-                }
-              },
-            ),
-            const SizedBox(height: 32),
-
-            // Version — read from the installed package, never hard-coded.
+            // Version: read from the installed package, never hard-coded.
             FutureBuilder<PackageInfo>(
               future: PackageInfo.fromPlatform(),
               builder: (context, snap) => Text(
                 snap.hasData ? 'Help24 v${snap.data!.version}' : 'Help24',
-                style: Theme.of(context).textTheme.bodySmall,
+                style: AppTypeScale.meta.copyWith(
+                  fontFamily: AppTypeScale.family,
+                  color: AppColors.of(context).contentTertiary,
+                ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: AppSpace.xl),
           ],
         ),
       ),
@@ -355,7 +334,7 @@ class ProfileScreen extends StatelessWidget {
       AuthGuard.requireAuth(
         context,
         action: 'edit your profile',
-        // Runs when the user is signed in after the screen closes — however it
+        // Runs when the user is signed in after the screen closes, however it
         // closed. Previously this was gated on the sheet popping with `true`,
         // so a drag-dismiss after a successful sign-in silently dropped the
         // edit the user had asked for.
@@ -381,7 +360,7 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // Support/legal rows are now gateways to the website — one source of truth on
+  // Support/legal rows are now gateways to the website, one source of truth on
   // help24.co.ke, opened in an in-app browser tab. See utils/external_links.dart.
   void _openHelpCenter(BuildContext context) =>
       openHelp24Url(context, AppUrls.helpCentre);
@@ -499,8 +478,8 @@ class ProfileScreen extends StatelessWidget {
   /// does, and the way back is one tap), and a success celebration for an
   /// action whose result is plainly visible on the screen behind it.
   ///
-  /// The confirmation itself stays — signing out drops the session on a shared
-  /// or borrowed phone and the mis-tap is worth catching — but it now asks the
+  /// The confirmation itself stays, signing out drops the session on a shared
+  /// or borrowed phone and the mis-tap is worth catching, but it now asks the
   /// only question that matters and says what it costs.
   void _showLogoutDialog(BuildContext context, AuthProvider auth) {
     showDialog(
@@ -532,7 +511,7 @@ class ProfileScreen extends StatelessWidget {
 }
 
 /// Everything on the profile that needs the user's row: identity hero,
-/// trust/reputation, My Activity, and the Account section — fed by a SINGLE
+/// trust/reputation, My Activity, and the Account section, fed by a SINGLE
 /// users stream (cached in State so rebuilds never re-subscribe), with the
 /// ensure-profile-row repair attempted at most once per screen life and never
 /// from inside build().
@@ -550,7 +529,48 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
   late Stream<UserModel?> _stream = UserProfileService.watchUser(widget.uid);
   bool _ensureAttempted = false;
 
-  /// Whether "Who helped you join?" applies to this account — the SERVER's
+  // ── Setup state for "Complete your profile" ─────────────────────────────
+  // Read here, not in the row, because the Business rows depend on it too:
+  // while the row shows, the rows for the same steps are hidden.
+  bool? _idVerified;
+  bool? _hasPayout;
+  bool _payoutAvailable = true;
+  bool _setupLoaded = false;
+
+  /// Reads the two facts the profile row does not carry: identity check and
+  /// payout number. A failed read leaves its fact null, which hides the setup
+  /// row and lists the separate rows instead.
+  Future<void> _loadSetup() async {
+    bool? idVerified;
+    bool? hasPayout;
+    var payoutAvailable = true;
+    try {
+      idVerified = (await VerificationService.myStatus()).idVerified;
+    } catch (_) {
+      idVerified = null;
+    }
+    try {
+      final destinations = await PayoutService.listDestinations(widget.uid);
+      hasPayout = destinations.any((d) => d.status == PayoutDestinationStatus.active);
+    } on PayoutException catch (e) {
+      if (e.featureUnavailable) {
+        payoutAvailable = false;
+      } else {
+        hasPayout = null;
+      }
+    } catch (_) {
+      hasPayout = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _idVerified = idVerified;
+      _hasPayout = hasPayout;
+      _payoutAvailable = payoutAvailable;
+      _setupLoaded = true;
+    });
+  }
+
+  /// Whether "Who helped you join?" applies to this account, the SERVER's
   /// answer (my_agent_credit.can_change: the first 3 days). Hidden until it
   /// says yes, and for good after: past the window the row is clutter.
   bool _agentCodesOpen = false;
@@ -564,6 +584,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
   void initState() {
     super.initState();
     _loadAgentWindow();
+    _loadSetup();
   }
 
   @override
@@ -573,7 +594,9 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
       _stream = UserProfileService.watchUser(widget.uid);
       _ensureAttempted = false;
       _agentCodesOpen = false;
+      _setupLoaded = false;
       _loadAgentWindow();
+      _loadSetup();
     }
   }
 
@@ -593,7 +616,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
         // profile fetch. We already hold the signed-in user, so the header
         // renders immediately from [authUser] and upgrades in place when the
         // richer Supabase profile arrives. This also means a slow or failed
-        // fetch can no longer strand the user on a "Loading profile…" spinner —
+        // fetch can no longer strand the user on a "Loading profile…" spinner,
         // watchUser emits null on failure (bounded by the client timeout), and
         // null simply falls back to authUser below.
         if (snap.data == null &&
@@ -613,15 +636,95 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
           });
         }
         final profile = snap.data;
+        final isProvider = ProviderReadiness.of(
+          profile,
+          fallbackPhone: widget.authUser.phoneNumber,
+        ).isReady;
+        final completion = ProfileCompletion.of(
+          profile,
+          fallbackPhone: widget.authUser.phoneNumber,
+        );
+        final setup = _setupLoaded
+            ? ProfileSetup.evaluate(
+                profileComplete: completion.isComplete,
+                isProvider: isProvider,
+                idVerified: _idVerified,
+                hasPayout: _hasPayout,
+                payoutAvailable: _payoutAvailable,
+              )
+            : null;
+        // While the setup row shows, it is the one place its steps live.
+        final setupShowing = setup != null && !setup.isComplete;
+
+        // ── Business ───────────────────────────────────────────────────
+        // A member who does not offer services yet sees one way in, and
+        // only when the setup row is not already offering it. A provider
+        // sees their tools; the identity check joins them once setup is
+        // done (it also holds the Care check, so it stays useful after).
+        // Payout numbers moved to Account > Payments.
+        final businessRows = <Widget>[
+          if (!isProvider && !setupShowing)
+            _SettingsTile(
+              icon: AppIcons.provider,
+              title: 'Offer your services',
+              trailing: const Icon(AppIcons.disclosure),
+              onTap: () => _openSetupStep(SetupStep.offerServices, profile),
+            ),
+          if (isProvider)
+            _SettingsTile(
+              icon: AppIcons.providerCard,
+              title: 'My Help24 card',
+              trailing: const Icon(AppIcons.disclosure),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => ProviderCardScreen(uid: widget.uid)),
+              ),
+            ),
+          // Provider vetting (migration 135): the ID check (badge for anyone;
+          // required for tutoring, driving, security, house cleaning) and
+          // the Care check (babysitting, caregiving).
+          if (isProvider && !setupShowing)
+            _SettingsTile(
+              icon: AppIcons.verifiedProvider,
+              title: 'Verify your identity',
+              trailing: const Icon(AppIcons.disclosure),
+              onTap: () => _openSetupStep(SetupStep.verifyIdentity, profile),
+            ),
+          if (isProvider)
+            _SettingsTile(
+              icon: AppIcons.promote,
+              title: 'Promote business',
+              trailing: const Icon(AppIcons.disclosure),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => PromoteBusinessScreen(uid: widget.uid)),
+              ),
+            ),
+        ];
         return Column(
           children: [
+            // Only when something is wrong. "Good standing" was a row that
+            // said nothing on every visit; a problem now gets one banner at
+            // the top with the way to read or appeal it.
+            const _AccountStandingBanner(),
             _LoggedInProfile(profile: profile, authUser: widget.authUser),
+            const SizedBox(height: AppSpace.lg),
+            // Replaces the "New on Help24 / Stats appear after your first
+            // completed job" card: a member with no record is shown what to
+            // do next, not an empty report.
+            if (setupShowing)
+              _ProfileSetupRow(
+                setup: setup,
+                onTap: () => _openSetupStep(setup.next!, profile),
+              ),
+            // Nothing until there is a completed job; then one flat row.
+            _ProfileStats(uid: widget.uid),
 
             // ── "My Activity" USED TO BE HERE, AND IS NOT ANY MORE ──────
             //
             // My Posts, Saved and Service History were three rows in this
-            // screen. They are the Activity TAB now — the first two as its two
-            // scopes, the third as its header action — so leaving them here
+            // screen. They are the Activity TAB now, the first two as its two
+            // scopes, the third as its header action, so leaving them here
             // would be a second path to the same three places, one tap deeper,
             // in a screen that is supposed to be about the account.
             //
@@ -629,128 +732,23 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
             // addition: Profile got shorter by exactly what the new tab
             // absorbed.
             //
-            // ── Business (Promote Business) ─────────────────────────────
-            _SettingsSection(
-              title: 'Business',
-              children: [
-                _SettingsTile(
-                  icon: AppIcons.provider,
-                  title: 'Become a Provider',
-                  trailing: const Icon(AppIcons.disclosure),
-                  onTap: () => Navigator.push<bool>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ProviderOnboardingScreen(
-                        uid: widget.uid,
-                        initialProfile: profile,
-                        emailFromAuth: widget.authUser.email ?? '',
-                        phoneFromAuth: widget.authUser.phoneNumber,
-                      ),
-                    ),
-                  ).then((changed) {
-                    if (changed == true) _resubscribe();
-                  }),
-                ),
-                // The card is a provider's own: the same readiness sheet that
-                // gates "offer your services" explains what is missing first.
-                _SettingsTile(
-                  icon: AppIcons.providerCard,
-                  title: 'My Help24 card',
-                  trailing: const Icon(AppIcons.disclosure),
-                  onTap: () async {
-                    final ready = await ensureProviderReady(
-                      context,
-                      uid: widget.uid,
-                      action: 'get your Help24 card',
-                    );
-                    if (!ready || !context.mounted) return;
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => ProviderCardScreen(uid: widget.uid)),
-                    );
-                  },
-                ),
-                // Provider vetting (migration 135): the ID check (badge for
-                // anyone; required for tutoring, driving, security, house
-                // cleaning) and the Care check (babysitting, caregiving).
-                _SettingsTile(
-                  icon: AppIcons.verifiedProvider,
-                  title: 'Verify your identity',
-                  trailing: const Icon(AppIcons.disclosure),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => VerificationScreen(uid: widget.uid)),
-                  ),
-                ),
-                _SettingsTile(
-                  icon: AppIcons.payoutDestination,
-                  title: 'Payout Destinations',
-                  trailing: const Icon(AppIcons.disclosure),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PayoutDestinationsScreen(uid: widget.uid),
-                    ),
-                  ),
-                ),
-                _SettingsTile(
-                  icon: AppIcons.promote,
-                  title: 'Promote Business',
-                  trailing: const Icon(AppIcons.disclosure),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PromoteBusinessScreen(uid: widget.uid),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            if (businessRows.isNotEmpty)
+              _SettingsSection(title: 'Business', children: businessRows),
             // ── Account ─────────────────────────────────────────────────
             _SettingsSection(
               title: 'Account',
               children: [
-                // Completion lives on the tile so the user sees the gap from
-                // the Account tab without opening anything.
-                Builder(builder: (context) {
-                  final completion = ProfileCompletion.of(
-                    profile,
-                    fallbackPhone: widget.authUser.phoneNumber,
-                  );
-                  return _SettingsTile(
-                    icon: AppIcons.account,
-                    title: 'Professional Profile',
-                    // The ring IS the value. Showing a percentage ring, a
-                    // next-step label and a chevron put three things in a
-                    // column sized for one, and they crowded each other on
-                    // device. Progress is the glanceable fact; what is missing
-                    // is on the screen this opens.
-                    value: completion.isComplete ? 'Complete' : null,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (!completion.isComplete)
-                          CompletionRing(percent: completion.percent, size: 34, stroke: 3.5),
-                        const Icon(AppIcons.disclosure),
-                      ],
-                    ),
-                    onTap: () => Navigator.push<bool>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ProfessionalProfileScreen(
-                          uid: widget.uid,
-                          initialProfile: profile,
-                          emailFromAuth: widget.authUser.email ?? '',
-                          phoneFromAuth: widget.authUser.phoneNumber,
-                        ),
-                      ),
-                    ).then((changed) {
-                      if (changed == true) _resubscribe();
-                    }),
-                  );
-                }),
+                // No meter here any more: how complete the profile is counts
+                // as a step in "Complete your profile". This row is just the
+                // way to edit it.
+                _SettingsTile(
+                  icon: AppIcons.account,
+                  title: 'Professional profile',
+                  trailing: const Icon(AppIcons.disclosure),
+                  onTap: () => _openSetupStep(SetupStep.completeProfile, profile),
+                ),
                 // Every way into this account (Google, email, phone) and a way
-                // to add the ones it lacks — linked onto this account, never a
+                // to add the ones it lacks, linked onto this account, never a
                 // second one. See SignInMethodsScreen.
                 _SettingsTile(
                   icon: AppIcons.locked,
@@ -765,7 +763,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                   }),
                 ),
                 // Agent credit (migration 127): add or correct the code of the
-                // agent who signed this member up — only in their first 3 days.
+                // agent who signed this member up, only in their first 3 days.
                 if (_agentCodesOpen)
                   _SettingsTile(
                   icon: AppIcons.person,
@@ -776,62 +774,69 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
                     MaterialPageRoute(builder: (_) => const AgentCodeScreen()),
                   ),
                 ),
-                // NOT a payout surface. This is the number the client PAYS
-                // FROM (buyer STK push) and the contact number that makes a
-                // provider hireable. Where earnings are SENT is Payout
-                // Destinations, and only that. See payout_authority.dart (§M4).
+                // ONE PLACE FOR MONEY. "Payment number" (the number you pay
+                // from) and "Payout destinations" (where earnings go) were two
+                // rows in two sections that read as the same thing. They are
+                // two parts of one screen now. See _PaymentsScreen and
+                // payout_authority.dart (§M4) for what each part may claim.
                 _SettingsTile(
                   icon: AppIcons.paymentNumber,
-                  title: 'Payment Number',
-                  // The number is sensitive — masked here; the full value is
-                  // only revealed behind the biometric gate in the sheet.
-                  value: (profile?.phone?.isNotEmpty == true)
-                      ? maskPhone(profile!.phone!)
-                      : 'Not set',
+                  title: 'Payments',
+                  value: (profile?.phone?.isNotEmpty == true) ? null : 'Not set',
                   trailing: const Icon(AppIcons.disclosure),
-                  onTap: () => showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (_) => _PaymentSettingsSheet(
-                      uid: widget.uid,
-                      currentPhone: profile?.phone,
-                    ),
-                  ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => _PaymentsScreen(uid: widget.uid)),
+                  ).then((_) {
+                    // A payout number added there is a setup step done here.
+                    if (mounted) _loadSetup();
+                  }),
                 ),
-                // The person's own standing with Help24. Always listed, so the
-                // way to read a restriction — or appeal one — is never hidden
-                // behind the restriction itself.
-                ListenableBuilder(
-                  listenable: AccountStatusStore.instance,
-                  builder: (context, _) {
-                    final c = AppColors.of(context);
-                    final (String? label, Color? tone) = switch (AccountStatusStore.instance.status.standing) {
-                      AccountStanding.active => ('Good standing', null),
-                      AccountStanding.restricted => ('Restricted', c.cautionText),
-                      AccountStanding.suspended => ('Suspended', c.criticalText),
-                      AccountStanding.banned => ('Banned', c.criticalText),
-                      AccountStanding.unknown => (null, null),
-                    };
-                    return _SettingsTile(
-                      icon: AppIcons.securityAlert,
-                      title: 'Account status',
-                      value: label,
-                      iconColor: tone,
-                      trailing: const Icon(AppIcons.disclosure),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const AccountStatusScreen()),
-                      ),
-                    );
-                  },
-                ),
+                // Account status is not a row any more. It is
+                // _AccountStandingBanner at the top, shown only when the
+                // standing is not good, so the way to read or appeal a
+                // restriction is still never hidden behind it.
               ],
             ),
           ],
         );
       },
     );
+  }
+
+  /// Opens one setup step. Shared by the "Complete your profile" row and the
+  /// Business rows, so both always land on the same screen.
+  Future<void> _openSetupStep(SetupStep step, UserModel? profile) async {
+    final route = switch (step) {
+      SetupStep.completeProfile => MaterialPageRoute<bool>(
+          builder: (_) => ProfessionalProfileScreen(
+            uid: widget.uid,
+            initialProfile: profile,
+            emailFromAuth: widget.authUser.email ?? '',
+            phoneFromAuth: widget.authUser.phoneNumber,
+          ),
+        ),
+      SetupStep.offerServices => MaterialPageRoute<bool>(
+          builder: (_) => ProviderOnboardingScreen(
+            uid: widget.uid,
+            initialProfile: profile,
+            emailFromAuth: widget.authUser.email ?? '',
+            phoneFromAuth: widget.authUser.phoneNumber,
+          ),
+        ),
+      SetupStep.verifyIdentity => MaterialPageRoute<bool>(
+          builder: (_) => VerificationScreen(uid: widget.uid),
+        ),
+      SetupStep.addPayout => MaterialPageRoute<bool>(
+          builder: (_) => PayoutDestinationsScreen(uid: widget.uid),
+        ),
+    };
+    final changed = await Navigator.push<bool>(context, route);
+    if (!mounted) return;
+    // Any step can change what the setup row counts, so it re-reads on
+    // return; the profile steps also change the profile row itself.
+    _loadSetup();
+    if (changed == true) _resubscribe();
   }
 }
 
@@ -848,7 +853,9 @@ class _LoggedInProfile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = AppColors.of(context);
+    final profession = profile?.profession.trim() ?? '';
+    final bio = profile?.bio.trim() ?? '';
     final name = profile?.displayName ?? authUser.displayName;
     final email = profile?.email ?? authUser.email;
     final secondary = email.isNotEmpty ? email : (authUser.phoneNumber ?? '');
@@ -861,7 +868,7 @@ class _LoggedInProfile extends StatelessWidget {
       children: [
         // A PHOTO OF A PERSON NEEDS NO DECORATION.
         //
-        // This was a two-stop gradient with a coloured drop shadow behind it —
+        // This was a two-stop gradient with a coloured drop shadow behind it,
         // the most "generated" element in the app, and it glowed indigo behind
         // a real photograph. The ring is now a hairline, and initials sit on a
         // neutral surface.
@@ -906,49 +913,457 @@ class _LoggedInProfile extends StatelessWidget {
                   ),
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: AppSpace.lg),
 
-        // Name
         Text(
           name,
           style: Theme.of(context).textTheme.headlineMedium,
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: AppSpace.xs),
         Text(
           secondary,
-          style: Theme.of(context).textTheme.bodyMedium,
+          style: AppTypeScale.bodyM.copyWith(
+            fontFamily: AppTypeScale.family,
+            color: c.contentSecondary,
+          ),
         ),
 
-        // Profession sits directly under the identity line — it is the primary
-        // professional signal, rendered through the registry so a stored key
-        // shows its canonical label (and legacy free text still shows as typed).
-        if (profile?.profession.trim().isNotEmpty == true) ...[
-          const SizedBox(height: 10),
-          ProfessionChip(profession: profile!.profession, fontSize: 12.5),
+        // TITLE AND BIO COME FROM ONE ROW.
+        //
+        // Both are read from the same users row ([profile]) and nothing else:
+        // the title is `profession` through the registry (a stored slug shows
+        // its label, legacy free text shows as typed), the bio is `bio`. There
+        // are no fallbacks or defaults, so if they disagree it is because the
+        // member wrote them that way, and editing either one on the
+        // Professional profile fixes it here. An empty bio shows nothing.
+        if (profession.isNotEmpty) ...[
+          const SizedBox(height: AppSpace.md),
+          ProfessionChip(profession: profession, fontSize: 12.5),
         ],
-
-        if (profile?.bio.isNotEmpty == true) ...[
-          const SizedBox(height: 10),
+        if (bio.isNotEmpty) ...[
+          const SizedBox(height: AppSpace.sm),
           Text(
-            profile!.bio,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                ),
+            bio,
+            style: AppTypeScale.bodyM.copyWith(
+              fontFamily: AppTypeScale.family,
+              color: c.contentSecondary,
+            ),
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
           ),
         ],
-        const SizedBox(height: 8),
-
-        // Backend-sourced reputation: rating, completed jobs, completion rate,
-        // dispute rate, open disputes, tier, member since. Post count moved to
-        // the My Activity section (it's an action, not a trust signal).
-        // authUser is AppUser (field `id`, not `uid`) — the old dynamic
-        // `authUser.uid` call crashed at runtime whenever the users row was
-        // still null.
-        ReputationProfileSection(providerId: profile?.uid ?? authUser.id),
+        // Member since is gone, and the reputation card with it. The stats
+        // live in _ProfileStats, shown only after a completed job.
       ],
+    );
+  }
+}
+
+/// "Complete your profile": how many setup steps are done, as "1 of 3" and a
+/// thin bar. Tapping opens the first step that is not done. The parent only
+/// builds it while setup is known and incomplete.
+class _ProfileSetupRow extends StatelessWidget {
+  final ProfileSetup setup;
+  final VoidCallback onTap;
+
+  const _ProfileSetupRow({required this.setup, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpace.sm),
+      child: Material(
+        color: c.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.lgAll,
+          side: BorderSide(color: c.borderHairline),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpace.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Complete your profile',
+                        style: AppTypeScale.bodyL.copyWith(
+                          fontFamily: AppTypeScale.family,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: c.contentPrimary,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${setup.completed} of ${setup.total}',
+                      style: AppTypeScale.bodyS.copyWith(
+                        fontFamily: AppTypeScale.family,
+                        color: c.contentTertiary,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpace.xs),
+                    Icon(Icons.chevron_right_rounded, size: 20, color: c.contentTertiary),
+                  ],
+                ),
+                const SizedBox(height: AppSpace.md),
+                ClipRRect(
+                  borderRadius: AppRadius.pillAll,
+                  child: LinearProgressIndicator(
+                    value: setup.fraction,
+                    minHeight: 4,
+                    backgroundColor: c.surfaceSunken,
+                    valueColor: AlwaysStoppedAnimation<Color>(c.accentFill),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The member's record, as one flat row: Jobs and Rating. Nothing at all
+/// until there is a completed job, so a new member never sees a row of zeros.
+class _ProfileStats extends StatefulWidget {
+  final String uid;
+  const _ProfileStats({required this.uid});
+
+  @override
+  State<_ProfileStats> createState() => _ProfileStatsState();
+}
+
+class _ProfileStatsState extends State<_ProfileStats> {
+  late Future<ReputationResult> _future;
+  late ReputationResult _seed;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProfileStats oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid) _load();
+  }
+
+  void _load() {
+    _seed = ReputationService.peek(widget.uid);
+    _future = ReputationService.getResult(widget.uid);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<ReputationResult>(
+      future: _future,
+      initialData: _seed.hasValue ? _seed : null,
+      builder: (context, snap) {
+        final rep = snap.data?.rep;
+        if (rep == null || rep.completedJobs <= 0) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: AppSpace.lg),
+          child: Row(
+            children: [
+              Expanded(child: _Stat(value: '${rep.completedJobs}', label: 'Jobs')),
+              Expanded(
+                child: _Stat(
+                  value: rep.hasReviews ? rep.averageRating.toStringAsFixed(1) : 'None',
+                  label: 'Rating',
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  final String value;
+  final String label;
+  const _Stat({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Column(
+      children: [
+        Text(
+          value,
+          style: AppTypeScale.headingM.copyWith(
+            fontFamily: AppTypeScale.family,
+            color: c.contentPrimary,
+          ),
+        ),
+        Text(
+          label,
+          style: AppTypeScale.meta.copyWith(
+            fontFamily: AppTypeScale.family,
+            color: c.contentTertiary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Shown at the top of Profile only when the account is restricted,
+/// suspended or banned: one line and one button. A good standing shows
+/// nothing, and so does a standing that has not loaded.
+class _AccountStandingBanner extends StatelessWidget {
+  const _AccountStandingBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AccountStatusStore.instance,
+      builder: (context, _) {
+        final c = AppColors.of(context);
+        final (String? message, Color fg, Color bg) =
+            switch (AccountStatusStore.instance.status.standing) {
+          AccountStanding.restricted => ('Your account is restricted', c.cautionText, c.cautionSubtle),
+          AccountStanding.suspended => ('Your account is suspended', c.criticalText, c.criticalSubtle),
+          AccountStanding.banned => ('Your account is banned', c.criticalText, c.criticalSubtle),
+          AccountStanding.active || AccountStanding.unknown => (null, c.contentPrimary, c.surface),
+        };
+        if (message == null) return const SizedBox.shrink();
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: AppSpace.lg),
+          padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.sm, AppSpace.sm, AppSpace.sm),
+          decoration: BoxDecoration(color: bg, borderRadius: AppRadius.lgAll),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  message,
+                  style: AppTypeScale.bodyM.copyWith(
+                    fontFamily: AppTypeScale.family,
+                    fontWeight: FontWeight.w600,
+                    color: fg,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AccountStatusScreen()),
+                ),
+                style: TextButton.styleFrom(foregroundColor: fg),
+                child: const Text('See details'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The one action in the footer (Sign out, or Sign in): text alone, centred.
+class _FooterAction extends StatelessWidget {
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _FooterAction({required this.label, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(foregroundColor: color),
+        child: Text(
+          label,
+          style: AppTypeScale.bodyL.copyWith(
+            fontFamily: AppTypeScale.family,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A small muted link in the footer (Terms, Privacy).
+class _FooterLink extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _FooterLink({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: AppRadius.smAll,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpace.xs, vertical: AppSpace.sm),
+        child: Text(
+          label,
+          style: AppTypeScale.meta.copyWith(
+            fontFamily: AppTypeScale.family,
+            color: c.contentTertiary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// PAYMENTS: the number you pay from, and where your earnings go.
+///
+/// These were two rows in two sections ("Payment number" under Account,
+/// "Payout destinations" under Business) that members read as one thing.
+/// They are two parts of one screen now, and each part says only what is
+/// true today (payout_authority.dart, §M4):
+///
+///   * payout numbers live: the verified payout number decides, and the
+///     payment number has no payout role;
+///   * payout numbers switched off: earnings still settle to the payment
+///     number, so the screen says so instead of offering an empty section;
+///   * unknown (offline, error): claim nothing, and link to the payout
+///     screen, which explains its own state.
+class _PaymentsScreen extends StatefulWidget {
+  final String uid;
+  const _PaymentsScreen({required this.uid});
+
+  @override
+  State<_PaymentsScreen> createState() => _PaymentsScreenState();
+}
+
+class _PaymentsScreenState extends State<_PaymentsScreen> {
+  late Stream<UserModel?> _stream = UserProfileService.watchUser(widget.uid);
+  PayoutAuthority _authority = PayoutAuthority.unknown;
+  PayoutDestination? _payout;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPayout();
+  }
+
+  Future<void> _loadPayout() async {
+    var reachable = true;
+    var unavailable = false;
+    PayoutDestination? payout;
+    try {
+      final active = (await PayoutService.listDestinations(widget.uid))
+          .where((d) => d.status == PayoutDestinationStatus.active)
+          .toList();
+      payout = active.where((d) => d.isDefault).firstOrNull ?? active.firstOrNull;
+    } on PayoutException catch (e) {
+      if (e.featureUnavailable) {
+        unavailable = true;
+      } else {
+        reachable = false;
+      }
+    } catch (_) {
+      reachable = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _authority = resolvePayoutAuthority(
+        reachable: reachable,
+        featureUnavailable: unavailable,
+      );
+      _payout = payout;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Payments')),
+      body: StreamBuilder<UserModel?>(
+        stream: _stream,
+        builder: (context, snap) {
+          final phone = snap.data?.phone;
+          final hasPhone = phone != null && phone.isNotEmpty;
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpace.gutter, 0, AppSpace.gutter, AppSpace.xl),
+            children: [
+              _SettingsSection(
+                title: 'You pay from',
+                children: [
+                  // The number is sensitive: masked here, revealed only
+                  // behind the biometric gate in the sheet.
+                  _SettingsTile(
+                    icon: AppIcons.paymentNumber,
+                    title: 'Payment number',
+                    value: hasPhone ? maskPhone(phone) : 'Not set',
+                    trailing: const Icon(AppIcons.disclosure),
+                    onTap: () => showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (_) => _PaymentSettingsSheet(
+                        uid: widget.uid,
+                        currentPhone: phone,
+                      ),
+                    ).then((_) {
+                      if (mounted) {
+                        setState(() => _stream = UserProfileService.watchUser(widget.uid));
+                      }
+                    }),
+                  ),
+                ],
+              ),
+              if (_authority == PayoutAuthority.profileNumber) ...[
+                const SectionHeader('You get paid to'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
+                  child: Text(
+                    'Your earnings go to your payment number for now.',
+                    style: AppTypeScale.bodyS.copyWith(
+                      fontFamily: AppTypeScale.family,
+                      color: c.contentSecondary,
+                    ),
+                  ),
+                ),
+              ] else
+                _SettingsSection(
+                  title: 'You get paid to',
+                  children: [
+                    _SettingsTile(
+                      icon: AppIcons.payoutDestination,
+                      title: 'Payout number',
+                      value: _authority == PayoutAuthority.destinations
+                          ? (_payout != null ? maskPhone(_payout!.destination) : 'Not set')
+                          : null,
+                      trailing: const Icon(AppIcons.disclosure),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PayoutDestinationsScreen(uid: widget.uid),
+                        ),
+                      ).then((_) {
+                        if (mounted) _loadPayout();
+                      }),
+                    ),
+                  ],
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -994,7 +1409,7 @@ class _GuestProfile extends StatelessWidget {
         const SizedBox(height: 8),
         // "Sign in to access all features" is true of every app ever written
         // and says nothing about this one. Browsing already works without an
-        // account — what an account actually buys is naming the three things
+        // account, what an account actually buys is naming the three things
         // it unlocks, which is also what makes the ask feel proportionate.
         Text(
           'Sign in to post a job, apply for work and message people.',
@@ -1021,7 +1436,7 @@ class _GuestProfile extends StatelessWidget {
 }
 
 /// Trailing affordance for Support rows that open the Help24 website in an
-/// in-app browser tab — signals the row leaves the app for the web.
+/// in-app browser tab, signals the row leaves the app for the web.
 class _ExternalTrailing extends StatelessWidget {
   const _ExternalTrailing();
 
@@ -1068,7 +1483,7 @@ class _SettingsSection extends StatelessWidget {
 ///   Payout Destinations/ "Where your M-Pesa earnings are sent"
 ///   Saved              / "Your shortlist of posts & providers"
 ///   Service History    / "Completed services, work & receipts"
-///   Promote Business   / "Feature a listing · campaigns, results & payments"
+///   Promote Business   / "Feature a listing, campaigns, results & payments"
 ///   Notifications      / "Sign in"      ← which is what tapping it does
 ///   Location Access    / "Sign in"
 ///   Professional Profile / "Sign in to build your profile"
@@ -1076,7 +1491,7 @@ class _SettingsSection extends StatelessWidget {
 /// A `value` is right-aligned and can only carry STATE the user cannot
 /// otherwise see: `14 active`, `Device Default`, `English`, `Off`. If a row has
 /// no state worth showing it shows nothing, and the destination explains itself
-/// the moment it opens — which it can, because it is a whole screen.
+/// the moment it opens, which it can, because it is a whole screen.
 class _SettingsTile extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -1085,12 +1500,6 @@ class _SettingsTile extends StatelessWidget {
   final String? value;
   final Widget? trailing;
   final VoidCallback? onTap;
-  final Color? iconColor;
-  final Color? titleColor;
-
-  /// False for rows that perform an action in place (Sign out) rather than
-  /// open a screen — a chevron promises navigation.
-  final bool showChevron;
 
   const _SettingsTile({
     required this.icon,
@@ -1098,9 +1507,6 @@ class _SettingsTile extends StatelessWidget {
     this.value,
     this.trailing,
     this.onTap,
-    this.iconColor,
-    this.titleColor,
-    this.showChevron = true,
   });
 
   @override
@@ -1111,8 +1517,6 @@ class _SettingsTile extends StatelessWidget {
       value: value,
       trailing: trailing,
       onTap: onTap,
-      tone: titleColor ?? iconColor,
-      showChevron: showChevron,
     );
   }
 }
@@ -1191,15 +1595,15 @@ class _NotificationSwitchTile extends StatefulWidget {
 
 /// One tap, one transition.
 ///
-/// The switch reads exactly one value — [NotificationToggleState.displayed] —
+/// The switch reads exactly one value, [NotificationToggleState.displayed],
 /// and that value moves only when the user chooses, when a write resolves, or
 /// when a fresh read arrives. See `notification_toggle_state.dart` for the
 /// device trace of the three-transition flicker this replaced.
 class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
   /// ONE subscription for the life of the tile.
   ///
-  /// `watchUserPrefs()` used to be called inside `build()`, so every rebuild —
-  /// including the one the user's own tap causes — spun up a new controller and
+  /// `watchUserPrefs()` used to be called inside `build()`, so every rebuild,
+  /// including the one the user's own tap causes, spun up a new controller and
   /// an `AdaptivePoll` that immediately fired a read. That read overlapped the
   /// write and came back with the pre-write value, which is what the switch
   /// then snapped to.
@@ -1207,7 +1611,7 @@ class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
 
   NotificationToggleState _toggle = const NotificationToggleState();
 
-  /// The OS's answer, not Firebase's — false means Android has Help24's
+  /// The OS's answer, not Firebase's, false means Android has Help24's
   /// notifications switched off and only the user can switch them back on.
   bool _osBlocked = false;
 
@@ -1284,7 +1688,7 @@ class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
       await _refreshOsState();
     } catch (e) {
       // Nothing was saved, so the switch returns to what IS saved and says why
-      // — a silent revert reads as the control being broken.
+      //, a silent revert reads as the control being broken.
       if (!mounted) return;
       setState(() => _toggle = _toggle.writeFailed(value));
       ActionFeedback.failure(context, e, context_: ErrorContext.save);
@@ -1297,11 +1701,17 @@ class _NotificationSwitchTileState extends State<_NotificationSwitchTile> {
     return _SettingsTile(
       icon: AppIcons.notifications,
       title: l10n?.t('notifications') ?? 'Notifications',
-      value: _osBlocked ? "Blocked in phone settings — tap to fix" : null,
-      onTap: _osBlocked ? _nudgeToSystemSettings : null,
+      value: _osBlocked ? "Blocked in phone settings" : null,
+      // The whole row toggles, so the switch can drop its extra touch padding
+      // (which made this row taller than its neighbours) without shrinking
+      // the target: the target is the 52 px row.
+      onTap: _osBlocked
+          ? _nudgeToSystemSettings
+          : () => _onChanged(!_toggle.displayed),
       trailing: Switch.adaptive(
         value: _toggle.displayed && !_osBlocked,
         onChanged: _onChanged,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
@@ -1368,7 +1778,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
       final localAuth = LocalAuthentication();
       final bool deviceSupported = await localAuth.isDeviceSupported();
       if (!deviceSupported) {
-        // Device has no lock screen — skip gate
+        // Device has no lock screen, skip gate
         if (mounted) setState(() { _unlocked = true; _authenticating = false; });
         return;
       }
@@ -1403,7 +1813,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
   }
 
   /// What to do next, by the device-auth failure code. A lockout needs
-  /// waiting, not retrying — "please try again" was wrong advice for it.
+  /// waiting, not retrying, "please try again" was wrong advice for it.
   static String _deviceAuthMessage(String code) => switch (code) {
         auth_error.lockedOut =>
           'Too many attempts. Wait 30 seconds, then try again.',
@@ -1458,7 +1868,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
           children: [
             const IconBadge(AppIcons.device, color: AppTheme.primaryAccent),
             const SizedBox(width: 12),
-            Text('Payment Number', style: Theme.of(context).textTheme.titleLarge),
+            Text('Payment number', style: Theme.of(context).textTheme.titleLarge),
           ],
         ),
       ],
@@ -1610,7 +2020,7 @@ class _PaymentSettingsSheetState extends State<_PaymentSettingsSheet> {
 
 /// The one place the legacy number is allowed to mention payouts.
 ///
-/// Renders nothing at all for [PayoutAuthority.unknown] — silence is the
+/// Renders nothing at all for [PayoutAuthority.unknown], silence is the
 /// correct output when the probe could not answer, per the state-truthfulness
 /// contract. When Payout Destinations is live it both disclaims payout
 /// authority AND routes there, so the sheet can never be a dead end that
@@ -1670,7 +2080,7 @@ class _PayoutAuthorityNote extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
                   onPressed: () {
-                    // Capture before popping — this context belongs to the
+                    // Capture before popping, this context belongs to the
                     // sheet and is defunct the moment it closes.
                     final navigator = Navigator.of(context);
                     navigator.pop();
@@ -1681,7 +2091,7 @@ class _PayoutAuthorityNote extends StatelessWidget {
                     );
                   },
                   icon: const Icon(AppIcons.payoutDestination, size: 16),
-                  label: const Text('Open Payout Destinations'),
+                  label: const Text('Open payout destinations'),
                 ),
               ),
             ],
@@ -1716,7 +2126,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
   bool _feedbackOk = false;
 
   /// The outcome [_feedback] describes, and whether the device was offline
-  /// then — kept so the message is dropped the moment it stops being true.
+  /// then, kept so the message is dropped the moment it stops being true.
   /// Without it the header flipped to "Location Enabled" the instant location
   /// came back on, while "Turn on location services and try again." stayed
   /// underneath until the next refresh (seen on a device).
@@ -1744,7 +2154,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
     super.dispose();
   }
 
-  /// Clear the message once what it said no longer holds — location turned
+  /// Clear the message once what it said no longer holds, location turned
   /// back on, permission granted, the connection restored. See
   /// CurrentLocationResult.stillApplies.
   void _dropStaleFeedback() {
@@ -1780,7 +2190,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
       final ok = result.isSuccess;
       final offline = _connectivity.isOffline;
       setState(() {
-        // Why it failed, not one sentence for every cause — see
+        // Why it failed, not one sentence for every cause, see
         // CurrentLocationResult.refreshMessage.
         _feedback = ok ? 'Location updated.' : result.refreshMessage(offline: offline);
         _feedbackOk = ok;
@@ -1799,7 +2209,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
       }
     } catch (e) {
       // Expected failures arrive as a result above. A platform channel
-      // throwing is the unexpected one — it used to escape this method with
+      // throwing is the unexpected one, it used to escape this method with
       // no message at all; now it is mapped, never shown raw.
       if (mounted) {
         setState(() {
@@ -1826,7 +2236,7 @@ class _LocationSettingsSheetState extends State<_LocationSettingsSheet> {
       if (!mounted) return;
       // Location disabled in-app: drop the coordinates so ranking stops using
       // them. The distance signal then reports "not applicable" and its weight
-      // leaves the calculation entirely — the feed re-ranks on everything else
+      // leaves the calculation entirely, the feed re-ranks on everything else
       // rather than scoring every post as though it were nowhere.
       context.read<AppProvider>().setViewer(
             userId: widget.userId,
