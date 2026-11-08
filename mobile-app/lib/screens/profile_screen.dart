@@ -252,13 +252,13 @@ class ProfileScreen extends StatelessWidget {
               children: [
                 _SettingsTile(
                   icon: AppIcons.help,
-                  title: AppLocalizations.of(context)?.t('help_center') ?? 'Help centre',
+                  title: _sentenceCase(AppLocalizations.of(context)?.t('help_center') ?? 'Help centre'),
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openHelpCenter(context),
                 ),
                 _SettingsTile(
                   icon: AppIcons.support,
-                  title: AppLocalizations.of(context)?.t('contact_support') ?? 'Contact support',
+                  title: _sentenceCase(AppLocalizations.of(context)?.t('contact_support') ?? 'Contact support'),
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openSupport(context),
                 ),
@@ -289,12 +289,12 @@ class ProfileScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _FooterLink(
-                  label: AppLocalizations.of(context)?.t('terms_of_service') ?? 'Terms of service',
+                  label: _sentenceCase(AppLocalizations.of(context)?.t('terms_of_service') ?? 'Terms of service'),
                   onTap: () => _openTerms(context),
                 ),
                 const SizedBox(width: AppSpace.xl),
                 _FooterLink(
-                  label: AppLocalizations.of(context)?.t('privacy_policy') ?? 'Privacy policy',
+                  label: _sentenceCase(AppLocalizations.of(context)?.t('privacy_policy') ?? 'Privacy policy'),
                   onTap: () => _openPrivacy(context),
                 ),
               ],
@@ -2484,3 +2484,13 @@ class _DetailRow extends StatelessWidget {
     );
   }
 }
+
+/// Labels are sentence case ("Help centre", "Terms of service").
+///
+/// The en.json bundled in the 1.0.11 APK still says "Help Centre" and
+/// "Terms of Service", and a Shorebird patch cannot change bundled files, so
+/// patched phones would mix the two styles on one screen. Applying the case
+/// here makes the label right whichever en.json the phone has. Safe for these
+/// four labels because none of them holds a proper noun.
+String _sentenceCase(String s) =>
+    s.isEmpty ? s : s[0].toUpperCase() + s.substring(1).toLowerCase();
