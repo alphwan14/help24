@@ -2003,15 +2003,14 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   /// data mentioning them lands (feed, jobs, conversations) — the image is
   /// then already decoded when its card/tile builds, so it is never seen
   /// loading. Fire-and-forget; errors are swallowed by the pipeline.
-  void _warmImageUrls(Iterable<String> urls, {int cap = 40, bool thumbnail = false}) {
+  void _warmImageUrls(Iterable<String> urls, {int cap = 40}) {
     var started = 0;
     for (final url in urls) {
       if (started >= cap) break;
-      if (url.isEmpty || !_warmedAvatarUrls.add(thumbnail ? 'thumb:$url' : url)) continue;
+      if (url.isEmpty || !_warmedAvatarUrls.add(url)) continue;
       started++;
       try {
-        (thumbnail ? feedThumbProvider(url) : CachedNetworkImageProvider(url))
-            .resolve(ImageConfiguration.empty);
+        CachedNetworkImageProvider(url).resolve(ImageConfiguration.empty);
       } catch (_) {
         // Never let a bad URL disturb the provider.
       }
@@ -2035,13 +2034,13 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
   void _warmPostMedia(Iterable<PostModel> posts, {int cap = 30}) {
     final list = posts.take(cap).toList();
     _warmImageUrls(list.map((p) => p.authorAvatar), cap: cap);
-    // Covers at the card's decode size (utils/feed_images.dart), not the
-    // 1200 px original.
-    _warmImageUrls(
-      list.where((p) => p.images.isNotEmpty).map((p) => p.images.first),
-      cap: cap,
-      thumbnail: true,
-    );
+    // Covers as the card shows them: the upload-time thumbnail (or the photo
+    // when a post has none) at the card's decode size (utils/feed_images.dart).
+    for (final p in list) {
+      if (p.images.isEmpty || p.images.first.isEmpty) continue;
+      if (!_warmedAvatarUrls.add('card:${p.images.first}')) continue;
+      unawaited(warmFeedCardImage(p.images.first));
+    }
   }
 
   /// The cover images of the first [count] posts, in order — the screenful the
@@ -2080,32 +2079,11 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
 
     final started = DateTime.now();
     await Future.wait(
-      urls.map((url) => _decoded(url)),
+      urls.map(warmFeedCardImage),
     ).timeout(budget, onTimeout: () => const []);
     debugPrint('[LAUNCH] first-screen images settled in '
         '${DateTime.now().difference(started).inMilliseconds}ms '
         '(budget ${budget.inMilliseconds}ms, ${urls.length} images)');
-  }
-
-  /// Completes when [url] is decoded and in the image cache — or immediately on
-  /// any failure, because a broken photo must never hold a launch.
-  static Future<void> _decoded(String url) {
-    final completer = Completer<void>();
-    late final ImageStreamListener listener;
-    // Covers only (see _coverUrls), at the size the card paints them.
-    final stream = feedThumbProvider(url).resolve(ImageConfiguration.empty);
-    void finish() {
-      if (completer.isCompleted) return;
-      completer.complete();
-      stream.removeListener(listener);
-    }
-
-    listener = ImageStreamListener(
-      (_, __) => finish(),
-      onError: (_, __) => finish(),
-    );
-    stream.addListener(listener);
-    return completer.future;
   }
 
   /// Rows whose photo is already a file on this phone (ChatMediaStore) need

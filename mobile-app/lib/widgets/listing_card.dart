@@ -536,6 +536,25 @@ class _Thumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    Widget broken() => Container(
+          color: c.surfaceSunken,
+          child: Icon(AppIcons.imageBroken, color: c.contentTertiary, size: 22),
+        );
+    // Decoded at thumbnail size, the same key the feed warms
+    // (utils/feed_images.dart).
+    Widget image(String src, Widget Function() onError) => CachedNetworkImage(
+          imageUrl: src,
+          memCacheWidth: kFeedThumbDecodeWidth,
+          fit: BoxFit.cover,
+          fadeInDuration: Duration.zero,
+          fadeOutDuration: Duration.zero,
+          placeholderFadeInDuration: Duration.zero,
+          placeholder: (_, __) => Container(color: c.surfaceSunken),
+          errorWidget: (_, __, ___) => onError(),
+        );
+    // The small JPEG made at upload, or the photo itself for a post that has
+    // none. A missing thumbnail is remembered for the session.
+    final src = feedCardImageUrl(url);
     return ClipRRect(
       borderRadius: AppRadius.mdAll,
       child: SizedBox(
@@ -544,21 +563,14 @@ class _Thumbnail extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            CachedNetworkImage(
-              imageUrl: url,
-              // Decoded at thumbnail size, the same key the feed warms
-              // (utils/feed_images.dart).
-              memCacheWidth: kFeedThumbDecodeWidth,
-              fit: BoxFit.cover,
-              fadeInDuration: Duration.zero,
-              fadeOutDuration: Duration.zero,
-              placeholderFadeInDuration: Duration.zero,
-              placeholder: (_, __) => Container(color: c.surfaceSunken),
-              errorWidget: (_, __, ___) => Container(
-                color: c.surfaceSunken,
-                child: Icon(AppIcons.imageBroken,
-                    color: c.contentTertiary, size: 22),
-              ),
+            image(
+              src,
+              src == url
+                  ? broken
+                  : () {
+                      markFeedThumbMissing(src);
+                      return image(url, broken);
+                    },
             ),
             // The photo count used to be its own row with its own icon. It is
             // a property of the photo, so it lives on the photo.

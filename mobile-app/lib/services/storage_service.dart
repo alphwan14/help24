@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../utils/error_mapper.dart';
+import '../utils/image_thumbnail.dart';
 
 /// Service for handling image uploads to Supabase Storage
 /// Supports both mobile (File) and web (XFile with bytes) platforms
@@ -65,9 +66,14 @@ class StorageService {
       debugPrint('📤 StorageService: Extension: $extension');
 
       // Generate unique filename
-      final fileName = '${const Uuid().v4()}.$extension';
+      final id = const Uuid().v4();
+      final fileName = '$id.$extension';
       final filePath = 'posts/$fileName';
       debugPrint('📤 StorageService: Uploading to path: $filePath');
+
+      // The feed card's small JPEG, made on a background isolate while the
+      // photo uploads (utils/image_thumbnail.dart).
+      final thumbnail = makeThumbnail(bytes).catchError((Object _) => null);
 
       // Determine content type
       final contentType = _getContentType(extension);
@@ -85,6 +91,8 @@ class StorageService {
       );
       debugPrint('📤 StorageService: Upload complete!');
 
+      await _uploadThumbnail(await thumbnail, 'posts/$id.thumb.jpg');
+
       // Get public URL
       final publicUrl = _client.storage.from(_bucket).getPublicUrl(filePath);
       debugPrint('📤 StorageService: Public URL: $publicUrl');
@@ -93,6 +101,31 @@ class StorageService {
       debugPrint('❌ StorageService ERROR: $e');
       if (e is StorageException) rethrow;
       throw StorageException('Failed to upload image: $e');
+    }
+  }
+
+  /// Store a post photo's thumbnail beside it (`posts/<id>.thumb.jpg`; the feed
+  /// derives the address from the photo's, see utils/feed_images.dart).
+  ///
+  /// Best effort: the photo is already stored, and a card shows the photo
+  /// itself when the thumbnail is missing. A failure here must never fail the
+  /// post.
+  static Future<void> _uploadThumbnail(Uint8List? jpeg, String path) async {
+    if (jpeg == null) return;
+    try {
+      await _client.storage.from(_bucket).uploadBinary(
+            path,
+            jpeg,
+            fileOptions: const FileOptions(
+              // A thumbnail never changes; the name is unique per photo.
+              cacheControl: '31536000',
+              upsert: false,
+              contentType: 'image/jpeg',
+            ),
+          );
+      debugPrint('[THUMB] stored $path (${jpeg.length} bytes)');
+    } catch (e) {
+      debugPrint('[THUMB] not stored, the card will show the photo: $e');
     }
   }
 
