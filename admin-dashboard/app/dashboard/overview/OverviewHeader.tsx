@@ -132,6 +132,12 @@ function AttentionQueue() {
   const partial = !!alerts?.error || (data?.unavailable?.length ?? 0) > 0;
   const checked = alerts?.fetchedAt ? waited(new Date(alerts.fetchedAt).toISOString(), now) : null;
 
+  // Only work earns a place above the platform figures. While the check is
+  // running, and when nothing is waiting, the queue takes no space at all, so
+  // on a quiet day the page opens on Platform. A failed or partial check still
+  // shows: "all clear" must never be claimed without being known.
+  if (loading || (items.length === 0 && !partial)) return null;
+
   return (
     <section aria-labelledby="attention-heading" className="mb-6 lg:mb-8">
       <div className="flex items-baseline justify-between mb-2.5">
@@ -142,15 +148,7 @@ function AttentionQueue() {
       </div>
 
       <div className="bg-surface rounded-xl border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="divide-y divide-gray-100" aria-hidden="true">
-            {[0, 1].map((i) => (
-              <div key={i} className="h-12 px-4 flex items-center">
-                <div className="h-3.5 w-48 rounded bg-gray-100 animate-pulse" />
-              </div>
-            ))}
-          </div>
-        ) : items.length > 0 ? (
+        {items.length > 0 ? (
           <ul className="divide-y divide-gray-100">
             {items.map((item) => (
               <li key={item.href}>
@@ -166,13 +164,8 @@ function AttentionQueue() {
             ))}
             {partial && <PartialRow />}
           </ul>
-        ) : partial ? (
-          <PartialRow />
         ) : (
-          <div className="flex items-center gap-3 px-4 h-12">
-            <CheckIcon className="w-4 h-4 text-positive-600 shrink-0" />
-            <span className="text-[14px] text-gray-700">Nothing waiting on you</span>
-          </div>
+          <PartialRow />
         )}
       </div>
     </section>
@@ -192,14 +185,6 @@ function Chevron({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
     </svg>
   );
 }

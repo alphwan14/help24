@@ -325,8 +325,8 @@ export default async function OverviewGeneralPage() {
 
   return (
     <div className="space-y-6 lg:space-y-8">
-      <EarningsPanel series={earnings} />
-
+      {/* Ranked by the question each answers: who is on Help24, is it
+          growing, what it earns, the money behind that, then diagnostics. */}
       <section>
         <SectionLabel>Platform</SectionLabel>
         <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
@@ -336,6 +336,23 @@ export default async function OverviewGeneralPage() {
           <MetricCard label="Offers" value={fmtNum(kpis.totalOffers)} icon="offers" />
         </div>
       </section>
+
+      <section className="grid grid-cols-1 gap-4 lg:gap-6 lg:grid-cols-2">
+        <div className="chart-card">
+          <ChartHeader title="Signups" sub={`${fmtNum(signups30)} in the last 30 days`} />
+          <div className="h-[180px] sm:h-[220px] lg:h-[240px]">
+            <UserGrowthChart data={userGrowth} bars />
+          </div>
+        </div>
+        <div className="chart-card">
+          <ChartHeader title="Requests and offers" sub={`${fmtNum(posts30)} posted in the last 30 days`} />
+          <div className="h-[180px] sm:h-[220px] lg:h-[240px]">
+            <RequestsOffersChart data={postActivity} />
+          </div>
+        </div>
+      </section>
+
+      <EarningsPanel series={earnings} />
 
       <section>
         <SectionLabel>Jobs and money</SectionLabel>
@@ -351,21 +368,6 @@ export default async function OverviewGeneralPage() {
             icon="revenue"
             sub={kpis.platformFees == null ? "Paid by customers" : `Fees ${fmtKES(kpis.platformFees)}`}
           />
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 lg:gap-6 lg:grid-cols-2">
-        <div className="chart-card">
-          <ChartHeader title="Signups" sub={`${fmtNum(signups30)} in the last 30 days`} />
-          <div className="h-[180px] sm:h-[220px] lg:h-[240px]">
-            <UserGrowthChart data={userGrowth} />
-          </div>
-        </div>
-        <div className="chart-card">
-          <ChartHeader title="Requests and offers" sub={`${fmtNum(posts30)} posted in the last 30 days`} />
-          <div className="h-[180px] sm:h-[220px] lg:h-[240px]">
-            <RequestsOffersChart data={postActivity} />
-          </div>
         </div>
       </section>
 
