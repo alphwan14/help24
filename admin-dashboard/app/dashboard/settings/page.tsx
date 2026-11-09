@@ -79,7 +79,7 @@ export default async function SettingsPage() {
     : providers.map((p) => PROVIDER_LABELS[p] ?? p).join(", ") || "—";
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div className="page-header">
         <h1>Settings</h1>
         <p>Your account, how you sign in, and how the console looks</p>

@@ -55,7 +55,7 @@ function LoginRow({ login }: { login: UnlinkedLogin }) {
         kind: "ok",
         text: res.data?.can_sign_in
           ? "Linked. They can sign in now."
-          : "Linked — but this Help24 account is not an admin yet, so they still can't open the dashboard. Use Make Admin on the Users page.",
+          : "Linked, but this Help24 account is not an admin yet, so they still can't open the dashboard. Use Make Admin on the Users page.",
       });
       router.refresh();
     });
@@ -67,7 +67,7 @@ function LoginRow({ login }: { login: UnlinkedLogin }) {
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-900 truncate">{login.email ?? "Login with no email"}</p>
           <p className="text-xs text-gray-500">
-            Last signed in {fmt(login.last_sign_in_at)} · created {fmt(login.created_at)}
+            Last signed in {fmt(login.last_sign_in_at)}, created {fmt(login.created_at)}
           </p>
         </div>
         {!open && (

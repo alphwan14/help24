@@ -151,7 +151,7 @@ export default function AdminsManager({
   }
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       {/* Connected-as header — explicit, never hidden state. */}
       <div className="flex items-center gap-2 text-sm">
         <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
@@ -175,7 +175,7 @@ export default function AdminsManager({
         <div>
           <h2 className="text-base font-bold text-gray-900">Invite an admin</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Admins join by invitation only. Choose who it is for — they must already use the Help24 app — and
+            Admins join by invitation only. Choose who it is for (they must already use the Help24 app), and
             accepting the link signs them straight in. The link is single-use and expires in 7 days.
           </p>
         </div>
@@ -220,7 +220,7 @@ export default function AdminsManager({
 
         {inviteLink && (
           <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
-            <p className="text-xs font-semibold text-amber-800 mb-1">Invite link — share it securely</p>
+            <p className="text-xs font-semibold text-amber-800 mb-1">Invite link. Share it securely</p>
             <div className="flex gap-2">
               <code className="flex-1 text-xs bg-surface border border-amber-200 rounded p-2 font-mono break-all">
                 {inviteLink}
@@ -359,7 +359,7 @@ export default function AdminsManager({
               {deactivated.map((a) => (
                 <li key={a.id} className="flex items-center justify-between gap-3 px-3 py-2">
                   <span className="min-w-0 truncate text-gray-500">
-                    {a.name || "—"} · {a.email} · {ROLE_LABELS[a.role]}
+                    {a.name || "No name"}, {a.email}, {ROLE_LABELS[a.role]}
                   </span>
                   <button
                     type="button"
