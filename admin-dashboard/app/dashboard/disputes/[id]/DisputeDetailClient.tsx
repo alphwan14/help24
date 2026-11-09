@@ -157,7 +157,7 @@ export default function DisputeDetailClient({
   const reviewedCount = dispute.evidence.filter((e) => e.reviewed_at).length;
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6">
       {/* Header */}
       <div className="card p-5">
         <div className="flex items-start justify-between gap-4">
@@ -168,7 +168,7 @@ export default function DisputeDetailClient({
               {post?.archived_at && <ArchivedBadge withSubtitle />}
             </div>
             <p className="text-sm text-gray-500 mt-1">
-              Opened {fmtDate(dispute.created_at)} · age {formatSlaAge(dispute.sla_age_ms)}
+              Opened {fmtDate(dispute.created_at)}, age {formatSlaAge(dispute.sla_age_ms)}
             </p>
           </div>
           <div className="flex flex-col items-end gap-1.5 shrink-0">
