@@ -11,7 +11,6 @@ import '../theme/tokens.dart';
 import '../utils/post_ownership.dart';
 import '../utils/time_utils.dart';
 import '../utils/feed_images.dart';
-import 'marketplace_card_components.dart';
 import 'primitives.dart';
 
 /// ONE ROW FOR EVERY LISTING.
@@ -119,6 +118,12 @@ class ListingCard extends StatelessWidget {
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: AppSpace.lg + 2),
+          // The one place Help24 draws a rule (design_tokens_test allows it).
+          // In a feed where some rows lead with a photo and some do not,
+          // whitespace alone left it unclear where one post ended.
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: c.borderHairline)),
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -159,7 +164,6 @@ class ListingCard extends StatelessWidget {
                       post: post,
                       isOwner: isOwner,
                       cta: cta,
-                      onTap: onTap,
                       urgentCountdown: urgentCountdown,
                     ),
                   ],
@@ -311,14 +315,12 @@ class _BottomLine extends StatelessWidget {
     required this.post,
     required this.isOwner,
     required this.cta,
-    this.onTap,
     this.urgentCountdown,
   });
 
   final PostModel post;
   final bool isOwner;
   final ListingCta cta;
-  final VoidCallback? onTap;
   final String? urgentCountdown;
 
   @override
@@ -350,19 +352,31 @@ class _BottomLine extends StatelessWidget {
   }
 
   Widget? _trailing() {
-    // The author's own listing: their management control, never an action.
+    // The author's own listing: a quiet label, not a button. Tapping the row
+    // already opens it for managing, and an outlined button made the owner's
+    // own post the loudest thing in a feed of other people's work.
     if (isOwner) {
-      return OwnerCta(
-        type: post.type,
-        status: post.status,
-        applicationCount: post.applications.length,
-        payoutInProgress: post.payoutInProgress,
-        onTap: onTap,
-      );
+      final open = post.status.isEmpty || post.status == 'open';
+      if (post.type == PostType.offer) {
+        return const AppChip(label: 'Your offer');
+      }
+      if (open) {
+        final n = post.applications.length;
+        if (n > 0) {
+          final noun = post.type == PostType.job ? 'applicant' : 'offer';
+          return AppChip(
+            label: '$n ${n == 1 ? noun : '${noun}s'}',
+            tone: ChipTone.info,
+          );
+        }
+        return AppChip(
+          label: post.type == PostType.job ? 'Your job' : 'Your request',
+        );
+      }
     }
 
     // A listing that is no longer open says what became of it, once.
-    if (cta == ListingCta.unavailable) {
+    if (isOwner || cta == ListingCta.unavailable) {
       final (label, tone) = (post.status == 'completed' && post.payoutInProgress)
           ? ('Finalizing', ChipTone.caution)
           : switch (post.status) {
