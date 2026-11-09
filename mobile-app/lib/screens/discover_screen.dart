@@ -9,6 +9,7 @@ import '../providers/app_provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../providers/location_provider.dart';
 import '../theme/tokens.dart';
+import '../widgets/scroll_chrome.dart';
 import '../widgets/primitives.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_card.dart';
@@ -381,7 +382,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             behavior: HitTestBehavior.opaque,
                             child: AppChip(
                               label: urgentCount > 0
-                                  ? 'Urgent · $urgentCount'
+                                  ? 'Urgent $urgentCount'
                                   : 'Urgent',
                               icon: AppIcons.urgent,
                               tone: ChipTone.critical,
@@ -398,248 +399,281 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ),
           ),
 
-          // ── Search bar ───────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(AppSpace.gutter, AppSpace.md, AppSpace.gutter, 0),
-            child: Consumer<AppProvider>(
-              builder: (context, provider, _) {
-                return TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocus,
-                  // The focused highlight must never stick: any tap or drag
-                  // outside the field (feed scroll, tab tap, card tap)
-                  // releases focus immediately.
-                  onTapOutside: (_) => _searchFocus.unfocus(),
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (value) {
-                    _searchFocus.unfocus();
-                    // A COMMITTED search: reloads immediately (no debounce) and
-                    // is the only form recorded as a behavioural signal.
-                    // Prefixes typed on the way here are not searches.
-                    provider.setSearchQuery(value, submitted: true);
-                    _scheduleSlotReload();
-                  },
-                  onChanged: (value) {
-                    provider.setSearchQuery(value);
-                    _scheduleSlotReload();
-                  },
-                  style: AppTypeScale.bodyM.copyWith(
-                    fontFamily: AppTypeScale.family,
-                    color: c.contentPrimary,
-                  ),
-                  decoration: InputDecoration(
-                    // "Search all posts..." named the database table, not the
-                    // thing the user wants. Discover is where someone answers
-                    // "what can I get done here", and the field is the first
-                    // place that question can be answered.
-                    hintText: _tabIndex == 0
-                        ? 'Search services and requests'
-                        : _tabIndex == 1
-                            ? 'Search requests'
-                            : 'Search services',
-                    // 48, down from ~64. The field was the tallest element on
-                    // the screen and it is not the primary action.
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: AppSpace.md, vertical: AppSpace.md + 2),
-                    prefixIcon: Icon(AppIcons.search,
-                        size: 20, color: c.contentTertiary),
-                    prefixIconConstraints: const BoxConstraints(
-                        minWidth: 44, minHeight: 44),
-                    suffixIcon: searchText.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(AppIcons.close, size: 20),
-                            onPressed: () {
-                              _searchController.clear();
-                              provider.setSearchQuery('');
-                              _scheduleSlotReload();
-                            },
-                          )
-                        : null,
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // ── Scopes (scrolling) + Filters (pinned) ────────────
+          // ── Search and scopes: step aside while browsing ──────
           //
-          // Four scopes no longer fit on one line at 384 dp, so the pills
-          // scroll. The filter control sits OUTSIDE that scroll view: a
-          // control that can slide off the screen edge is a control the user
-          // cannot find, and it is the one thing in this row that is not a
-          // scope.
-          Padding(
-            padding: const EdgeInsets.only(top: AppSpace.md),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpace.gutter),
-                    child: Row(
-                      children: [
-                        FilterPill(
-                          label: 'All',
-                          isActive: _tabIndex == 0,
-                          onTap: () => _switchToTab(0),
-                        ),
-                        const SizedBox(width: FilterPill.gap),
-                        FilterPill(
-                          label: 'Requests',
-                          isActive: _tabIndex == 1,
-                          onTap: () => _switchToTab(1),
-                        ),
-                        const SizedBox(width: FilterPill.gap),
-                        FilterPill(
-                          label: 'Offers',
-                          isActive: _tabIndex == 2,
-                          onTap: () => _switchToTab(2),
-                        ),
-                        const SizedBox(width: FilterPill.gap),
-                        // Jobs, which used to be a tab of its own in the
-                        // bottom bar. It is a scope over the same corpus,
-                        // reached by the same request — so it belongs beside
-                        // the other scopes, not beside Messages and Profile.
-                        FilterPill(
-                          label: 'Jobs',
-                          isActive: _tabIndex == 3,
-                          onTap: () => _switchToTab(3),
-                        ),
-                      ],
-                    ),
+          // Scrolling down the feed folds this away so the list gets the
+          // screen; scrolling up, or reaching the top, brings it straight
+          // back (widgets/scroll_chrome.dart). It never folds while the
+          // search field is in use.
+          ValueListenableBuilder<bool>(
+            valueListenable: ScrollChrome.visible,
+            builder: (context, chromeVisible, header) {
+              final show = chromeVisible ||
+                  _searchFocus.hasFocus ||
+                  _searchController.text.isNotEmpty;
+              return ClipRect(
+                child: AnimatedAlign(
+                  alignment: Alignment.topCenter,
+                  heightFactor: show ? 1 : 0,
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedOpacity(
+                    opacity: show ? 1 : 0,
+                    duration: const Duration(milliseconds: 160),
+                    child: header,
                   ),
                 ),
-                const SizedBox(width: AppSpace.sm),
+              );
+            },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ── Search bar ───────────────────────────────────────
                 Padding(
-                  padding: const EdgeInsets.only(right: AppSpace.gutter),
+                  padding: const EdgeInsets.fromLTRB(AppSpace.gutter, AppSpace.md, AppSpace.gutter, 0),
                   child: Consumer<AppProvider>(
                     builder: (context, provider, _) {
-                      return GestureDetector(
-                      onTap: () async {
-                        // The sheet ANSWERS; it does not apply itself. A null
-                        // answer means the user left without searching — Exit,
-                        // a swipe down, or the system back gesture — and a
-                        // cancelled sheet must cost nothing. This used to call
-                        // applyFilters() unconditionally, so dismissing the
-                        // sheet untouched issued a full ranked request and
-                        // reinstalled the feed.
-                        final selection =
-                            await showModalBottomSheet<FilterSelection>(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          // THE SHEET IS SIZED AGAINST THE SPACE ABOVE THE
-                          // KEYBOARD, NOT AGAINST THE SCREEN.
-                          //
-                          // `DraggableScrollableSheet` takes fractions of the
-                          // box it is given. That box used to be the whole
-                          // screen, so 0.85 stayed 0.85 of the screen when the
-                          // keyboard opened and everything in the bottom ~45%
-                          // went behind it — including the Search and Exit
-                          // buttons, which are outside the scroll view and so
-                          // could not be scrolled back into reach. Verified on
-                          // the S20+: typing a custom profession left no way to
-                          // press Search without dismissing the keyboard first.
-                          //
-                          // Taking the inset off the box is the structural fix,
-                          // not an offset: the fractions are unchanged and every
-                          // screen size gets the same behaviour, because the box
-                          // is now whatever is actually visible.
-                          builder: (context) => Padding(
-                            padding: EdgeInsets.only(
-                              bottom: MediaQuery.viewInsetsOf(context).bottom,
-                            ),
-                            child: DraggableScrollableSheet(
-                              initialChildSize: 0.85,
-                              minChildSize: 0.5,
-                              maxChildSize: 0.95,
-                              // Without this the sheet expands to fill the box
-                              // regardless of its fractions, which is what makes
-                              // the resize look like it never happened.
-                              expand: false,
-                              builder: (context, scrollController) =>
-                                  FilterBottomSheet(
-                                scrollController: scrollController,
-                              ),
-                            ),
-                          ),
-                        );
-                        if (!mounted || selection == null) return;
-                        // One request, and only when something actually changed
-                        // — applyFilterSelection reports which it was.
-                        final changed =
-                            await provider.applyFilterSelection(selection);
-                        if (mounted && changed) _loadSponsoredSlots();
-                      },
-                      // Sized and shaped as a FilterPill, because it belongs to
-                      // that row. It used to be a 12-radius square beside three
-                      // 24-radius capsules of a different height, which read as
-                      // a stray control that had wandered in from another
-                      // screen — and it was unlabelled to a screen reader.
-                      child: Semantics(
-                        button: true,
-                        label: provider.hasActiveFilters
-                            ? 'Filters, active'
-                            : 'Filters',
-                        child: Container(
-                          height: 40,
-                          width: 44,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: provider.hasActiveFilters
-                                ? c.accentFill
-                                : c.surfaceSunken,
-                            borderRadius: AppRadius.pillAll,
-                            border: provider.hasActiveFilters
-                                ? null
-                                : Border.all(color: c.borderHairline),
-                          ),
-                          // Active state is the same brand-gold fill a selected
-                          // pill uses, so "a filter is on" reads as selection
-                          // rather than as a separate decoration with its own
-                          // dot.
-                          child: Icon(
-                            AppIcons.filter,
-                            size: 18,
-                            color: provider.hasActiveFilters
-                                ? c.contentOnAccent
-                                : c.contentSecondary,
-                          ),
+                      return TextField(
+                        controller: _searchController,
+                        focusNode: _searchFocus,
+                        // The focused highlight must never stick: any tap or drag
+                        // outside the field (feed scroll, tab tap, card tap)
+                        // releases focus immediately.
+                        onTapOutside: (_) => _searchFocus.unfocus(),
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (value) {
+                          _searchFocus.unfocus();
+                          // A COMMITTED search: reloads immediately (no debounce) and
+                          // is the only form recorded as a behavioural signal.
+                          // Prefixes typed on the way here are not searches.
+                          provider.setSearchQuery(value, submitted: true);
+                          _scheduleSlotReload();
+                        },
+                        onChanged: (value) {
+                          provider.setSearchQuery(value);
+                          _scheduleSlotReload();
+                        },
+                        style: AppTypeScale.bodyM.copyWith(
+                          fontFamily: AppTypeScale.family,
+                          color: c.contentPrimary,
                         ),
-                      ),
+                        decoration: InputDecoration(
+                          // "Search all posts..." named the database table, not the
+                          // thing the user wants. Discover is where someone answers
+                          // "what can I get done here", and the field is the first
+                          // place that question can be answered.
+                          hintText: _tabIndex == 0
+                              ? 'Search services and requests'
+                              : _tabIndex == 1
+                                  ? 'Search requests'
+                                  : 'Search services',
+                          // 48, down from ~64. The field was the tallest element on
+                          // the screen and it is not the primary action.
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: AppSpace.md, vertical: AppSpace.md + 2),
+                          prefixIcon: Icon(AppIcons.search,
+                              size: 20, color: c.contentTertiary),
+                          prefixIconConstraints: const BoxConstraints(
+                              minWidth: 44, minHeight: 44),
+                          suffixIcon: searchText.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(AppIcons.close, size: 20),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    provider.setSearchQuery('');
+                                    _scheduleSlotReload();
+                                  },
+                                )
+                              : null,
+                        ),
                       );
                     },
                   ),
                 ),
+
+                // ── Scopes (scrolling) + Filters (pinned) ────────────
+                //
+                // Four scopes no longer fit on one line at 384 dp, so the pills
+                // scroll. The filter control sits OUTSIDE that scroll view: a
+                // control that can slide off the screen edge is a control the user
+                // cannot find, and it is the one thing in this row that is not a
+                // scope.
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpace.md),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpace.gutter),
+                          child: Row(
+                            children: [
+                              FilterPill(
+                                label: 'All',
+                                isActive: _tabIndex == 0,
+                                onTap: () => _switchToTab(0),
+                              ),
+                              const SizedBox(width: FilterPill.gap),
+                              FilterPill(
+                                label: 'Requests',
+                                isActive: _tabIndex == 1,
+                                onTap: () => _switchToTab(1),
+                              ),
+                              const SizedBox(width: FilterPill.gap),
+                              FilterPill(
+                                label: 'Offers',
+                                isActive: _tabIndex == 2,
+                                onTap: () => _switchToTab(2),
+                              ),
+                              const SizedBox(width: FilterPill.gap),
+                              // Jobs, which used to be a tab of its own in the
+                              // bottom bar. It is a scope over the same corpus,
+                              // reached by the same request — so it belongs beside
+                              // the other scopes, not beside Messages and Profile.
+                              FilterPill(
+                                label: 'Jobs',
+                                isActive: _tabIndex == 3,
+                                onTap: () => _switchToTab(3),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpace.sm),
+                      Padding(
+                        padding: const EdgeInsets.only(right: AppSpace.gutter),
+                        child: Consumer<AppProvider>(
+                          builder: (context, provider, _) {
+                            return GestureDetector(
+                            onTap: () async {
+                              // The sheet ANSWERS; it does not apply itself. A null
+                              // answer means the user left without searching — Exit,
+                              // a swipe down, or the system back gesture — and a
+                              // cancelled sheet must cost nothing. This used to call
+                              // applyFilters() unconditionally, so dismissing the
+                              // sheet untouched issued a full ranked request and
+                              // reinstalled the feed.
+                              final selection =
+                                  await showModalBottomSheet<FilterSelection>(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                // THE SHEET IS SIZED AGAINST THE SPACE ABOVE THE
+                                // KEYBOARD, NOT AGAINST THE SCREEN.
+                                //
+                                // `DraggableScrollableSheet` takes fractions of the
+                                // box it is given. That box used to be the whole
+                                // screen, so 0.85 stayed 0.85 of the screen when the
+                                // keyboard opened and everything in the bottom ~45%
+                                // went behind it — including the Search and Exit
+                                // buttons, which are outside the scroll view and so
+                                // could not be scrolled back into reach. Verified on
+                                // the S20+: typing a custom profession left no way to
+                                // press Search without dismissing the keyboard first.
+                                //
+                                // Taking the inset off the box is the structural fix,
+                                // not an offset: the fractions are unchanged and every
+                                // screen size gets the same behaviour, because the box
+                                // is now whatever is actually visible.
+                                builder: (context) => Padding(
+                                  padding: EdgeInsets.only(
+                                    bottom: MediaQuery.viewInsetsOf(context).bottom,
+                                  ),
+                                  child: DraggableScrollableSheet(
+                                    initialChildSize: 0.85,
+                                    minChildSize: 0.5,
+                                    maxChildSize: 0.95,
+                                    // Without this the sheet expands to fill the box
+                                    // regardless of its fractions, which is what makes
+                                    // the resize look like it never happened.
+                                    expand: false,
+                                    builder: (context, scrollController) =>
+                                        FilterBottomSheet(
+                                      scrollController: scrollController,
+                                    ),
+                                  ),
+                                ),
+                              );
+                              if (!mounted || selection == null) return;
+                              // One request, and only when something actually changed
+                              // — applyFilterSelection reports which it was.
+                              final changed =
+                                  await provider.applyFilterSelection(selection);
+                              if (mounted && changed) _loadSponsoredSlots();
+                            },
+                            // Sized and shaped as a FilterPill, because it belongs to
+                            // that row. It used to be a 12-radius square beside three
+                            // 24-radius capsules of a different height, which read as
+                            // a stray control that had wandered in from another
+                            // screen — and it was unlabelled to a screen reader.
+                            child: Semantics(
+                              button: true,
+                              label: provider.hasActiveFilters
+                                  ? 'Filters, active'
+                                  : 'Filters',
+                              child: Container(
+                                height: 40,
+                                width: 44,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: provider.hasActiveFilters
+                                      ? c.accentFill
+                                      : c.surfaceSunken,
+                                  borderRadius: AppRadius.pillAll,
+                                  border: provider.hasActiveFilters
+                                      ? null
+                                      : Border.all(color: c.borderHairline),
+                                ),
+                                // Active state is the same brand-gold fill a selected
+                                // pill uses, so "a filter is on" reads as selection
+                                // rather than as a separate decoration with its own
+                                // dot.
+                                child: Icon(
+                                  AppIcons.filter,
+                                  size: 18,
+                                  color: provider.hasActiveFilters
+                                      ? c.contentOnAccent
+                                      : c.contentSecondary,
+                                ),
+                              ),
+                            ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Result count, while searching ────────────────────
+                //
+                // This used to read `Showing all posts for "plumber"` in ITALIC — the
+                // only italic text in the app — and it restated two things already on
+                // screen: the query is in the field above it, and the tab is the
+                // selected pill next to that. A count is the one thing the user
+                // cannot see for themselves, and it is what tells them whether to
+                // refine or to scroll.
+                if (searchText.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        AppSpace.gutter, AppSpace.md, AppSpace.gutter, 0),
+                    child: Selector<AppProvider, int>(
+                      selector: (_, p) => p.filteredPosts.length,
+                      builder: (_, count, __) => Text(
+                        count == 1 ? '1 result' : '$count results',
+                        style: AppTypeScale.meta.copyWith(
+                          fontFamily: AppTypeScale.family,
+                          color: c.contentTertiary,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
-
-          // ── Result count, while searching ────────────────────
-          //
-          // This used to read `Showing all posts for "plumber"` in ITALIC — the
-          // only italic text in the app — and it restated two things already on
-          // screen: the query is in the field above it, and the tab is the
-          // selected pill next to that. A count is the one thing the user
-          // cannot see for themselves, and it is what tells them whether to
-          // refine or to scroll.
-          if (searchText.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                  AppSpace.gutter, AppSpace.md, AppSpace.gutter, 0),
-              child: Selector<AppProvider, int>(
-                selector: (_, p) => p.filteredPosts.length,
-                builder: (_, count, __) => Text(
-                  count == 1 ? '1 result' : '$count results',
-                  style: AppTypeScale.meta.copyWith(
-                    fontFamily: AppTypeScale.family,
-                    color: c.contentTertiary,
-                  ),
-                ),
-              ),
-            ),
 
           const SizedBox(height: AppSpace.md),
 
@@ -884,6 +918,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           return PostCard(
             post: post,
             sponsored: entry.sponsored,
+            // Every row on a filtered tab is the same kind, so only All says it.
+            showKind: _tabIndex == 0,
             onTap: () {
               trackSponsoredClick();
               // A closed listing answers in place instead of taking the

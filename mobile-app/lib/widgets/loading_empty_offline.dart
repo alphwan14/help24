@@ -431,67 +431,53 @@ class FeedSkeletonList extends StatelessWidget {
   const FeedSkeletonList({
     super.key,
     this.itemCount = 3,
-    this.padding = const EdgeInsets.symmetric(horizontal: 20),
+    this.padding = const EdgeInsets.symmetric(horizontal: AppSpace.gutter),
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = AppColors.of(context).surface;
-    final borderColor = AppColors.of(context).borderHairline;
     final lineColor = isDark
         ? AppTheme.darkTextTertiary.withValues(alpha: 0.18)
         : AppTheme.lightTextTertiary.withValues(alpha: 0.18);
 
+    // The same shape as a feed row (widgets/listing_card.dart): a square photo
+    // when the post has one, then the top line, title, place and price.
     return SkeletonPulse(
-        child: ListView.separated(
+        child: ListView.builder(
       padding: padding,
       itemCount: itemCount,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, __) => Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: AppRadius.lgAll,
-          border: Border.all(color: borderColor),
-        ),
-        child: Column(
+      itemBuilder: (_, i) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _skeletonLine(lineColor, 120, 10),
-            const SizedBox(height: 8),
-            _skeletonLine(lineColor, double.infinity, 14),
-            const SizedBox(height: 6),
-            _skeletonLine(lineColor, 180, 14),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: lineColor,
-                    shape: BoxShape.circle,
-                  ),
+            // Every other placeholder has a photo, as a real feed does.
+            if (i.isEven) ...[
+              Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  color: lineColor,
+                  borderRadius: AppRadius.mdAll,
                 ),
-                const SizedBox(width: 8),
-                Expanded(child: _skeletonLine(lineColor, 120, 10)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(child: _skeletonLine(lineColor, 130, 12)),
-                const SizedBox(width: 8),
-                Container(
-                  width: 76,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: lineColor,
-                    borderRadius: AppRadius.mdAll,
-                  ),
-                ),
-              ],
+              ),
+              const SizedBox(width: 14),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 2),
+                  _skeletonLine(lineColor, 110, 10),
+                  const SizedBox(height: 10),
+                  _skeletonLine(lineColor, double.infinity, 14),
+                  const SizedBox(height: 10),
+                  _skeletonLine(lineColor, 120, 12),
+                  const SizedBox(height: 16),
+                  _skeletonLine(lineColor, 90, 14),
+                ],
+              ),
             ),
           ],
         ),

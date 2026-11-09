@@ -18,6 +18,7 @@ import '../widgets/custom_bottom_nav.dart';
 import '../widgets/auth_guard.dart';
 import '../widgets/account_restriction.dart';
 import '../widgets/ops_banners.dart';
+import '../widgets/scroll_chrome.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
@@ -263,6 +264,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // has merely touched.
       setState(() => _currentIndex = index);
     }
+    // A new tab starts with its chrome showing, whatever the last one did.
+    ScrollChrome.show();
     _syncDiscoverVisibility();
   }
 
@@ -392,6 +395,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         setState(() => _currentIndex = 0);
+        ScrollChrome.show();
         _syncDiscoverVisibility();
       },
       child: Scaffold(
@@ -414,7 +418,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           const AccountStatusBanner(),
           const OpsBanners(),
           Expanded(
-            child: IndexedStack(
+            // Every vertical scroll in the tabs reports here, so the Post
+            // button (and Discover's search row) can step aside while the
+            // reader browses. See widgets/scroll_chrome.dart.
+            child: NotificationListener<ScrollNotification>(
+              onNotification: ScrollChrome.onNotification,
+              child: IndexedStack(
               index: _currentIndex,
               children: const [
                 DiscoverScreen(),
@@ -425,6 +434,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 MessagesScreen(),
                 ProfileScreen(),
               ],
+              ),
             ),
           ),
         ],
@@ -434,7 +444,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // you browse rather than occupying a slot among them. Hidden on Messages
       // and Profile, where it would have nothing to do with what is on screen.
       floatingActionButton:
-          _currentIndex > 1 ? null : _PostButton(onTap: _openComposer),
+          _currentIndex > 1 ? null : _HidingPostButton(onTap: _openComposer),
       bottomNavigationBar: CustomBottomNav(
         currentIndex: _currentIndex,
         onTap: _onNavTap,
@@ -496,6 +506,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       userId: uid,
       latitude: location.latitude,
       longitude: location.longitude,
+    );
+  }
+}
+
+/// The Post button, out of the way while someone is browsing.
+///
+/// Slides down and fades as the reader scrolls down a feed, and comes back the
+/// moment they scroll up or reach the top ([ScrollChrome]). While hidden it
+/// ignores touches, so a tap meant for the row beneath it lands on the row.
+class _HidingPostButton extends StatelessWidget {
+  const _HidingPostButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: ScrollChrome.visible,
+      builder: (context, visible, child) => IgnorePointer(
+        ignoring: !visible,
+        child: AnimatedSlide(
+          offset: visible ? Offset.zero : const Offset(0, 1.6),
+          duration: const Duration(milliseconds: 220),
+          curve: visible ? Curves.easeOutCubic : Curves.easeInCubic,
+          child: AnimatedOpacity(
+            opacity: visible ? 1 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: child,
+          ),
+        ),
+      ),
+      child: _PostButton(onTap: onTap),
     );
   }
 }
