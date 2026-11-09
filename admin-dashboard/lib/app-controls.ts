@@ -80,7 +80,7 @@ export function minVersionProblems(v: MinVersion, latest: string | null): string
     const value = v[field].trim();
     if (value && !isVersion(value)) out.push(`${label}: write a version like 1.0.5, or leave it empty for none.`);
     if (value && isVersion(value) && latest && compareVersions(value, latest) > 0) {
-      out.push(`${label}: ${value} has not been released — the newest download is ${latest}.`);
+      out.push(`${label}: ${value} has not been released. The newest download is ${latest}.`);
     }
   }
   if (isVersion(v.hard) && isVersion(v.soft) && compareVersions(v.hard, v.soft) > 0) {
@@ -98,7 +98,7 @@ export function minVersionProblems(v: MinVersion, latest: string | null): string
 export function controlProblems(key: ControlKey, value: Record<string, unknown>, latest: string | null): string[] {
   if (key === "ops.min_version") return minVersionProblems(value as MinVersion, latest);
   if ((key === "ops.maintenance" || key === "ops.announcement") && value.active && !String(value.message ?? "").trim()) {
-    return ["Write the message people will see — the app shows nothing without one."];
+    return ["Write the message people will see. The app shows nothing without one."];
   }
   if (key === "ops.announcement" && String(value.url ?? "").trim() && !/^https:\/\//.test(String(value.url).trim())) {
     return ["The link must start with https://"];

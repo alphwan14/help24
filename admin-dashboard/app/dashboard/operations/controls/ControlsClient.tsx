@@ -83,7 +83,7 @@ export default function ControlsClient({
     const h = history.find((e) => e.key === key);
     if (h) return `Changed ${fmtWhen(h.created_at)} by ${h.admin_email}`;
     if (updatedAt[key]) return `Changed ${fmtWhen(updatedAt[key])}`;
-    return "Never changed — the app's built-in default";
+    return "Never changed. The app's built-in default";
   }
 
   const shared = { canEdit, review, latest, usage };
@@ -123,7 +123,7 @@ export default function ControlsClient({
           setNotice(
             recorded
               ? { tone: "ok", text: "Saved, and added to the change history below." }
-              : { tone: "warn", text: "Saved — but it could not be added to the change history yet." },
+              : { tone: "warn", text: "Saved, but it could not be added to the change history yet." },
           );
           setPending(null);
         }}
@@ -244,7 +244,7 @@ function FeaturesCard({ value, last, canEdit, review }: CardProps<KillSwitches>)
           <li key={s.key} className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
             <div className="min-w-0">
               <p className="text-sm font-medium text-gray-800">{s.label}</p>
-              <p className="text-[11.5px] text-gray-400 leading-snug">{draft[s.key] ? "On" : `Off — ${s.off}`}</p>
+              <p className="text-[11.5px] text-gray-400 leading-snug">{draft[s.key] ? "On" : `Off: ${s.off}`}</p>
             </div>
             <Switch
               label={s.label}
@@ -310,7 +310,7 @@ function VersionsInUse({ usage, hard }: { usage: VersionUsage | null; hard: stri
   if (!usage) {
     return (
       <p className="text-[12px] text-gray-400">
-        Versions in use are not collected yet — they start with app {FIRST_REPORTING_VERSION} once migration 126 is applied.
+        Versions in use are not collected yet. They start with app {FIRST_REPORTING_VERSION} once migration 126 is applied.
       </p>
     );
   }
@@ -319,17 +319,17 @@ function VersionsInUse({ usage, hard }: { usage: VersionUsage | null; hard: stri
   return (
     <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2.5 text-[12.5px]" data-testid="versions-in-use">
       <p className="font-semibold text-gray-700">
-        Versions in use <span className="font-normal text-gray-400">· {total} people active in the last {usage.windowDays} days</span>
+        Versions in use <span className="font-normal text-gray-400">({total} people active in the last {usage.windowDays} days)</span>
       </p>
       <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-gray-600 font-tabular">
         {usage.versions.map((v) => (
           <li key={v.version}>
-            {v.version} — {v.count}
+            {v.version}: {v.count}
           </li>
         ))}
         {usage.unreported > 0 && (
           <li className="text-gray-400" title={`Apps before ${FIRST_REPORTING_VERSION} do not report their version`}>
-            not reported — {usage.unreported}
+            Not reported: {usage.unreported}
           </li>
         )}
       </ul>
@@ -357,7 +357,7 @@ function MaintenanceCard({ value, last, canEdit, review, latest }: CardProps<Mai
       onReview={() => review("ops.maintenance", { ...draft, message: draft.message.trim() })}
     >
       <ToggleRow label="Show the maintenance banner" checked={draft.active} disabled={!canEdit} onChange={(active) => setDraft({ ...draft, active })} />
-      <Field label="Message" hint="A warning-coloured banner at the top of the app. It does not block anything — use Features for that.">
+      <Field label="Message" hint="A warning-coloured banner at the top of the app. It does not block anything; use Features for that.">
         <textarea className="input min-h-[64px]" maxLength={200} value={draft.message} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, message: e.target.value })} />
       </Field>
       {problems.map((p) => (
@@ -543,40 +543,68 @@ function ConfirmDialog({
 
 // ── history ─────────────────────────────────────────────────────────────────
 
+/**
+ * The change history, folded away until asked for. The summary line still
+ * says how many changes there are and when the latest was, so an admin knows
+ * whether it is worth opening.
+ */
 function HistoryCard({ history, available }: { history: HistoryEntry[]; available: boolean }) {
+  const latest = history[0];
   return (
-    <section className="card p-5" aria-label="Change history">
-      <h2 className="text-[15px] font-semibold text-gray-900">Change history</h2>
-      {!available ? (
-        <p className="text-[13px] text-gray-500 mt-2">
-          The change history is not available yet. Changes still apply; they are recorded once migration 125 is applied.
-        </p>
-      ) : history.length === 0 ? (
-        <p className="text-[13px] text-gray-500 mt-2">No changes made from the dashboard yet.</p>
-      ) : (
-        <ol className="mt-3 divide-y divide-gray-100">
-          {history.map((h) => {
-            const key = h.key as ControlKey;
-            const lines = CONTROL_TITLES[key] ? describeChange(key, h.previous_value ?? {}, h.new_value) : [h.key];
-            return (
-              <li key={h.id} className="py-3 first:pt-0 last:pb-0 text-[13px]">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                  <span className="font-medium text-gray-900">{CONTROL_TITLES[key] ?? h.key}</span>
-                  <span className="text-[11.5px] text-gray-400 font-tabular">{fmtWhen(h.created_at)}</span>
-                </div>
-                <ul className="text-gray-700 mt-0.5">
-                  {(lines.length ? lines : ["Saved with no change"]).map((l) => (
-                    <li key={l}>{l}</li>
-                  ))}
-                </ul>
-                <p className="text-gray-500 mt-1">
-                  “{h.reason}” — {h.admin_email}
-                </p>
-              </li>
-            );
-          })}
-        </ol>
-      )}
+    <section className="card" aria-label="Change history">
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0">
+            <span className="block text-[15px] font-semibold text-gray-900">Change history</span>
+            <span className="block text-[12.5px] text-gray-500 mt-0.5 truncate">
+              {!available
+                ? "Not available yet"
+                : history.length === 0
+                  ? "No changes made from the dashboard yet"
+                  : `${history.length} ${history.length === 1 ? "change" : "changes"}, latest ${fmtWhen(latest.created_at)} by ${latest.admin_email}`}
+            </span>
+          </span>
+          <span className="flex items-center gap-1.5 shrink-0 text-[12.5px] font-medium text-gray-600">
+            <span className="group-open:hidden">Show</span>
+            <span className="hidden group-open:inline">Hide</span>
+            <svg className="w-4 h-4 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </span>
+        </summary>
+        <div className="border-t border-gray-100 px-5 pb-5 pt-4">
+          {!available ? (
+            <p className="text-[13px] text-gray-500">
+              The change history is not available yet. Changes still apply; they are recorded once migration 125 is applied.
+            </p>
+          ) : history.length === 0 ? (
+            <p className="text-[13px] text-gray-500">No changes made from the dashboard yet.</p>
+          ) : (
+            <ol className="divide-y divide-gray-100">
+              {history.map((h) => {
+                const key = h.key as ControlKey;
+                const lines = CONTROL_TITLES[key] ? describeChange(key, h.previous_value ?? {}, h.new_value) : [h.key];
+                return (
+                  <li key={h.id} className="py-3 first:pt-0 last:pb-0 text-[13px]">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <span className="font-medium text-gray-900">{CONTROL_TITLES[key] ?? h.key}</span>
+                      <span className="text-[11.5px] text-gray-400 font-tabular">{fmtWhen(h.created_at)}</span>
+                    </div>
+                    <ul className="text-gray-700 mt-0.5">
+                      {(lines.length ? lines : ["Saved with no change"]).map((l) => (
+                        <li key={l}>{l}</li>
+                      ))}
+                    </ul>
+                    <p className="text-gray-500 mt-1">
+                      “{h.reason}”, by {h.admin_email}
+                    </p>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      </details>
     </section>
   );
 }

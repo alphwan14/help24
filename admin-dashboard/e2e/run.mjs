@@ -624,8 +624,10 @@ try {
     check("the backend now serves payments off", fake.appConfig.ops.kill_switches.payments === false);
     const last = fake.configHistory.at(-1);
     check("the change is recorded with who and why", last?.admin_email === ALICE && last?.reason === "M-Pesa callbacks failing");
+    check("the change history starts folded, with a summary line",
+      await evaluate(`(() => { const d = document.querySelector('section[aria-label="Change history"] details'); return !!d && !d.open && /1 change|changes, latest/.test(d.querySelector('summary').innerText); })()`));
     check("the history on the page reads the change back",
-      await evaluate(`document.querySelector('section[aria-label="Change history"]').innerText.includes("Payments: on → off")`));
+      await evaluate(`(() => { const d = document.querySelector('section[aria-label="Change history"] details'); d.open = true; return d.closest('section').innerText.includes("Payments: on → off"); })()`));
 
     await shot("9-app-controls.png", true);
     await fill('input[name="hard"]', "1.0.6");
