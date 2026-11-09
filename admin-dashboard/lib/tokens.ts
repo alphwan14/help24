@@ -185,7 +185,23 @@ function ramps(p: Palette) {
 }
 
 const LIGHT_RAMPS = ramps(APP);
-const DARK_RAMPS = ramps(APP_DARK);
+/**
+ * The dashboard's dark palette: the app's, with two edges sharpened.
+ *
+ * Measured on the app's values, a card sat at 1.15:1 against the page and its
+ * hairline at 1.42:1, so on a dense console panels and dividers blurred into
+ * one dark field. The hairline is lifted to 1.65:1 (the range Linear and
+ * Vercel use for dark panel edges) and muted text from 4.95:1 to 5.6:1 on a
+ * card. Text, fills and accents are the app's, untouched. The rail keeps the
+ * app's values; it is pinned in both themes (see RAIL).
+ */
+const DASH_DARK: Palette = {
+  ...APP_DARK,
+  borderHairline: "#333A41",
+  contentTertiary: "#959DA5",
+};
+
+const DARK_RAMPS = ramps(DASH_DARK);
 
 export type RampName = keyof typeof LIGHT_RAMPS;
 
@@ -357,7 +373,7 @@ export function tokensCss(): string {
   ].join(";");
 
   const light = `${block(APP, LIGHT_RAMPS)};${chartBlock(APP)}`;
-  const dark = `${block(APP_DARK, DARK_RAMPS)};${chartBlock(APP_DARK)}`;
+  const dark = `${block(DASH_DARK, DARK_RAMPS)};${chartBlock(DASH_DARK)}`;
 
   return [
     `:root{color-scheme:light;${light};${rail}}`,

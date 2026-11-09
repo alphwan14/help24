@@ -126,8 +126,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               several) is placed against the PAGE, escapes this scroll box,
               and makes the document taller than the screen: the window then
               scrolls and drags the rail up with it (33 px on Settings at
-              1366x768). Bottom padding on phones clears the tab bar. */}
-          <main className="relative flex-1 min-w-0 overflow-y-auto pt-14 pb-[calc(64px+env(safe-area-inset-bottom))] lg:pt-0 lg:pb-0">
+              1366x768). */}
+          <main className="relative flex-1 min-w-0 overflow-y-auto pt-14 lg:pt-0">
             <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-10 py-5 sm:py-6 lg:py-8">
               {children}
             </div>

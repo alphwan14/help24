@@ -23,8 +23,24 @@ export type NavSectionId =
   | "promotion"
   | "insights";
 
+/**
+ * Sections are grouped by how often an admin goes there, not by data model.
+ * "home" is unlabelled and always first. "queues" is where work waits on us
+ * (the counts live there). The rest is marketplace management and platform
+ * tools, visited on purpose rather than every hour.
+ */
+export type NavGroupId = "home" | "queues" | "marketplace" | "platform";
+
+export const NAV_GROUPS: Array<{ id: NavGroupId; label: string | null }> = [
+  { id: "home", label: null },
+  { id: "queues", label: "Queues" },
+  { id: "marketplace", label: "Marketplace" },
+  { id: "platform", label: "Platform" },
+];
+
 export type NavSection = {
   id: NavSectionId;
+  group: NavGroupId;
   label: string;
   /** Where the section opens. Its first page unless that page redirects. */
   href: string;
@@ -36,6 +52,7 @@ export type NavSection = {
 export const NAV: NavSection[] = [
   {
     id: "overview",
+    group: "home",
     label: "Overview",
     href: "/dashboard/overview",
     base: "/dashboard/overview",
@@ -47,55 +64,8 @@ export const NAV: NavSection[] = [
     ],
   },
   {
-    id: "operations",
-    label: "Operations",
-    href: "/dashboard/operations/live",
-    base: "/dashboard/operations",
-    pages: [
-      { label: "Live", href: "/dashboard/operations/live", keywords: "now realtime" },
-      { label: "App controls", href: "/dashboard/operations/controls", keywords: "switches flags maintenance" },
-    ],
-  },
-  {
-    id: "users",
-    label: "Users",
-    href: "/dashboard/users",
-    base: "/dashboard/users",
-    pages: [
-      { label: "All users", href: "/dashboard/users", keywords: "people accounts" },
-      { label: "Active", href: "/dashboard/users/active" },
-      { label: "Admin roles", href: "/dashboard/users/admins", keywords: "staff invites logins" },
-    ],
-  },
-  {
-    id: "marketplace",
-    label: "Marketplace",
-    href: "/dashboard/marketplace",
-    base: "/dashboard/marketplace",
-    pages: [
-      { label: "All activity", href: "/dashboard/marketplace" },
-      { label: "Requests", href: "/dashboard/marketplace/requests", keywords: "posts" },
-      { label: "Offers", href: "/dashboard/marketplace/offers", keywords: "posts" },
-      { label: "Hiring", href: "/dashboard/marketplace/jobs", keywords: "jobs" },
-      { label: "Job matches", href: "/dashboard/marketplace/active-jobs", keywords: "active jobs" },
-      { label: "Completed", href: "/dashboard/marketplace/completed", keywords: "finished jobs" },
-    ],
-  },
-  {
-    id: "payments",
-    label: "Payments",
-    href: "/dashboard/payments",
-    base: "/dashboard/payments",
-    pages: [
-      { label: "Transactions", href: "/dashboard/payments", keywords: "mpesa" },
-      { label: "Escrow", href: "/dashboard/payments/escrow", keywords: "payouts held" },
-      { label: "Pending", href: "/dashboard/payments/pending" },
-      { label: "Failed", href: "/dashboard/payments/failed", keywords: "errors" },
-      { label: "Completed", href: "/dashboard/payments/completed", keywords: "paid" },
-    ],
-  },
-  {
     id: "disputes",
+    group: "queues",
     label: "Disputes",
     href: "/dashboard/disputes",
     base: "/dashboard/disputes",
@@ -107,6 +77,7 @@ export const NAV: NavSection[] = [
   },
   {
     id: "trust-safety",
+    group: "queues",
     label: "Trust and safety",
     href: "/dashboard/trust-safety/reports",
     base: "/dashboard/trust-safety",
@@ -121,7 +92,49 @@ export const NAV: NavSection[] = [
     ],
   },
   {
+    id: "payments",
+    group: "queues",
+    label: "Payments",
+    href: "/dashboard/payments",
+    base: "/dashboard/payments",
+    pages: [
+      { label: "Transactions", href: "/dashboard/payments", keywords: "mpesa" },
+      { label: "Escrow", href: "/dashboard/payments/escrow", keywords: "payouts held" },
+      { label: "Pending", href: "/dashboard/payments/pending" },
+      { label: "Failed", href: "/dashboard/payments/failed", keywords: "errors" },
+      { label: "Completed", href: "/dashboard/payments/completed", keywords: "paid" },
+    ],
+  },
+  {
+    id: "marketplace",
+    group: "marketplace",
+    label: "Marketplace",
+    href: "/dashboard/marketplace",
+    base: "/dashboard/marketplace",
+    pages: [
+      { label: "All activity", href: "/dashboard/marketplace" },
+      { label: "Requests", href: "/dashboard/marketplace/requests", keywords: "posts" },
+      { label: "Offers", href: "/dashboard/marketplace/offers", keywords: "posts" },
+      { label: "Hiring", href: "/dashboard/marketplace/jobs", keywords: "jobs" },
+      { label: "Job matches", href: "/dashboard/marketplace/active-jobs", keywords: "active jobs" },
+      { label: "Completed", href: "/dashboard/marketplace/completed", keywords: "finished jobs" },
+    ],
+  },
+  {
+    id: "users",
+    group: "marketplace",
+    label: "Users",
+    href: "/dashboard/users",
+    base: "/dashboard/users",
+    pages: [
+      { label: "All users", href: "/dashboard/users", keywords: "people accounts" },
+      { label: "Active", href: "/dashboard/users/active" },
+      { label: "Admin roles", href: "/dashboard/users/admins", keywords: "staff invites logins" },
+    ],
+  },
+  {
     id: "partners",
+    group: "marketplace",
     label: "Partners",
     href: "/dashboard/partners",
     base: "/dashboard/partners",
@@ -132,6 +145,7 @@ export const NAV: NavSection[] = [
   },
   {
     id: "promotion",
+    group: "marketplace",
     label: "Promotion",
     href: "/dashboard/promotion",
     base: "/dashboard/promotion",
@@ -143,7 +157,19 @@ export const NAV: NavSection[] = [
     ],
   },
   {
+    id: "operations",
+    group: "platform",
+    label: "Operations",
+    href: "/dashboard/operations/live",
+    base: "/dashboard/operations",
+    pages: [
+      { label: "Live", href: "/dashboard/operations/live", keywords: "now realtime" },
+      { label: "App controls", href: "/dashboard/operations/controls", keywords: "switches flags maintenance" },
+    ],
+  },
+  {
     id: "insights",
+    group: "platform",
     label: "Insights",
     href: "/dashboard/insights/trends",
     base: "/dashboard/insights",
@@ -164,6 +190,11 @@ function underBase(pathname: string, base: string): boolean {
 /** The section a path belongs to, or null (Settings, unknown). */
 export function sectionFor(pathname: string): NavSection | null {
   return NAV.find((s) => underBase(pathname, s.base)) ?? null;
+}
+
+/** The sections of each group, in nav order; groups with none are left out. */
+export function groupedNav(): Array<{ id: NavGroupId; label: string | null; sections: NavSection[] }> {
+  return NAV_GROUPS.map((g) => ({ ...g, sections: NAV.filter((s) => s.group === g.id) })).filter((g) => g.sections.length > 0);
 }
 
 export function sectionById(id: NavSectionId): NavSection {

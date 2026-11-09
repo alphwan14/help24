@@ -888,9 +888,9 @@ try {
   await waitFor(`${bodyHas("Change password")} && !document.body.innerText.includes('Opening the console')`, "settings mobile");
   check("no horizontal scroll at 390px", await evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth"));
   await shot("2-settings-mobile.png", true);
-  await clickText("More", 'nav[aria-label="Primary"] button');
+  await click('button[aria-label="Open navigation"]');
   await sleep(500);
-  check("the phone's More sheet opens and carries the Settings entry", await evaluate(`(() => { const d = document.querySelector('[role="dialog"][aria-label="All sections"]'); return !!d && [...d.querySelectorAll('a')].some(a => a.getAttribute('href') === '/dashboard/settings'); })()`));
+  check("the mobile drawer carries the Settings entry", await evaluate(`[...document.querySelectorAll('nav[aria-label="Mobile navigation"] a')].some(a => a.getAttribute('href') === '/dashboard/settings')`));
   await shot("3-drawer-mobile.png");
   // The device is in dark mode and nobody picked a theme: the console follows it.
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });

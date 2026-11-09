@@ -62,3 +62,13 @@ test("no em dashes or middle dots in nav labels", () => {
   const labels = [...src.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
   for (const l of labels) assert.ok(!/[—·]/.test(l), l);
 });
+
+test("every section belongs to a known group, and groups come out in order with Overview first", async () => {
+  const { NAV_GROUPS, groupedNav } = await import("./nav.ts");
+  const ids = NAV_GROUPS.map((g) => g.id);
+  for (const s of NAV) assert.ok(ids.includes(s.group), s.id);
+  const g = groupedNav();
+  assert.equal(g[0].sections[0].id, "overview");
+  assert.deepEqual(g.map((x) => x.id), ids.filter((id) => NAV.some((s) => s.group === id)));
+  assert.equal(g.reduce((n, x) => n + x.sections.length, 0), NAV.length);
+});
