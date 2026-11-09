@@ -25,13 +25,21 @@ import 'primitives.dart';
 ///
 /// A row now answers only what decides whether to open it:
 ///
-///     ┌────────┐  Request  Plumbing                  1mo ago
-///     │  96px  │  Edger here anyone in need of plumber
-///     │ photo  │  ⌖ Muhoroni
-///     └────────┘  Open to offers                       [Urgent]
+///     ┌────────┐  Offer  Gardening                   1mo ago
+///     │  96px  │  Gardening
+///     │ photo  │  ⌖ Westlands, Nairobi
+///     └────────┘  From KES 1,000/day
 ///
-/// The photo leads, and a post without one gets a quiet tile with its category
-/// icon, so the feed stays visual. The whole row opens the post. Everything
+///     Request  Plumbing                                     1mo ago
+///     Edger here anyone in need of plumber
+///     ⌖ Muhoroni
+///     Open to offers                                       [Urgent]
+///
+/// The photo leads when there is one. A post without one is not given a
+/// stand-in: offers are usually someone showing their work, where a photo is
+/// proof, while requests are someone asking for help and are naturally words.
+/// A text row takes the full width, so its title has room. The whole row
+/// opens the post. Everything
 /// that left the row lives on the post screen, built to hold it: the full
 /// description, the provider and their reputation, vetting, M-Pesa readiness,
 /// availability, and the action button pinned at the bottom.
@@ -117,13 +125,15 @@ class ListingCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              hasPhoto
-                  ? _Thumbnail(
-                      url: post.images.first,
-                      extra: post.images.length > 1 ? post.images.length : null,
-                    )
-                  : _CategoryTile(icon: post.category.icon),
-              const SizedBox(width: AppSpace.lg - 2),
+              // A photo only when the post has one. A row without one takes
+              // the full width rather than showing a stand-in square.
+              if (hasPhoto) ...[
+                _Thumbnail(
+                  url: post.images.first,
+                  extra: post.images.length > 1 ? post.images.length : null,
+                ),
+                const SizedBox(width: AppSpace.lg - 2),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -249,7 +259,7 @@ class _PlaceLine extends StatelessWidget {
       height: 18 / 13,
     );
 
-    Widget fact(IconData icon, String text, {bool flexible = false}) {
+    Widget fact(IconData? icon, String text, {bool flexible = false}) {
       final label = Text(
         text,
         maxLines: 1,
@@ -259,15 +269,20 @@ class _PlaceLine extends StatelessWidget {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: c.contentTertiary),
-          const SizedBox(width: 4),
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: c.contentTertiary),
+            const SizedBox(width: 4),
+          ],
           flexible ? Flexible(child: label) : label,
         ],
       );
     }
 
     final extras = <Widget>[
-      if (distanceLabel != null) fact(AppIcons.distance, distanceLabel!),
+      // No icon: "400 m away" says what it is, and an icon the shipped
+      // release never drew would render blank in an over-the-air patch (its
+      // icon font holds only the glyphs it used, see docs/shorebird.md).
+      if (distanceLabel != null) fact(null, distanceLabel!),
       // A job's employment type: the Jobs tab filters on it, so the row keeps
       // it.
       if (post.type == PostType.job && post.employmentType != null)
@@ -393,28 +408,6 @@ class _BottomLine extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-
-/// Stands in for a photo, so a post without one keeps the row's rhythm.
-class _CategoryTile extends StatelessWidget {
-  const _CategoryTile({required this.icon});
-
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = AppColors.of(context);
-    return Container(
-      width: ListingCard.thumb,
-      height: ListingCard.thumb,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: c.surfaceSunken,
-        borderRadius: AppRadius.mdAll,
-      ),
-      child: Icon(icon, size: 28, color: c.contentTertiary),
-    );
-  }
-}
 
 /// The cover photo.
 ///

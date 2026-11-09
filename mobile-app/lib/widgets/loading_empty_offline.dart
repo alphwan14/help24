@@ -442,13 +442,14 @@ class FeedSkeletonList extends StatelessWidget {
         ? AppTheme.darkTextTertiary.withValues(alpha: 0.18)
         : AppTheme.lightTextTertiary.withValues(alpha: 0.18);
 
-    // The same shape as a feed row (widgets/listing_card.dart): a square photo,
-    // then the top line, title, place and price, over a hairline.
+    // The same shape as a feed row (widgets/listing_card.dart): a square photo
+    // when the post has one, then the top line, title, place and price, over a
+    // hairline.
     return SkeletonPulse(
         child: ListView.builder(
       padding: padding,
       itemCount: itemCount,
-      itemBuilder: (_, __) => Container(
+      itemBuilder: (_, i) => Container(
         padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: borderColor)),
@@ -456,15 +457,18 @@ class FeedSkeletonList extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 96,
-              height: 96,
-              decoration: BoxDecoration(
-                color: lineColor,
-                borderRadius: AppRadius.mdAll,
+            // Every other placeholder has a photo, as a real feed does.
+            if (i.isEven) ...[
+              Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  color: lineColor,
+                  borderRadius: AppRadius.mdAll,
+                ),
               ),
-            ),
-            const SizedBox(width: 14),
+              const SizedBox(width: 14),
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
