@@ -59,7 +59,10 @@ async function signOut() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   The console's navigation, in two layers.
+   The console's navigation, in two layers. It follows the theme: light in
+   light mode, dark in dark mode (it used to be pinned dark in both). It takes
+   the page's tone with a hairline edge, so it recedes and the white cards of
+   the workspace come forward.
 
    PRIMARY: the sidebar. Sections grouped by how often an admin goes there:
    Overview, then the Queues where work waits (with counts), then Marketplace
@@ -142,7 +145,7 @@ export default function Sidebar({
       <nav
         aria-label="Console"
         className={[
-          "hidden lg:flex lg:flex-col lg:h-screen lg:shrink-0 bg-rail-950 border-r border-white/[0.07]",
+          "hidden lg:flex lg:flex-col lg:h-screen lg:shrink-0 bg-page border-r border-gray-200",
           "transition-[width] duration-200 ease-out",
           collapsed ? "lg:w-[68px]" : "lg:w-[244px]",
         ].join(" ")}
@@ -152,7 +155,7 @@ export default function Sidebar({
           <Image src="/help24.png" alt="Help24" width={28} height={28} className="w-7 h-7 shrink-0" priority />
           {!collapsed && (
             <>
-              <span className="text-white font-semibold text-[14px] tracking-tight">Help24</span>
+              <span className="text-gray-900 font-semibold text-[14px] tracking-tight">Help24</span>
               <div className="ml-auto -mr-1">
                 <AlertsBell placement="rail" />
               </div>
@@ -172,11 +175,11 @@ export default function Sidebar({
           ) : (
             <button
               onClick={openSearch}
-              className="w-full flex items-center gap-2.5 h-9 px-3 rounded-lg bg-white/[0.05] border border-white/[0.07] text-rail-400 hover:text-rail-200 hover:bg-white/[0.08] transition-colors"
+              className="w-full flex items-center gap-2.5 h-9 px-3 rounded-lg bg-surface border border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300 transition-colors"
             >
               <SearchGlyph className="w-[14px] h-[14px]" />
               <span className="text-[12.5px]">Search</span>
-              <kbd className="ml-auto text-[10.5px] font-sans text-rail-500">Ctrl K</kbd>
+              <kbd className="ml-auto text-[10.5px] font-sans text-gray-400">Ctrl K</kbd>
             </button>
           )}
         </div>
@@ -187,9 +190,9 @@ export default function Sidebar({
             <div key={g.id} className="pt-3 first:pt-1">
               {g.label &&
                 (collapsed ? (
-                  <div className="mx-2 mb-2 h-px bg-white/[0.07]" aria-hidden />
+                  <div className="mx-2 mb-2 h-px bg-gray-200" aria-hidden />
                 ) : (
-                  <p className="px-3 pb-1.5 text-[11px] font-medium text-rail-400">{g.label}</p>
+                  <p className="px-3 pb-1.5 text-[11px] font-medium text-gray-500">{g.label}</p>
                 ))}
               <ul className="space-y-0.5">
                 {g.sections.map((s) => (
@@ -212,13 +215,13 @@ export default function Sidebar({
         />
 
         {/* Collapse control, out of the way at the very bottom */}
-        <div className={["shrink-0 border-t border-white/[0.07] p-2", collapsed ? "flex justify-center" : ""].join(" ")}>
+        <div className={["shrink-0 border-t border-gray-200 p-2", collapsed ? "flex justify-center" : ""].join(" ")}>
           <button
             onClick={toggleRail}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className={[
-              "flex items-center gap-3 h-8 rounded-lg text-[12px] text-rail-500 hover:text-rail-200 hover:bg-white/[0.05] transition-colors",
+              "flex items-center gap-3 h-8 rounded-lg text-[12px] text-gray-400 hover:text-gray-800 hover:bg-gray-200/50 transition-colors",
               collapsed ? "w-10 justify-center" : "w-full px-3",
             ].join(" ")}
           >
@@ -229,19 +232,19 @@ export default function Sidebar({
       </nav>
 
       {/* ── Phone top bar ────────────────────────────────────── */}
-      <header className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-rail-950 border-b border-white/[0.07] flex items-center gap-2 pl-2 pr-2">
+      <header className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-page border-b border-gray-200 flex items-center gap-2 pl-2 pr-2">
         <button
           onClick={() => setDrawerOpen(true)}
           aria-label="Open navigation"
           aria-expanded={drawerOpen}
-          className="relative w-10 h-10 flex items-center justify-center rounded-lg text-rail-300 hover:text-white hover:bg-white/[0.08]"
+          className="relative w-10 h-10 flex items-center justify-center rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-200/70"
         >
           <MenuIcon className="w-[22px] h-[22px]" />
           {hasWork(attention) && (
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-caution-500 ring-2 ring-rail-950" />
+            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-caution-500 ring-2 ring-page" />
           )}
         </button>
-        <span className="text-white font-semibold text-[15px] tracking-tight truncate">{title}</span>
+        <span className="text-gray-900 font-semibold text-[15px] tracking-tight truncate">{title}</span>
         <div className="ml-auto flex items-center gap-0.5">
           <IconButton label="Search" onClick={openSearch}>
             <SearchGlyph className="w-[18px] h-[18px]" />
@@ -255,7 +258,7 @@ export default function Sidebar({
         aria-hidden
         onClick={() => setDrawerOpen(false)}
         className={[
-          "lg:hidden fixed inset-0 z-40 bg-black/60 transition-opacity duration-200",
+          "lg:hidden fixed inset-0 z-40 bg-black/40 transition-opacity duration-200",
           drawerOpen ? "opacity-100" : "opacity-0 pointer-events-none",
         ].join(" ")}
       />
@@ -265,18 +268,18 @@ export default function Sidebar({
         inert={!drawerOpen}
         className={[
           "lg:hidden fixed inset-y-0 left-0 z-50 w-[296px] max-w-[85vw] flex flex-col",
-          "bg-rail-950 border-r border-white/[0.07] pt-[env(safe-area-inset-top)]",
+          "bg-page border-r border-gray-200 pt-[env(safe-area-inset-top)]",
           "transition-transform duration-300 ease-out",
           drawerOpen ? "translate-x-0" : "-translate-x-full",
         ].join(" ")}
       >
         <div className="flex items-center gap-2.5 h-14 px-4 shrink-0">
           <Image src="/help24.png" alt="Help24" width={28} height={28} className="w-7 h-7 shrink-0" />
-          <span className="text-white font-semibold text-[15px] tracking-tight">Help24</span>
+          <span className="text-gray-900 font-semibold text-[15px] tracking-tight">Help24</span>
           <button
             onClick={() => setDrawerOpen(false)}
             aria-label="Close navigation"
-            className="ml-auto -mr-1 w-10 h-10 flex items-center justify-center rounded-lg text-rail-400 hover:text-white hover:bg-white/[0.08]"
+            className="ml-auto -mr-1 w-10 h-10 flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/70"
           >
             <XIcon className="w-5 h-5" />
           </button>
@@ -285,7 +288,7 @@ export default function Sidebar({
         <div className="flex-1 overflow-y-auto px-3 pb-3">
           {GROUPS.map((g) => (
             <div key={g.id} className="pt-4 first:pt-1">
-              {g.label && <p className="px-3 pb-1.5 text-[11.5px] font-medium text-rail-400">{g.label}</p>}
+              {g.label && <p className="px-3 pb-1.5 text-[11.5px] font-medium text-gray-500">{g.label}</p>}
               <ul className="space-y-0.5">
                 {g.sections.map((s) => (
                   <li key={s.id}>
@@ -324,7 +327,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="w-9 h-9 flex items-center justify-center rounded-lg text-rail-400 hover:text-white hover:bg-white/[0.08] transition-colors"
+      className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 transition-colors"
     >
       {children}
     </button>
@@ -333,12 +336,12 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
 
 function Badge({ badge, dot = false }: { badge?: { count: number; high: boolean }; dot?: boolean }) {
   if (!badge || badge.count <= 0) return null;
-  const tone = badge.high ? "bg-critical-500 text-white" : "bg-white/[0.12] text-rail-100";
+  const tone = badge.high ? "bg-critical-500 text-white" : "bg-gray-200 text-gray-800";
   if (dot) {
     return (
       <span
         className={[
-          "absolute -top-1 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full text-[9.5px] font-semibold leading-[16px] text-center tabular-nums ring-2 ring-rail-950",
+          "absolute -top-1 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full text-[9.5px] font-semibold leading-[16px] text-center tabular-nums ring-2 ring-page",
           tone,
         ].join(" ")}
       >
@@ -382,12 +385,12 @@ function SectionLink({
       className={[
         "relative flex items-center rounded-lg font-medium transition-colors",
         compact ? "h-10 w-12 mx-auto justify-center" : large ? "h-11 gap-3 px-3 text-[15px]" : "h-9 gap-3 px-3 text-[13px]",
-        active ? "text-white bg-white/[0.09]" : "text-rail-300 hover:text-white hover:bg-white/[0.05]",
+        active ? "text-gray-900 bg-gray-200/70" : "text-gray-600 hover:text-gray-900 hover:bg-gray-200/50",
       ].join(" ")}
     >
-      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 bg-brand-400 rounded-r-full" />}
+      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 bg-accent-500 rounded-r-full" />}
       <span className="relative">
-        <Icon className={["w-[18px] h-[18px] shrink-0", active ? "text-white" : "text-rail-400"].join(" ")} />
+        <Icon className={["w-[18px] h-[18px] shrink-0", active ? "text-gray-900" : "text-gray-500"].join(" ")} />
         {compact && <Badge badge={badge} dot />}
       </span>
       {!compact && (
@@ -408,7 +411,7 @@ function SubPages({ section, pathname }: { section: NavSection; pathname: string
   useEffect(() => setSearch(new URLSearchParams(window.location.search)), [pathname]);
   const current = activePageHref(section.pages, pathname, search);
   return (
-    <ul className="ml-[22px] mt-0.5 mb-1.5 pl-4 border-l border-white/[0.08] space-y-0.5">
+    <ul className="ml-[22px] mt-0.5 mb-1.5 pl-4 border-l border-gray-200 space-y-0.5">
       {section.pages.map((p) => (
         <li key={p.href}>
           <Link
@@ -416,7 +419,7 @@ function SubPages({ section, pathname }: { section: NavSection; pathname: string
             aria-current={p.href === current ? "page" : undefined}
             className={[
               "flex items-center h-10 px-3 rounded-lg text-[14px] transition-colors",
-              p.href === current ? "text-white bg-white/[0.06]" : "text-rail-400 hover:text-white",
+              p.href === current ? "text-gray-900 bg-gray-200/60" : "text-gray-500 hover:text-gray-900",
             ].join(" ")}
           >
             {p.label}
@@ -445,20 +448,20 @@ function AccountFooter({
   const initial = email ? email[0].toUpperCase() : "?";
   const role = arbitration.connected && arbitration.role ? ROLE_LABELS[arbitration.role] : null;
   const avatar = (
-    <span className="w-8 h-8 rounded-full bg-rail-800 ring-1 ring-white/[0.1] flex items-center justify-center text-[12px] font-semibold text-rail-100 shrink-0 select-none">
+    <span className="w-8 h-8 rounded-full bg-gray-200 ring-1 ring-gray-300/60 flex items-center justify-center text-[12px] font-semibold text-gray-800 shrink-0 select-none">
       {initial}
     </span>
   );
 
   if (compact) {
     return (
-      <div className="shrink-0 border-t border-white/[0.07] py-2 flex flex-col items-center gap-1">
+      <div className="shrink-0 border-t border-gray-200 py-2 flex flex-col items-center gap-1">
         <Link
           href={SETTINGS_HREF}
           aria-current={onSettings ? "page" : undefined}
           aria-label={`Settings, ${email ?? "your account"}`}
           title={`Settings (${email ?? "your account"})`}
-          className={["p-1 rounded-full", onSettings ? "ring-2 ring-brand-400" : "hover:ring-2 hover:ring-white/[0.15]"].join(" ")}
+          className={["p-1 rounded-full", onSettings ? "ring-2 ring-brand-400" : "hover:ring-2 hover:ring-gray-300"].join(" ")}
         >
           {avatar}
         </Link>
@@ -467,7 +470,7 @@ function AccountFooter({
           disabled={signingOut}
           aria-label="Sign out"
           title="Sign out"
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-rail-500 hover:text-white hover:bg-white/[0.05] disabled:opacity-40"
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-200/50 disabled:opacity-40"
         >
           <LogOutIcon className="w-4 h-4" />
         </button>
@@ -476,29 +479,29 @@ function AccountFooter({
   }
 
   return (
-    <div className="shrink-0 border-t border-white/[0.07] p-3 space-y-0.5">
+    <div className="shrink-0 border-t border-gray-200 p-3 space-y-0.5">
       <Link
         href={SETTINGS_HREF}
         aria-current={onSettings ? "page" : undefined}
         title="Settings"
         className={[
           "flex items-center gap-3 px-2 py-2 rounded-lg transition-colors",
-          onSettings ? "bg-white/[0.08]" : "hover:bg-white/[0.04]",
+          onSettings ? "bg-gray-200/70" : "hover:bg-gray-200/50",
         ].join(" ")}
       >
         {avatar}
         <span className="min-w-0 flex-1">
-          <span className="block text-[12.5px] text-rail-100 truncate leading-tight">{email ?? " "}</span>
-          <span className={["block text-[11px] leading-tight mt-0.5", role ? "text-rail-400" : "text-rail-accent"].join(" ")}>
+          <span className="block text-[12.5px] text-gray-800 truncate leading-tight">{email ?? " "}</span>
+          <span className={["block text-[11px] leading-tight mt-0.5", role ? "text-gray-500" : "text-accent-600"].join(" ")}>
             {role ?? "No admin access"}
           </span>
         </span>
-        <CogIcon className="w-4 h-4 text-rail-400 shrink-0" />
+        <CogIcon className="w-4 h-4 text-gray-500 shrink-0" />
       </Link>
       <button
         onClick={onSignOut}
         disabled={signingOut}
-        className="w-full flex items-center gap-3 px-3 h-9 rounded-lg text-[12.5px] font-medium text-rail-400 hover:text-white hover:bg-white/[0.04] transition-colors disabled:opacity-40"
+        className="w-full flex items-center gap-3 px-3 h-9 rounded-lg text-[12.5px] font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-200/50 transition-colors disabled:opacity-40"
       >
         <LogOutIcon className="w-4 h-4 shrink-0" />
         {signingOut ? "Signing out" : "Sign out"}

@@ -57,16 +57,16 @@ export default function AlertsBell({ placement }: { placement: "rail" | "rail-co
         title={label}
         className={[
           "relative w-9 h-9 flex items-center justify-center rounded-lg transition-colors shrink-0",
-          open ? "text-white bg-white/[0.1]" : "text-rail-400 hover:text-white hover:bg-white/[0.08]",
+          open ? "text-gray-900 bg-gray-200/70" : "text-gray-500 hover:text-gray-900 hover:bg-gray-200/70",
         ].join(" ")}
       >
         <BellIcon className="w-[18px] h-[18px]" />
         {urgentCount > 0 ? (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-critical-500 text-white text-[10.5px] font-bold leading-[18px] text-center tabular-nums ring-2 ring-rail-950">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-critical-500 text-white text-[10.5px] font-bold leading-[18px] text-center tabular-nums ring-2 ring-page">
             {urgentCount > 9 ? "9+" : urgentCount}
           </span>
         ) : hasUnreadMedium ? (
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-caution-500 ring-2 ring-rail-950" />
+          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-caution-500 ring-2 ring-page" />
         ) : null}
       </button>
       {open &&
