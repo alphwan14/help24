@@ -5,6 +5,8 @@ import { UserGrowthChart } from "@/components/charts/UserGrowthChart";
 import { RequestsOffersChart } from "@/components/charts/RequestsOffersChart";
 import { PaymentStatusBreakdown } from "@/components/charts/PaymentStatusBreakdown";
 import { fillDays } from "@/lib/series";
+import EarningsPanel from "@/components/charts/EarningsPanel";
+import { DAYS_KEPT, buildSeries, type EarningEvent, type EarningsSeries } from "@/lib/earnings";
 
 // Per request: nothing here reads the request, so without this Next would
 // prerender the page once at build time (see loadOverview below).
@@ -226,9 +228,63 @@ async function loadOverview(): Promise<Overview> {
     return getDataViaTwelveQueries();
 }
 
+/** Every row of a query, page by page (PostgREST returns at most 1,000 at a time). */
+async function allRows<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; from < 50_000; from += 1000) {
+    const { data, error } = await page(from, from + 999);
+    if (error) throw new Error(error.message);
+    out.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+
+/**
+ * The last DAYS_KEPT days of earnings: fees on paid jobs, and promotion sales.
+ * Null when either read fails: the panel then says it could not read them,
+ * rather than drawing a confident zero (see the note in getDataViaTwelveQueries).
+ */
+async function loadEarnings(): Promise<EarningsSeries | null> {
+  try {
+    const db = createServiceClient();
+    // A day's margin either side of the Nairobi window; buildSeries trims it.
+    const since = new Date(Date.now() - (DAYS_KEPT + 1) * 86400_000).toISOString();
+    const [fees, promos] = await Promise.all([
+      allRows<{ created_at: string; fee: number | null }>((from, to) =>
+        db
+          .from("transactions")
+          .select("created_at, fee")
+          .in("status", PAID_STATUSES)
+          .gte("created_at", since)
+          .order("created_at")
+          .range(from, to),
+      ),
+      allRows<{ paid_at: string | null; created_at: string; amount_kes: number | null }>((from, to) =>
+        db
+          .from("promotion_payments")
+          .select("paid_at, created_at, amount_kes")
+          .eq("status", "paid")
+          .gte("created_at", since)
+          .order("created_at")
+          .range(from, to),
+      ),
+    ]);
+    const events: EarningEvent[] = [
+      ...fees.map((t) => ({ at: t.created_at, amount: t.fee ?? 0, stream: "fees" as const })),
+      ...promos.map((p) => ({ at: p.paid_at ?? p.created_at, amount: p.amount_kes ?? 0, stream: "promos" as const })),
+    ];
+    return buildSeries(events);
+  } catch (e) {
+    console.warn("[overview] earnings unavailable:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 export default async function OverviewGeneralPage() {
   let overview: Overview | null = null;
   let failure: string | null = null;
+  const earningsPromise = loadEarnings();
 
   try {
     overview = await loadOverview();
@@ -265,9 +321,12 @@ export default async function OverviewGeneralPage() {
   const signups30 = userGrowth.reduce((s, d) => s + d.count, 0);
   const posts30 = postActivity.reduce((s, d) => s + d.requests + d.offers, 0);
   const txSample = paymentStatus.reduce((s, d) => s + d.value, 0);
+  const earnings = await earningsPromise;
 
   return (
     <div className="space-y-6 lg:space-y-8">
+      <EarningsPanel series={earnings} />
+
       <section>
         <SectionLabel>Platform</SectionLabel>
         <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">

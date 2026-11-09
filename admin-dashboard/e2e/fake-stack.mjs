@@ -63,6 +63,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
   const verificationPeople = new Map(); // user_id → person
   let alertList = []; // what GET /admin/alerts answers; empty unless a run sets it
   let overview = null; // what rpc admin_overview answers; null → PostgREST error, so the page falls back
+  let tables = {}; // rows for plain table reads (transactions, promotion_payments…), set by a run
 
   const recoveryTemplate = readFileSync(join(templatesDir, "recovery.html"), "utf8");
   const recoverySubject = JSON.parse(readFileSync(join(templatesDir, "manifest.json"), "utf8"))
@@ -399,6 +400,11 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
           : []);
       }
       if (table === "app_settings_history") return send(200, [...configHistory].reverse());
+      if (tables[table]) {
+        // Rows a run supplied; the earnings reads ask for one page at a time.
+        const off = Number(url.searchParams.get("offset") ?? 0), lim = Number(url.searchParams.get("limit") ?? 1000);
+        return send(200, tables[table].slice(off, off + lim));
+      }
       if (table === "admin_users") {
         // The reset request asks by email and active; Admin Roles asks for every row.
         const email = eq("email"), active = eq("active");
@@ -580,6 +586,10 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     /** Alerts for GET /admin/alerts, in the backend's shape (lib/alerts.ts). */
     setAlerts(list) {
       alertList = list;
+    },
+    /** Rows served for plain GETs of a table, e.g. transactions or promotion_payments. */
+    setTable(name, rows) {
+      tables[name] = rows;
     },
     /** The admin_overview RPC result (migration 131's shape). */
     setOverview(value) {
