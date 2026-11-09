@@ -123,7 +123,7 @@ export default async function ActiveUsersPage() {
     <div className="space-y-4">
       {failed ? (
         <p className="card p-4 text-sm text-gray-500">
-          Activity could not be read just now. It refreshes every minute — reload to try again.
+          Activity could not be read just now. It refreshes every minute. Reload to try again.
         </p>
       ) : (
         <>

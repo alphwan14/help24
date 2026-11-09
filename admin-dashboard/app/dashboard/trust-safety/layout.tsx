@@ -1,25 +1,13 @@
-import SectionTabs from "@/components/SectionTabs";
-
-const BASE = "/dashboard/trust-safety";
+import { SectionNav } from "@/components/SectionTabs";
 
 export default function TrustSafetyLayout({ children }: { children: React.ReactNode }) {
   return (
     <div>
       <div className="page-header">
-        <h1>Trust &amp; Safety</h1>
-        <p>Reports, investigations, provider verifications and account decisions. Every action is recorded.</p>
+        <h1>Trust and safety</h1>
+        <p>Reports, verifications and account decisions. Every action is recorded.</p>
       </div>
-      <SectionTabs
-        tabs={[
-          { label: "Reports", href: `${BASE}/reports` },
-          { label: "Moderation queue", href: `${BASE}/queue` },
-          { label: "Verifications", href: `${BASE}/verifications` },
-          { label: "Suspended", href: `${BASE}/suspended` },
-          { label: "Banned", href: `${BASE}/banned` },
-          { label: "Restricted", href: `${BASE}/restricted` },
-          { label: "Audit log", href: `${BASE}/audit` },
-        ]}
-      />
+      <SectionNav section="trust-safety" />
       {children}
     </div>
   );

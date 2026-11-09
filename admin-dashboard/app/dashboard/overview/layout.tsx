@@ -1,10 +1,9 @@
 import OverviewHeader from "./OverviewHeader";
 
 export default function OverviewLayout({ children }: { children: React.ReactNode }) {
+  // The heading, the Overview tabs and, on General, the attention queue.
   return (
     <div>
-      {/* General opens with a greeting and what needs attention; the other
-          Overview tabs keep the plain heading. See OverviewHeader. */}
       <OverviewHeader />
       {children}
     </div>

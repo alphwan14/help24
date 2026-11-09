@@ -1,10 +1,13 @@
+import { SectionNav } from "@/components/SectionTabs";
+
 export default function UsersLayout({ children }: { children: React.ReactNode }) {
   return (
     <div>
       <div className="page-header">
         <h1>Users</h1>
-        <p>Manage platform users and roles</p>
+        <p>Accounts, activity and admin roles</p>
       </div>
+      <SectionNav section="users" />
       {children}
     </div>
   );

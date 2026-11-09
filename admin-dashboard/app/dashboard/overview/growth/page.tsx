@@ -45,7 +45,7 @@ export default async function GrowthPage() {
   return (
     <div className="space-y-6">
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">User Signups — Last 90 Days</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Signups, last 90 days</h3>
         <p className="text-xs text-gray-400 mb-4">New accounts created per day</p>
         {userGrowth.length > 0 ? (
           <UserGrowthChart data={userGrowth} />
@@ -55,7 +55,7 @@ export default async function GrowthPage() {
       </div>
 
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Marketplace Activity — Last 90 Days</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Requests and offers, last 90 days</h3>
         <p className="text-xs text-gray-400 mb-4">Requests and offers posted per day</p>
         {postActivity.length > 0 ? (
           <RequestsOffersChart data={postActivity} />

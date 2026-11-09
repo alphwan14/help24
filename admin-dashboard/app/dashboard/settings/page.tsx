@@ -6,6 +6,7 @@ import { hasPasswordSignIn } from "@/lib/admin-password";
 import ChangePasswordForm from "./ChangePasswordForm";
 import RefreshWhenConnected from "@/components/RefreshWhenConnected";
 import ResetLinkRequest from "./ResetLinkRequest";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +82,7 @@ export default async function SettingsPage() {
     <div className="max-w-3xl space-y-6">
       <div className="page-header">
         <h1>Settings</h1>
-        <p>Your admin account and how you sign in.</p>
+        <p>Your account, how you sign in, and how the console looks</p>
       </div>
 
       <section aria-labelledby="account-heading" className="card p-5 sm:p-6">
@@ -97,6 +98,20 @@ export default async function SettingsPage() {
           <Row label="Sign-in method">{signInMethod}</Row>
           <Row label="Last sign-in">{fmtDateTime(user.last_sign_in_at)}</Row>
         </dl>
+      </section>
+
+      {/* Moved here from the bottom of the rail: a preference you set once
+          does not need a permanent place beside the navigation. */}
+      <section aria-labelledby="appearance-heading" className="card p-5 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 id="appearance-heading" className="text-base font-bold text-gray-900">
+              Appearance
+            </h2>
+            <p className="mt-0.5 text-sm text-gray-500">Auto follows your device.</p>
+          </div>
+          <ThemeToggle />
+        </div>
       </section>
 
       <section aria-labelledby="password-heading" className="card p-5 sm:p-6">

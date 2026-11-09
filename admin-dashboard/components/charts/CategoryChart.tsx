@@ -21,7 +21,7 @@ export function CategoryChart({ data }: { data: CategoryPoint[] }) {
         <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: CHART.label }} tickLine={false} axisLine={false} width={90} />
         <Tooltip
           formatter={(v: number) => [v, "Posts"]}
-          contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ` }}
+          contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${CHART.grid}`, background: CHART.surface, color: CHART.ink }}
         />
         <Bar dataKey="count" radius={[0, 4, 4, 0]} fill={CHART.series[0]} maxBarSize={22}>
 </Bar>

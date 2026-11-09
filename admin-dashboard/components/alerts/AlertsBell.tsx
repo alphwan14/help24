@@ -22,7 +22,7 @@ import {
  * unacknowledged HIGH alerts; unacknowledged MEDIUM ones show a quiet dot; LOW
  * never marks the bell at all.
  */
-export default function AlertsBell({ placement }: { placement: "rail" | "topbar" }) {
+export default function AlertsBell({ placement }: { placement: "rail" | "rail-compact" | "topbar" }) {
   const alerts = useAlerts();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -84,7 +84,7 @@ export default function AlertsBell({ placement }: { placement: "rail" | "topbar"
   );
 }
 
-function AlertsPanel({ placement, onClose }: { placement: "rail" | "topbar"; onClose: () => void }) {
+function AlertsPanel({ placement, onClose }: { placement: "rail" | "rail-compact" | "topbar"; onClose: () => void }) {
   const alerts = useAlerts()!;
   const heading = useRef<HTMLHeadingElement>(null);
   const [showLow, setShowLow] = useState(false);
@@ -118,7 +118,9 @@ function AlertsPanel({ placement, onClose }: { placement: "rail" | "topbar"; onC
         className={[
           "fixed z-[65] flex flex-col bg-surface border border-gray-200 rounded-xl shadow-2xl overflow-hidden",
           placement === "rail"
-            ? "left-[252px] top-3 w-[420px] max-h-[calc(100vh-24px)]"
+            ? "left-[256px] top-3 w-[420px] max-h-[calc(100vh-24px)]"
+            : placement === "rail-compact"
+            ? "left-[80px] top-3 w-[420px] max-h-[calc(100vh-24px)]"
             : "left-2 right-2 top-[60px] max-h-[calc(100vh-72px)] sm:left-auto sm:w-[420px]",
         ].join(" ")}
       >

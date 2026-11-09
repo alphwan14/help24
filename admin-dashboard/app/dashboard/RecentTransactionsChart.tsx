@@ -46,7 +46,7 @@ export function RecentTransactionsChart({ data }: { data: TxRow[] }) {
         />
         <Tooltip
           formatter={(v: number) => [`KES ${v}`, "Volume"]}
-          contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ` }}
+          contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${CHART.grid}`, background: CHART.surface, color: CHART.ink }}
         />
         <Bar dataKey="total" fill={CHART.series[0]} radius={[4, 4, 0, 0]} />
       </BarChart>

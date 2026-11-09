@@ -3,7 +3,10 @@ import MetricCard from "@/components/MetricCard";
 import { fmtKes } from "@/lib/post-display";
 import { UserGrowthChart } from "@/components/charts/UserGrowthChart";
 import { RequestsOffersChart } from "@/components/charts/RequestsOffersChart";
-import { PaymentStatusChart } from "@/components/charts/PaymentStatusChart";
+import { PaymentStatusBreakdown } from "@/components/charts/PaymentStatusBreakdown";
+import { fillDays } from "@/lib/series";
+import EarningsPanel from "@/components/charts/EarningsPanel";
+import { DAYS_KEPT, buildSeries, type EarningEvent, type EarningsSeries } from "@/lib/earnings";
 
 // Per request: nothing here reads the request, so without this Next would
 // prerender the page once at build time (see loadOverview below).
@@ -170,18 +173,14 @@ function fmtNum(n: number) { return n.toLocaleString("en-KE"); }
 const fmtKES = fmtKes;
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-widest mb-3">
-      {children}
-    </p>
-  );
+  return <h2 className="text-[12px] font-semibold text-gray-500 mb-2.5">{children}</h2>;
 }
 
 function ChartHeader({ title, sub }: { title: string; sub?: string }) {
   return (
-    <div className="mb-5">
-      <p className="text-[13.5px] font-semibold text-gray-800 leading-none">{title}</p>
-      {sub && <p className="text-[11.5px] text-gray-400 mt-1">{sub}</p>}
+    <div className="mb-4">
+      <h3 className="text-[14px] font-semibold text-gray-900 leading-tight">{title}</h3>
+      {sub && <p className="text-[12px] text-gray-500 mt-0.5">{sub}</p>}
     </div>
   );
 }
@@ -229,9 +228,63 @@ async function loadOverview(): Promise<Overview> {
     return getDataViaTwelveQueries();
 }
 
+/** Every row of a query, page by page (PostgREST returns at most 1,000 at a time). */
+async function allRows<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; from < 50_000; from += 1000) {
+    const { data, error } = await page(from, from + 999);
+    if (error) throw new Error(error.message);
+    out.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+
+/**
+ * The last DAYS_KEPT days of earnings: fees on paid jobs, and promotion sales.
+ * Null when either read fails: the panel then says it could not read them,
+ * rather than drawing a confident zero (see the note in getDataViaTwelveQueries).
+ */
+async function loadEarnings(): Promise<EarningsSeries | null> {
+  try {
+    const db = createServiceClient();
+    // A day's margin either side of the Nairobi window; buildSeries trims it.
+    const since = new Date(Date.now() - (DAYS_KEPT + 1) * 86400_000).toISOString();
+    const [fees, promos] = await Promise.all([
+      allRows<{ created_at: string; fee: number | null }>((from, to) =>
+        db
+          .from("transactions")
+          .select("created_at, fee")
+          .in("status", PAID_STATUSES)
+          .gte("created_at", since)
+          .order("created_at")
+          .range(from, to),
+      ),
+      allRows<{ paid_at: string | null; created_at: string; amount_kes: number | null }>((from, to) =>
+        db
+          .from("promotion_payments")
+          .select("paid_at, created_at, amount_kes")
+          .eq("status", "paid")
+          .gte("created_at", since)
+          .order("created_at")
+          .range(from, to),
+      ),
+    ]);
+    const events: EarningEvent[] = [
+      ...fees.map((t) => ({ at: t.created_at, amount: t.fee ?? 0, stream: "fees" as const })),
+      ...promos.map((p) => ({ at: p.paid_at ?? p.created_at, amount: p.amount_kes ?? 0, stream: "promos" as const })),
+    ];
+    return buildSeries(events);
+  } catch (e) {
+    console.warn("[overview] earnings unavailable:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 export default async function OverviewGeneralPage() {
   let overview: Overview | null = null;
   let failure: string | null = null;
+  const earningsPromise = loadEarnings();
 
   try {
     overview = await loadOverview();
@@ -244,17 +297,13 @@ export default async function OverviewGeneralPage() {
   if (!overview) {
     return (
       <div className="space-y-6">
-        <div className="page-header">
-          <h1>Overview</h1>
-          <p>Platform health at a glance</p>
-        </div>
         <div className="card p-6 border-critical-300 bg-critical-50">
           <p className="text-sm font-semibold text-critical-700">
             Could not load platform figures
           </p>
           <p className="text-xs text-critical-600 mt-1.5 leading-relaxed">
             The database did not answer. Nothing is shown below rather than
-            numbers that may be wrong — reload to try again.
+            numbers that may be wrong. Reload to try again.
           </p>
           {failure && (
             <p className="text-[11px] font-mono text-critical-600/80 mt-3 break-all">
@@ -266,154 +315,89 @@ export default async function OverviewGeneralPage() {
     );
   }
 
-  const { kpis, userGrowth, postActivity, paymentStatus, geoPoints, totalLocs } = overview;
+  const { kpis, paymentStatus, geoPoints, totalLocs } = overview;
+  const userGrowth = fillDays(overview.userGrowth, { count: 0 });
+  const postActivity = fillDays(overview.postActivity, { requests: 0, offers: 0 });
+  const signups30 = userGrowth.reduce((s, d) => s + d.count, 0);
+  const posts30 = postActivity.reduce((s, d) => s + d.requests + d.offers, 0);
+  const txSample = paymentStatus.reduce((s, d) => s + d.value, 0);
+  const earnings = await earningsPromise;
 
   return (
     <div className="space-y-6 lg:space-y-8">
-
-      {/* ── Platform KPIs — 1 col mobile → 2 sm → 4 lg ── */}
+      {/* Ranked by the question each answers: who is on Help24, is it
+          growing, what it earns, the money behind that, then diagnostics. */}
       <section>
         <SectionLabel>Platform</SectionLabel>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-          <MetricCard
-            label="Total Users"
-            value={fmtNum(kpis.totalUsers)}
-
-            icon="users"
-          />
-          <MetricCard
-            label="Active (7-day)"
-            value={fmtNum(kpis.activeUsers7d)}
-
-            icon="active"
-            sub="Logged in recently"
-          />
-          <MetricCard
-            label="Requests"
-            value={fmtNum(kpis.totalRequests)}
-            icon="requests"
-          />
-          <MetricCard
-            label="Offers"
-            value={fmtNum(kpis.totalOffers)}
-
-            icon="offers"
-          />
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
+          <MetricCard label="Users" value={fmtNum(kpis.totalUsers)} icon="users" />
+          <MetricCard label="Active this week" value={fmtNum(kpis.activeUsers7d)} icon="active" sub="Signed in, 7 days" />
+          <MetricCard label="Requests" value={fmtNum(kpis.totalRequests)} icon="requests" />
+          <MetricCard label="Offers" value={fmtNum(kpis.totalOffers)} icon="offers" />
         </div>
       </section>
 
-      {/* ── Operations KPIs — 1 col mobile → 2 sm → 5 lg ── */}
+      <section className="grid grid-cols-1 gap-4 lg:gap-6 lg:grid-cols-2">
+        <div className="chart-card">
+          <ChartHeader title="Signups" sub={`${fmtNum(signups30)} in the last 30 days`} />
+          <div className="h-[180px] sm:h-[220px] lg:h-[240px]">
+            <UserGrowthChart data={userGrowth} bars />
+          </div>
+        </div>
+        <div className="chart-card">
+          <ChartHeader title="Requests and offers" sub={`${fmtNum(posts30)} posted in the last 30 days`} />
+          <div className="h-[180px] sm:h-[220px] lg:h-[240px]">
+            <RequestsOffersChart data={postActivity} />
+          </div>
+        </div>
+      </section>
+
+      <EarningsPanel series={earnings} />
+
       <section>
-        <SectionLabel>Operations &amp; Finance</SectionLabel>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-5">
+        <SectionLabel>Jobs and money</SectionLabel>
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-5">
+          <MetricCard label="Active jobs" value={fmtNum(kpis.activeJobs)} icon="jobs" sub="Provider on it" />
+          <MetricCard label="Completed jobs" value={fmtNum(kpis.completedJobs)} icon="jobs" />
+          <MetricCard label="Transactions" value={fmtNum(kpis.totalTx)} icon="transactions" />
+          <MetricCard label="Held in escrow" value={fmtKES(kpis.pendingEscrow)} icon="escrow" sub="Locked funds" />
           <MetricCard
-            label="Active Jobs"
-            value={fmtNum(kpis.activeJobs)}
-
-            icon="jobs"
-            sub="Provider on it, not finished"
-          />
-          <MetricCard
-            label="Completed Jobs"
-            value={fmtNum(kpis.completedJobs)}
-
-            icon="jobs"
-          />
-          <MetricCard
-            label="Transactions"
-            value={fmtNum(kpis.totalTx)}
-            icon="transactions"
-          />
-          <MetricCard
-            label="Pending Escrow"
-            value={fmtKES(kpis.pendingEscrow)}
-
-            icon="escrow"
-            sub="Locked funds"
-          />
-          <MetricCard
+            className="col-span-2 lg:col-span-1"
             label="Payments volume"
             value={fmtKES(kpis.paymentsVolume)}
-
             icon="revenue"
-            sub={kpis.platformFees == null ? "Paid by customers" : `Platform fees ${fmtKES(kpis.platformFees)}`}
+            sub={kpis.platformFees == null ? "Paid by customers" : `Fees ${fmtKES(kpis.platformFees)}`}
           />
         </div>
       </section>
 
-      {/* ── User growth chart ── */}
-      {userGrowth.length > 0 && (
-        <section className="chart-card">
-          <ChartHeader
-            title="User Signups — Last 30 Days"
-            sub="New account registrations per day"
-          />
-          {/* Responsive height: shorter on mobile, taller on desktop */}
-          <div className="h-[200px] sm:h-[240px] lg:h-[280px]">
-            <UserGrowthChart data={userGrowth} />
-          </div>
-        </section>
-      )}
-
-      {/* ── Marketplace + Payment status ── */}
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        {postActivity.length > 0 && (
-          <div className="chart-card lg:col-span-3">
-            <ChartHeader
-              title="Requests vs Offers — Last 30 Days"
-              sub="Daily marketplace posting activity"
-            />
-            <div className="h-[200px] sm:h-[240px] lg:h-[280px]">
-              <RequestsOffersChart data={postActivity} />
-            </div>
+      <section className="grid grid-cols-1 gap-4 lg:gap-6 lg:grid-cols-2">
+        {paymentStatus.length > 0 && (
+          <div className="chart-card">
+            <ChartHeader title="Payment status" sub={`Latest ${fmtNum(txSample)} transactions`} />
+            <PaymentStatusBreakdown data={paymentStatus} />
           </div>
         )}
-        {paymentStatus.length > 0 && (
-          <div className="chart-card lg:col-span-2">
-            <ChartHeader
-              title="Payment Status"
-              sub="Distribution across last 200 transactions"
-            />
-            <div className="h-[200px] sm:h-[240px] lg:h-[280px]">
-              <PaymentStatusChart data={paymentStatus} />
-            </div>
+        {geoPoints.length > 0 && (
+          <div className="chart-card">
+            <ChartHeader title="Top cities" sub={`By post location, ${totalLocs.toLocaleString("en-KE")} posts`} />
+            <ul className="divide-y divide-gray-100">
+              {geoPoints.map((g) => (
+                <li key={g.city} className="flex items-center gap-3 py-2.5">
+                  <span className="text-[13px] text-gray-700 w-20 shrink-0 truncate">{g.city}</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden min-w-0">
+                    <div className="bg-brand-500 h-1.5 rounded-full" style={{ width: `${g.pct}%` }} />
+                  </div>
+                  <span className="text-[13px] font-semibold text-gray-900 tabular-nums w-10 text-right">
+                    {g.count.toLocaleString("en-KE")}
+                  </span>
+                  <span className="text-[12px] text-gray-400 tabular-nums w-9 text-right">{g.pct}%</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </section>
-
-      {/* ── Kenya geography ── */}
-      {geoPoints.length > 0 && (
-        <section className="chart-card">
-          <ChartHeader
-            title="Regional Activity — Kenya"
-            sub={`Top cities by post volume · ${totalLocs.toLocaleString("en-KE")} data points`}
-          />
-          <div className="space-y-3.5">
-            {geoPoints.map((g) => (
-              <div key={g.city} className="flex items-center gap-3 sm:gap-4">
-                <span className="text-[12.5px] font-medium text-gray-600 w-16 sm:w-20 shrink-0">
-                  {g.city}
-                </span>
-                <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden min-w-0">
-                  <div
-                    className="bg-brand-500 h-1.5 rounded-full transition-all"
-                    style={{ width: `${g.pct}%` }}
-                  />
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-[12px] font-semibold text-gray-700 tabular-nums">
-                    {g.count.toLocaleString("en-KE")}
-                  </span>
-                  <span className="text-[11px] text-gray-400 tabular-nums hidden sm:inline">
-                    ({g.pct}%)
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
     </div>
   );
 }

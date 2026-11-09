@@ -64,11 +64,13 @@
   .page-header {
     @apply mb-6 lg:mb-7;
   }
+  /* On phones the top bar already names the section, so the page's own h1
+     is kept for screen readers and hidden on screen (it repeated the bar). */
   .page-header h1 {
-    @apply text-xl sm:text-[22px] font-bold text-gray-900 tracking-tight leading-none;
+    @apply text-xl sm:text-[22px] font-bold text-gray-900 tracking-tight leading-none max-lg:sr-only;
   }
   .page-header p {
-    @apply text-[13px] text-gray-400 mt-1.5;
+    @apply text-[13px] text-gray-500 mt-1.5 max-lg:mt-0;
   }
 
   /* Chart card — responsive inner padding */

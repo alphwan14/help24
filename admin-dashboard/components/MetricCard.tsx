@@ -11,6 +11,7 @@ interface MetricCardProps {
   icon?: MetricIconVariant;
   trend?: string;
   trendUp?: boolean;
+  className?: string;
 }
 
 /**
@@ -48,20 +49,21 @@ export default function MetricCard({
   icon = "default",
   trend,
   trendUp,
+  className = "",
 }: MetricCardProps) {
   return (
-    <div className="bg-surface rounded-xl border border-gray-200 px-5 pt-4 pb-4">
+    <div className={`bg-surface rounded-xl border border-gray-200 px-4 py-3.5 sm:px-5 sm:py-4 min-w-0 ${className}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium text-gray-500 leading-none">
+          <p className="text-[12px] font-medium text-gray-500 leading-tight truncate">
             {label}
           </p>
           {/* The number leads. Tabular figures so a column of tiles lines up
               and a changing value does not shift its own label. */}
-          <p className="text-[1.6rem] font-semibold text-gray-900 mt-2.5 leading-none tabular-nums tracking-tight">
+          <p className="text-[22px] sm:text-[26px] font-semibold text-gray-900 mt-2 leading-none tabular-nums tracking-tight truncate">
             {value}
           </p>
-          <div className="flex items-center gap-1.5 mt-2 min-h-[16px]">
+          <div className="flex items-center gap-1.5 mt-2 min-h-[16px] min-w-0">
             {trend && (
               <span
                 className={`text-[11px] font-medium ${
@@ -72,7 +74,7 @@ export default function MetricCard({
               </span>
             )}
             {sub && (
-              <span className="text-[11px] text-gray-400 leading-none">{sub}</span>
+              <span className="text-[11.5px] text-gray-400 leading-tight truncate">{sub}</span>
             )}
           </div>
         </div>
@@ -81,7 +83,7 @@ export default function MetricCard({
             second bordered surface inside a bordered surface, for an icon that
             repeats what the label already says. It earns its place as a
             scanning aid, not as a swatch. */}
-        <IconSvg variant={icon} className={`w-[18px] h-[18px] shrink-0 mt-0.5 ${TONE[accent]}`} />
+        <IconSvg variant={icon} className={`hidden sm:block w-[18px] h-[18px] shrink-0 mt-0.5 ${TONE[accent]}`} />
       </div>
     </div>
   );

@@ -60,7 +60,7 @@ async function getGeoData() {
 export default async function GeographyPage() {
   const data = await getGeoData();
   if (data.failed) {
-    return <p className="card p-6 text-sm text-gray-500">Location data could not be loaded just now. It refreshes every minute — reload to try again.</p>;
+    return <p className="card p-6 text-sm text-gray-500">Location data could not be loaded just now. It refreshes every minute. Reload to try again.</p>;
   }
   const { geoPoints, total, postCount } = data;
 
