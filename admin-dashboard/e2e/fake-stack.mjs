@@ -400,7 +400,9 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
           : []);
       }
       if (table === "app_settings_history") return send(200, [...configHistory].reverse());
-      if (tables[table]) {
+      if (tables[table] && !url.searchParams.has("id")) {
+        // List reads only: a lookup by id (the admin gate, a member page) still
+        // goes to the handlers below.
         // Rows a run supplied; the earnings reads ask for one page at a time.
         const off = Number(url.searchParams.get("offset") ?? 0), lim = Number(url.searchParams.get("limit") ?? 1000);
         return send(200, tables[table].slice(off, off + lim));

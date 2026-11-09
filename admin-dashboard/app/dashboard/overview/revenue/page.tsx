@@ -1,151 +1,167 @@
-import { createServiceClient } from "@/lib/supabase-server";
 import { fmtKes } from "@/lib/post-display";
-import { UserGrowthChart } from "@/components/charts/UserGrowthChart";
+import { revenue, pct } from "@/lib/analytics";
+import { slotsFor } from "@/lib/periods";
+import { periodFor, readCategories, readPromotionSales, readTransactions, settle } from "@/lib/market-data";
+import { Panel, Stat } from "@/components/analytics/Stat";
+import TrendColumns from "@/components/analytics/TrendColumns";
+import { ReadFailed, TabToolbar, perBucket } from "@/components/analytics/TabToolbar";
 
-// Rendered per request. `revalidate = 60` read as "at most a minute old", but
-// Next rebuilds such a page only when someone asks, and answers that request
-// with the old render — on 2026-10-29 the Jobs page left out a job posted 30
-// minutes earlier. The dashboard is quiet and each query is one round trip:
-// fresh beats fast here (lib/route-freshness.test.mjs).
+// Rendered per request: figures on a payments console must be fresh
+// (lib/route-freshness.test.mjs).
 export const dynamic = "force-dynamic";
 
-type TxRow = {
-  created_at: string;
-  total_paid: number | null;
-  fee: number | null;
-  status: string;
-};
+const n = (x: number) => Math.round(x).toLocaleString("en-KE");
 
-async function getRevenueData() {
-  const db = createServiceClient();
-  const since90 = new Date(Date.now() - 90 * 86400_000).toISOString();
-
-  const { data } = await db
-    .from("transactions")
-    .select("created_at, total_paid, fee, status")
-    .gte("created_at", since90)
-    .order("created_at");
-
-  const rows = (data ?? []) as TxRow[];
-
-  const PAID_STATUSES = ["paid", "payout_pending", "released"];
-
-  // Revenue by day (only paid transactions)
-  const byDay: Record<string, { date: string; revenue: number; fees: number }> = {};
-  for (const t of rows) {
-    if (!PAID_STATUSES.includes(t.status)) continue;
-    const day = t.created_at.slice(0, 10);
-    byDay[day] ??= { date: day.slice(5), revenue: 0, fees: 0 };
-    byDay[day].revenue += t.total_paid ?? 0;
-    byDay[day].fees += t.fee ?? 0;
-  }
-
-  const revenueByDay = Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
-
-  // Totals
-  const totalRevenue = rows
-    .filter((t) => PAID_STATUSES.includes(t.status))
-    .reduce((s, t) => s + (t.total_paid ?? 0), 0);
-
-  const totalFees = rows
-    .filter((t) => PAID_STATUSES.includes(t.status))
-    .reduce((s, t) => s + (t.fee ?? 0), 0);
-
-  const pendingRevenue = rows
-    .filter((t) => t.status === "pending")
-    .reduce((s, t) => s + (t.total_paid ?? 0), 0);
-
-  const failedRevenue = rows
-    .filter((t) => t.status === "failed")
-    .reduce((s, t) => s + (t.total_paid ?? 0), 0);
-
-  // Status breakdown counts
-  const statusCounts: Record<string, number> = {};
-  for (const t of rows) {
-    statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1;
-  }
-
-  return { revenueByDay, totalRevenue, totalFees, pendingRevenue, failedRevenue, statusCounts, totalTx: rows.length };
-}
-
-// Whole KES, like every other money figure here (see lib/money-units.test.mjs).
-const fmtKES = fmtKes;
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700",
-  paid: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  payout_pending: "bg-blue-100 text-blue-700",
-  released: "bg-gray-100 text-gray-600",
-};
-
-export default async function RevenuePage() {
-  const { revenueByDay, totalRevenue, totalFees, pendingRevenue, failedRevenue, statusCounts, totalTx } =
-    await getRevenueData();
-
-  // Convert revenue to a GrowthPoint shape for the chart (reuse LineChart)
-  const chartData = revenueByDay.map((r) => ({
-    date: r.date,
-    count: Math.round(r.revenue), // already whole KES
-  }));
+/**
+ * How the marketplace is earning, for any period from today to a year.
+ *
+ * Earnings first (what Help24 keeps), then the money it comes from (payments
+ * volume, take rate, average job), then where it comes from (by day, by
+ * category) and where the rest goes (to providers).
+ */
+export default async function RevenuePage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
+  const period = await periodFor(searchParams);
+  const slots = slotsFor(period);
+  const read = await settle(async () => {
+    const [tx, promos] = await Promise.all([readTransactions(period), readPromotionSales(period)]);
+    const cats = await readCategories(tx.filter((r) => r.post_id).map((r) => r.post_id as string));
+    return revenue(tx, promos, cats, period, slots);
+  });
 
   return (
-    <div className="space-y-6">
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="card p-4">
-          <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">Total Revenue</p>
-          <p className="text-xl font-bold text-gray-900">{fmtKES(totalRevenue)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Last 90 days</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">Platform Fees</p>
-          <p className="text-xl font-bold text-indigo-600">{fmtKES(totalFees)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Net earned</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">Pending</p>
-          <p className="text-xl font-bold text-amber-600">{fmtKES(pendingRevenue)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Awaiting confirmation</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">Failed</p>
-          <p className="text-xl font-bold text-red-500">{fmtKES(failedRevenue)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Unsuccessful payments</p>
-        </div>
-      </div>
-
-      {/* Revenue trend */}
-      <div className="card p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Daily revenue, last 90 days</h3>
-        <p className="text-xs text-gray-400 mb-4">Paid transactions only (KES)</p>
-        {chartData.length > 0 ? (
-          <UserGrowthChart data={chartData} />
-        ) : (
-          <p className="text-gray-400 text-sm py-8 text-center">No revenue data yet</p>
-        )}
-      </div>
-
-      {/* Status breakdown */}
-      {totalTx > 0 && (
-        <div className="card p-5 lg:w-1/2">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Transaction Status Breakdown</h3>
-          <div className="space-y-2">
-            {Object.entries(statusCounts)
-              .sort(([, a], [, b]) => b - a)
-              .map(([status, count]) => (
-                <div key={status} className="flex items-center justify-between">
-                  <span className={`badge ${STATUS_COLORS[status] ?? "bg-gray-100 text-gray-600"} capitalize`}>
-                    {status.replace("_", " ")}
-                  </span>
-                  <span className="text-sm font-medium text-gray-700">
-                    {count} ({totalTx > 0 ? Math.round((count / totalTx) * 100) : 0}%)
-                  </span>
-                </div>
-              ))}
-          </div>
-        </div>
+    <div>
+      <TabToolbar title="Revenue" sub={`How the marketplace is earning, against ${period.versus}`} period={period} />
+      {!read.ok ? (
+        <ReadFailed what="revenue" error={read.error} />
+      ) : (
+        <RevenueView r={read.data} slots={slots} bucket={perBucket(period)} />
       )}
+    </div>
+  );
+}
+
+function RevenueView({
+  r,
+  slots,
+  bucket,
+}: {
+  r: ReturnType<typeof revenue>;
+  slots: ReturnType<typeof slotsFor>;
+  bucket: string;
+}) {
+  const columns = slots.map((s, i) => ({ label: s.label, short: s.short, future: s.future, values: r.daily[i].values, previous: r.daily[i].previous }));
+  const feesShare = r.volume.now > 0 ? r.fees.now / r.volume.now : 0;
+
+  return (
+    <div className="space-y-5">
+      {/* Earnings, and the money behind it */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
+        <Stat className="col-span-2 lg:col-span-1" label="Earnings" value={fmtKes(r.earnings.now)} current={r.earnings.now} previous={r.earnings.before} previousText={fmtKes(r.earnings.before)} />
+        <Stat label="Job fees" value={fmtKes(r.fees.now)} current={r.fees.now} previous={r.fees.before} />
+        <Stat label="Promotion sales" value={fmtKes(r.sales.now)} current={r.sales.now} previous={r.sales.before} />
+        <Stat label="Payments volume" value={fmtKes(r.volume.now)} current={r.volume.now} previous={r.volume.before} sub="Paid by customers" />
+        <Stat label="Paid jobs" value={n(r.paidJobs.now)} current={r.paidJobs.now} previous={r.paidJobs.before} />
+        <Stat label="Average job" value={fmtKes(r.avgJob.now)} current={r.avgJob.now} previous={r.avgJob.before} />
+        <Stat label="Take rate" value={pct(r.takeRate.now)} current={r.takeRate.now} previous={r.takeRate.before} previousText={pct(r.takeRate.before)} sub="Fees as a share of volume" />
+        <Stat
+          label="Lost at checkout"
+          value={fmtKes(r.failed.now)}
+          current={r.failed.now}
+          previous={r.failed.before}
+          better="down"
+          sub={`${n(r.failedCount.now)} failed payments`}
+        />
+      </div>
+
+      <Panel
+        title={`Revenue ${bucket}`}
+        sub={
+          r.best
+            ? `Best: ${slots[r.best.index].label}, ${fmtKes(r.best.value)}`
+            : "No earnings in this period yet"
+        }
+      >
+        <TrendColumns
+          money
+          columns={columns}
+          series={[
+            { key: "fees", label: "Job fees", className: "bg-brand-600" },
+            { key: "promos", label: "Promotions", className: "bg-accent-500" },
+          ]}
+        />
+      </Panel>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+        <Panel className="lg:col-span-3" title="Earnings by category" sub="Job fees on paid jobs, by the category of the job">
+          {r.categories.length === 0 ? (
+            <p className="text-[13px] text-gray-500 py-4">No paid jobs in this period.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              <li className="hidden sm:grid grid-cols-[1fr_70px_110px_96px] gap-3 pb-2 text-[11.5px] font-medium text-gray-400">
+                <span>Category</span>
+                <span className="text-right">Jobs</span>
+                <span className="text-right">Volume</span>
+                <span className="text-right">Fees</span>
+              </li>
+              {r.categories.slice(0, 10).map((c) => (
+                <li key={c.category} className="py-2.5">
+                  <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_70px_110px_96px] gap-x-3 items-baseline text-[13px]">
+                    <span className="text-gray-800 truncate">{c.category}</span>
+                    <span className="hidden sm:block text-right tabular-nums text-gray-600">{n(c.jobs)}</span>
+                    <span className="hidden sm:block text-right tabular-nums text-gray-600">{fmtKes(c.volume)}</span>
+                    <span className="text-right tabular-nums font-semibold text-gray-900">{fmtKes(c.fees)}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div className="h-1.5 flex-1 rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-brand-600" style={{ width: `${Math.max(2, c.share * 100)}%` }} />
+                    </div>
+                    <span className="w-9 text-right text-[11px] text-gray-400 tabular-nums">{pct(c.share)}</span>
+                  </div>
+                  <p className="sm:hidden mt-1 text-[11.5px] text-gray-400 tabular-nums">
+                    {n(c.jobs)} jobs, {fmtKes(c.volume)} volume
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel className="lg:col-span-2" title="Where the money goes" sub="Of every payment for a job">
+          {r.volume.now === 0 ? (
+            <p className="text-[13px] text-gray-500 py-4">No paid jobs in this period.</p>
+          ) : (
+            <div>
+              <div className="flex h-9 w-full overflow-hidden rounded-lg">
+                <div className="bg-gray-300 flex items-center px-2.5 text-[11.5px] font-medium text-gray-800 min-w-0" style={{ width: `${(1 - feesShare) * 100}%` }}>
+                  <span className="truncate">Providers</span>
+                </div>
+                <div className="bg-brand-600 flex items-center justify-center text-[11.5px] font-semibold text-on-action" style={{ width: `${Math.max(feesShare * 100, 9)}%` }}>
+                  {pct(feesShare)}
+                </div>
+              </div>
+              <dl className="mt-4 space-y-2.5 text-[13px]">
+                <Row label="Paid by customers" value={fmtKes(r.volume.now)} strong />
+                <Row label="To providers" value={fmtKes(r.payouts.now)} />
+                <Row label="Help24 job fees" value={fmtKes(r.fees.now)} />
+                <Row label="Plus promotion sales" value={fmtKes(r.sales.now)} />
+                <div className="border-t border-gray-200 pt-2.5">
+                  <Row label="Help24 earnings" value={fmtKes(r.earnings.now)} strong />
+                </div>
+              </dl>
+              <p className="mt-3 text-[11.5px] text-gray-400">Before M-Pesa charges, which Help24 does not record yet.</p>
+            </div>
+          )}
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className={strong ? "font-medium text-gray-900" : "text-gray-500"}>{label}</dt>
+      <dd className={["tabular-nums", strong ? "font-semibold text-gray-900" : "text-gray-700"].join(" ")}>{value}</dd>
     </div>
   );
 }
