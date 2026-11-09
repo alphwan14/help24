@@ -437,23 +437,18 @@ class FeedSkeletonList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = AppColors.of(context).borderHairline;
     final lineColor = isDark
         ? AppTheme.darkTextTertiary.withValues(alpha: 0.18)
         : AppTheme.lightTextTertiary.withValues(alpha: 0.18);
 
     // The same shape as a feed row (widgets/listing_card.dart): a square photo
-    // when the post has one, then the top line, title, place and price, over a
-    // hairline.
+    // when the post has one, then the top line, title, place and price.
     return SkeletonPulse(
         child: ListView.builder(
       padding: padding,
       itemCount: itemCount,
       itemBuilder: (_, i) => Container(
         padding: const EdgeInsets.symmetric(vertical: 18),
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: borderColor)),
-        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

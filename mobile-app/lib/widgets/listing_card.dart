@@ -119,9 +119,6 @@ class ListingCard extends StatelessWidget {
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: AppSpace.lg + 2),
-          decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: c.borderHairline)),
-          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
