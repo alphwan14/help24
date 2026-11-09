@@ -214,8 +214,14 @@ void main() {
         r'ListTile\.divideTiles|'
         r'\bBorder(Directional)?\(\s*(top|bottom|left|right|start|end):',
       );
+      // The single exception, decided 2026-11-09 after seeing the new
+      // Discover on a device: feed rows mix photo and text-only posts, and
+      // whitespace alone left it unclear where one post ended. A hairline
+      // under each row, nowhere else.
+      const allowed = {'lib/widgets/listing_card.dart'};
       final offenders = <String>[];
       for (final file in libSources()) {
+        if (allowed.contains(file.key)) continue;
         final hits = banned.allMatches(file.value).length;
         if (hits > 0) offenders.add('${file.key}: $hits');
       }

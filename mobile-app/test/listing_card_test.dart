@@ -185,7 +185,19 @@ void main() {
         auth: _FakeAuth(uid: 'viewer-1'),
       );
       expect(find.text('Offer Service'), findsNothing);
-      expect(find.text('Manage'), findsOneWidget);
+      // A quiet label, not a button: the row itself opens the post.
+      expect(find.text('Your request'), findsOneWidget);
+      expect(find.byType(OutlinedButton), findsNothing);
+    });
+
+    testWidgets("the author's offer is labelled, not a button", (tester) async {
+      await _pump(
+        tester,
+        ListingCard(post: _post(type: PostType.offer, authorUserId: 'viewer-1')),
+        auth: _FakeAuth(uid: 'viewer-1'),
+      );
+      expect(find.text('Your offer'), findsOneWidget);
+      expect(find.byType(OutlinedButton), findsNothing);
     });
 
     testWidgets('the author sees a live applicant count', (tester) async {
@@ -199,7 +211,7 @@ void main() {
         ),
         auth: _FakeAuth(uid: 'viewer-1'),
       );
-      expect(find.text('Applications (2)'), findsOneWidget);
+      expect(find.text('2 offers'), findsOneWidget);
     });
 
     testWidgets('having already responded blocks a duplicate', (tester) async {
