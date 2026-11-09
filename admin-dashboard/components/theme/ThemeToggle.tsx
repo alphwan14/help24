@@ -58,9 +58,9 @@ export function ThemeToggle() {
     <div
       role="radiogroup"
       aria-label="Appearance"
-      // Rail colours, because this sits in the sidebar, which is permanently
-      // dark in both themes. See RAIL in lib/tokens.ts.
-      className="inline-flex items-center gap-0.5 rounded-lg border border-rail-800 bg-rail-900 p-0.5"
+      // Lives in Settings now, on an ordinary surface, so it takes the page's
+      // theme tokens (it used the always-dark rail colours in the sidebar).
+      className="inline-flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 self-start"
     >
       {OPTIONS.map((o) => {
         const active = choice === o.value;
@@ -75,10 +75,10 @@ export function ThemeToggle() {
               apply(o.value);
               setChoice(o.value);
             }}
-            className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+            className={`rounded-md px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
               active
-                ? "bg-rail-800 text-rail-50"
-                : "text-rail-400 hover:text-rail-200"
+                ? "bg-surface text-gray-900 shadow-sm"
+                : "text-gray-500 hover:text-gray-800"
             }`}
           >
             {o.label}

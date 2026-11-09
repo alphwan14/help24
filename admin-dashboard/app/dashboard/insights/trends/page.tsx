@@ -89,7 +89,7 @@ export default async function TrendsPage() {
 
       {/* Charts */}
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">User Signups — Last 90 Days</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Signups, last 90 days</h3>
         <p className="text-xs text-gray-400 mb-4">Daily new account registrations</p>
         {userGrowth.length > 0 ? (
           <UserGrowthChart data={userGrowth} />
@@ -99,7 +99,7 @@ export default async function TrendsPage() {
       </div>
 
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Marketplace Activity — Last 90 Days</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Requests and offers, last 90 days</h3>
         <p className="text-xs text-gray-400 mb-4">Daily requests and offers posted</p>
         {postActivity.length > 0 ? (
           <RequestsOffersChart data={postActivity} />
@@ -109,7 +109,7 @@ export default async function TrendsPage() {
       </div>
 
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Revenue — Last 90 Days (KES)</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Revenue in KES, last 90 days</h3>
         <p className="text-xs text-gray-400 mb-4">Daily paid transaction volume</p>
         {revenueGrowth.length > 0 ? (
           <UserGrowthChart data={revenueGrowth} />

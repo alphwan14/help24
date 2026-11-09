@@ -61,6 +61,8 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
   const verifications = new Map(); // id → row (as GET /admin/verifications/:id returns it, minus files)
   const verificationReviews = []; // { id, decision, reason, admin_email }
   const verificationPeople = new Map(); // user_id → person
+  let alertList = []; // what GET /admin/alerts answers; empty unless a run sets it
+  let overview = null; // what rpc admin_overview answers; null → PostgREST error, so the page falls back
 
   const recoveryTemplate = readFileSync(join(templatesDir, "recovery.html"), "utf8");
   const recoverySubject = JSON.parse(readFileSync(join(templatesDir, "manifest.json"), "utf8"))
@@ -311,6 +313,9 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       const senior = (a) => a && (a.role === "senior_admin" || a.role === "super_admin");
       const log = (agent_id, action, a, reason = null) =>
         partnerEvents.push({ agent_id, action, reason, admin_email: a?.email ?? null, created_at: new Date().toISOString() });
+      if (fn === "admin_overview") {
+        return overview ? send(200, overview) : pgError(404, "function admin_overview does not exist");
+      }
       if (fn === "admin_provider_card_stats") {
         // As migration 137 answers it: a week of card opens for two providers.
         const day = (n) => new Date(Date.now() - n * 86400e3).toISOString().slice(0, 10);
@@ -462,7 +467,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       return send(201, { email: a.email, name: a.name, role: a.role, token: a.token });
     }
     if (req.method === "GET" && p === "/admin/alerts") {
-      return adminByToken() ? send(200, { generated_at: new Date().toISOString(), alerts: [], unavailable: [] }) : apiFail(401, "Invalid admin token.");
+      return adminByToken() ? send(200, { generated_at: new Date().toISOString(), alerts: alertList, unavailable: [] }) : apiFail(401, "Invalid admin token.");
     }
     if (req.method === "GET" && p.startsWith("/fake-doc/")) {
       const label = decodeURIComponent(p.slice("/fake-doc/".length));
@@ -572,6 +577,14 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
 
   return {
     origin, server, log, outbox, restores, admins, appConfig, configHistory,
+    /** Alerts for GET /admin/alerts, in the backend's shape (lib/alerts.ts). */
+    setAlerts(list) {
+      alertList = list;
+    },
+    /** The admin_overview RPC result (migration 131's shape). */
+    setOverview(value) {
+      overview = value;
+    },
     addAuthUser(email, password) {
       const id = randomUUID();
       auth.set(id, { id, email, password });

@@ -37,7 +37,9 @@ export function RequestsOffersChart({ data }: { data: ActivityPoint[] }) {
           contentStyle={{
             fontSize: 12,
             borderRadius: 8,
-            border: `1px solid `,
+            border: `1px solid ${CHART.grid}`,
+            background: CHART.surface,
+            color: CHART.ink,
             boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.07)",
           }}
           cursor={{ fill: CHART.hover }}

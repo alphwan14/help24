@@ -117,7 +117,7 @@ export default async function RevenuePage() {
 
       {/* Revenue trend */}
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Daily Revenue — Last 90 Days</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Daily revenue, last 90 days</h3>
         <p className="text-xs text-gray-400 mb-4">Paid transactions only (KES)</p>
         {chartData.length > 0 ? (
           <UserGrowthChart data={chartData} />

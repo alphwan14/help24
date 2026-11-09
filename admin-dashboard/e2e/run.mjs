@@ -196,7 +196,7 @@ try {
     `${roleLookups.length} separate role lookups`);
   // The sign-in page reaches the dashboard by a client-side navigation too; Sign
   // out must work from there without a page load in between.
-  await waitFor(`!document.body.innerText.includes('Setting up your admin workspace')`, "shell ready", 30000).catch(() => {});
+  await waitFor(`!document.body.innerText.includes('Opening the console')`, "shell ready", 30000).catch(() => {});
   await clickText("Sign out", "nav button");
   const loginSignOut = await waitFor(pathIs("/login"), "sign-out after signing in", 20000).then(() => true, () => false);
   check("existing login flow: Sign out works straight after signing in", loginSignOut);
@@ -236,7 +236,7 @@ try {
   await waitFor(`${pathIs("/dashboard/settings")} && ${bodyHas("Change password")}`, "Settings via sidebar");
   check("sidebar Settings entry navigates to /dashboard/settings", true);
   check("Settings link marks itself current", await evaluate(`document.querySelector('nav a[href="/dashboard/settings"]').getAttribute('aria-current') === 'page'`));
-  await waitFor(`!document.body.innerText.includes('Setting up your admin workspace')`, "shell ready", 30000).catch(() => {});
+  await waitFor(`!document.body.innerText.includes('Opening the console')`, "shell ready", 30000).catch(() => {});
   const account = await evaluate("document.querySelector('section').innerText");
   check("account card: this admin's name, email, role, sign-in method",
     ["Alice Wanjiru", ALICE, "Super Admin", "Email and password"].every((t) => account.includes(t)));
@@ -442,7 +442,7 @@ try {
   check("Google sign-in hands Supabase an ID token with a nonce, and never visits the provider's address",
     fake.log.some((l) => l.path === "/auth/v1/token?grant_type=id_token" && l.body.includes("\"nonce\"")) &&
     !fake.log.some((l) => l.path.startsWith("/auth/v1/authorize")));
-  await waitFor(`!document.body.innerText.includes('Setting up your admin workspace')`, "shell ready", 30000).catch(() => {});
+  await waitFor(`!document.body.innerText.includes('Opening the console')`, "shell ready", 30000).catch(() => {});
   await signOut();
 
   const loginsBefore = fake.authUserCount();
@@ -867,7 +867,7 @@ try {
   // and carries the rail up with it.
   await send("Emulation.setDeviceMetricsOverride", { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false });
   await goto(`${APP}/dashboard/settings`);
-  await waitFor(`${bodyHas("Change password")} && !document.body.innerText.includes('Setting up your admin workspace')`, "settings desktop");
+  await waitFor(`${bodyHas("Change password")} && !document.body.innerText.includes('Opening the console')`, "settings desktop");
   await sleep(400);
   const desk = await evaluate(`(() => {
     const doc = document.scrollingElement;
@@ -885,12 +885,12 @@ try {
     deskState.docOverflow <= 0 && deskState.windowScrollY === 0, desk);
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await goto(`${APP}/dashboard/settings`);
-  await waitFor(`${bodyHas("Change password")} && !document.body.innerText.includes('Setting up your admin workspace')`, "settings mobile");
+  await waitFor(`${bodyHas("Change password")} && !document.body.innerText.includes('Opening the console')`, "settings mobile");
   check("no horizontal scroll at 390px", await evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth"));
   await shot("2-settings-mobile.png", true);
-  await click('button[aria-label="Open navigation"]');
+  await clickText("More", 'nav[aria-label="Primary"] button');
   await sleep(500);
-  check("the mobile drawer carries the Settings entry", await evaluate(`[...document.querySelectorAll('nav[aria-label="Mobile navigation"] a')].some(a => a.getAttribute('href') === '/dashboard/settings')`));
+  check("the phone's More sheet opens and carries the Settings entry", await evaluate(`(() => { const d = document.querySelector('[role="dialog"][aria-label="All sections"]'); return !!d && [...d.querySelectorAll('a')].some(a => a.getAttribute('href') === '/dashboard/settings'); })()`));
   await shot("3-drawer-mobile.png");
   // The device is in dark mode and nobody picked a theme: the console follows it.
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });

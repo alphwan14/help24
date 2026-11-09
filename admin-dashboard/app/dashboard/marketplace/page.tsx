@@ -71,7 +71,7 @@ export default async function MarketplaceAllPage() {
       </div>
 
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Activity — Last 30 Days</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Requests and offers, last 30 days</h3>
         <p className="text-xs text-gray-400 mb-4">Requests and offers posted per day</p>
         {postActivity.length > 0 ? (
           <RequestsOffersChart data={postActivity} />

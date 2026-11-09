@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import {
@@ -12,6 +12,8 @@ import Sidebar from "@/components/Sidebar";
 import AlertsProvider from "@/components/alerts/AlertsProvider";
 import ConsolePresence from "@/components/ConsolePresence";
 import ConnectAccess from "@/app/dashboard/disputes/ConnectAccess";
+import CommandPalette from "@/components/CommandPalette";
+import { ShellContext, type Shell } from "@/components/ShellContext";
 
 type Status = "checking" | "ready" | "recovery";
 
@@ -19,7 +21,7 @@ type Status = "checking" | "ready" | "recovery";
  * Authenticated app shell. This is the SINGLE place arbitration access is
  * established: on load it detects the Supabase session and silently restores the
  * arbitration token before any admin UI is shown. The dashboard, sidebar and all
- * admin routes stay behind a "Setting up your admin workspace…" splash until the
+ * admin routes stay behind a "Opening the console" splash until the
  * arbitration state is confirmed — so a normal login never surfaces a reconnect
  * prompt or token field.
  *
@@ -35,6 +37,23 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     connected: false,
   });
   const resolved = useRef(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+
+  // Ctrl+K / Cmd+K opens search from anywhere, and toggles it closed again.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((o) => !o);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  const role = arbitration.connected ? (arbitration.role ?? null) : null;
+  const shell = useMemo<Shell>(() => ({ role, openSearch }), [role, openSearch]);
 
   useEffect(() => {
     if (resolved.current) return;
@@ -93,41 +112,47 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   }, [router]);
 
   return (
-    <div className="bg-slate-50 lg:flex lg:h-screen lg:overflow-hidden">
-      {/* Alerts start only once admin access is confirmed — they are read
-          with the same admin token as every other admin surface. */}
+    <ShellContext.Provider value={shell}>
+      {/* Alerts start only once admin access is confirmed; they are read with
+          the same admin token as every other admin surface. The provider now
+          wraps the whole shell, so the nav counts, the phone's bottom bar and
+          Overview's attention list all read the one poll. */}
       <AlertsProvider enabled={status === "ready" && arbitration.connected}>
-        <Sidebar supabaseEmail={supabaseEmail} arbitration={arbitration} />
-      </AlertsProvider>
-      {/* `relative` is load-bearing. Without a positioned <main>, an absolutely
-          positioned descendant with no positioned ancestor (every `sr-only`
-          span is one — Settings' password checklist has several) is placed
-          against the PAGE, escapes this scroll box, and makes the document
-          taller than the screen: the window then scrolls and drags the rail
-          up with it (33 px on Settings at 1366×768). */}
-      <main className="relative flex-1 min-w-0 overflow-y-auto pt-14 lg:pt-0">
-        <div className="max-w-[1320px] mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 lg:py-8">
-          {children}
-        </div>
-      </main>
+        <div className="bg-page lg:flex lg:h-screen lg:overflow-hidden">
+          <Sidebar supabaseEmail={supabaseEmail} arbitration={arbitration} />
+          {/* `relative` is load-bearing. Without a positioned <main>, an
+              absolutely positioned descendant with no positioned ancestor
+              (every `sr-only` span is one; Settings' password checklist has
+              several) is placed against the PAGE, escapes this scroll box,
+              and makes the document taller than the screen: the window then
+              scrolls and drags the rail up with it (33 px on Settings at
+              1366x768). Bottom padding on phones clears the tab bar. */}
+          <main className="relative flex-1 min-w-0 overflow-y-auto pt-14 pb-[calc(64px+env(safe-area-inset-bottom))] lg:pt-0 lg:pb-0">
+            <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-10 py-5 sm:py-6 lg:py-8">
+              {children}
+            </div>
+          </main>
 
-      {/* Who is in the console now — Admin Roles reads it (migration 132). */}
-      <ConsolePresence enabled={status === "ready"} />
-      {status === "checking" && <Splash />}
-      {status === "recovery" && <RecoveryOverlay />}
-    </div>
+          {/* Who is in the console now; Admin Roles reads it (migration 132). */}
+          <ConsolePresence enabled={status === "ready"} />
+          <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} role={role} />
+          {status === "checking" && <Splash />}
+          {status === "recovery" && <RecoveryOverlay />}
+        </div>
+      </AlertsProvider>
+    </ShellContext.Provider>
   );
 }
 
 /** Opaque full-screen splash — shown until arbitration access is confirmed. */
 function Splash() {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-50">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-page">
       <div className="text-center space-y-4 px-6">
         <div className="mx-auto w-11 h-11 rounded-full border-2 border-brand-200 border-t-brand-600 animate-spin" />
         <div>
           <p className="text-sm font-semibold text-gray-800">
-            Setting up your admin workspace…
+            Opening the console
           </p>
           <p className="text-xs text-gray-400 mt-1">This only takes a moment.</p>
         </div>
@@ -139,7 +164,7 @@ function Splash() {
 /** Genuine recovery only — a valid session that can't be granted arbitration. */
 function RecoveryOverlay() {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-50 p-4">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-page p-4">
       <ConnectAccess />
     </div>
   );
