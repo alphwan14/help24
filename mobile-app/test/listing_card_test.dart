@@ -147,21 +147,34 @@ void main() {
 
   tearDown(ReputationService.resetForTest);
 
-  group('the verb the card offers', () {
-    testWidgets('a request asks a provider to offer service', (tester) async {
-      await _pump(tester, ListingCard(post: _post()));
-      expect(find.text('Offer Service'), findsOneWidget);
+  group('the row opens the post; the post carries the action', () {
+    // The feed row no longer carries a filled action button. Tapping the row
+    // opens the post, whose pinned action bar says "Offer Service", "Enquire"
+    // or "Apply". These guard against the button creeping back onto the row.
+    for (final type in PostType.values) {
+      testWidgets('no action button on a ${type.name} row', (tester) async {
+        await _pump(tester, ListingCard(post: _post(type: type)));
+        expect(find.byType(FilledButton), findsNothing);
+        expect(find.text('Offer Service'), findsNothing);
+        expect(find.text('Enquire'), findsNothing);
+        expect(find.text('Apply'), findsNothing);
+      });
+    }
+
+    testWidgets('tapping anywhere on the row opens the post', (tester) async {
+      var opened = 0;
+      await _pump(tester, ListingCard(post: _post(), onTap: () => opened++));
+      await tester.tap(find.text('Fix the kitchen tap'));
+      await tester.tap(find.textContaining('Annex, Eldoret'));
+      expect(opened, 2);
     });
 
-    testWidgets('an offer asks the buyer to enquire', (tester) async {
-      await _pump(tester, ListingCard(post: _post(type: PostType.offer)));
-      expect(find.text('Enquire'), findsOneWidget);
-    });
-
-    testWidgets('a job says Apply — the same verb the Jobs tab uses',
+    testWidgets('the kind is said on mixed feeds and dropped on a filtered tab',
         (tester) async {
-      await _pump(tester, ListingCard(post: _post(type: PostType.job)));
-      expect(find.text('Apply'), findsOneWidget);
+      await _pump(tester, ListingCard(post: _post()));
+      expect(find.text('Request'), findsOneWidget);
+      await _pump(tester, ListingCard(post: _post(), showKind: false));
+      expect(find.text('Request'), findsNothing);
     });
 
     testWidgets('the AUTHOR is never invited to act on their own listing',
@@ -241,12 +254,14 @@ void main() {
       expect(find.textContaining('Part-time'), findsOneWidget);
     });
 
-    testWidgets('M-Pesa readiness is shown on an offer', (tester) async {
+    testWidgets('M-Pesa readiness lives on the post, not the row',
+        (tester) async {
+      // Shown on the post screen ("Accepts M-Pesa"), with the provider.
       await _pump(
         tester,
         ListingCard(post: _post(type: PostType.offer, authorHasPhone: true)),
       );
-      expect(find.textContaining('M-Pesa'), findsOneWidget);
+      expect(find.textContaining('M-Pesa'), findsNothing);
     });
 
     testWidgets('distance is shown when a proximity surface supplies it',
@@ -322,13 +337,13 @@ void main() {
     });
   });
 
-  group('photo or description, never both', () {
-    testWidgets('a description shows when there is no photo', (tester) async {
+  group('the description is read on the post', () {
+    testWidgets('a description never reaches the row', (tester) async {
       await _pump(
         tester,
         ListingCard(post: _post(description: 'Tap drips overnight.')),
       );
-      expect(find.text('Tap drips overnight.'), findsOneWidget);
+      expect(find.text('Tap drips overnight.'), findsNothing);
     });
 
     testWidgets('a description that only repeats the meta line is dropped',

@@ -28,6 +28,7 @@ class PostCard extends StatelessWidget {
     this.sponsored = false,
     this.distanceLabel,
     this.urgentCountdown,
+    this.showKind = true,
   });
 
   final PostModel post;
@@ -43,6 +44,9 @@ class PostCard extends StatelessWidget {
   /// Live countdown for an urgent window, e.g. "12 min left".
   final String? urgentCountdown;
 
+  /// Say "Request", "Offer" or "Job" on the row. Off on a filtered tab.
+  final bool showKind;
+
   @override
   Widget build(BuildContext context) {
     return ListingCard(
@@ -52,6 +56,7 @@ class PostCard extends StatelessWidget {
       sponsored: sponsored,
       distanceLabel: distanceLabel,
       urgentCountdown: urgentCountdown,
+      showKind: showKind,
     );
   }
 }

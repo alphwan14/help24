@@ -6,58 +6,47 @@ import '../models/attribute_display.dart';
 import '../models/post_model.dart';
 import '../providers/app_provider.dart';
 import '../providers/auth_provider.dart';
-import '../services/category_schema_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/tokens.dart';
 import '../utils/post_ownership.dart';
 import '../utils/time_utils.dart';
+import '../utils/feed_images.dart';
 import 'marketplace_card_components.dart';
 import 'primitives.dart';
-import 'reputation_widgets.dart';
-import '../utils/vetting_labels.dart';
-import '../utils/feed_images.dart';
 
-/// ONE CARD FOR EVERY LISTING.
+/// ONE ROW FOR EVERY LISTING.
 ///
-/// ── What this replaces ──────────────────────────────────────────────────
-/// `PostCard` (712 lines) and `JobCard` (419 lines) were two implementations
-/// of one concept. They shared `FeedCardTokens` but not structure, so each
-/// re-declared its own decoration, header row, avatar row and CTA — and a job
-/// is literally a `PostModel` (`JobModel.toPostModel()`), rendered by the same
-/// detail screen either way. Both now delegate here.
+/// ── The redesign (picture first, details on the post) ──────────────────
+/// The card used to carry seven layers: type and category, title, a chain of
+/// extras ("Not yet verified · M-Pesa · Available now"), the author and their
+/// tier, the description, the price and a filled action button. It was doing
+/// the post screen's job in 165 px, which is why Discover felt cramped however
+/// the spacing was tuned.
 ///
-/// ── The layout change, and why ──────────────────────────────────────────
-/// The old card stacked its photo BELOW the author row, so the image column
-/// and the text column never shared vertical space and a card with a photo
-/// cost 283 px. On a 915 px viewport that is 2.5 cards.
+/// A row now answers only what decides whether to open it:
 ///
-/// The photo is now a LEADING element, the way every mature marketplace list
-/// does it, so the two columns overlap and the card lands at ~165 px — 4 to 5
-/// cards per screen, with no type made smaller.
+///     ┌────────┐  Request  Plumbing                  1mo ago
+///     │  96px  │  Edger here anyone in need of plumber
+///     │ photo  │  ⌖ Muhoroni
+///     └────────┘  Open to offers                       [Urgent]
 ///
-///     ┌──────┐  REQUEST · Plumbing              1mo ago
-///     │ 72px │  Kitchen
-///     │ img  │  Leak · Toilet
-///     └──────┘  ⬤ Karen Brina · New Provider · Annex, Eldoret
-///      Open to offers                      [ Offer Service ]
+/// The photo leads, and a post without one gets a quiet tile with its category
+/// icon, so the feed stays visual. The whole row opens the post. Everything
+/// that left the row lives on the post screen, built to hold it: the full
+/// description, the provider and their reputation, vetting, M-Pesa readiness,
+/// availability, and the action button pinned at the bottom.
 ///
-/// ── Photo OR description, never both ────────────────────────────────────
-/// A photo is PROOF and a description is elaboration, and they compete for
-/// exactly the same space. So the card shows the photo when there is one and
-/// the description when there is not. Nothing is lost: the full description is
-/// one tap away, on a screen built to hold it.
+/// Rows are separated by a hairline, not boxed. Dropping the action button
+/// and the author line pays for the larger photo and the air around it, so a
+/// phone still shows three to four posts.
 ///
-/// ── Chips ───────────────────────────────────────────────────────────────
-/// The old card could render EIGHT: type, category, urgency, distance, a time
-/// signal, two highlight answers, an M-Pesa tag, a status badge, an applied
-/// count and a payment-hold tag. On live data a single card showed `Plumbing`,
-/// `Leak` and `Toilet` as three VISUALLY IDENTICAL pills, so nothing told the
-/// reader which one was the category and which two were answers.
-///
-/// Now: elaboration is TEXT (two [MetaLine]s, where order carries the meaning
-/// that identical pills could not), and a chip is reserved for something that
-/// changes the decision — capped at two, in explicit priority order. See
-/// [_decisionChips].
+/// ── What stays on the row ──────────────────────────────────────────────
+/// * Lifecycle state ("In progress", "Offer sent") and the author's own
+///   management control, because they change what tapping means.
+/// * Urgency, or a live countdown: the one fact that expires.
+/// * "Sponsored", always. A paid placement is disclosed, never hidden.
+/// * Distance and a job's employment type, beside the place: proximity
+///   surfaces and the Jobs filter depend on them.
 class ListingCard extends StatelessWidget {
   const ListingCard({
     super.key,
@@ -67,44 +56,43 @@ class ListingCard extends StatelessWidget {
     this.sponsored = false,
     this.distanceLabel,
     this.urgentCountdown,
+    this.showKind = true,
   });
 
   final PostModel post;
   final VoidCallback? onTap;
+
+  /// Kept for callers that still pass it. The row no longer carries the
+  /// visitor's action button; the post screen does.
   final VoidCallback? onRespond;
 
-  /// Business Promotion: renders this as a sponsored slot.
-  ///
-  /// Disclosure is a LABEL, not a highlight. The old card gave sponsored rows
-  /// an amber border; a paid placement should be marked, never visually
-  /// promoted over the organic cards around it.
+  /// Business Promotion: renders this as a sponsored slot. Disclosure is a
+  /// LABEL, never a highlight.
   final bool sponsored;
 
-  /// "400 m away" — supplied by proximity surfaces, which have the viewer's
-  /// coordinates and for which distance is the deciding fact.
+  /// "400 m away", supplied by proximity surfaces.
   final String? distanceLabel;
 
   /// Live countdown for an urgent window, e.g. "12 min left". Passed only by a
   /// surface that REBUILDS on a timer.
   final String? urgentCountdown;
 
-  static const double _thumb = 72;
+  /// Whether to say "Request", "Offer" or "Job" before the category. Discover
+  /// turns it off on a filtered tab, where every row is the same kind.
+  final bool showKind;
+
+  static const double thumb = 96;
 
   @override
   Widget build(BuildContext context) {
+    final c = AppColors.of(context);
     final auth = context.watch<AuthProvider>();
 
-    // One ownership rule for the whole app — see utils/post_ownership.dart.
+    // One ownership rule for the whole app, see utils/post_ownership.dart.
     final isOwner = isListingOwner(
       authorUserId: post.authorUserId,
       viewerUserId: auth.currentUserId,
     );
-    final authorName = (post.authorName.isNotEmpty && post.authorName != '?')
-        ? post.authorName
-        : (isOwner && auth.currentUserName.isNotEmpty
-            ? auth.currentUserName
-            : post.authorName);
-
     final applied =
         context.select<AppProvider, bool>((p) => p.hasAppliedTo(post.id));
     final cta = listingCtaFor(
@@ -115,50 +103,64 @@ class ListingCard extends StatelessWidget {
       hasApplied: applied,
     );
 
-    final schema = CategorySchemaService.instance.schemaFor(post.category.name);
     final hasPhoto = post.images.isNotEmpty && post.images.first.isNotEmpty;
 
-    return AppCard(
-      margin: const EdgeInsets.only(bottom: AppSpace.md),
-      padding: const EdgeInsets.fromLTRB(
-          AppSpace.md + 2, AppSpace.md + 2, AppSpace.md + 2, AppSpace.md),
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: AppSpace.lg + 2),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: c.borderHairline)),
+          ),
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (hasPhoto) ...[
-                _Thumbnail(
-                  url: post.images.first,
-                  extra: post.images.length > 1 ? post.images.length : null,
-                ),
-                const SizedBox(width: AppSpace.md),
-              ],
+              hasPhoto
+                  ? _Thumbnail(
+                      url: post.images.first,
+                      extra: post.images.length > 1 ? post.images.length : null,
+                    )
+                  : _CategoryTile(icon: post.category.icon),
+              const SizedBox(width: AppSpace.lg - 2),
               Expanded(
-                child: _TextColumn(
-                  post: post,
-                  schema: schema,
-                  authorName: authorName,
-                  hasPhoto: hasPhoto,
-                  sponsored: sponsored,
-                  distanceLabel: distanceLabel,
-                  urgentCountdown: urgentCountdown,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _TopLine(
+                      post: post,
+                      showKind: showKind,
+                      sponsored: sponsored,
+                    ),
+                    const SizedBox(height: AppSpace.xs),
+                    Text(
+                      post.title,
+                      style: AppTypeScale.headingS.copyWith(
+                        fontFamily: AppTypeScale.family,
+                        color: c.contentPrimary,
+                        height: 22 / 16,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: AppSpace.xs + 2),
+                    _PlaceLine(post: post, distanceLabel: distanceLabel),
+                    const SizedBox(height: AppSpace.sm + 2),
+                    _BottomLine(
+                      post: post,
+                      isOwner: isOwner,
+                      cta: cta,
+                      onTap: onTap,
+                      urgentCountdown: urgentCountdown,
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpace.md),
-          _ActionRow(
-            post: post,
-            isOwner: isOwner,
-            cta: cta,
-            onTap: onTap,
-            onRespond: onRespond,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -166,294 +168,177 @@ class ListingCard extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────
 
-class _TextColumn extends StatelessWidget {
-  const _TextColumn({
+/// "Request  Plumbing" on the left, the age (or "Sponsored") on the right.
+/// Kind and category are told apart by weight, not by a separator.
+class _TopLine extends StatelessWidget {
+  const _TopLine({
     required this.post,
-    required this.schema,
-    required this.authorName,
-    required this.hasPhoto,
+    required this.showKind,
     required this.sponsored,
-    this.distanceLabel,
-    this.urgentCountdown,
   });
 
   final PostModel post;
-  final dynamic schema;
-  final String authorName;
-  final bool hasPhoto;
+  final bool showKind;
   final bool sponsored;
-  final String? distanceLabel;
-  final String? urgentCountdown;
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-
-    // Line A — what KIND of listing, and in what trade. Always this shape, so
-    // the eye can scan a column of cards without re-reading each one.
+    final base = AppTypeScale.meta.copyWith(
+      fontFamily: AppTypeScale.family,
+      fontSize: 12.5,
+      color: c.contentTertiary,
+    );
     final kind = switch (post.type) {
-      PostType.request => 'REQUEST',
-      PostType.offer => 'OFFER',
-      PostType.job => 'JOB',
+      PostType.request => 'Request',
+      PostType.offer => 'Offer',
+      PostType.job => 'Job',
     };
 
-    // Line B — elaboration, in priority order, ellipsised from the tail.
-    // Everything here used to be a chip.
-    final timeSignal =
-        timeSignalChip(type: post.type, attributes: post.attributes);
-    final detail = <String>[
-      // Location leads. It used to sit in the author row, where on a card with
-      // a thumbnail the text column is only ~240 dp wide, so the name and the
-      // place competed and BOTH ellipsised: "Alpho... New Provider  Momb...".
-      // It is also the most decision-relevant fact after the title.
-      post.location.isEmpty ? 'Kenya' : post.location,
-      // Provider vetting (migration 135) sits right after the place: on care
-      // and in-home work it is a deciding fact, and this line ellipsises from
-      // the tail.
-      if (listingVettingLabel(post) != null) listingVettingLabel(post)!.text,
-      if (distanceLabel != null) distanceLabel!,
-      // A job's employment type. The old JobCard showed this as a chip and the
-      // Jobs tab FILTERS on it, so folding the two cards together without it
-      // would have quietly dropped a field the user can search by.
-      if (post.type == PostType.job && post.employmentType != null)
-        post.employmentType!.displayLabel,
-      ...highlightChipLabels(
-        schema: schema,
-        postType: post.type.name,
-        attributes: post.attributes,
-      ),
-      // Payment readiness outranks availability: it is a trust signal, and
-      // this line ellipsises from the tail.
-      if (post.type == PostType.offer && post.authorHasPhone) 'M-Pesa',
-      if (timeSignal != null) timeSignal,
-    ];
-
-    // De-duplicated against the detail line. Production has a job whose entire
-    // description is "Starts immediately" — which is also exactly what
-    // timeSignalChip computes for it, so the card printed it twice.
-    final rawDescription = post.description.trim();
-    final duplicated = detail.any(
-      (d) => d.toLowerCase() == rawDescription.toLowerCase(),
-    );
-    final description =
-        (rawDescription.isEmpty || duplicated) ? null : rawDescription;
-
-    final chips = _decisionChips(context, post, sponsored, urgentCountdown);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
+    return Row(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: MetaLine([kind, post.category.name],
-                  leadingIcon: post.category.icon),
-            ),
-            const SizedBox(width: AppSpace.sm),
-            Text(
-              formatRelativeTime(post.createdAt),
-              style: AppTypeScale.meta.copyWith(
-                fontFamily: AppTypeScale.family,
-                color: c.contentTertiary,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 3),
-        Text(
-          post.title,
-          style: AppTypeScale.headingS.copyWith(
-            fontFamily: AppTypeScale.family,
-            color: c.contentPrimary,
-          ),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 3),
-        MetaLine(detail, leadingIcon: AppIcons.location),
-        if (chips.isNotEmpty) ...[
-          const SizedBox(height: AppSpace.sm),
-          Wrap(spacing: 6, runSpacing: 6, children: chips),
-        ],
-        const SizedBox(height: AppSpace.sm),
-        _AuthorLine(post: post, authorName: authorName),
-        // The description takes the space the photo would have taken, and only
-        // when there is no photo. See the class doc.
-        //
-        // De-duplicated against the detail line: production has a job whose
-        // whole description is "Starts immediately", which is also exactly what
-        // timeSignalChip computes for it — so the card said it twice.
-        if (!hasPhoto && description != null) ...[
-          const SizedBox(height: 6),
+        if (showKind) ...[
           Text(
-            description,
-            style: AppTypeScale.bodyS.copyWith(
-              fontFamily: AppTypeScale.family,
-              color: c.contentTertiary,
+            kind,
+            style: base.copyWith(
+              color: c.contentSecondary,
+              fontWeight: FontWeight.w600,
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
           ),
+          const SizedBox(width: 6),
         ],
+        Expanded(
+          child: Text(
+            post.category.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: base,
+          ),
+        ),
+        const SizedBox(width: AppSpace.sm),
+        // A paid placement shows "Sponsored" where the age would be: the
+        // disclosure is always on the row, and never styled as a highlight.
+        Text(
+          sponsored ? 'Sponsored' : formatRelativeTime(post.createdAt),
+          style: sponsored
+              ? base.copyWith(
+                  color: c.contentSecondary,
+                  fontWeight: FontWeight.w500,
+                )
+              : base,
+        ),
       ],
     );
   }
 }
 
-/// At most TWO chips, in this order. Everything that loses is already on a
-/// [MetaLine] — nothing is dropped, it is de-emphasised.
-///
-/// The ordering is the design: a reader scanning a feed can act on at most a
-/// couple of signals per card, so the card must decide which ones rather than
-/// showing all ten and letting them cancel out.
-List<Widget> _decisionChips(
-  BuildContext context,
-  PostModel post,
-  bool sponsored,
-  String? urgentCountdown,
-) {
-  final out = <Widget>[];
-
-  // 1. Paid placement. Disclosure outranks everything and is never styled to
-  //    look like an endorsement.
-  if (sponsored) {
-    out.add(const AppChip(label: 'Sponsored'));
-  }
-
-  // 2. A live window. "12 min left" tells a provider whether it is worth
-  //    answering; "Urgent" does not. Solid, because it is the one thing on the
-  //    card that expires.
-  if (urgentCountdown != null) {
-    out.add(AppChip(
-      label: urgentCountdown,
-      tone: ChipTone.critical,
-      icon: AppIcons.jobInProgress,
-      solid: true,
-    ));
-  } else if (post.urgency == Urgency.urgent && post.status == 'open') {
-    out.add(const AppChip(label: 'Urgent', tone: ChipTone.critical));
-  }
-
-  // 3. THERE IS NO STATUS CHIP, deliberately.
-  //
-  //    The old card drew one — and then the action slot drew the same fact
-  //    again, because a listing that is no longer open replaces its CTA with
-  //    its state ("In progress", "Completed", "Disputed") for a visitor, and
-  //    `OwnerCta` does exactly the same for the author. So every non-open card
-  //    said its status twice, in two different shapes.
-  //
-  //    One place reports lifecycle state: the action slot. See [_ActionRow].
-
-  // 4. Competition. Only on an open request, where it changes whether you
-  //    bother.
-  if (out.length < 2 &&
-      post.type == PostType.request &&
-      post.status == 'open' &&
-      post.applications.isNotEmpty) {
-    out.add(AppChip(
-      label: '${post.applications.length} applied',
-      icon: AppIcons.applicants,
-    ));
-  }
-
-  return out.take(2).toList();
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-
-class _AuthorLine extends StatelessWidget {
-  const _AuthorLine({required this.post, required this.authorName});
+/// The place, then distance and a job's employment type, each with its own
+/// icon so they read as separate facts without a dot chain.
+class _PlaceLine extends StatelessWidget {
+  const _PlaceLine({required this.post, this.distanceLabel});
 
   final PostModel post;
-  final String authorName;
+  final String? distanceLabel;
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    final style = AppTypeScale.bodyS.copyWith(
+      fontFamily: AppTypeScale.family,
+      color: c.contentSecondary,
+      height: 18 / 13,
+    );
+
+    Widget fact(IconData icon, String text, {bool flexible = false}) {
+      final label = Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: c.contentTertiary),
+          const SizedBox(width: 4),
+          flexible ? Flexible(child: label) : label,
+        ],
+      );
+    }
+
+    final extras = <Widget>[
+      if (distanceLabel != null) fact(AppIcons.distance, distanceLabel!),
+      // A job's employment type: the Jobs tab filters on it, so the row keeps
+      // it.
+      if (post.type == PostType.job && post.employmentType != null)
+        fact(AppIcons.jobs, post.employmentType!.displayLabel),
+    ];
+
     return Row(
       children: [
-        MarketplaceAvatar(
-          imageUrl: post.authorAvatar.isNotEmpty ? post.authorAvatar : null,
-          displayName: authorName,
-          size: 20,
-        ),
-        const SizedBox(width: 6),
         Flexible(
-          child: Text(
-            authorName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypeScale.bodyS.copyWith(
-              fontFamily: AppTypeScale.family,
-              color: c.contentSecondary,
-              fontWeight: FontWeight.w500,
-            ),
+          child: fact(
+            AppIcons.location,
+            post.location.isEmpty ? 'Kenya' : post.location,
+            flexible: true,
           ),
         ),
-        // ReputationCompact emits a BARE Text for the no-reviews tier label,
-        // with no leading space of its own — so the gap has to be here or the
-        // row renders "Karen BrinaNew Provider". The widget is shared with the
-        // applicant list, Saved and post detail, so the separator belongs at
-        // the call site rather than inside it.
-        const SizedBox(width: 6),
-        Flexible(
-          child: ReputationCompact(
-            providerId: post.authorUserId,
-            textColor: c.contentTertiary,
-          ),
-        ),
+        for (final e in extras) ...[
+          const SizedBox(width: AppSpace.md),
+          e,
+        ],
       ],
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({
+/// The price on the left. On the right, at most one thing: the author's own
+/// control, the listing's state, what the viewer already did, or urgency.
+class _BottomLine extends StatelessWidget {
+  const _BottomLine({
     required this.post,
     required this.isOwner,
     required this.cta,
     this.onTap,
-    this.onRespond,
+    this.urgentCountdown,
   });
 
   final PostModel post;
   final bool isOwner;
   final ListingCta cta;
   final VoidCallback? onTap;
-  final VoidCallback? onRespond;
+  final String? urgentCountdown;
 
   @override
   Widget build(BuildContext context) {
-    final c = AppColors.of(context);
     final money = cardMoneyLabel(
       type: post.type,
       price: post.price,
       pricingType: post.pricingType,
     );
-    // "Open to offers" is the ABSENCE of a budget, not a price — so it is
-    // quiet. It used to render in successGreen at 2.54:1, which made the
-    // least readable colour in the app also the loudest thing beside the CTA.
+    // "Open to offers" is the ABSENCE of a budget, so it is quiet.
     final isPlaceholder = money == 'Open to offers';
+    final trailing = _trailing();
+
+    if (money == null && trailing == null) return const SizedBox.shrink();
 
     return Row(
       children: [
-        if (money != null)
-          Flexible(child: MoneyLabel(money, muted: isPlaceholder)),
-        if (money != null) const SizedBox(width: AppSpace.md),
         Expanded(
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: _cta(context, c),
-          ),
+          child: money == null
+              ? const SizedBox.shrink()
+              : MoneyLabel(money, muted: isPlaceholder),
         ),
+        if (trailing != null) ...[
+          const SizedBox(width: AppSpace.sm),
+          trailing,
+        ],
       ],
     );
   }
 
-  Widget _cta(BuildContext context, AppColors c) {
+  Widget? _trailing() {
+    // The author's own listing: their management control, never an action.
     if (isOwner) {
       return OwnerCta(
         type: post.type,
@@ -464,7 +349,7 @@ class _ActionRow extends StatelessWidget {
       );
     }
 
-    // A request that already has a provider never offers "Offer Service".
+    // A listing that is no longer open says what became of it, once.
     if (cta == ListingCta.unavailable) {
       final (label, tone) = (post.status == 'completed' && post.payoutInProgress)
           ? ('Finalizing', ChipTone.caution)
@@ -474,11 +359,10 @@ class _ActionRow extends StatelessWidget {
               'cancelled' => ('Closed', ChipTone.neutral),
               _ => ('In progress', ChipTone.info),
             };
-      return AppChip(label: label, tone: tone, size: ChipSize.md);
+      return AppChip(label: label, tone: tone);
     }
 
-    // Already responded — reflect it and block a duplicate rather than
-    // re-inviting the action.
+    // Already responded: reflect it, so nobody wonders whether it went.
     if (cta == ListingCta.applied) {
       return AppChip(
         label: switch (post.type) {
@@ -487,44 +371,57 @@ class _ActionRow extends StatelessWidget {
           PostType.offer => 'Enquired',
         },
         tone: ChipTone.positive,
-        size: ChipSize.md,
         icon: AppIcons.success,
       );
     }
 
-    return FilledButton(
-      onPressed: onRespond ?? onTap,
-      style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
-        minimumSize: const Size(0, 40),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        textStyle: AppTypeScale.label.copyWith(
-          fontFamily: AppTypeScale.family,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      // A job says "Apply" here exactly as it does in the Jobs tab — the same
-      // listing must not offer two different verbs.
-      child: Text(switch (post.type) {
-        PostType.request => 'Offer Service',
-        PostType.job => 'Apply',
-        PostType.offer => 'Enquire',
-      }),
-    );
+    // A live window outranks a static label: it tells a provider whether it
+    // is still worth answering.
+    if (urgentCountdown != null) {
+      return AppChip(
+        label: urgentCountdown!,
+        tone: ChipTone.critical,
+        icon: AppIcons.jobInProgress,
+        solid: true,
+      );
+    }
+    if (post.urgency == Urgency.urgent && post.status == 'open') {
+      return const AppChip(label: 'Urgent', tone: ChipTone.critical);
+    }
+    return null;
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 
+/// Stands in for a photo, so a post without one keeps the row's rhythm.
+class _CategoryTile extends StatelessWidget {
+  const _CategoryTile({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Container(
+      width: ListingCard.thumb,
+      height: ListingCard.thumb,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: c.surfaceSunken,
+        borderRadius: AppRadius.mdAll,
+      ),
+      child: Icon(icon, size: 28, color: c.contentTertiary),
+    );
+  }
+}
+
 /// The cover photo.
 ///
-/// ZERO fade and NO spinner, deliberately — the contract `MarketplaceAvatar`
-/// already keeps. `AppProvider` warms every visible post's cover from the same
-/// data that produced the card, so the bytes are usually decoded by the time
-/// this builds and a fade would be a transition over nothing. A genuinely cold
-/// image sits on a flat tone: a spinner says "this card is still loading"
-/// about a card that is finished.
+/// ZERO fade and NO spinner, deliberately. `AppProvider` warms every visible
+/// post's cover from the same data that produced the card, so the bytes are
+/// usually decoded by the time this builds. A genuinely cold image sits on a
+/// flat tone.
 class _Thumbnail extends StatelessWidget {
   const _Thumbnail({required this.url, this.extra});
 
@@ -541,7 +438,7 @@ class _Thumbnail extends StatelessWidget {
           child: Icon(AppIcons.imageBroken, color: c.contentTertiary, size: 22),
         );
     // Decoded at thumbnail size, the same key the feed warms
-    // (utils/feed_images.dart).
+    // (utils/feed_images.dart), so a warmed cover paints on the first frame.
     Widget image(String src, Widget Function() onError) => CachedNetworkImage(
           imageUrl: src,
           memCacheWidth: kFeedThumbDecodeWidth,
@@ -558,8 +455,8 @@ class _Thumbnail extends StatelessWidget {
     return ClipRRect(
       borderRadius: AppRadius.mdAll,
       child: SizedBox(
-        width: ListingCard._thumb,
-        height: ListingCard._thumb,
+        width: ListingCard.thumb,
+        height: ListingCard.thumb,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -572,15 +469,13 @@ class _Thumbnail extends StatelessWidget {
                       return image(url, broken);
                     },
             ),
-            // The photo count used to be its own row with its own icon. It is
-            // a property of the photo, so it lives on the photo.
             if (extra != null)
               Positioned(
-                right: 4,
-                bottom: 4,
+                right: 6,
+                bottom: 6,
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.62),
                     borderRadius: BorderRadius.circular(AppRadius.sm),
