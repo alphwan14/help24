@@ -232,14 +232,33 @@ function MessageItem({
         {staff && m.admin_name ? ` · written by ${m.admin_name}` : ""} · {when(m.created_at)}
         {!staff && m.sender_verified !== true && <span className="ml-2 text-caution-700">Sender not verified</span>}
       </p>
-      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-900">{full && m.full_body ? m.full_body : m.body}</p>
+      {m.attachments && m.attachments.length > 0 && (
+        // Signed links that expire within the hour; reload the page for fresh ones.
+        <div className="mt-2 flex flex-wrap gap-2" data-testid="message-photos">
+          {m.attachments.map((a, i) => (
+            <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" className="block">
+              {/* eslint-disable-next-line @next/next/no-img-element -- signed storage links, not static assets */}
+              <img
+                src={a.url}
+                alt={`Photo ${i + 1} from ${contact}`}
+                className="h-32 w-32 rounded-lg bg-surface-sunken object-cover"
+                loading="lazy"
+              />
+            </a>
+          ))}
+        </div>
+      )}
+      {m.body && (
+        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-900">{full && m.full_body ? m.full_body : m.body}</p>
+      )}
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
         {m.full_body && (
           <button type="button" className="hover:text-gray-900 hover:underline" onClick={() => setFull((v) => !v)}>
             {full ? "Show only the new part" : "Show the whole email"}
           </button>
         )}
-        {m.attachment_count > 0 && (
+        {/* Email attachments are not kept here, only counted; app photos show above. */}
+        {m.attachment_count > 0 && m.channel === "email" && (
           <span>
             {m.attachment_count === 1 ? "1 attachment" : `${m.attachment_count} attachments`}, in the copy sent to the team inbox
           </span>

@@ -126,6 +126,15 @@ link) opens the member's one ongoing conversation with Help24, like a chat.
   Shorebird patch.
 - **Migration 142**: `reply_via`, `member_read_at`, nullable `contact_email`,
   one app thread per member, `support_messages.client_id`.
+- **Photos** (migration 143, built 2026-11-11): up to 5 per message from the
+  camera or gallery, shrunk on the phone (1600 px, quality 82), type read from
+  the bytes (JPG, PNG, WebP). The app asks `/support/app/attachments` for
+  signed upload links under `members/<uid>/` in the PRIVATE
+  `support-attachments` bucket (10 MB each, images only, enforced by Storage),
+  uploads, then sends the message naming the paths; the backend refuses a path
+  outside that member's prefix or never uploaded. Reads get links signed for
+  an hour, in the app and in the Inbox (a copied link stops working). A
+  message may be photos only; the Inbox preview says "Photo" / "N photos".
 
 Also on 2026-11-11: the Inbox opens on **All** (answered conversations stay in
 sight, marked "Waiting on member"; nothing is ever deleted), and **New message**

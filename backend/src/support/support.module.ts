@@ -5,6 +5,7 @@ import { SupportAdminController } from './support-admin.controller';
 import { SupportAppController } from './support-app.controller';
 import { SupportInboundController } from './support-inbound.controller';
 import { SupportMailerService } from './support-mailer.service';
+import { SupportStorageService } from './support-storage.service';
 import { SupportService } from './support.service';
 
 /**
@@ -19,7 +20,7 @@ import { SupportService } from './support.service';
 @Module({
   imports: [AdminAuthModule, NotificationsModule],
   controllers: [SupportAdminController, SupportInboundController, SupportAppController],
-  providers: [SupportService, SupportMailerService],
+  providers: [SupportService, SupportMailerService, SupportStorageService],
   exports: [SupportMailerService],
 })
 export class SupportModule {}

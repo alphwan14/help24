@@ -4,6 +4,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { AdminContext } from '../admin/auth/admin-role';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailNotSentError, SupportMailerService } from './support-mailer.service';
+import { ShownAttachment, SupportStorageService } from './support-storage.service';
 import {
   INBOX_LABELS,
   InboundEmail,
@@ -54,10 +55,12 @@ export interface AppMessage {
   id: string;
   author: 'member' | 'staff';
   body: string;
+  /** Photos (migration 143), as short-lived links. */
+  attachments: ShownAttachment[];
   created_at: string;
 }
 const MESSAGE_COLUMNS =
-  'id, conversation_id, author, admin_id, internal, channel, body, full_body, email_message_id, sender_verified, attachment_count, delivery, delivery_error, created_at';
+  'id, conversation_id, author, admin_id, internal, channel, body, full_body, email_message_id, sender_verified, attachment_count, attachments, delivery, delivery_error, created_at';
 
 const MAX_REPLY = 10000;
 
@@ -78,6 +81,7 @@ export class SupportService {
     private readonly supabase: SupabaseService,
     private readonly mailer: SupportMailerService,
     private readonly notifications: NotificationsService,
+    private readonly storage: SupportStorageService,
   ) {}
 
   private get db() {
@@ -244,11 +248,11 @@ export class SupportService {
     const ids = conversations.map((c) => c.id);
     const previews = new Map<string, { author: string; body: string }>();
     if (ids.length) {
-      const { data: msgs } = await this.db.from('support_messages').select('conversation_id, author, body, created_at')
+      const { data: msgs } = await this.db.from('support_messages').select('conversation_id, author, body, attachments, created_at')
         .in('conversation_id', ids).eq('internal', false).order('created_at', { ascending: false }).limit(1000);
       for (const m of (msgs ?? []) as Row[]) {
         const id = m.conversation_id as string;
-        if (!previews.has(id)) previews.set(id, { author: m.author as string, body: (m.body as string).slice(0, 160) });
+        if (!previews.has(id)) previews.set(id, { author: m.author as string, body: previewOf(m) });
       }
     }
 
@@ -298,7 +302,13 @@ export class SupportService {
     return {
       conversation,
       member,
-      messages: messages.map((m) => ({ ...m, admin_name: m.admin_id ? admins.get(m.admin_id as string) ?? null : null })),
+      messages: await Promise.all(messages.map(async (m) => ({
+        ...m,
+        // Photos as short-lived signed links: the bucket is private, so a link
+        // copied out of the Inbox stops working within the hour.
+        attachments: await this.storage.show(m.attachments),
+        admin_name: m.admin_id ? admins.get(m.admin_id as string) ?? null : null,
+      }))),
     };
   }
 
@@ -430,16 +440,11 @@ export class SupportService {
   }> {
     const conversation = await this.appConversation(userId);
     if (!conversation) return { conversation: null, messages: [], unread: 0 };
-    const { data, error } = await this.db.from('support_messages').select('id, author, body, created_at')
+    const { data, error } = await this.db.from('support_messages').select('id, author, body, attachments, created_at')
       .eq('conversation_id', conversation.id).eq('internal', false)
       .order('created_at', { ascending: true }).limit(500);
     if (error) throw new ServiceUnavailableException('Could not load your messages right now.');
-    const messages = ((data ?? []) as Row[]).map((m): AppMessage => ({
-      id: m.id as string,
-      author: m.author as 'member' | 'staff',
-      body: m.body as string,
-      created_at: m.created_at as string,
-    }));
+    const messages = await Promise.all(((data ?? []) as Row[]).map((m) => this.toAppMessage(m)));
     const readAt = conversation.member_read_at ? Date.parse(conversation.member_read_at) : 0;
     const unread = messages.filter((m) => m.author === 'staff' && Date.parse(m.created_at) > readAt).length;
     return { conversation: { id: conversation.id, ref: conversation.ref, status: conversation.status }, messages, unread };
@@ -450,21 +455,30 @@ export class SupportService {
    * after that it always joins the same one, reopening it if it was closed.
    * Idempotent on the app's client id: a retried send is stored once.
    */
-  async appSend(userId: string, text: string, clientId: string): Promise<{ message: AppMessage; conversation: { id: string; ref: string; status: ConversationStatus } }> {
-    const body = cleanBody(text);
+  async appSend(
+    userId: string,
+    text: string,
+    clientId: string,
+    photoPaths: string[] = [],
+  ): Promise<{ message: AppMessage; conversation: { id: string; ref: string; status: ConversationStatus } }> {
+    // A message may be photos only; then it needs no words.
+    const body = photoPaths.length ? cleanOptionalBody(text) : cleanBody(text);
     const existing = await this.appMessageByClientId(userId, clientId);
     if (existing) return existing;
+    const attachments = await this.storage.verify(userId, photoPaths);
 
-    const conversation = (await this.appConversation(userId)) ?? (await this.openAppConversation(userId, body));
+    const conversation = (await this.appConversation(userId)) ?? (await this.openAppConversation(userId, body || 'Photo'));
     const { data, error } = await this.db.from('support_messages').insert({
       conversation_id: conversation.id,
       author: 'member',
       channel: 'app',
       body,
+      attachments,
+      attachment_count: attachments.length,
       // Signed in to the app: the backend verified who sent it.
       sender_verified: true,
       client_id: clientId,
-    }).select('id, author, body, created_at').single();
+    }).select('id, author, body, attachments, created_at').single();
     if (error) {
       if (error.code === '23505') {
         const again = await this.appMessageByClientId(userId, clientId);
@@ -475,8 +489,24 @@ export class SupportService {
     }
     await this.touch(conversation.id, { status: 'open' });
     return {
-      message: data as unknown as AppMessage,
+      message: await this.toAppMessage(data as Row),
       conversation: { id: conversation.id, ref: conversation.ref, status: 'open' },
+    };
+  }
+
+  /** Signed upload links for the member's photos, under their own storage prefix. */
+  appUploadUrls(userId: string, files: Array<{ content_type: string }>) {
+    return this.storage.issueUploadUrls(userId, files);
+  }
+
+  /** One message as the app sees it: never notes, never which admin wrote it. */
+  private async toAppMessage(m: Row): Promise<AppMessage> {
+    return {
+      id: m.id as string,
+      author: m.author as 'member' | 'staff',
+      body: m.body as string,
+      attachments: await this.storage.show(m.attachments),
+      created_at: m.created_at as string,
     };
   }
 
@@ -497,16 +527,15 @@ export class SupportService {
 
   /** A retried send: the message already stored under this client id, in this member's thread only. */
   private async appMessageByClientId(userId: string, clientId: string) {
-    const { data: msg } = await this.db.from('support_messages').select('id, author, body, created_at, conversation_id')
+    const { data: msg } = await this.db.from('support_messages').select('id, author, body, attachments, created_at, conversation_id')
       .eq('client_id', clientId).maybeSingle();
     if (!msg) return null;
     const conversation = await this.appConversation(userId);
     if (!conversation || conversation.id !== msg.conversation_id) {
       throw new BadRequestException('That message id is already taken.');
     }
-    const { conversation_id: _ignored, ...message } = msg as Row;
     return {
-      message: message as unknown as AppMessage,
+      message: await this.toAppMessage(msg as Row),
       conversation: { id: conversation.id, ref: conversation.ref, status: conversation.status },
     };
   }
@@ -595,8 +624,22 @@ export class SupportService {
 }
 
 function cleanBody(text: string): string {
-  const body = (text ?? '').replace(/\r\n?/g, '\n').trim();
+  const body = cleanOptionalBody(text);
   if (!body) throw new BadRequestException('Write a message first.');
+  return body;
+}
+
+/** The words of a message that carries photos: may be empty. */
+function cleanOptionalBody(text: string): string {
+  const body = (text ?? '').replace(/\r\n?/g, '\n').trim();
   if (body.length > MAX_REPLY) throw new BadRequestException(`Keep it under ${MAX_REPLY} characters.`);
   return body;
+}
+
+/** The Inbox list's one-line preview: the words, or what was sent instead. */
+function previewOf(m: Row): string {
+  const body = typeof m.body === 'string' ? m.body : '';
+  if (body.trim()) return body.slice(0, 160);
+  const n = Array.isArray(m.attachments) ? m.attachments.length : 0;
+  return n === 1 ? 'Photo' : n > 1 ? `${n} photos` : '';
 }

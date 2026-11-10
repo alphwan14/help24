@@ -50,6 +50,8 @@ export type SupportMessage = {
   full_body: string | null;
   sender_verified: boolean | null;
   attachment_count: number;
+  /** Photos sent from the app (migration 143), as short-lived signed links. */
+  attachments?: Array<{ url: string; mime: string }>;
   delivery: "sending" | "sent" | "failed" | null;
   delivery_error: string | null;
   created_at: string;

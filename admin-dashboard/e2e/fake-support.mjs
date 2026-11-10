@@ -67,10 +67,11 @@ export function createFakeSupport({ personByEmail }) {
     pushOut,
     conversations,
     /** As if the member had written from the app (Message Help24, POST /support/app/messages). */
-    fromApp({ email, name = null, text, readAt = null }) {
-      const c = open({ email, name, subject: text.split("\n")[0].slice(0, 80), startedBy: "member", replyVia: "app" });
+    fromApp({ email, name = null, text, readAt = null, photos = [] }) {
+      const c = open({ email, name, subject: (text.split("\n")[0] || "Photo").slice(0, 80), startedBy: "member", replyVia: "app" });
       c.member_read_at = readAt;
-      messages.push({ id: randomUUID(), conversation_id: c.id, author: "member", admin_id: null, internal: false, channel: "app", body: text, full_body: null, sender_verified: true, attachment_count: 0, delivery: null, delivery_error: null, created_at: now() });
+      const attachments = photos.map((url) => ({ url, mime: "image/svg+xml" }));
+      messages.push({ id: randomUUID(), conversation_id: c.id, author: "member", admin_id: null, internal: false, channel: "app", body: text, full_body: null, sender_verified: true, attachment_count: attachments.length, attachments, delivery: null, delivery_error: null, created_at: now() });
       return c;
     },
     setMailDown(v) {

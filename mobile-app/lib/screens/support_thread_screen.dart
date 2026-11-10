@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -13,6 +14,7 @@ import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../utils/time_utils.dart';
 import '../widgets/loading_empty_offline.dart';
+import 'image_viewer_screen.dart';
 
 /// Message Help24: the member's one conversation with Help24, like a chat.
 ///
@@ -22,12 +24,21 @@ import '../widgets/loading_empty_offline.dart';
 /// marks it "Not sent" if the send fails, with a retry that cannot store it
 /// twice (the client id).
 ///
+/// Photos (migration 143): up to 5 per message, from the camera or the
+/// gallery, shrunk on the phone and uploaded to a private bucket; a message may
+/// be photos only. They show at once from the phone, then from short-lived
+/// links once stored.
+///
 /// Copy lives here, not in en.json: a Shorebird patch cannot change assets.
+/// Every icon used was already in release 1b473b7.
 class SupportThreadScreen extends StatefulWidget {
   /// Injected in tests; the app uses [SupportService.instance].
   final SupportApi? api;
 
-  const SupportThreadScreen({super.key, this.api});
+  /// Injected in tests; the app uses the device's gallery and camera.
+  final Future<List<XFile>> Function(ImageSource source, int max)? pickPhotos;
+
+  const SupportThreadScreen({super.key, this.api, this.pickPhotos});
 
   @override
   State<SupportThreadScreen> createState() => _SupportThreadScreenState();
@@ -35,15 +46,18 @@ class SupportThreadScreen extends StatefulWidget {
 
 class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsBindingObserver {
   static const _uuid = Uuid();
+  static const _maxPhotos = 5;
 
   late final SupportApi _api = widget.api ?? SupportService.instance;
   final _composer = TextEditingController();
   final _store = NotificationStore.instance;
 
   List<SupportMessage> _messages = const [];
+  List<SupportPhoto> _staged = const [];
   bool _loading = true;
   Object? _error;
   bool _readSent = false;
+  bool _hasText = false;
 
   String get _uid => context.read<AuthProvider>().currentUserId ?? '';
 
@@ -52,6 +66,10 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _store.addListener(_onNotifications);
+    _composer.addListener(() {
+      final has = _composer.text.trim().isNotEmpty;
+      if (has != _hasText) setState(() => _hasText = has);
+    });
     _load();
   }
 
@@ -128,9 +146,86 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
     }
   }
 
+  // ── Photos ────────────────────────────────────────────────────────────────
+
+  Future<List<XFile>> _pick(ImageSource source, int max) async {
+    final injected = widget.pickPhotos;
+    if (injected != null) return injected(source, max);
+    final picker = ImagePicker();
+    // Shrunk on the phone: a support photo needs to be readable, not print-sized.
+    // One photo (the camera, or one slot left): the multi-picker's limit must be 2 or more.
+    if (source == ImageSource.camera || max < 2) {
+      final one = await picker.pickImage(source: source, maxWidth: 1600, imageQuality: 82);
+      return one == null ? const [] : [one];
+    }
+    return picker.pickMultiImage(maxWidth: 1600, imageQuality: 82, limit: max);
+  }
+
+  Future<void> _addPhotos(ImageSource source) async {
+    final room = _maxPhotos - _staged.length;
+    if (room <= 0) return;
+    List<XFile> picked;
+    try {
+      picked = await _pick(source, room);
+    } catch (e) {
+      _toast(source == ImageSource.camera ? 'Could not open the camera.' : 'Could not open your photos.');
+      return;
+    }
+    final photos = <SupportPhoto>[];
+    var skipped = false;
+    for (final f in picked.take(room)) {
+      final bytes = await f.readAsBytes();
+      final mime = SupportPhoto.sniffMime(bytes);
+      if (mime == null) {
+        skipped = true;
+        continue;
+      }
+      photos.add(SupportPhoto(bytes: bytes, mime: mime));
+    }
+    if (!mounted) return;
+    if (skipped) _toast('Only JPG, PNG or WebP photos can be sent.');
+    if (photos.isNotEmpty) setState(() => _staged = [..._staged, ...photos]);
+  }
+
+  void _choosePhotoSource() {
+    final c = AppColors.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: c.surface,
+      builder: (sheet) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Icon(AppIcons.camera, color: c.contentSecondary),
+                title: const Text('Take a photo'),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _addPhotos(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Icon(AppIcons.gallery, color: c.contentSecondary),
+                title: const Text('Choose from your photos'),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _addPhotos(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Sending ───────────────────────────────────────────────────────────────
+
   Future<void> _send() async {
     final text = _composer.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && _staged.isEmpty) return;
     _composer.clear();
     final pending = SupportMessage(
       id: 'local-${_uuid.v4()}',
@@ -139,19 +234,35 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
       createdAt: DateTime.now().toUtc().toIso8601String(),
       state: SupportSendState.sending,
       clientId: _uuid.v4(),
+      localPhotos: _staged,
     );
-    setState(() => _messages = [..._messages, pending]);
+    setState(() {
+      _messages = [..._messages, pending];
+      _staged = const [];
+    });
     await _deliver(pending);
   }
 
   Future<void> _deliver(SupportMessage m) async {
     try {
-      final stored = await _api.send(userId: _uid, body: m.body, clientId: m.clientId!);
+      final paths = await _api.uploadPhotos(userId: _uid, photos: m.localPhotos);
+      final stored = await _api.send(userId: _uid, body: m.body, clientId: m.clientId!, photoPaths: paths);
       if (!mounted) return;
       setState(() {
         _messages = [
           for (final x in _messages)
-            if (x.id == m.id) x.copyWith(id: stored.id, createdAt: stored.createdAt, state: SupportSendState.sent) else x,
+            if (x.id == m.id)
+              x.copyWith(
+                id: stored.id,
+                createdAt: stored.createdAt,
+                state: SupportSendState.sent,
+                attachments: stored.attachments,
+                // Keep showing the phone's copy until the stored ones are loaded
+                // on the next refresh; the same pictures, no flicker.
+                localPhotos: stored.attachments.isEmpty ? const [] : x.localPhotos,
+              )
+            else
+              x,
         ];
       });
     } catch (e) {
@@ -162,9 +273,7 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
             if (x.id == m.id) x.copyWith(state: SupportSendState.failed) else x,
         ];
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ErrorMapper.toMessage(e, context: ErrorContext.sendMessage))),
-      );
+      _toast(ErrorMapper.toMessage(e, context: m.localPhotos.isEmpty ? ErrorContext.sendMessage : ErrorContext.upload));
     }
   }
 
@@ -174,6 +283,13 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
     setState(() => _messages = [for (final x in _messages) if (x.id == m.id) again else x]);
     _deliver(again);
   }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // ── Layout ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -236,7 +352,7 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
         const SizedBox(height: AppSpace.sm),
         Text(
           'Ask us anything about a job, a payment or your account. '
-          'We answer here, and you get a notification when we do.',
+          'You can add photos too. We answer here, and you get a notification when we do.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 14, height: 1.4, color: c.contentSecondary),
         ),
@@ -255,6 +371,7 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
       SupportSendState.failed => 'Not sent. Tap to try again.',
       SupportSendState.sent => _time(m.createdAt),
     };
+    final hasPhotos = m.localPhotos.isNotEmpty || m.attachments.isNotEmpty;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
@@ -278,10 +395,15 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SelectableText(
-                      m.body,
-                      style: TextStyle(fontSize: ChatGeometry.bodySize, height: 1.33, color: ink),
-                    ),
+                    if (hasPhotos) ...[
+                      _photos(m),
+                      if (m.body.isNotEmpty) const SizedBox(height: AppSpace.sm),
+                    ],
+                    if (m.body.isNotEmpty)
+                      SelectableText(
+                        m.body,
+                        style: TextStyle(fontSize: ChatGeometry.bodySize, height: 1.33, color: ink),
+                      ),
                     const SizedBox(height: AppSpace.xs),
                     Text(
                       status,
@@ -300,39 +422,126 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
     );
   }
 
+  /// The message's photos: the phone's own copies while sending, then the
+  /// stored ones. A stored photo opens full screen.
+  Widget _photos(SupportMessage m) {
+    final local = m.localPhotos.isNotEmpty;
+    final count = local ? m.localPhotos.length : m.attachments.length;
+    final side = count == 1 ? 200.0 : 96.0;
+    return Wrap(
+      spacing: AppSpace.xs,
+      runSpacing: AppSpace.xs,
+      children: [
+        for (var i = 0; i < count; i++)
+          ClipRRect(
+            borderRadius: AppRadius.mdAll,
+            child: SizedBox(
+              width: side,
+              height: side,
+              child: local
+                  ? Image.memory(m.localPhotos[i].bytes, fit: BoxFit.cover, gaplessPlayback: true)
+                  : GestureDetector(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => ImageViewerScreen(imageUrl: m.attachments[i].url)),
+                      ),
+                      child: Image.network(
+                        m.attachments[i].url,
+                        fit: BoxFit.cover,
+                        semanticLabel: 'Photo',
+                        errorBuilder: (_, __, ___) => ColoredBox(color: AppColors.of(context).surfaceSunken),
+                      ),
+                    ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _composerBar(AppColors c) {
+    final canSend = _hasText || _staged.isNotEmpty;
     return SafeArea(
       top: false,
       child: Container(
         color: c.surface,
-        padding: const EdgeInsets.fromLTRB(AppSpace.md, AppSpace.sm, AppSpace.sm, AppSpace.sm),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+        padding: const EdgeInsets.fromLTRB(AppSpace.xs, AppSpace.sm, AppSpace.sm, AppSpace.sm),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _composer,
-                minLines: 1,
-                maxLines: 5,
-                maxLength: 10000,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  hintText: 'Write to Help24',
-                  counterText: '',
-                  border: OutlineInputBorder(borderRadius: AppRadius.pillAll, borderSide: BorderSide.none),
-                  filled: true,
-                  fillColor: c.surfaceSunken,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: AppSpace.lg, vertical: AppSpace.md),
+            if (_staged.isNotEmpty) _stagedStrip(c),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                IconButton(
+                  onPressed: _staged.length >= _maxPhotos ? null : _choosePhotoSource,
+                  tooltip: 'Add a photo',
+                  icon: Icon(AppIcons.attachment, color: c.contentSecondary),
                 ),
-              ),
-            ),
-            const SizedBox(width: AppSpace.xs),
-            IconButton.filled(
-              onPressed: _send,
-              tooltip: 'Send',
-              icon: const Icon(AppIcons.send),
+                Expanded(
+                  child: TextField(
+                    controller: _composer,
+                    minLines: 1,
+                    maxLines: 5,
+                    maxLength: 10000,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      hintText: 'Write to Help24',
+                      counterText: '',
+                      border: OutlineInputBorder(borderRadius: AppRadius.pillAll, borderSide: BorderSide.none),
+                      filled: true,
+                      fillColor: c.surfaceSunken,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: AppSpace.lg, vertical: AppSpace.md),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: AppSpace.xs),
+                IconButton.filled(
+                  onPressed: canSend ? _send : null,
+                  tooltip: 'Send',
+                  icon: const Icon(AppIcons.send),
+                ),
+              ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Photos picked for the next message, each removable before sending.
+  Widget _stagedStrip(AppColors c) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpace.sm, 0, 0, AppSpace.sm),
+      child: SizedBox(
+        height: 64,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: _staged.length,
+          separatorBuilder: (_, __) => const SizedBox(width: AppSpace.sm),
+          itemBuilder: (context, i) => Stack(
+            children: [
+              ClipRRect(
+                borderRadius: AppRadius.mdAll,
+                child: Image.memory(_staged[i].bytes, width: 64, height: 64, fit: BoxFit.cover),
+              ),
+              // Inside the photo's corner, so the whole button takes a tap.
+              Positioned(
+                top: AppSpace.xs,
+                right: AppSpace.xs,
+                child: Material(
+                  color: c.contentPrimary,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => setState(() => _staged = [..._staged]..removeAt(i)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpace.xs / 2),
+                      child: Icon(AppIcons.close, size: 14, color: c.page, semanticLabel: 'Remove photo'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

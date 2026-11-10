@@ -6,6 +6,7 @@ import { AdminContext } from '../admin/auth/admin-role';
 import { NotificationPayload, NotificationsService } from '../notifications/notifications.service';
 import { MailNotSentError, OutboundEmail, SupportMailerService } from './support-mailer.service';
 import { SupportService } from './support.service';
+import { SupportStorageService } from './support-storage.service';
 import { SupportInboundController } from './support-inbound.controller';
 import { InboundEmail, signInbound } from './support-rules';
 
@@ -21,7 +22,7 @@ const UNIQUE: Record<string, string[]> = {
  * The PostgREST chains SupportService uses, over in-memory rows. Every row
  * gets a strictly increasing created_at, so "newest first" is never a tie.
  */
-function fakeDb(tables: Record<string, Row[]>) {
+function fakeDb(tables: Record<string, Row[]>, bucket: unknown = fakeBucket(new Set())) {
   let tick = 0;
   const stamp = () => new Date(Date.now() - 3_600_000 + tick++ * 1000).toISOString();
   const defaults: Record<string, () => Row> = {
@@ -31,7 +32,7 @@ function fakeDb(tables: Record<string, Row[]>) {
     }),
     support_messages: () => ({
       created_at: stamp(), internal: false, attachment_count: 0, delivery: null, delivery_error: null,
-      admin_id: null, full_body: null, email_message_id: null, sender_verified: null,
+      admin_id: null, full_body: null, email_message_id: null, sender_verified: null, attachments: [],
     }),
   };
 
@@ -101,7 +102,20 @@ function fakeDb(tables: Record<string, Row[]>) {
     };
     return b;
   }
-  return { client: { from } } as unknown as SupabaseService;
+  return { client: { from, storage: { from: () => bucket } } } as unknown as SupabaseService;
+}
+
+/** The private support-attachments bucket: signs links, lists what was uploaded. */
+function fakeBucket(uploaded: Set<string>) {
+  return {
+    createSignedUploadUrl: async (path: string) => ({ data: { signedUrl: `https://storage.test/upload/${path}`, token: 'tok' }, error: null }),
+    list: async (dir: string, opts?: { search?: string }) => ({
+      data: [...uploaded].filter((p) => p.startsWith(`${dir}/`)).map((p) => ({ name: p.slice(dir.length + 1) }))
+        .filter((o) => !opts?.search || o.name === opts.search),
+      error: null,
+    }),
+    createSignedUrl: async (path: string, ttl: number) => ({ data: { signedUrl: `https://storage.test/signed/${path}?ttl=${ttl}` }, error: null }),
+  };
 }
 
 const ADMIN: AdminContext = { id: 'a0000000-0000-4000-8000-000000000001', email: 'agent@help24.co.ke', name: 'Wanjiru', role: 'support_agent' };
@@ -129,8 +143,10 @@ function setup(opts: { failSend?: boolean; failPush?: boolean } = {}) {
       pushed.push(p);
     }),
   } as unknown as NotificationsService;
-  const service = new SupportService(fakeDb(tables), mailer, notifications);
-  return { service, tables, sent, pushed, setFailing: (v: boolean) => (failing = v) };
+  const uploaded = new Set<string>();
+  const supabase = fakeDb(tables, fakeBucket(uploaded));
+  const service = new SupportService(supabase, mailer, notifications, new SupportStorageService(supabase));
+  return { service, tables, sent, pushed, uploaded, setFailing: (v: boolean) => (failing = v) };
 }
 
 function email(over: Partial<InboundEmail> = {}): InboundEmail {
@@ -439,11 +455,49 @@ describe('SupportService — Message Help24 (the app)', () => {
     await service.reply(c.id, ADMIN, 'Looking now.');
     const thread = await service.appThread(MARY);
     expect(thread.messages.map((m) => m.body)).toEqual(['Hello', 'Looking now.']);
-    expect(Object.keys(thread.messages[1]).sort()).toEqual(['author', 'body', 'created_at', 'id']);
+    expect(Object.keys(thread.messages[1]).sort()).toEqual(['attachments', 'author', 'body', 'created_at', 'id']);
     expect(JSON.stringify(thread)).not.toContain('Wanjiru');
     expect(thread.unread).toBe(1);
     await service.appMarkRead(MARY);
     expect((await service.appThread(MARY)).unread).toBe(0);
+  });
+
+  it('photos: upload links are under the member\'s own prefix, and a photo-only message is stored and shown as links', async () => {
+    const { service, tables, uploaded } = setup();
+    const { files } = await service.appUploadUrls(MARY, [{ content_type: 'image/jpeg' }, { content_type: 'image/png' }]);
+    expect(files.map((f) => f.path)).toEqual([
+      expect.stringMatching(new RegExp(`^members/${MARY}/[0-9a-f-]{36}\\.jpg$`)),
+      expect.stringMatching(new RegExp(`^members/${MARY}/[0-9a-f-]{36}\\.png$`)),
+    ]);
+    files.forEach((f) => uploaded.add(f.path));
+
+    const r = await service.appSend(MARY, '   ', id(), files.map((f) => f.path));
+    const [c] = tables.support_conversations;
+    expect(c.subject).toBe('Photo');
+    expect(tables.support_messages[0]).toMatchObject({
+      body: '', attachment_count: 2,
+      attachments: [{ path: files[0].path, mime: 'image/jpeg' }, { path: files[1].path, mime: 'image/png' }],
+    });
+    expect(r.message.attachments.map((a) => a.mime)).toEqual(['image/jpeg', 'image/png']);
+    const thread = await service.appThread(MARY);
+    expect(thread.messages[0].attachments[0].url).toMatch(/^https:\/\/storage\.test\/signed\/members\/.+\?ttl=3600$/);
+    expect((await service.get(c.id)).messages[0].attachments).toHaveLength(2); // staff see them in the Inbox
+    expect((await service.list({})).conversations[0].preview).toEqual({ author: 'member', body: '2 photos' });
+  });
+
+  it('photos: someone else\'s path, a path never uploaded, or a file that is not a photo is refused', async () => {
+    const { service, tables, uploaded } = setup();
+    tables.users.push({ id: 'OtherUid', email: null, name: null });
+    const { files: theirs } = await service.appUploadUrls('OtherUid', [{ content_type: 'image/jpeg' }]);
+    uploaded.add(theirs[0].path);
+    await expect(service.appSend(MARY, 'Look', id(), [theirs[0].path])).rejects.toBeInstanceOf(BadRequestException);
+
+    const { files: mine } = await service.appUploadUrls(MARY, [{ content_type: 'image/webp' }]);
+    await expect(service.appSend(MARY, 'Look', id(), [mine[0].path])).rejects.toThrow('did not finish uploading');
+    await expect(service.appSend(MARY, 'Look', id(), [`members/${MARY}/../../secrets.jpg`])).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.appUploadUrls(MARY, [{ content_type: 'application/pdf' }])).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.appSend(MARY, '  ', id())).rejects.toThrow('Write a message first.'); // no words and no photo
+    expect(tables.support_messages).toHaveLength(0);
   });
 
   it('an email from the same member never joins their in-app thread', async () => {

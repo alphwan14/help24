@@ -770,7 +770,10 @@ try {
       started.from === "Help24 Security <security@help24.co.ke>" && startedConv.label === "security", `${started.from} / ${startedConv.label}`);
 
     // Message Help24: a member writes from the app; the answer goes back to the app, not by email.
-    const app = fake.support.fromApp({ email: DAVE, name: "Dave Kamau", text: "How do I change my phone number?" });
+    const app = fake.support.fromApp({
+      email: DAVE, name: "Dave Kamau", text: "How do I change my phone number?",
+      photos: [`${FAKE}/fake-doc/Screenshot`, `${FAKE}/fake-doc/Receipt`],
+    });
     await goto(`${APP}/dashboard/inbox`);
     await waitFor(bodyHas("How do I change my phone number?"), "app message listed", 15000);
     check("a message from the app is in the Inbox, marked App",
@@ -779,6 +782,11 @@ try {
     await waitFor(`!!document.querySelector('[data-testid="composer"]') && ${bodyHas("Sent to Dave Kamau in the Help24 app as Help24 Support, with a notification.")}`, "app thread", 15000);
     check("an app thread says where it came from and that answers go to the app, with no forged-sender warning",
       (await evaluate(`${bodyHas("Support, in the app")} && ${bodyHas("Written from the Help24 app")}`)) && !(await evaluate(bodyHas("Sender not verified"))));
+    await waitFor(`[...document.querySelectorAll('[data-testid="message-photos"] img')].filter((i) => i.complete && i.naturalWidth > 0).length === 2`, "photos loaded", 15000);
+    check("the member's photos show in the conversation, each opening full size",
+      await evaluate(`[...document.querySelectorAll('[data-testid="message-photos"] a')].every((a) => a.target === '_blank' && a.href.includes('/fake-doc/'))`)
+        && !(await evaluate(bodyHas("in the copy sent to the team inbox"))));
+    await shot("19-inbox-app-photos.png", true);
     const mailBefore = fake.support.mailOut.length;
     await fill("#composer-text", "Go to Profile, then Sign-in methods.");
     await clickText("Send reply");

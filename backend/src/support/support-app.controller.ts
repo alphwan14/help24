@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { Auth } from '../common/auth/auth.decorator';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
-import { AppSupportMessageDto, AppSupportReadDto } from './dto/support-app.dto';
+import { AppSupportMessageDto, AppSupportReadDto, AppUploadUrlsDto } from './dto/support-app.dto';
 import { SupportService } from './support.service';
 
 /**
@@ -31,7 +31,21 @@ export class SupportAppController {
   // signed-in member, not a name in the body.
   @Auth('body.user_id')
   send(@Body() dto: AppSupportMessageDto) {
-    return this.support.appSend(dto.user_id, dto.body, dto.client_id);
+    return this.support.appSend(dto.user_id, dto.body, dto.client_id, dto.attachments ?? []);
+  }
+
+  /**
+   * Signed upload links for up to 5 photos (migration 143), each under the
+   * member's own storage prefix; the message then names the paths.
+   */
+  @RateLimit('support:app')
+  @Post('attachments')
+  @HttpCode(HttpStatus.CREATED)
+  // The prefix the links are made under is this member's: binding stops one
+  // member uploading into another's space.
+  @Auth('body.user_id')
+  uploadUrls(@Body() dto: AppUploadUrlsDto) {
+    return this.support.appUploadUrls(dto.user_id, dto.files);
   }
 
   /** The member opened their thread: answers so far are read. */
