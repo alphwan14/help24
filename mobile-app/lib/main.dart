@@ -51,6 +51,8 @@ import 'services/reputation_service.dart';
 import 'services/session_scope.dart';
 import 'services/startup_prefetch.dart';
 import 'services/supabase_auth_bridge.dart';
+import 'services/terms_acceptance.dart';
+import 'screens/terms_acceptance_screen.dart';
 import 'theme/app_theme.dart';
 import 'utils/error_mapper.dart';
 import 'utils/plain_copy.dart';
@@ -126,6 +128,9 @@ void main() async {
   // launch, so a system-themed user also gets the correct first frame.
   final prefs = await SharedPreferences.getInstance();
   final themePreference = await AppProvider.loadThemePreference(prefs);
+  // Terms acceptance, from the same preloaded prefs: known before the first
+  // frame, so StartupGate decides synchronously (no wait added to the launch).
+  TermsAcceptance.load(prefs);
 
   // Decode the splash badge before the first frame. See LaunchSplash.warm.
   await LaunchSplash.warm();
@@ -853,6 +858,12 @@ class _StartupGateState extends State<StartupGate> {
   /// Whether the fade has finished and the splash can leave the tree entirely.
   bool _splashRetired = false;
 
+  /// Whether this install accepted the current terms. When it has not, the
+  /// terms screen sits between the app and the splash: the app still builds
+  /// underneath (so the feed is ready the moment they agree), the splash
+  /// fades off as usual, and what it reveals is the terms.
+  bool _termsAccepted = TermsAcceptance.isAccepted;
+
   static const Duration _fade = Duration(milliseconds: 240);
 
   @override
@@ -927,7 +938,19 @@ class _StartupGateState extends State<StartupGate> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        const HomeScreen(),
+        // Same position and type whether or not the terms are showing, so
+        // accepting them never rebuilds Home from scratch; only its
+        // semantics are hidden from screen readers while it is covered.
+        ExcludeSemantics(
+          key: const ValueKey('home'),
+          excluding: !_termsAccepted,
+          child: const HomeScreen(),
+        ),
+        if (!_termsAccepted)
+          TermsAcceptanceScreen(
+            key: const ValueKey('terms'),
+            onAccepted: () => setState(() => _termsAccepted = true),
+          ),
         if (!_splashRetired)
           // Absorbs taps for as long as it is opaque, so nothing can be
           // triggered through a screen the user cannot see.

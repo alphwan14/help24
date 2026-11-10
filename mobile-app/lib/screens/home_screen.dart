@@ -31,6 +31,7 @@ import 'profile_screen.dart';
 import 'location_permission_explainer_screen.dart';
 import 'agent_code_screen.dart';
 import 'provider_profile_screen.dart';
+import '../services/terms_acceptance.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -107,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _explainerOpen = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
+        await TermsAcceptance.ready; // never on top of the terms screen
         if (!mounted) return;
         await AccountStatusStore.instance.acknowledge();
         if (!mounted) return;
@@ -128,6 +130,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// it. Guests are welcome; the profile's actions ask for sign-in themselves.
   Future<void> _openCardLink() async {
     await LaunchSequence.ready;
+    await TermsAcceptance.ready; // never on top of the terms screen
     if (!mounted) return;
     final uid = ProviderCardLink.takePending();
     if (uid == null) return;
@@ -142,6 +145,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final auth = context.read<AuthProvider>();
     final uid = auth.currentUserId;
     if (!auth.isLoggedIn || uid == null || uid.isEmpty) return;
+    await TermsAcceptance.ready; // never on top of the terms screen
+    if (!mounted) return;
     final claimed = await AgentCodeService.claimPending();
     if (!mounted) return;
     if (claimed != null) {
@@ -480,6 +485,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // the navigator, so asking for a permission here would put a sheet on a
     // screen the user is still watching the logo on.
     await LaunchSequence.ready;
+    await TermsAcceptance.ready; // never on top of the terms screen
     if (!mounted || _locationPromptInFlight) return;
 
     // This runs because the uid just changed — which, on a fresh sign-in, is

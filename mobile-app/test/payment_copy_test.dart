@@ -79,6 +79,50 @@ void main() {
     });
   });
 
+  group('the provider is given a reason to keep the job on Help24', () {
+    test('the provider card says only Help24-paid jobs earn reviews', () {
+      // True in code: ReviewsService refuses a review without a paid transaction.
+      expect(PaymentCopy.protectionBody(isAuthor: provider), contains(PaymentCopy.reviewsLine));
+      expect(PaymentCopy.reviewsLine.toLowerCase(), contains('paid through help24'));
+      expect(PaymentCopy.reviewsLine.toLowerCase(), contains('reviews'));
+      // Not a payer's line: the client card does not carry it.
+      expect(PaymentCopy.protectionBody(isAuthor: client), isNot(contains(PaymentCopy.reviewsLine)));
+    });
+  });
+
+  group('Materials Advance copy matches what the backend does', () {
+    test('checkout: 40%, sent by the customer, the rest held, same total', () {
+      final line = MaterialsAdvanceCopy.checkoutLine(4000);
+      expect(line, contains('KES 4,000'));
+      expect(line, contains('40%'));
+      expect(line, contains('You send it'));
+      expect(line, contains('holds the rest'));
+      expect(line, contains('Same total, no extra fee'));
+    });
+
+    test('the confirmation is honest about what can and cannot come back', () {
+      final body = MaterialsAdvanceCopy.confirmBody(4000);
+      expect(body, contains('what Help24 still holds, fee included'));
+      expect(body, contains('cannot be pulled back'));
+      expect(MaterialsAdvanceCopy.confirmTitle(4000), 'Send KES 4,000 to your provider?');
+      expect(MaterialsAdvanceCopy.releaseButton(4000), 'Send materials money · KES 4,000');
+    });
+
+    test('every state has a line for each side, and none is automatic', () {
+      for (final s in ['held', 'sending', 'paid_out', 'frozen', 'cancelled']) {
+        for (final isClient in [true, false]) {
+          final text = MaterialsAdvanceCopy.status(status: s, amount: 4000, isClient: isClient);
+          expect(text, isNotNull, reason: '$s / client=$isClient');
+          expect(text!.toLowerCase(), isNot(contains('automatically')));
+          expect(text.contains('—'), isFalse);
+        }
+      }
+      // The provider is told to ask, never that it will simply arrive.
+      expect(MaterialsAdvanceCopy.status(status: 'held', amount: 4000, isClient: false), contains('Ask the customer'));
+      expect(MaterialsAdvanceCopy.status(status: 'unknown', amount: 4000, isClient: true), isNull);
+    });
+  });
+
   group('TRUTHFULNESS — the copy may not outrun the backend', () {
     test('release is attributed to the client approving, not to completion', () {
       final body = PaymentCopy.protectionBody(isAuthor: provider).toLowerCase();

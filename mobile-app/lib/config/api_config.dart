@@ -74,6 +74,8 @@ class ApiConfig {
   static const String initiatePayment  = '$baseUrl/mpesa/initiate';
   static const String paymentStatus    = '$baseUrl/mpesa/status';
   static const String releasePayout    = '$baseUrl/mpesa/release-payout';
+  /// Materials Advance: `/{postId}?user_id=` (quote) and `/{postId}/release` (send).
+  static const String materialsAdvance = '$baseUrl/mpesa/materials-advance';
   static const String chatNotify       = '$baseUrl/notifications/chat-message';
   /// Journey ETA / distance / polyline. Proxied because the Google Routes key
   /// is a server key — Routes is a web service and cannot be locked to an

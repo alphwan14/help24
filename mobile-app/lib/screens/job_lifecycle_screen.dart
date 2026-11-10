@@ -5,10 +5,13 @@ import 'package:provider/provider.dart';
 import '../models/job_lifecycle.dart';
 import '../providers/auth_provider.dart';
 import '../services/jobs_service.dart';
+import '../services/mpesa_service.dart';
 import '../services/review_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
+import '../utils/action_feedback.dart';
 import '../utils/error_mapper.dart';
+import '../utils/payment_copy.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../utils/time_utils.dart';
 import '../utils/format_utils.dart';
@@ -125,6 +128,10 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
           const SizedBox(height: 12),
         ],
         _paymentSection(d, isDark),
+        if (d.materialsAdvance != null) ...[
+          const SizedBox(height: 12),
+          _materialsAdvanceSection(d, d.materialsAdvance!, isDark),
+        ],
         if (_receiptAvailable(d)) ...[
           const SizedBox(height: 12),
           _receiptAction(isDark),
@@ -496,6 +503,71 @@ class _JobLifecycleScreenState extends State<JobLifecycleScreen> {
         ],
       ),
     );
+  }
+
+  // ── Materials Advance (part of a big job sent early, for materials) ────────
+
+  bool _sendingAdvance = false;
+
+  Widget _materialsAdvanceSection(JobLifecycle d, LifecycleMaterialsAdvance a, bool isDark) {
+    final sub = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final line = MaterialsAdvanceCopy.status(status: a.status, amount: a.amount, isClient: d.isClient);
+    return _sectionCard(
+      isDark,
+      icon: AppIcons.payment,
+      title: 'Materials money',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (line != null) Text(line, style: TextStyle(fontSize: 13.5, height: 1.45, color: sub)),
+          // The server decides who may send it and when (customer only,
+          // payment confirmed, no dispute, not yet sent).
+          if (d.isClient && a.canRelease) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _sendingAdvance ? null : () => _confirmAndSendAdvance(d, a),
+                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                child: _sendingAdvance
+                    ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Text(MaterialsAdvanceCopy.releaseButton(a.amount)),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmAndSendAdvance(JobLifecycle d, LifecycleMaterialsAdvance a) async {
+    final send = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(MaterialsAdvanceCopy.confirmTitle(a.amount)),
+        content: Text(MaterialsAdvanceCopy.confirmBody(a.amount)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not now')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send')),
+        ],
+      ),
+    );
+    if (send != true || !mounted) return;
+    final uid = context.read<AuthProvider>().currentUserId ?? '';
+    setState(() => _sendingAdvance = true);
+    try {
+      await MpesaService.releaseMaterialsAdvance(postId: d.post.id, userId: uid);
+      if (!mounted) return;
+      ActionFeedback.success(context, 'The materials money is on its way to your provider.');
+    } catch (e) {
+      debugPrint('[LIFECYCLE] materials advance release failed: $e');
+      if (!mounted) return;
+      ActionFeedback.failure(context, e, context_: ErrorContext.save);
+    } finally {
+      if (mounted) setState(() => _sendingAdvance = false);
+    }
+    // The server's state is the truth either way: a dispute, a cancel or a send.
+    if (mounted) _load();
   }
 
   // ── Review CTA (client, completion pending) ─────────────────────────────────
