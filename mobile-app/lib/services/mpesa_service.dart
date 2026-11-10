@@ -88,6 +88,7 @@ class MpesaService {
     required String postId,
     required String buyerUserId,
     required String buyerPhone,
+    bool materialsAdvance = false,
   }) async {
     final normalized = normalizeKenyanNumber(buyerPhone);
     if (normalized == null) {
@@ -99,6 +100,8 @@ class MpesaService {
     final body = {
       'post_id': postId,
       'buyer_user_id': buyerUserId,
+      // Sent only when chosen, so the request is byte-for-byte what it was otherwise.
+      if (materialsAdvance) 'materials_advance': true,
     };
 
     debugPrint('[MpesaService] POST ${ApiConfig.initiatePayment} post=$postId buyer=$buyerUserId');
@@ -234,5 +237,82 @@ class MpesaService {
 
     throw MpesaException('Could not fetch payment status',
         statusCode: response.statusCode);
+  }
+
+  /// Can this job be paid with Materials Advance? Null when it cannot be
+  /// known (offline, an older backend, any error): the payment screen then
+  /// simply does not offer it, and paying the normal way is unaffected.
+  static Future<MaterialsAdvanceQuote?> fetchMaterialsAdvanceQuote({
+    required String postId,
+    required String userId,
+  }) async {
+    try {
+      final uri = Uri.parse('${ApiConfig.materialsAdvance}/$postId')
+          .replace(queryParameters: {'user_id': userId});
+      final response = await api.get(uri).timeout(_timeout);
+      if (response.statusCode != 200) return null;
+      return MaterialsAdvanceQuote.fromJson(
+          jsonDecode(response.body) as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('[MpesaService] materials advance quote unavailable: $e');
+      return null;
+    }
+  }
+
+  /// The customer's "Send materials money". Returns the server's message;
+  /// throws [MpesaException] with a readable message when it is refused.
+  static Future<String> releaseMaterialsAdvance({
+    required String postId,
+    required String userId,
+  }) async {
+    final http.Response response;
+    try {
+      response = await api
+          .post(
+            Uri.parse('${ApiConfig.materialsAdvance}/$postId/release'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'user_id': userId}),
+          )
+          .timeout(_timeout);
+    } catch (e) {
+      debugPrint('[MpesaService] materials advance release network error: $e');
+      throw MpesaException(
+          'Could not reach Help24. Nothing was sent; check your connection and try again.');
+    }
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return json['message'] as String? ?? 'The materials money is on its way.';
+    }
+    throw MpesaException(_extractErrorMessage(response.statusCode, response.body),
+        statusCode: response.statusCode);
+  }
+}
+
+/// GET /mpesa/materials-advance/:postId: whether the job qualifies and what
+/// the advance would be. The total is the same as paying normally.
+class MaterialsAdvanceQuote {
+  final bool available;
+  final int jobAmount;
+  final int advanceAmount;
+  final int percent;
+  final int minJobAmount;
+
+  const MaterialsAdvanceQuote({
+    required this.available,
+    required this.jobAmount,
+    required this.advanceAmount,
+    required this.percent,
+    required this.minJobAmount,
+  });
+
+  factory MaterialsAdvanceQuote.fromJson(Map<String, dynamic> json) {
+    int n(String k) => (json[k] as num?)?.round() ?? 0;
+    return MaterialsAdvanceQuote(
+      available: json['available'] == true && n('advance_amount') > 0,
+      jobAmount: n('job_amount'),
+      advanceAmount: n('advance_amount'),
+      percent: n('percent'),
+      minJobAmount: n('min_job_amount'),
+    );
   }
 }

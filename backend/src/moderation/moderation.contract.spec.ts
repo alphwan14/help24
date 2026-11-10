@@ -79,6 +79,9 @@ describe('moderation contract — which routes a restriction can close', () => {
       'JobsController.archive',
       'JobsController.getLifecycle',
       'JobsController.getReceipt',
+      // Materials Advance: sending money already paid for on this job settles
+      // the deal, like approve; blocking it would strand the provider's materials.
+      'MpesaController.releaseAdvance',
       'DisputesPublicController.create',
       'DisputesPublicController.reply',
       'DisputesPublicController.uploadUrl',

@@ -80,6 +80,12 @@ export const EVENT_TYPES = {
   PROMOTION_EXPIRED:          'promotion.expired',
   /** Campaign cancelled before its natural end. */
   PROMOTION_CANCELLED:        'promotion.cancelled',
+
+  // ── Materials Advance (migration 139) — audit only ─────────────────────────
+  /** The customer released the advance; B2C requested. */
+  MATERIALS_ADVANCE_SENT:     'materials_advance.sent',
+  /** M-Pesa confirmed the advance reached the provider. */
+  MATERIALS_ADVANCE_PAID_OUT: 'materials_advance.paid_out',
 } as const;
 
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];

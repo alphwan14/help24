@@ -13,6 +13,9 @@ class JobLifecycle {
   final LifecycleDispute? dispute;
   final List<TimelineEvent> timeline;
 
+  /// Set only when the job was paid with Materials Advance (backend 139+).
+  final LifecycleMaterialsAdvance? materialsAdvance;
+
   const JobLifecycle({
     required this.post,
     required this.viewerRole,
@@ -22,6 +25,7 @@ class JobLifecycle {
     required this.completion,
     required this.dispute,
     required this.timeline,
+    this.materialsAdvance,
   });
 
   bool get isClient => viewerRole == 'client';
@@ -38,8 +42,30 @@ class JobLifecycle {
       timeline: ((j['timeline'] as List<dynamic>?) ?? [])
           .map((e) => TimelineEvent.fromJson(e as Map<String, dynamic>))
           .toList(),
+      materialsAdvance: j['materials_advance'] is Map<String, dynamic>
+          ? LifecycleMaterialsAdvance.fromJson(j['materials_advance'] as Map<String, dynamic>)
+          : null,
     );
   }
+}
+
+/// The Materials Advance on this job's payment: part of the job sent to the
+/// provider early, for materials, when the customer taps Send.
+class LifecycleMaterialsAdvance {
+  final String status; // held | sending | paid_out | cancelled | frozen
+  final int amount;
+
+  /// The server's answer to "may this viewer send it now" (customer only,
+  /// payment confirmed, no dispute, not yet sent).
+  final bool canRelease;
+
+  const LifecycleMaterialsAdvance({required this.status, required this.amount, required this.canRelease});
+
+  factory LifecycleMaterialsAdvance.fromJson(Map<String, dynamic> j) => LifecycleMaterialsAdvance(
+        status: j['status'] as String? ?? 'held',
+        amount: (j['amount'] as num?)?.round() ?? 0,
+        canRelease: j['can_release'] == true,
+      );
 }
 
 /// The ONE canonical settlement display state from the backend (deriveSettlementState).

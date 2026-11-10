@@ -1,3 +1,5 @@
+import 'format_utils.dart';
+
 /// WHAT HELP24 PROMISES ABOUT MONEY, TOLD TO THE PERSON IT APPLIES TO.
 ///
 /// THE BUG THIS EXISTS TO PREVENT
@@ -40,5 +42,69 @@ class PaymentCopy {
           'your approval.'
       : 'Payment through Help24 is secure: the client’s money is held safely '
           'before you start. Once they approve the completed job, your M-Pesa '
-          'payout is released automatically.';
+          'payout is released automatically. $reviewsLine';
+
+  /// Why a provider should want the job paid through Help24 rather than in
+  /// cash. TRUE IN CODE: ReviewsService refuses a review unless the job's
+  /// payment went through Help24 (a paid, paying-out or released
+  /// transaction), so a cash job can never be reviewed.
+  static const String reviewsLine =
+      'Only jobs paid through Help24 earn reviews and count on your profile.';
+}
+
+/// Materials Advance, told to each side (backend/src/mpesa/advance.ts).
+///
+/// On a job of KES 10,000 or more with a verified provider, the customer may
+/// let 40% go to the provider early for materials. The customer sends it, from
+/// the job, when the provider is ready to buy; Help24 holds the rest until the
+/// work is approved. TRUE IN CODE, and pinned by test/payment_copy_test.dart:
+///   - the total is the same as paying normally (fee.ts, no extra charge);
+///   - nothing is sent until the customer taps Send (never automatic);
+///   - if the job fails, the customer gets back what Help24 still holds plus
+///     the fee, and the advance itself cannot be pulled back once sent.
+class MaterialsAdvanceCopy {
+  MaterialsAdvanceCopy._();
+
+  static String _kes(int amount) => formatPriceDisplay(amount.toDouble());
+
+  /// Under the switch on the payment screen.
+  static String checkoutLine(int advance) =>
+      'Let ${_kes(advance)} (40%) go to your provider when they are ready to '
+      'buy materials. You send it from the job; Help24 holds the rest until '
+      'you approve the work. Same total, no extra fee.';
+
+  static String releaseButton(int advance) => 'Send materials money · ${_kes(advance)}';
+
+  static String confirmTitle(int advance) => 'Send ${_kes(advance)} to your provider?';
+
+  static String confirmBody(int advance) =>
+      'It goes to your provider’s M-Pesa now, for the materials on this job. '
+      'Help24 keeps holding the rest until you approve the work. If the job '
+      'goes wrong you get back what Help24 still holds, fee included, but '
+      'money already sent for materials cannot be pulled back.';
+
+  /// The job's status line, for the customer or the provider.
+  static String? status({required String status, required int amount, required bool isClient}) {
+    final kes = _kes(amount);
+    switch (status) {
+      case 'held':
+        return isClient
+            ? '$kes can go to your provider for materials when they are ready to buy.'
+            : '$kes for materials is set aside. Ask the customer to send it when you are ready to buy.';
+      case 'sending':
+        return isClient
+            ? 'Sending $kes to your provider. M-Pesa is confirming.'
+            : '$kes for materials is on its way to your M-Pesa.';
+      case 'paid_out':
+        return isClient
+            ? '$kes reached your provider for materials. The rest is held until you approve the work.'
+            : '$kes for materials was sent to your M-Pesa. The rest is paid when the customer approves the work.';
+      case 'frozen':
+        return 'The materials money is held with the rest while the dispute is reviewed.';
+      case 'cancelled':
+        return 'The materials money was not sent separately; the full amount is paid in one go.';
+      default:
+        return null;
+    }
+  }
 }

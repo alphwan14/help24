@@ -42,6 +42,8 @@ export interface SettlementInput {
   totalPaid: number | null;
   providerAmount: number | null;
   clientRefund: number | null;
+  /** Materials Advance already paid to the provider (migration 139); 0 or absent when none. */
+  advancePaid?: number | null;
   paidAt: string | null;
   releasedAt: string | null;
   disputedAt: string | null;
@@ -67,6 +69,10 @@ export interface SettlementState {
     client_refund: number | null;
     /** For split_settled: the provider's share recorded but NOT auto-paid. */
     provider_owed: number | null;
+    /** Materials Advance already paid to the provider, if any. */
+    advance_paid: number | null;
+    /** What Help24 still holds of the job amount (amount minus advance_paid), while it holds money; else null. */
+    held: number | null;
   };
   timestamps: {
     paid_at: string | null;
@@ -179,6 +185,12 @@ export function deriveSettlementState(i: SettlementInput): SettlementState {
       provider_amount: i.providerAmount,
       client_refund: i.clientRefund,
       provider_owed: state === 'split_settled' ? i.providerAmount : null,
+      advance_paid: i.advancePaid ? i.advancePaid : null,
+      // Only while money is actually held: none before payment or after settlement.
+      held:
+        i.amount != null && (state === 'in_escrow' || state === 'disputed' || state === 'settlement_failed')
+          ? Math.max(0, i.amount - (i.advancePaid ?? 0))
+          : null,
     },
     timestamps: {
       paid_at: i.paidAt,

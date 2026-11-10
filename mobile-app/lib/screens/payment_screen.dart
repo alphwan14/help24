@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/format_utils.dart';
 import '../utils/payment_utils.dart';
+import '../utils/payment_copy.dart';
 import '../utils/mpesa_failure_copy.dart';
 
 // ─── State machine ────────────────────────────────────────────────────────────
@@ -106,6 +107,14 @@ class _PaymentScreenState extends State<PaymentScreen>
 
   double get _total => widget.amount + widget.platformFee;
 
+  // ── Materials Advance (big jobs, verified providers) ────────────────────────
+  /// Null until the server says this job qualifies; then the option shows.
+  MaterialsAdvanceQuote? _advanceQuote;
+  bool _useAdvance = false;
+
+  /// Jobs below this never qualify, so they never ask (mirrors backend advance.ts).
+  static const int _advanceMinJob = 10000;
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +125,16 @@ class _PaymentScreenState extends State<PaymentScreen>
     _pulseAnim = Tween<double>(begin: 0.85, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+    if (widget.amount >= _advanceMinJob) _loadAdvanceQuote();
+  }
+
+  Future<void> _loadAdvanceQuote() async {
+    final quote = await MpesaService.fetchMaterialsAdvanceQuote(
+      postId: widget.postId,
+      userId: widget.buyerUserId,
+    );
+    if (!mounted || quote == null || !quote.available) return;
+    setState(() => _advanceQuote = quote);
   }
 
   @override
@@ -163,6 +182,7 @@ class _PaymentScreenState extends State<PaymentScreen>
         postId: widget.postId,
         buyerUserId: widget.buyerUserId,
         buyerPhone: widget.buyerPhone,
+        materialsAdvance: _useAdvance && _advanceQuote != null,
       );
       _checkoutRequestId = result.checkoutRequestId;
       debugPrint('[PaymentSM] checkoutRequestId=$_checkoutRequestId');
@@ -342,6 +362,9 @@ class _PaymentScreenState extends State<PaymentScreen>
           platformFee: widget.platformFee,
           total: _total,
           onPay: _submit,
+          advanceAmount: _advanceQuote?.advanceAmount,
+          useAdvance: _useAdvance,
+          onUseAdvanceChanged: (v) => setState(() => _useAdvance = v),
           textPrimary: textPrimary,
           textSecondary: textSecondary,
           isDark: isDark,
@@ -450,6 +473,11 @@ class _IdleView extends StatelessWidget {
   final double platformFee;
   final double total;
   final VoidCallback onPay;
+
+  /// Set when this job qualifies for Materials Advance; null hides the option.
+  final int? advanceAmount;
+  final bool useAdvance;
+  final ValueChanged<bool> onUseAdvanceChanged;
   final Color textPrimary;
   final Color textSecondary;
   final bool isDark;
@@ -461,6 +489,9 @@ class _IdleView extends StatelessWidget {
     required this.platformFee,
     required this.total,
     required this.onPay,
+    required this.advanceAmount,
+    required this.useAdvance,
+    required this.onUseAdvanceChanged,
     required this.textPrimary,
     required this.textSecondary,
     required this.isDark,
@@ -569,6 +600,21 @@ class _IdleView extends StatelessWidget {
           ),
           const SizedBox(height: 14),
 
+          // Materials Advance: offered only when the server said this job
+          // qualifies (KES 10,000+, verified provider). Same total either way.
+          if (advanceAmount != null) ...[
+            _MaterialsAdvanceOption(
+              advanceAmount: advanceAmount!,
+              value: useAdvance,
+              onChanged: onUseAdvanceChanged,
+              textPrimary: textPrimary,
+              textSecondary: textSecondary,
+              background: cardBg,
+              border: borderColor,
+            ),
+            const SizedBox(height: 14),
+          ],
+
           // Info banners
           _InfoBanner(
             icon: AppIcons.device,
@@ -580,7 +626,9 @@ class _IdleView extends StatelessWidget {
           _InfoBanner(
             icon: AppIcons.locked,
             color: AppTheme.successGreen,
-            text: 'Your payment is held securely and only released when the job is completed.',
+            text: useAdvance && advanceAmount != null
+                ? 'Help24 holds your payment. ${formatPriceDisplay(advanceAmount!.toDouble())} goes to your provider only when you tap Send materials money; the rest is released when you approve the work.'
+                : 'Your payment is held securely and only released when the job is completed.',
             textSecondary: textSecondary,
           ),
           const SizedBox(height: 28),
@@ -618,6 +666,73 @@ class _IdleView extends StatelessWidget {
                 style: TextStyle(color: textSecondary, fontSize: 12)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The Materials Advance choice on a big job. Plain type and a switch: the
+/// customer decides now whether part of the job can go to the provider early,
+/// and sends it later, from the job, when the provider is ready to buy.
+class _MaterialsAdvanceOption extends StatelessWidget {
+  final int advanceAmount;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color background;
+  final Color border;
+
+  const _MaterialsAdvanceOption({
+    required this.advanceAmount,
+    required this.value,
+    required this.onChanged,
+    required this.textPrimary,
+    required this.textSecondary,
+    required this.background,
+    required this.border,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      toggled: value,
+      label: 'Materials Advance',
+      child: InkWell(
+        borderRadius: AppRadius.lgAll,
+        onTap: () => onChanged(!value),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: AppRadius.lgAll,
+            border: Border.all(color: border),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Materials Advance',
+                        style: TextStyle(
+                            color: textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14)),
+                    const SizedBox(height: 4),
+                    Text(
+                      MaterialsAdvanceCopy.checkoutLine(advanceAmount),
+                      style: TextStyle(
+                          color: textSecondary, fontSize: 12.5, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+              Switch.adaptive(value: value, onChanged: onChanged),
+            ],
+          ),
+        ),
       ),
     );
   }

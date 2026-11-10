@@ -56,6 +56,7 @@ function build(opts: { dispute?: unknown; post?: unknown } = {}) {
     notifications as any,
     events as any,
     storage,
+    { freezeForDispute: async () => undefined } as any,
   );
   return { service, notifications };
 }
