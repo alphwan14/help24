@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ConversationStatus, SupportMessage, SupportThread } from "@/lib/support";
+import { INBOXES } from "@/lib/support-inboxes";
 import { addSupportNote, retrySupportReply, sendSupportReply, setSupportStatus } from "@/lib/support-actions";
 
 const STATUS_TEXT: Record<ConversationStatus, string> = {
@@ -29,6 +30,7 @@ function when(iso: string) {
  */
 export default function ThreadView({ thread }: { thread: SupportThread }) {
   const { conversation: c, member, messages } = thread;
+  const inbox = INBOXES[c.label] ?? INBOXES.support;
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [mode, setMode] = useState<"reply" | "note">("reply");
@@ -73,7 +75,7 @@ export default function ThreadView({ thread }: { thread: SupportThread }) {
             </Link>
             <h2 className="mt-1 text-lg font-semibold text-gray-900">{c.subject}</h2>
             <p className="mt-0.5 text-[13px] text-gray-500">
-              {c.ref} · {c.label === "general" ? "General (info@)" : "Support (support@)"} ·{" "}
+              {c.ref} · {inbox.name} ({inbox.address.split("@")[0]}@) ·{" "}
               <span data-testid="thread-status">{STATUS_TEXT[c.status]}</span>
             </p>
           </div>
@@ -97,7 +99,7 @@ export default function ThreadView({ thread }: { thread: SupportThread }) {
 
         <ol className="space-y-5" data-testid="thread-messages">
           {messages.map((m) => (
-            <MessageItem key={m.id} m={m} contact={c.contact_name || c.contact_email} onRetry={() => run(() => retrySupportReply(c.id, m.id))} pending={pending} />
+            <MessageItem key={m.id} m={m} contact={c.contact_name || c.contact_email} staffName={inbox.signature} onRetry={() => run(() => retrySupportReply(c.id, m.id))} pending={pending} />
           ))}
         </ol>
 
@@ -134,7 +136,7 @@ export default function ThreadView({ thread }: { thread: SupportThread }) {
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-gray-500">
               {mode === "reply"
-                ? `Emailed to ${c.contact_email} from support@help24.co.ke, signed Help24 Support.`
+                ? `Emailed to ${c.contact_email} from ${inbox.from}, signed ${inbox.signature}.`
                 : "Notes are never sent."}
             </p>
             <button type="button" className="btn-primary ml-auto" disabled={pending || !text.trim()} onClick={submit}>
@@ -179,7 +181,19 @@ export default function ThreadView({ thread }: { thread: SupportThread }) {
   );
 }
 
-function MessageItem({ m, contact, onRetry, pending }: { m: SupportMessage; contact: string; onRetry: () => void; pending: boolean }) {
+function MessageItem({
+  m,
+  contact,
+  staffName,
+  onRetry,
+  pending,
+}: {
+  m: SupportMessage;
+  contact: string;
+  staffName: string;
+  onRetry: () => void;
+  pending: boolean;
+}) {
   const [full, setFull] = useState(false);
   if (m.internal) {
     return (
@@ -195,7 +209,7 @@ function MessageItem({ m, contact, onRetry, pending }: { m: SupportMessage; cont
   return (
     <li className={staff ? "pl-6 sm:pl-12" : ""}>
       <p className="text-xs text-gray-500">
-        <span className="font-semibold text-gray-900">{staff ? "Help24 Support" : contact}</span>
+        <span className="font-semibold text-gray-900">{staff ? staffName : contact}</span>
         {staff && m.admin_name ? ` · written by ${m.admin_name}` : ""} · {when(m.created_at)}
         {!staff && m.sender_verified !== true && <span className="ml-2 text-caution-700">Sender not verified</span>}
       </p>

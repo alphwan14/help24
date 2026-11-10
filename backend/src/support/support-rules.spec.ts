@@ -1,4 +1,5 @@
 import {
+  identityFor,
   inboundBody,
   labelFor,
   makeRef,
@@ -40,6 +41,16 @@ describe('support rules', () => {
     expect(labelFor(['info@help24.co.ke', 'support@help24.co.ke'])).toBe('support');
     expect(labelFor(['hello@help24.co.ke'])).toBe('support');
     expect(labelFor(['someone@gmail.com'])).toBeNull();
+    expect(labelFor(['Security@help24.co.ke'])).toBe('security');
+    expect(labelFor(['support@help24.co.ke', 'security@help24.co.ke'])).toBe('security');
+  });
+
+  it('security@ is answered as Help24 Security; everything else as Help24 Support', () => {
+    expect(identityFor('security')).toEqual({ from: 'Help24 Security <security@help24.co.ke>', address: 'security@help24.co.ke', signature: 'Help24 Security' });
+    expect(identityFor('general')).toEqual(identityFor('support'));
+    expect(identityFor('support').from).toBe('Help24 Support <support@help24.co.ke>');
+    expect(replyText('Hi.', 'Help24 Security')).toBe('Hi.\n\nHelp24 Security\nhelp24.co.ke');
+    expect(replyText('Hi.')).toBe('Hi.\n\nHelp24 Support\nhelp24.co.ke');
   });
 
   it('a reply keeps only the new text: Gmail, Outlook, "Original Message" and > quotes are cut', () => {

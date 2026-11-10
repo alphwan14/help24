@@ -204,6 +204,12 @@ describe('SupportService — mail in', () => {
     expect(tables.support_conversations[0].label).toBe('general');
   });
 
+  it('security@ is its own inbox, even when support@ is copied in', async () => {
+    const { service, tables } = setup();
+    await service.ingest(email({ to: ['security@help24.co.ke', 'support@help24.co.ke'], subject: 'Possible vulnerability' }));
+    expect(tables.support_conversations[0].label).toBe('security');
+  });
+
   it('auto-replies and our own domain are ignored, so replies never loop', async () => {
     const { service, tables } = setup();
     expect((await service.ingest(email({ automated: true }))).result).toBe('ignored');
@@ -290,6 +296,35 @@ describe('SupportService — the Inbox', () => {
     const res = await service.list({});
     expect(res.counts).toEqual({ open: 0, waiting: 1, closed: 0 });
     expect(res.conversations[0].preview).toEqual({ author: 'staff', body: 'On it.' });
+  });
+
+  it('security@ mail is answered from security@ as Help24 Security', async () => {
+    const { service, tables, sent } = setup();
+    await service.ingest(email({ to: ['security@help24.co.ke'], subject: 'Reset email question' }));
+    const c = tables.support_conversations[0];
+    await service.reply(c.id, ADMIN, 'Thanks, we are looking into it.');
+    expect(sent[0]).toMatchObject({ from: 'Help24 Security <security@help24.co.ke>', replyTo: 'security@help24.co.ke' });
+    expect(sent[0].text).toMatch(/looking into it\.\n\nHelp24 Security\n/);
+    expect(sent[0].html).toContain('Help24 Security');
+    expect(sent[0].text).not.toContain('Help24 Support');
+  });
+
+  it('security@ mail never mixes into the support view: it is listed and counted only on its own', async () => {
+    const { service } = setup();
+    await service.ingest(email());
+    await service.ingest(email({ to: ['info@help24.co.ke'], subject: 'Partnership' }));
+    await service.ingest(email({ to: ['security@help24.co.ke'], subject: 'Strange sign-in' }));
+
+    const every = await service.list({});
+    expect(every.conversations.map((c) => c.label).sort()).toEqual(['general', 'support']);
+    expect(every.counts.open).toBe(2);
+    expect(every.open_by_label).toEqual({ support: 1, general: 1, security: 1 });
+
+    const security = await service.list({ label: 'security' });
+    expect(security.conversations.map((c) => c.subject)).toEqual(['Strange sign-in']);
+    expect(security.counts.open).toBe(1);
+
+    expect((await service.list({ label: 'bogus' })).conversations).toHaveLength(2); // unknown label = the support view
   });
 
   it('a conversation shows its messages with who wrote them, and the member behind the address', async () => {

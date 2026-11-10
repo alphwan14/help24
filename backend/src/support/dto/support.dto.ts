@@ -7,8 +7,8 @@ export class ListConversationsQueryDto {
   status?: 'open' | 'waiting' | 'closed';
 
   @IsOptional()
-  @IsIn(['support', 'general'])
-  label?: 'support' | 'general';
+  @IsIn(['support', 'general', 'security'])
+  label?: 'support' | 'general' | 'security';
 }
 
 /** A reply or an internal note. Trimmed and checked again in the service. */

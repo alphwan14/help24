@@ -36,7 +36,13 @@ export function createFakeSupport({ personByEmail }) {
     } else {
       m.delivery = "sent";
       m.delivery_error = null;
-      mailOut.push({ to: c.contact_email, subject: `Re: ${c.subject} [${c.ref}]`, text: `${m.body}\n\nHelp24 Support\nhelp24.co.ke` });
+      const security = c.label === "security";
+      mailOut.push({
+        from: security ? "Help24 Security <security@help24.co.ke>" : "Help24 Support <support@help24.co.ke>",
+        to: c.contact_email,
+        subject: `Re: ${c.subject} [${c.ref}]`,
+        text: `${m.body}\n\n${security ? "Help24 Security" : "Help24 Support"}\nhelp24.co.ke`,
+      });
       touch(c, "waiting");
     }
     return { id: m.id, delivery: m.delivery, delivery_error: m.delivery_error };
@@ -55,7 +61,8 @@ export function createFakeSupport({ personByEmail }) {
     },
     /** As if workers/help24-mail had delivered an email to support@ or info@. */
     inbound({ from, name = null, to = "support@help24.co.ke", subject, text, verified = true, attachments = 0 }) {
-      const c = open({ email: from, name, subject, startedBy: "member", label: to.startsWith("info@") ? "general" : "support" });
+      const label = to.startsWith("security@") ? "security" : to.startsWith("info@") ? "general" : "support";
+      const c = open({ email: from, name, subject, startedBy: "member", label });
       messages.push({ id: randomUUID(), conversation_id: c.id, author: "member", admin_id: null, internal: false, channel: "email", body: text, full_body: null, sender_verified: verified, attachment_count: attachments, delivery: null, delivery_error: null, created_at: now() });
       return c;
     },
@@ -64,16 +71,20 @@ export function createFakeSupport({ personByEmail }) {
       if (method === "GET" && p === "/admin/support/conversations") {
         const status = url.searchParams.get("status");
         const label = url.searchParams.get("label");
+        // Without a label: support@ and info@ only; security@ is listed on its own.
+        const inScope = (c) => (label ? c.label === label : c.label !== "security");
         const list = conversations
-          .filter((c) => (status ? c.status === status : true) && (label ? c.label === label : true))
+          .filter((c) => (status ? c.status === status : true) && inScope(c))
           .sort((a, b) => b.last_message_at.localeCompare(a.last_message_at))
           .map((c) => {
             const last = messages.filter((m) => m.conversation_id === c.id && !m.internal).at(-1);
             return { ...c, preview: last ? { author: last.author, body: last.body.slice(0, 160) } : null };
           });
         const counts = { open: 0, waiting: 0, closed: 0 };
-        for (const c of conversations) counts[c.status]++;
-        return send(200, { counts, conversations: list });
+        for (const c of conversations.filter(inScope)) counts[c.status]++;
+        const open_by_label = { support: 0, general: 0, security: 0 };
+        for (const c of conversations) if (c.status === "open") open_by_label[c.label]++;
+        return send(200, { counts, open_by_label, conversations: list });
       }
       if (method === "POST" && p === "/admin/support/conversations") {
         if (!body.email || !body.subject?.trim() || !body.body?.trim()) return apiFail(400, "Write a message first.");
