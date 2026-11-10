@@ -19,6 +19,13 @@ const MAX_RAW = 25 * 1024 * 1024;
  * The Worker logs no addresses or content.
  */
 export async function handleEmail(message, env, { deliverImpl = deliver } = {}) {
+  // Secrets are pasted into the Cloudflare dashboard by hand, and a stray space
+  // or newline in the signing key would fail every delivery. The backend trims
+  // its copy of the key too, so both sides sign with the same bytes.
+  const url = setting(env.SUPPORT_INBOUND_URL);
+  const secret = setting(env.SUPPORT_INBOUND_SECRET);
+  const forwardTo = setting(env.FORWARD_TO);
+
   let raw = null;
   if (message.rawSize <= MAX_RAW) {
     try {
@@ -31,9 +38,9 @@ export async function handleEmail(message, env, { deliverImpl = deliver } = {}) 
   }
 
   let copied = false;
-  if (env.FORWARD_TO) {
+  if (forwardTo) {
     try {
-      await message.forward(env.FORWARD_TO);
+      await message.forward(forwardTo);
       copied = true;
     } catch (e) {
       console.error('[help24-mail] copy to the team inbox failed:', e instanceof Error ? e.message : String(e));
@@ -43,7 +50,7 @@ export async function handleEmail(message, env, { deliverImpl = deliver } = {}) 
     if (!copied) message.setReject(reason);
   };
 
-  if (!env.SUPPORT_INBOUND_URL || !env.SUPPORT_INBOUND_SECRET) {
+  if (!url || !secret) {
     console.error('[help24-mail] SUPPORT_INBOUND_URL / SUPPORT_INBOUND_SECRET not set');
     return refuse('Help24 could not accept this message right now. Please try again later.');
   }
@@ -59,11 +66,16 @@ export async function handleEmail(message, env, { deliverImpl = deliver } = {}) 
   }
   if (!json.from.address) return refuse('Help24 could not read the sender of this message.');
 
-  const result = await deliverImpl({ url: env.SUPPORT_INBOUND_URL, secret: env.SUPPORT_INBOUND_SECRET, json });
+  const result = await deliverImpl({ url, secret, json });
   if (!result.ok) {
     console.error(`[help24-mail] the Inbox did not take the message: status ${result.status} after ${result.attempts} attempts`);
     refuse('Help24 could not accept this message right now. Please try again later.');
   }
+}
+
+/** A setting as text without surrounding whitespace; '' when unset. */
+function setting(value) {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 export default {

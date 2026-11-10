@@ -124,6 +124,29 @@ test('the handler copies to the team inbox first, then hands the email to the In
   assert.equal(delivered.json.from.address, 'mary.wanjiku@example.com');
 });
 
+test('settings pasted with stray spaces or a newline still work', async () => {
+  const { message, calls } = fakeMessage(RAW_REPLY);
+  let delivered = null;
+  await handleEmail(
+    message,
+    {
+      SUPPORT_INBOUND_URL: ` ${ENV.SUPPORT_INBOUND_URL}\n`,
+      SUPPORT_INBOUND_SECRET: `  ${ENV.SUPPORT_INBOUND_SECRET}\r\n`,
+      FORWARD_TO: ' team@example.com\n',
+    },
+    { deliverImpl: async (args) => ((delivered = args), { ok: true, status: 200, attempts: 1 }) },
+  );
+  assert.deepEqual(calls.forward, ['team@example.com']);
+  assert.equal(delivered.url, ENV.SUPPORT_INBOUND_URL);
+  assert.equal(delivered.secret, ENV.SUPPORT_INBOUND_SECRET); // signs with the same bytes the backend trims to
+  assert.deepEqual(calls.reject, []);
+
+  // Whitespace alone is no secret: refused, not signed with an empty key.
+  const blank = fakeMessage(RAW_REPLY);
+  await handleEmail(blank.message, { ...ENV, SUPPORT_INBOUND_SECRET: '  \n' }, { deliverImpl: async () => assert.fail('must not deliver') });
+  assert.equal(blank.calls.reject.length, 1);
+});
+
 test('nothing is lost silently: no copy and no Inbox means the sender is told', async () => {
   const failing = async () => ({ ok: false, status: 503, attempts: 3 });
   const noCopy = fakeMessage(RAW_REPLY);

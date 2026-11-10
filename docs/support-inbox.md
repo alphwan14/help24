@@ -1,6 +1,8 @@
 # Support Inbox — members and Help24, both ways
 
-Status: **phase 1 built (2026-11-10), not yet live.** Owner decisions 2026-11-10:
+Status: **phase 1 built (2026-11-10), not yet live.** Migration 138 applied
+and verified 2026-11-10 (both tables, RLS on, no anon/authenticated access,
+refused from outside with the app key). Owner decisions 2026-11-10:
 build the Inbox with email first; replies are signed "Help24 Support"; info@
 lands in the same Inbox labelled General; keep a copy of every email going to
 the team's existing inbox for the first weeks; the new backend work is approved.
@@ -74,10 +76,12 @@ dashboard e2e section "support inbox" (11 checks).
 
 ## Rollout (owner steps, in order)
 
-1. **Apply migration 138** (SQL editor, or approve it).
+1. **Apply migration 138.** Done 2026-11-10.
 2. **Render** (help24-backend → Environment): `RESEND_API_KEY` (a Resend API
-   key with sending access for help24.co.ke) and `SUPPORT_INBOUND_SECRET`
-   (`openssl rand -hex 32`). Then the backend is merged to main and deploys.
+   key with sending access for help24.co.ke; already set, checked by name
+   2026-11-10) and `SUPPORT_INBOUND_SECRET` (the PowerShell line in the
+   Worker's DEPLOY.md, or `openssl rand -hex 32`). Then the backend is merged
+   to main and deploys.
 3. **Worker:** `workers/help24-mail/DEPLOY.md` — deploy, then set
    `SUPPORT_INBOUND_SECRET` (same value) and `FORWARD_TO` (the team inbox,
    already a verified Email Routing destination).

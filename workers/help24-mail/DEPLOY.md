@@ -31,15 +31,38 @@ npx wrangler deploy
 
 No route or domain: an Email Worker is invoked by Email Routing only.
 
-## 2. Secrets — piped, never typed into a command line
+## 2. Secrets
+
+Set on the Worker, never written in this repo. Spaces or a newline around a
+pasted value are ignored, by the Worker and by the backend alike.
+
+**Cloudflare dashboard** (simplest): Workers & Pages → `help24-mail` →
+Settings → Variables and Secrets → Add, type **Secret**, then Deploy.
+
+| Name | Value |
+|---|---|
+| `SUPPORT_INBOUND_SECRET` | the same value as on Render (help24-backend → Environment); make one with the PowerShell line below |
+| `FORWARD_TO` | the team inbox that gets a copy of every email. It must already be a **verified** address under Email Routing → Destination addresses (the one support@ forwards to today is) |
+
+To make the secret on Windows without it ever being shown (it lands on the
+clipboard, ready to paste into Render):
+
+```powershell
+$b = [byte[]]::new(32); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | ForEach-Object { $_.ToString('x2') }) | Set-Clipboard
+```
+
+**Or from a terminal**, piped so the value never sits in shell history:
 
 ```sh
 # The same value as SUPPORT_INBOUND_SECRET on Render (openssl rand -hex 32).
 <paste> | npx wrangler secret put SUPPORT_INBOUND_SECRET
-# The team inbox that receives a copy of every email. It must already be a
-# VERIFIED destination address under Email Routing → Destination addresses.
+# The team inbox that receives a copy of every email (verified destination).
 <paste> | npx wrangler secret put FORWARD_TO
 ```
+
+If the secret ever leaks, make a new one and replace it in both places
+(Render first, then here); mail arriving in between still reaches the team
+inbox through the copy.
 
 Until SUPPORT_INBOUND_SECRET is set, the Worker forwards the copy (if
 FORWARD_TO is set) and otherwise refuses the email, so the sender is told.
