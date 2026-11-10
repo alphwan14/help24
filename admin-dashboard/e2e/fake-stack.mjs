@@ -76,6 +76,8 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     [...people.values()].find((p) => p.email.toLowerCase() === String(email ?? "").toLowerCase()) ?? null;
 
   const support = createFakeSupport({ personByEmail });
+  const alertEmailSettings = new Map(); // admin email → { frequency, categories }
+  const alertEmailTests = []; // admin emails a test alert was sent to
 
   /** GoTrue's rule: the Site URL's host, or an allow-list entry; otherwise the Site URL itself. */
   function allowedRedirect(candidate) {
@@ -483,6 +485,25 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       const handled = support.handle({ method: req.method, p, url, body, admin: a, send, apiFail });
       if (handled !== null) return handled;
     }
+    if (p === "/admin/alert-emails" || p === "/admin/alert-emails/test") {
+      // The admin's own alert email setting (backend admin-alert-emails, migration 141).
+      const a = adminByToken();
+      if (!a) return apiFail(401, "Invalid admin token.");
+      const KINDS = ["financial", "trust_safety", "support", "marketplace"];
+      const mine = alertEmailSettings.get(a.email) ?? { frequency: "instant", categories: [...KINDS] };
+      const view = () => ({ ...(alertEmailSettings.get(a.email) ?? mine), email: a.email, available: true });
+      if (req.method === "GET" && p === "/admin/alert-emails") return send(200, view());
+      if (req.method === "PUT" && p === "/admin/alert-emails") {
+        if (!["instant", "daily", "off"].includes(body.frequency)) return apiFail(400, "Choose how often.");
+        if (!Array.isArray(body.categories) || body.categories.some((c) => !KINDS.includes(c))) return apiFail(400, "Unknown kind of alert.");
+        alertEmailSettings.set(a.email, { frequency: body.frequency, categories: KINDS.filter((k) => body.categories.includes(k)) });
+        return send(200, view());
+      }
+      if (req.method === "POST" && p === "/admin/alert-emails/test") {
+        alertEmailTests.push(a.email);
+        return send(200, { sent: true, to: a.email });
+      }
+    }
     if (req.method === "GET" && p === "/admin/alerts") {
       return adminByToken() ? send(200, { generated_at: new Date().toISOString(), alerts: alertList, unavailable: [] }) : apiFail(401, "Invalid admin token.");
     }
@@ -596,6 +617,9 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     origin, server, log, outbox, restores, admins, appConfig, configHistory,
     /** The support Inbox: fake.support.inbound(...) delivers an email; mailOut is what was sent. */
     support,
+    /** Alert email settings per admin email, and every test email requested. */
+    alertEmailSettings,
+    alertEmailTests,
     /** Alerts for GET /admin/alerts, in the backend's shape (lib/alerts.ts). */
     setAlerts(list) {
       alertList = list;

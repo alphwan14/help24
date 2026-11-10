@@ -33,6 +33,7 @@ import { AdminAlertsModule } from './admin/alerts/admin-alerts.module';
 import { FinanceRepairsModule } from './admin/finance/finance-repairs.module';
 import { VerificationsModule } from './verifications/verifications.module';
 import { SupportModule } from './support/support.module';
+import { AdminAlertEmailsModule } from './admin/alert-emails/admin-alert-emails.module';
 
 @Module({
   imports: [
@@ -110,8 +111,11 @@ import { SupportModule } from './support/support.module';
     // documents 30 days after the decision.
     VerificationsModule,
     // The support Inbox (migration 138): support@/info@ mail in through the
-    // Cloudflare Email Worker, staff replies out by email. A leaf.
+    // Cloudflare Email Worker, staff replies out by email.
     SupportModule,
+    // Email alerts for admins (migration 141): a 5-minute sweep over the alert
+    // list, each admin's own choice of kinds and right away / morning summary.
+    AdminAlertEmailsModule,
     // The client configuration plane: kill switches, maintenance mode, the
     // minimum-version gate and the client tunables that previously required a
     // Play release. A leaf — nothing imports it. Serves compiled defaults when

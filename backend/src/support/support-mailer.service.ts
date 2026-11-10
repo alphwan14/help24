@@ -5,12 +5,13 @@ import { Resend } from 'resend';
 export interface OutboundEmail {
   from: string;
   to: string;
-  replyTo: string;
+  /** Omitted for mail nobody should answer (admin alerts). */
+  replyTo?: string;
   subject: string;
   text: string;
   html: string;
   /** Message-ID, In-Reply-To, References: so the member's mail client threads it. */
-  headers: Record<string, string>;
+  headers?: Record<string, string>;
   /** Our message id: a retried send of the same message is not delivered twice. */
   idempotencyKey: string;
 }
@@ -38,6 +39,11 @@ export class SupportMailerService {
       if (!key) this.logger.warn('[SUPPORT] RESEND_API_KEY is not set — support replies are stored but not emailed.');
     }
     return this.client;
+  }
+
+  /** True when RESEND_API_KEY is set, so a send can be attempted at all. */
+  get configured(): boolean {
+    return this.resend() !== null;
   }
 
   /** Sends one email; throws MailNotSentError with a reason an admin can act on. */

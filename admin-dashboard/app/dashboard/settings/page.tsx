@@ -7,6 +7,9 @@ import ChangePasswordForm from "./ChangePasswordForm";
 import RefreshWhenConnected from "@/components/RefreshWhenConnected";
 import ResetLinkRequest from "./ResetLinkRequest";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { getAlertEmailSettings } from "@/lib/alert-emails";
+import type { AlertEmailSettings } from "@/lib/alert-email-options";
+import AlertEmailsForm from "./AlertEmailsForm";
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +64,11 @@ export default async function SettingsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login?message=session-expired");
 
-  const [identity, arbitration] = await Promise.all([
+  const [identity, arbitration, alertEmails] = await Promise.all([
     requireAdminIdentity(user.id),
     getCurrentAdmin(),
+    // Never blocks the page: an unreachable setting just hides its form.
+    getAlertEmailSettings().catch((): AlertEmailSettings | null => null),
   ]);
   if (!identity) redirect("/login?error=unauthorized");
 
@@ -98,6 +103,24 @@ export default async function SettingsPage() {
           <Row label="Sign-in method">{signInMethod}</Row>
           <Row label="Last sign-in">{fmtDateTime(user.last_sign_in_at)}</Row>
         </dl>
+      </section>
+
+      <section aria-labelledby="alert-emails-heading" className="card p-5 sm:p-6">
+        <h2 id="alert-emails-heading" className="text-base font-bold text-gray-900">
+          Email alerts
+        </h2>
+        <p className="mt-0.5 text-sm text-gray-500">
+          {alertEmails
+            ? `An email to ${alertEmails.email} when something needs you, so you don't have to keep checking. It says what kind of thing is waiting, never member details.`
+            : "An email when something needs you, so you don't have to keep checking."}
+        </p>
+        {alertEmails?.available ? (
+          <AlertEmailsForm initial={alertEmails} />
+        ) : (
+          <p className="mt-3 text-sm text-gray-500" data-testid="alert-emails-unavailable">
+            {alertEmails ? "Not switched on for the console yet." : "This setting could not be loaded. Reload to try again."}
+          </p>
+        )}
       </section>
 
       {/* Moved here from the bottom of the rail: a preference you set once

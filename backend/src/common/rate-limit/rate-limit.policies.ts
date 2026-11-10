@@ -638,6 +638,17 @@ export const RATE_LIMIT_POLICIES: readonly RateLimitPolicy[] = [
   },
 
   {
+    name: 'admin:alert-email-test',
+    rationale:
+      'An admin sends a sample alert email to their own address, to see that ' +
+      'alerts arrive. Each one is a real email through Resend, against a daily ' +
+      'sending quota. The service already allows one per admin per minute; ' +
+      'this per-IP cap keeps a stolen admin token from turning the button into ' +
+      'a mailer: 5 in 10 minutes is plenty for a person checking their inbox.',
+    rules: [{ id: 'ip', algorithm: 'sliding-window', by: 'ip', windowMs: 10 * MINUTE, limit: 5 }],
+  },
+
+  {
     name: 'admin:api',
     rationale:
       'Authenticated dashboard traffic. A human working through a dispute ' +

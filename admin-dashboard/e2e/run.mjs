@@ -246,6 +246,24 @@ try {
   check("every password input has a label", await evaluate(`[...document.querySelectorAll('form input[type=password]')].every(i => i.labels && i.labels.length === 1)`));
   await shot("1-settings-desktop.png");
 
+  // Email alerts: the admin's own choice, saved on the server; a test goes to their own address.
+  check("Email alerts: right away for every kind until the admin chooses",
+    await evaluate(`(() => { const s = document.querySelector('[data-testid="alert-emails"]'); return !!s && s.querySelector('input[name="alert-frequency"][value="instant"]').checked && [...s.querySelectorAll('input[name="alert-category"]')].every((c) => c.checked) && ${bodyHas(`An email to ${ALICE}`)}; })()`));
+  await click('[data-testid="alert-emails"] input[name="alert-frequency"][value="daily"]');
+  await click('[data-testid="alert-emails"] input[name="alert-category"][value="marketplace"]');
+  await clickText("Save", '[data-testid="alert-emails"] button');
+  await waitFor(`[...document.querySelectorAll('[data-testid="alert-emails"] [role="status"]')].some((p) => p.textContent === "Saved.")`, "alert emails saved", 15000);
+  const savedAlerts = fake.alertEmailSettings.get(ALICE);
+  check("Email alerts: a morning summary without Marketplace is saved for this admin only",
+    savedAlerts?.frequency === "daily" && savedAlerts.categories.join() === "financial,trust_safety,support" && !fake.alertEmailSettings.has(BOB), JSON.stringify(savedAlerts));
+  await clickText("Send me a test", '[data-testid="alert-emails"] button');
+  await waitFor(bodyHas(`Test email sent to ${ALICE}`), "test alert email", 15000);
+  check("Email alerts: a test goes to the admin's own address", fake.alertEmailTests.at(-1) === ALICE);
+  await goto(`${APP}/dashboard/settings`);
+  await waitFor(`!!document.querySelector('[data-testid="alert-emails"]')`, "settings reloaded", 15000);
+  check("Email alerts: the choice is still there after a reload",
+    await evaluate(`document.querySelector('input[name="alert-frequency"][value="daily"]').checked && !document.querySelector('input[name="alert-category"][value="marketplace"]').checked`));
+
   let mark = fake.log.length;
   await click(S.submit);
   await waitFor(`${bodyHas("Enter your current password.")} && ${bodyHas("Enter a new password.")} && ${bodyHas("Re-enter your new password.")}`, "empty-field errors");
