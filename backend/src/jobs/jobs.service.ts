@@ -16,6 +16,7 @@ import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
 import { deriveSettlementState } from './settlement-state';
 import { autoApproveDeadline, autoApproveHours } from './auto-approval';
+import { POST_IMAGES_BUCKET, postPhotoPaths } from './post-photos';
 
 @Injectable()
 export class JobsService {
@@ -769,7 +770,78 @@ export class JobsService {
     }
 
     this.logger.log(`[ARCHIVE] post=${postId} by=${userId} status=${update.status ?? post.status}`);
+    await this.removePostPhotos(postId);
     return { archived: true, status: (update.status as string) ?? (post.status as string) };
+  }
+
+  /**
+   * After the author deletes a post, remove its photos and their feed
+   * thumbnails from the public bucket. The archive keeps the post row for
+   * reviews, disputes and history; the images were still served to anyone
+   * with the link (audit 2026-10-29, D20), although "Delete post?" promises
+   * they are deleted.
+   *
+   * Kept, not removed:
+   *   - while the post has an OPEN report: reviewers look at the photos;
+   *   - a photo another live post also shows;
+   *   - anything outside `posts/` in this project's post-images bucket.
+   * Any doubt (a read fails) keeps the files. Best effort: the archive has
+   * already happened, so a storage failure is logged and never undoes it or
+   * fails the request.
+   */
+  private async removePostPhotos(postId: string): Promise<void> {
+    try {
+      const { data: openReports, error: reportsError } = await this.supabase.client
+        .from('user_reports')
+        .select('id')
+        .eq('post_id', postId)
+        .in('status', ['new', 'under_review', 'action_required'])
+        .limit(1);
+      if (reportsError) {
+        this.logger.warn(`[ARCHIVE][PHOTOS] post=${postId} kept: could not read reports (${reportsError.message})`);
+        return;
+      }
+      if ((openReports ?? []).length > 0) {
+        this.logger.log(`[ARCHIVE][PHOTOS] post=${postId} kept: the post has an open report`);
+        return;
+      }
+
+      const { data: images, error: imagesError } = await this.supabase.client
+        .from('post_images')
+        .select('image_url')
+        .eq('post_id', postId);
+      if (imagesError) {
+        this.logger.warn(`[ARCHIVE][PHOTOS] post=${postId} kept: could not read photos (${imagesError.message})`);
+        return;
+      }
+      const urls = (images ?? [])
+        .map((r) => (r as { image_url: string | null }).image_url)
+        .filter((u): u is string => !!u);
+      if (urls.length === 0) return;
+
+      const { data: shared, error: sharedError } = await this.supabase.client
+        .from('post_images')
+        .select('image_url, posts!inner(archived_at)')
+        .in('image_url', urls)
+        .neq('post_id', postId)
+        .is('posts.archived_at', null);
+      if (sharedError) {
+        this.logger.warn(`[ARCHIVE][PHOTOS] post=${postId} kept: could not check other posts (${sharedError.message})`);
+        return;
+      }
+      const inUse = new Set((shared ?? []).map((r) => (r as { image_url: string }).image_url));
+      const paths = postPhotoPaths(urls.filter((u) => !inUse.has(u)), this.supabase.url);
+      if (paths.length === 0) return;
+
+      const { error } = await this.supabase.client.storage.from(POST_IMAGES_BUCKET).remove(paths);
+      if (error) {
+        this.logger.warn(`[ARCHIVE][PHOTOS] post=${postId} not removed: ${error.message}`);
+        return;
+      }
+      this.logger.log(`[ARCHIVE][PHOTOS] post=${postId} removed ${paths.length} file(s)`);
+    } catch (e) {
+      this.logger.warn(`[ARCHIVE][PHOTOS] post=${postId} not removed: ${(e as Error).message}`);
+    }
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────
