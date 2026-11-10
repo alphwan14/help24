@@ -1,8 +1,12 @@
 # Support Inbox — members and Help24, both ways
 
-Status: **phase 1 built (2026-11-10), not yet live.** Migration 138 applied
-and verified 2026-11-10 (both tables, RLS on, no anon/authenticated access,
-refused from outside with the app key). Owner decisions 2026-11-10:
+Status: **phase 1 LIVE (2026-11-10).** Backend, dashboard and Worker deployed;
+support@, info@ and security@ route to the Worker; DMARC `p=none`; copies go to
+the owner's two inboxes (FORWARD_TO is a list); round trip tested from Yahoo and
+Gmail. security@ is its own inbox since 2026-11-11 (migration 140): listed only
+under Security, answered from security@ as "Help24 Security". Admins are told
+about waiting mail by email: see [admin-alert-emails.md](admin-alert-emails.md).
+Owner decisions 2026-11-10:
 build the Inbox with email first; replies are signed "Help24 Support"; info@
 lands in the same Inbox labelled General; keep a copy of every email going to
 the team's existing inbox for the first weeks; the new backend work is approved.
@@ -16,9 +20,9 @@ between a member and Help24 lives, whatever channel it came in on.
 |---|---|---|
 | `support@help24.co.ke` | Help, problems, account questions; the address the app and website already show | Inbox, **Support** |
 | `info@help24.co.ke` | General enquiries | Inbox, **General** |
-| `security@help24.co.ke` | Sender of auth emails (Supabase); unchanged | The team inbox, as today |
+| `security@help24.co.ke` | Sender of auth emails (Supabase); replies to them and security reports | Inbox, **Security** (its own view, never in "Every inbox") |
 
-Members always see **"Help24 Support"**. Which admin wrote a reply is recorded
+Members always see **"Help24 Support"** (security@ mail: **"Help24 Security"**). Which admin wrote a reply is recorded
 for the team only. Internal notes are never sent.
 
 ## How mail flows
