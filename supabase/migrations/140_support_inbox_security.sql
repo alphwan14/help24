@@ -1,5 +1,5 @@
 -- =============================================================================
--- Migration 139: security@ gets its own place in the Inbox
+-- Migration 140: security@ gets its own place in the Inbox
 -- =============================================================================
 -- Widens one CHECK: a support conversation's label may now be 'security' as
 -- well as 'support' and 'general'. No rows change; nothing else is touched.
