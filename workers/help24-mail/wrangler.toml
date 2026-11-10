@@ -18,5 +18,6 @@ SUPPORT_INBOUND_URL = "https://api.help24.co.ke/support/inbound-email"
 
 # Secrets — set with `wrangler secret put <NAME>`, never written here:
 #   SUPPORT_INBOUND_SECRET  the same value as the backend's (Render)
-#   FORWARD_TO              the team inbox that gets a copy of every email
-#                           (a verified Email Routing destination). Unset = no copy.
+#   FORWARD_TO              the team inbox(es) that get a copy of every email,
+#                           comma-separated, up to 5; each a verified Email
+#                           Routing destination. Unset = no copy.

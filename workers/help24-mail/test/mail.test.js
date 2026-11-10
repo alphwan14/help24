@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import PostalMime from 'postal-mime';
 import { buildPayload, deliver, htmlToText, isAutomated, signedBody } from '../src/mail.js';
-import { handleEmail } from '../src/index.js';
+import { copyAddresses, handleEmail } from '../src/index.js';
 
 const headers = (h = {}) => new Headers(h);
 
@@ -145,6 +145,27 @@ test('settings pasted with stray spaces or a newline still work', async () => {
   const blank = fakeMessage(RAW_REPLY);
   await handleEmail(blank.message, { ...ENV, SUPPORT_INBOUND_SECRET: '  \n' }, { deliverImpl: async () => assert.fail('must not deliver') });
   assert.equal(blank.calls.reject.length, 1);
+});
+
+test('copies go to every address in FORWARD_TO, and one failing does not stop the rest', async () => {
+  assert.deepEqual(copyAddresses(' a@x.com, b@y.com;A@X.com  c@z.com\n'), ['a@x.com', 'b@y.com', 'c@z.com']);
+  assert.deepEqual(copyAddresses(''), []);
+  assert.deepEqual(copyAddresses(undefined), []);
+  assert.deepEqual(copyAddresses('not-an-address, ok@x.com'), ['ok@x.com']);
+  assert.equal(copyAddresses('1@x.co 2@x.co 3@x.co 4@x.co 5@x.co 6@x.co').length, 5);
+
+  const { message, calls } = fakeMessage(RAW_REPLY);
+  const tried = [];
+  message.forward = async (addr) => {
+    tried.push(addr);
+    if (addr === 'unverified@example.com') throw new Error('destination address not verified');
+    calls.forward.push(addr);
+  };
+  const failing = async () => ({ ok: false, status: 503, attempts: 3 });
+  await handleEmail(message, { ...ENV, FORWARD_TO: 'unverified@example.com, team@example.com' }, { deliverImpl: failing });
+  assert.deepEqual(tried, ['unverified@example.com', 'team@example.com']);
+  assert.deepEqual(calls.forward, ['team@example.com']);
+  assert.deepEqual(calls.reject, []); // one copy landed, so the email is not refused
 });
 
 test('nothing is lost silently: no copy and no Inbox means the sender is told', async () => {

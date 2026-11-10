@@ -42,7 +42,7 @@ Settings → Variables and Secrets → Add, type **Secret**, then Deploy.
 | Name | Value |
 |---|---|
 | `SUPPORT_INBOUND_SECRET` | the same value as on Render (help24-backend → Environment); make one with the PowerShell line below |
-| `FORWARD_TO` | the team inbox that gets a copy of every email. It must already be a **verified** address under Email Routing → Destination addresses (the one support@ forwards to today is) |
+| `FORWARD_TO` | the team inbox(es) that get a copy of every email, comma-separated (up to 5). Each must already be a **verified** address under Email Routing → Destination addresses; an unverified one is skipped, the others still get their copy |
 
 To make the secret on Windows without it ever being shown (it lands on the
 clipboard, ready to paste into Render):

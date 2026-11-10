@@ -9,8 +9,8 @@ const MAX_RAW = 25 * 1024 * 1024;
  * here. In order:
  *
  *  1. The raw email is read once, into memory (a stream can be read only once).
- *  2. A copy goes to FORWARD_TO (the team's existing inbox), when set: the
- *     safety net while the Inbox is new. Forwarding never depends on step 4.
+ *  2. A copy goes to each address in FORWARD_TO (the team's own inboxes), when
+ *     set: the safety net while the Inbox is new. Never depends on step 4.
  *  3. The email is parsed (postal-mime) and turned into the backend's JSON.
  *  4. It is POSTed, signed, to SUPPORT_INBOUND_URL, with retries.
  *
@@ -37,13 +37,14 @@ export async function handleEmail(message, env, { deliverImpl = deliver } = {}) 
     console.error(`[help24-mail] message too large to read (${message.rawSize} bytes)`);
   }
 
+  // One copy per address; one failing (say, not yet verified) never stops the others.
   let copied = false;
-  if (forwardTo) {
+  for (const [i, address] of copyAddresses(forwardTo).entries()) {
     try {
-      await message.forward(forwardTo);
+      await message.forward(address);
       copied = true;
     } catch (e) {
-      console.error('[help24-mail] copy to the team inbox failed:', e instanceof Error ? e.message : String(e));
+      console.error(`[help24-mail] copy ${i + 1} to the team inbox failed:`, e instanceof Error ? e.message : String(e));
     }
   }
   const refuse = (reason) => {
@@ -71,6 +72,27 @@ export async function handleEmail(message, env, { deliverImpl = deliver } = {}) 
     console.error(`[help24-mail] the Inbox did not take the message: status ${result.status} after ${result.attempts} attempts`);
     refuse('Help24 could not accept this message right now. Please try again later.');
   }
+}
+
+/** At most this many copies per email. */
+const MAX_COPIES = 5;
+
+/**
+ * FORWARD_TO as a list: addresses separated by commas, semicolons or spaces,
+ * each once (case-insensitively), at most MAX_COPIES. Each must be a verified
+ * Email Routing destination, or Cloudflare refuses that copy.
+ */
+export function copyAddresses(value) {
+  const seen = new Set();
+  const out = [];
+  for (const part of String(value ?? '').split(/[\s,;]+/)) {
+    const address = part.trim();
+    if (!address.includes('@') || seen.has(address.toLowerCase())) continue;
+    seen.add(address.toLowerCase());
+    out.push(address);
+    if (out.length === MAX_COPIES) break;
+  }
+  return out;
 }
 
 /** A setting as text without surrounding whitespace; '' when unset. */
