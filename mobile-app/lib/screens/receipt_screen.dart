@@ -351,7 +351,7 @@ class _ReceiptDocument extends StatelessWidget {
                       _MoneyRow('Service amount', receipt.amount!, isDark: isDark),
                     if (receipt.platformFee != null && receipt.platformFee! > 0) ...[
                       const SizedBox(height: 8),
-                      _MoneyRow('Help24 service fee', receipt.platformFee!, isDark: isDark),
+                      _MoneyRow('Payment protection', receipt.platformFee!, isDark: isDark),
                     ],
                     if (receipt.refundedAmount != null && receipt.refundedAmount! > 0) ...[
                       const SizedBox(height: 8),
