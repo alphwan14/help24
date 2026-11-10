@@ -8,6 +8,7 @@ import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/format_utils.dart';
+import '../utils/payment_utils.dart';
 import '../utils/mpesa_failure_copy.dart';
 
 // ─── State machine ────────────────────────────────────────────────────────────
@@ -537,12 +538,12 @@ class _IdleView extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpace.md),
                 _BreakdownRow(
-                  label: 'Platform fee',
+                  label: 'Payment protection',
                   value: formatPriceDisplay(platformFee),
                   textPrimary: textSecondary,
                   textSecondary: textSecondary,
                   isSmall: true,
-                  tooltip: 'Covers payment protection & support',
+                  tooltip: feeRuleText,
                 ),
                 // Whitespace, not a rule, sets the total apart.
                 const SizedBox(height: AppSpace.xl),

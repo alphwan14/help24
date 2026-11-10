@@ -2,7 +2,8 @@ import "server-only";
 import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase-server";
 import { DEFAULT_PERIOD, isPeriodKey, resolvePeriod, type Period } from "@/lib/periods";
-import type { ActiveRow, AppRow, PlaceRow, PostRow, PromoRow, TxRow, UserRow } from "@/lib/analytics";
+import { jobRows } from "@/lib/analytics";
+import type { ActiveRow, AppRow, HiredPostRow, JobRow, PlaceRow, PostRow, PromoRow, SelectionEventRow, TxRow, UserRow } from "@/lib/analytics";
 
 const PERIOD_COOKIE = "h24_period"; // mirrors components/analytics/PeriodSelect
 
@@ -100,6 +101,29 @@ export async function readPlaces(): Promise<PlaceRow[]> {
   return readAll<PlaceRow>((a, b) =>
     db.from("locations").select("id, name, kind, parent_id, county, latitude, longitude, aliases, active").order("id").range(a, b),
   );
+}
+
+/**
+ * Every job ever (not just the period's), because "hired before" and
+ * "kept from the period before" have to look back past it. One row per hire,
+ * so this stays small long after posts and events do not.
+ */
+export async function readJobs(): Promise<JobRow[]> {
+  const db = createServiceClient();
+  const [posts, events] = await Promise.all([
+    readAll<HiredPostRow>((a, b) =>
+      db
+        .from("posts")
+        .select("id, created_at, author_user_id, selected_provider_id")
+        .not("selected_provider_id", "is", null)
+        .order("created_at")
+        .range(a, b),
+    ),
+    readAll<SelectionEventRow>((a, b) =>
+      db.from("system_events").select("entity_id, created_at").eq("type", "post.provider_selected").order("created_at").range(a, b),
+    ),
+  ]);
+  return jobRows(posts, events);
 }
 
 /** Categories of the given posts, in chunks (a URL can only carry so many ids). */

@@ -1,7 +1,7 @@
 // node --test lib/analytics.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { durationText, geography, growth, placeMatcher, revenue } from "./analytics.ts";
+import { durationText, geography, growth, jobRows, jobsAndRetention, placeMatcher, revenue } from "./analytics.ts";
 import { resolvePeriod, slotsFor } from "./periods.ts";
 
 const NOW = new Date("2026-11-09T07:30:00Z");
@@ -66,6 +66,56 @@ test("growth: members, providers, actives, response and hire rates, first-respon
   assert.equal(durationText(g.medianWaitMs), "1h");
   assert.equal(g.categories[0].category, "Plumbing");
   assert.deepEqual(g.postsDaily[3].values, [1, 1]);
+});
+
+test("jobs: one per hire, dated at the latest selection, self-hires dropped", () => {
+  const posts = [
+    { id: "a", created_at: at("10-01"), author_user_id: "c1", selected_provider_id: "p1" },
+    { id: "b", created_at: at("02-20"), author_user_id: "c2", selected_provider_id: "p2" }, // before the event log
+    { id: "c", created_at: at("11-01"), author_user_id: "c3", selected_provider_id: "c3" }, // self
+  ];
+  const events = [
+    { entity_id: "a", created_at: at("11-04", 10) },
+    { entity_id: "a", created_at: at("11-05", 10) }, // re-selected: the later one counts
+  ];
+  const rows = jobRows(posts, events);
+  assert.deepEqual(rows.map((r) => r.post_id), ["b", "a"]);
+  assert.equal(rows[1].at, Date.parse(at("11-05", 10)));
+  assert.equal(rows[0].at, Date.parse(at("02-20")));
+});
+
+test("jobs and retention: jobs a week, repeat customers, providers kept", () => {
+  const W = slotsFor({ ...P, bucket: "week" }, NOW.getTime()); // Tue 3 to Sun 8 Nov, then Mon 9 Nov
+  const job = (id, d, customer, provider) => ({ post_id: id, at: Date.parse(at(d)), customer, provider });
+  const jobs = [
+    job("e1", "10-20", "c1", "p1"), // two periods back
+    job("e2", "10-21", "c9", "p9"),
+    job("b1", "10-28", "c2", "p1"), // the 7 days before
+    job("b2", "10-30", "c3", "p2"),
+    job("n1", "11-04", "c1", "p1"), // this period: c1 hired before, p1 kept
+    job("n2", "11-05", "c4", "p3"),
+    job("n3", "11-06", "c4", "p3"), // c4 twice in the period: repeat too
+    job("n4", "11-09", "c5", "p4"),
+  ];
+  const j = jobsAndRetention(jobs, P, W);
+  assert.deepEqual(j.jobs, { now: 4, before: 2 });
+  assert.equal(j.perWeek.now, 4); // a 7-day period is one week
+  assert.deepEqual(j.customers, { now: 3, before: 2 });
+  assert.deepEqual(j.repeatCustomers, { now: 2, before: 0 }); // c1 and c4
+  assert.ok(Math.abs(j.repeatRate.now - 2 / 3) < 1e-9);
+  // p1 and p2 worked the week before; only p1 worked again.
+  assert.deepEqual(j.providerBase, { now: 2, before: 2 });
+  assert.deepEqual(j.providersKept, { now: 1, before: 1 }); // and p1 carried over from two back
+  assert.equal(j.retention.now, 0.5);
+  assert.equal(W.length, 2);
+  assert.deepEqual([j.weekly[0].values[0], j.weekly[1].values[0]], [3, 1]); // 3 to 8 Nov, then 9 Nov
+  assert.equal(j.weekly[0].previous + j.weekly[1].previous, 2);
+  assert.deepEqual(j.allTime, { jobs: 8, customers: 6, repeatCustomers: 2, providers: 5, repeatProviders: 2 });
+});
+
+test("jobs and retention: an empty marketplace reads as zeros, not NaN", () => {
+  const j = jobsAndRetention([], P, slotsFor({ ...P, bucket: "week" }, NOW.getTime()));
+  assert.deepEqual([j.jobs.now, j.perWeek.now, j.repeatRate.now, j.retention.now], [0, 0, 0, 0]);
 });
 
 const REG = [

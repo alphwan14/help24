@@ -165,7 +165,14 @@ Blocked until all of these are true — the promise is false before them:
 ### Owner decisions, 2026-11-04
 
 - **Tariff: 5% of the job, paid by the customer, minimum KES 30, maximum
-  KES 1,000.** The provider keeps 100% of the agreed price. Replaces the flat
+  KES 1,000.** Reconfirmed 2026-11-10 and shipped (`fee.ts`,
+  `payment_utils.dart`, one golden table in both test suites). The KES 30 minimum
+  exists because M-Pesa in and out costs about KES 23 on any job up to
+  KES 1,000, and 5% alone loses money below about KES 460. The cap stays
+  because big jobs are where cash is most tempting: KES 1,000 on a KES 50,000
+  job (2%) reads as cheap protection, KES 2,500 reads as worth dodging, and the
+  capped fee still clears about KES 745 after M-Pesa. The provider keeps 100% of
+  the agreed price. Replaces the flat
   tiers (20/45/95/195/295), which cost more in M-Pesa fees than they earned on
   mid-size jobs. Shown, never hidden, and named for what it buys:
   "Total KES 1,050 · includes KES 50 payment protection" — not a

@@ -1,9 +1,10 @@
-import { growth, pct, durationText } from "@/lib/analytics";
+import { growth, jobsAndRetention, pct, durationText } from "@/lib/analytics";
 import { slotsFor } from "@/lib/periods";
 import {
   periodFor,
   readActiveDays,
   readApplications,
+  readJobs,
   readNewMembers,
   readPosts,
   readTransactions,
@@ -29,26 +30,50 @@ const n = (x: number) => Math.round(x).toLocaleString("en-KE");
 export default async function GrowthPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
   const period = await periodFor(searchParams);
   const slots = slotsFor(period);
+  // "Jobs per week" is weekly whatever the period's own chart bucket is.
+  const weeks = slotsFor({ ...period, bucket: "week" });
   const read = await settle(async () => {
-    const [users, active, posts, apps, tx] = await Promise.all([
+    const [users, active, posts, apps, tx, jobs] = await Promise.all([
       readNewMembers(period),
       readActiveDays(period),
       readPosts(period, "id, created_at, type, category, status, selected_provider_id"),
       readApplications(period),
       readTransactions(period),
+      readJobs(),
     ]);
-    return growth(users, active, posts, apps, tx, period, slots);
+    return { g: growth(users, active, posts, apps, tx, period, slots), j: jobsAndRetention(jobs, period, weeks) };
   });
 
   return (
     <div>
       <TabToolbar title="Growth" sub={`People and marketplace activity, against ${period.versus}`} period={period} />
-      {!read.ok ? <ReadFailed what="growth figures" error={read.error} /> : <GrowthView g={read.data} slots={slots} bucket={perBucket(period)} />}
+      {!read.ok ? (
+        <ReadFailed what="growth figures" error={read.error} />
+      ) : (
+        <GrowthView g={read.data.g} j={read.data.j} slots={slots} weeks={weeks} bucket={perBucket(period)} versus={period.versus} />
+      )}
     </div>
   );
 }
 
-function GrowthView({ g, slots, bucket }: { g: ReturnType<typeof growth>; slots: ReturnType<typeof slotsFor>; bucket: string }) {
+const perWeekText = (x: number) => (x > 0 && x < 10 ? x.toFixed(1) : n(x));
+const plural = (count: number, one: string, many: string) => `${n(count)} ${count === 1 ? one : many}`;
+
+function GrowthView({
+  g,
+  j,
+  slots,
+  weeks,
+  bucket,
+  versus,
+}: {
+  g: ReturnType<typeof growth>;
+  j: ReturnType<typeof jobsAndRetention>;
+  slots: ReturnType<typeof slotsFor>;
+  weeks: ReturnType<typeof slotsFor>;
+  bucket: string;
+  versus: string;
+}) {
   const col = (data: Array<{ values: number[]; previous: number }>) =>
     slots.map((s, i) => ({ label: s.label, short: s.short, future: s.future, values: data[i].values, previous: data[i].previous }));
 
@@ -122,6 +147,44 @@ function GrowthView({ g, slots, bucket }: { g: ReturnType<typeof growth>; slots:
           <TrendColumns columns={col(g.signups)} series={[{ key: "members", label: "New members", className: "bg-info-500" }]} />
         </Panel>
       </div>
+
+      <div>
+        <p className="text-[12px] font-semibold text-gray-500 mb-2.5">Jobs and retention</p>
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
+          <Stat label="Jobs" value={n(j.jobs.now)} current={j.jobs.now} previous={j.jobs.before} sub="Providers hired" />
+          <Stat label="Jobs a week" value={perWeekText(j.perWeek.now)} sub="Average over the period" />
+          {/* The two rates show "x of y" instead of a change pill: at these
+              numbers a percentage move is one person, and the count says so. */}
+          <Stat
+            label="Repeat customers"
+            value={pct(j.repeatRate.now)}
+            sub={j.customers.now > 0 ? `${n(j.repeatCustomers.now)} of ${plural(j.customers.now, "customer", "customers")} hired again` : "No customers hired in the period"}
+          />
+          <Stat
+            label="Providers kept"
+            value={pct(j.retention.now)}
+            sub={
+              j.providerBase.now > 0
+                ? `${n(j.providersKept.now)} of ${n(j.providerBase.now)} from ${versus}`
+                : `No jobs in ${versus}`
+            }
+          />
+        </div>
+      </div>
+
+      <Panel
+        title="Jobs per week"
+        sub={`${plural(j.jobs.now, "job", "jobs")} for ${plural(j.customers.now, "customer", "customers")} by ${plural(j.providers.now, "provider", "providers")}`}
+      >
+        <TrendColumns
+          columns={weeks.map((s, i) => ({ label: s.label, short: s.short, future: s.future, values: j.weekly[i].values, previous: j.weekly[i].previous }))}
+          series={[{ key: "jobs", label: "Jobs", className: "bg-brand-600" }]}
+        />
+        <p className="mt-4 text-[12px] text-gray-500">
+          All time: {plural(j.allTime.jobs, "job", "jobs")}. {n(j.allTime.repeatCustomers)} of {plural(j.allTime.customers, "customer", "customers")} hired more
+          than once, and {n(j.allTime.repeatProviders)} of {plural(j.allTime.providers, "provider", "providers")} did more than one job.
+        </p>
+      </Panel>
 
       <Panel title={`Requests and offers ${bucket}`} sub="Demand (requests) and supply (offers) posted">
         <TrendColumns

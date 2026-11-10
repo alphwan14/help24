@@ -13,6 +13,8 @@
  *   - Earnings: job fees on paid transactions plus paid promotion sales.
  *   - Responded: a request with at least one application.
  *   - Hired: a request with a selected provider (assigned, completed or disputed).
+ *   - Job: one hire, dated when the provider was selected (jobRows). Repeat
+ *     customers and provider retention are counted over jobs.
  */
 
 import type { Period, Slot } from "./periods";
@@ -278,6 +280,108 @@ export function growth(
     categories: [...cats.entries()]
       .map(([category, c]) => ({ category, ...c, responseRate: ratio(c.responded, c.requests) }))
       .sort((a, b) => b.requests - a.requests),
+  };
+}
+
+/* ─── Jobs and retention ──────────────────────────────────────────────────── */
+
+export type HiredPostRow = { id: string; created_at: string; author_user_id: string | null; selected_provider_id: string | null };
+export type SelectionEventRow = { entity_id: string | null; created_at: string };
+export type JobRow = { post_id: string; at: number; customer: string; provider: string };
+
+/**
+ * One job per post with a selected provider (a hire), dated when that
+ * provider was selected: the post's latest `post.provider_selected` event,
+ * or the post's own date for hires older than the event log (Feb 2026).
+ * The customer is the post's author; the provider is the one selected now.
+ * A post whose author selected themselves is not a job.
+ */
+export function jobRows(posts: HiredPostRow[], events: SelectionEventRow[]): JobRow[] {
+  const selectedAt = new Map<string, number>();
+  for (const e of events) {
+    const ms = t(e.created_at);
+    if (!e.entity_id || !Number.isFinite(ms)) continue;
+    const cur = selectedAt.get(e.entity_id);
+    if (cur == null || ms > cur) selectedAt.set(e.entity_id, ms);
+  }
+  const out: JobRow[] = [];
+  for (const post of posts) {
+    const customer = post.author_user_id;
+    const provider = post.selected_provider_id;
+    if (!customer || !provider || customer === provider) continue;
+    const at = selectedAt.get(post.id) ?? t(post.created_at);
+    if (Number.isFinite(at)) out.push({ post_id: post.id, at, customer, provider });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+const WEEK = 7 * 86_400_000;
+
+/**
+ * Jobs a week, repeat customers and provider retention, from every job ever
+ * (jobRows), so "had hired before" can look back past the period.
+ *
+ *   - Repeat customer: hired in the period, with at least two jobs in all up
+ *     to the period's end (two in the period counts).
+ *   - Providers kept: of the providers with a job in the period before, the
+ *     share with a job in this one. Its own "before" uses the period before
+ *     that, of the same length.
+ *   - Jobs a week: jobs in the period over its length in weeks, at least one
+ *     (the same rule as "Active on an average day").
+ */
+export function jobsAndRetention(jobs: JobRow[], p: Period, weeks: Slot[]) {
+  const within = (a: number, b: number) => jobs.filter((j) => j.at >= a && j.at < b);
+  const now = within(p.start, p.end);
+  const before = within(p.prevStart, p.prevEnd);
+
+  const repeatOf = (win: JobRow[], end: number) => {
+    const customers = new Set(win.map((j) => j.customer));
+    const count = new Map<string, number>();
+    for (const j of jobs) if (j.at < end) count.set(j.customer, (count.get(j.customer) ?? 0) + 1);
+    let repeat = 0;
+    for (const c of customers) if ((count.get(c) ?? 0) >= 2) repeat++;
+    return { customers: customers.size, repeat };
+  };
+  const rNow = repeatOf(now, p.end);
+  const rBefore = repeatOf(before, p.prevEnd);
+
+  const providersOf = (win: JobRow[]) => new Set(win.map((j) => j.provider));
+  const len = p.prevEnd - p.prevStart;
+  const pNow = providersOf(now);
+  const pBefore = providersOf(before);
+  const pEarlier = providersOf(within(p.prevStart - len, p.prevStart));
+  const keptOf = (from: Set<string>, to: Set<string>) => [...from].filter((x) => to.has(x)).length;
+
+  const ratio = (a: number, b: number) => (b > 0 ? a / b : 0);
+  const perWeek = (count: number, ms: number) => count / Math.max(1, ms / WEEK);
+
+  const everCustomers = new Map<string, number>();
+  const everProviders = new Map<string, number>();
+  for (const j of jobs) {
+    everCustomers.set(j.customer, (everCustomers.get(j.customer) ?? 0) + 1);
+    everProviders.set(j.provider, (everProviders.get(j.provider) ?? 0) + 1);
+  }
+  const moreThanOnce = (m: Map<string, number>) => [...m.values()].filter((c) => c >= 2).length;
+
+  return {
+    jobs: { now: now.length, before: before.length },
+    perWeek: { now: perWeek(now.length, p.end - p.start), before: perWeek(before.length, len) },
+    customers: { now: rNow.customers, before: rBefore.customers },
+    repeatCustomers: { now: rNow.repeat, before: rBefore.repeat },
+    repeatRate: { now: ratio(rNow.repeat, rNow.customers), before: ratio(rBefore.repeat, rBefore.customers) },
+    providers: { now: pNow.size, before: pBefore.size },
+    /** Providers from the period before (now) and the one before that (before). */
+    providerBase: { now: pBefore.size, before: pEarlier.size },
+    providersKept: { now: keptOf(pBefore, pNow), before: keptOf(pEarlier, pBefore) },
+    retention: { now: ratio(keptOf(pBefore, pNow), pBefore.size), before: ratio(keptOf(pEarlier, pBefore), pEarlier.size) },
+    weekly: columnsFor(jobs, (j) => j.at, () => [1], weeks, p, 1),
+    allTime: {
+      jobs: jobs.length,
+      customers: everCustomers.size,
+      repeatCustomers: moreThanOnce(everCustomers),
+      providers: everProviders.size,
+      repeatProviders: moreThanOnce(everProviders),
+    },
   };
 }
 
