@@ -38,10 +38,13 @@ iconsax.ttf diffs; `scripts/shorebird/patch.sh` does not pass that flag, so
 its first run ended "Not publishing"). Log `~/h24build/out/patch-1.0.11-p6.log`,
 ends "Published Patch 6!". Phone check on the published APK still owed.
 
-Ready for Patch 7 (not yet published): **photos in Message Help24**
-(docs/support-inbox.md § Phase 2). Copy in Dart; icons `attachment`, `camera`,
-`gallery`, `close` were all used in `1b473b7`; `image_picker` is already in the
-release. Needs migration 143 and the backend first.
+**Patch 7 (`bea0fe5`, published to stable 2026-11-11): photos in Message
+Help24** (docs/support-inbox.md § Phase 2). Copy in Dart; icons `attachment`,
+`camera`, `gallery`, `close` were all used in `1b473b7`; `image_picker` is
+already in the release. Migration 143 and the backend were live first.
+`--allow-asset-diffs` (the usual en.json and iconsax.ttf diffs). Log
+`~/h24build/out/patch-1.0.11-p7.log`, ends "Published Patch 7!". Phone check
+on the published APK still owed (Patches 6 and 7 together).
 
 ## Patches on 1.0.11 (stable)
 
