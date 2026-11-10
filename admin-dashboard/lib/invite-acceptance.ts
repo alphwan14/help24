@@ -76,8 +76,10 @@ export interface InviteEffects {
  */
 export const INVITE_ERRORS = {
   "missing-token": "Missing invite token.",
-  name: "Enter your full name.",
+  name: "Enter your first and last name.",
   "password-short": "Password must be at least 8 characters.",
+  "password-digits": "Add letters as well as numbers.",
+  "password-long": "That password is too long. Use a shorter one.",
   "password-mismatch": "Passwords do not match.",
   "already-used": "This invitation has already been used. If you set your password with it, sign in instead.",
   invitation: "This invitation can no longer be used.",
@@ -102,11 +104,29 @@ export type InviteOutcome =
   /** Nothing to hand off — back to the form, saying why. */
   | { kind: "error"; code: InviteErrorCode };
 
+/**
+ * The full name from the form's First name and Last name boxes: both are
+ * needed, spaces tidied. Empty when either is missing, so validation answers
+ * "name". A form loaded before the split posts one `name` field; that still
+ * works as `legacy`.
+ */
+export function joinName(first: string, last: string, legacy = ""): string {
+  const clean = (s: string) => s.replace(/\s+/g, " ").trim();
+  const f = clean(first);
+  const l = clean(last);
+  if (f || l) return f && l ? `${f} ${l}` : "";
+  return clean(legacy);
+}
+
 /** The checks the form has always made, before anything is sent. */
 export function validateInviteForm(form: InviteForm): InviteErrorCode | null {
   if (!form.token.trim()) return "missing-token";
   if (form.name.trim().length < 2) return "name";
+  // The same rules as passwordProblem (lib/admin-password.ts) and the app's
+  // AuthService.validatePassword; a test holds them together.
   if (form.password.length < 8) return "password-short";
+  if (/^\d+$/.test(form.password)) return "password-digits";
+  if (new TextEncoder().encode(form.password).length > 72) return "password-long";
   if (form.password !== form.confirm) return "password-mismatch";
   return null;
 }

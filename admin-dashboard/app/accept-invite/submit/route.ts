@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { publicRequest, type AcceptInviteResult } from "@/lib/api";
 import { storeArbitrationToken } from "@/lib/arbitration-session";
 import { requireAdminIdentity } from "@/lib/admin-identity";
-import { acceptInvitation } from "@/lib/invite-acceptance";
+import { acceptInvitation, joinName } from "@/lib/invite-acceptance";
 import { isInvitedEmail } from "@/lib/invite-email-binding";
 import { createSessionWriter } from "@/lib/supabase-server";
 import { DASHBOARD_HOME } from "@/lib/routes";
@@ -38,7 +38,13 @@ export async function POST(request: NextRequest) {
   const session = await createSessionWriter();
 
   const outcome = await acceptInvitation(
-    { token, name: field("name"), password: field("password"), confirm: field("confirm"), claimedEmail },
+    {
+      token,
+      name: joinName(field("first_name"), field("last_name"), field("name")),
+      password: field("password"),
+      confirm: field("confirm"),
+      claimedEmail,
+    },
     {
       provision: async ({ token, name, password }) => {
         const result = await publicRequest<AcceptInviteResult>("/admin/accept-invite", {

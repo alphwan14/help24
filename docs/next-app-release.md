@@ -28,12 +28,15 @@ Bundled-file changes on `main` that a patch cannot carry, so they wait for
 1.0.12: `assets/l10n/en.json` sentence-case labels (Profile already cases
 them in Dart, so nothing looks wrong meanwhile).
 
-Ready for a patch (not yet published): **Message Help24** (docs/support-inbox.md
-§ Phase 2): Profile → Support opens an in-app conversation with Help24 instead
-of the website; `support_reply` notifications open it. Copy in Dart, no new
-icons (`AppIcons.support` and `AppIcons.send` were both used in `1b473b7`).
-Needs migration 142 and the backend deployed first: without them the screen
-reads "We couldn't load this".
+**Patch 6 (`44bc9a6`, published to stable 2026-11-11): Message Help24**
+(docs/support-inbox.md § Phase 2): Profile → Support opens an in-app
+conversation with Help24 instead of the website; `support_reply` notifications
+open it. Copy in Dart, 0 icons added (`AppIcons.support` and `AppIcons.send`
+were both used in `1b473b7`). Migration 142 and the backend were live first.
+Published with `--allow-asset-diffs` (the usual en.json and tree-shaken
+iconsax.ttf diffs; `scripts/shorebird/patch.sh` does not pass that flag, so
+its first run ended "Not publishing"). Log `~/h24build/out/patch-1.0.11-p6.log`,
+ends "Published Patch 6!". Phone check on the published APK still owed.
 
 ## Patches on 1.0.11 (stable)
 

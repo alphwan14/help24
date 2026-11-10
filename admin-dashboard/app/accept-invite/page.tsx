@@ -7,45 +7,43 @@ import { signInvitedEmail } from "@/lib/invite-email-binding";
 import { getSessionUser } from "@/lib/supabase-server";
 import AcceptInviteForm from "./AcceptInviteForm";
 import { DASHBOARD_HOME } from "@/lib/routes";
+import AuthShell from "@/components/auth/AuthShell";
+import { SIGN_IN_HELP } from "@/lib/auth-audiences";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = { searchParams: Promise<{ token?: string; error?: string }> };
 
-function Shell({ children }: { children: React.ReactNode }) {
+/**
+ * The same frame as the sign-in page (components/auth/AuthShell.tsx): the
+ * Help24 mark, one card, both themes. An invitation is the first page of the
+ * console a new admin sees, so it looks like the console's own front door.
+ */
+function Shell({ title, subtitle, children }: { title: string; subtitle?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-rail-950 to-rail-900 p-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/10 mb-4">
-            <span className="text-2xl font-bold text-rail-50">H</span>
-          </div>
-          <h1 className="text-2xl font-bold text-rail-50">Help24 Admin</h1>
-          <p className="text-rail-200 text-sm mt-1">Accept your invitation</p>
-        </div>
-        {children}
-      </div>
-    </div>
+    <AuthShell
+      product="Help24 Operations"
+      title={title}
+      subtitle={subtitle}
+      notice="Authorised Help24 staff only"
+      help={SIGN_IN_HELP}
+    >
+      {children}
+    </AuthShell>
   );
 }
 
 function ErrorCard({ message }: { message: string }) {
   const title = titleFor(message);
+  const used = title === "Invite already completed";
   return (
-    <Shell>
-      <div className="card p-6 text-center space-y-3">
-        <div className="mx-auto w-10 h-10 rounded-full bg-red-50 border border-red-200 flex items-center justify-center text-red-600">
-          {title === "Invite already completed" ? "✓" : "✕"}
-        </div>
-        <h2 className="text-base font-bold text-gray-900">{title}</h2>
-        <p className="text-sm text-gray-700">{message}</p>
-        <p className="text-xs text-gray-400">
-          {title === "Invite already completed"
-            ? "This invitation has been used. Just sign in below."
-            : "Ask a super_admin to send you a fresh invitation."}
+    <Shell title={title} subtitle={message}>
+      <div className="space-y-5">
+        <p className="text-[13.5px] leading-relaxed text-gray-600">
+          {used ? "This invitation has been used. Sign in with the password you set." : "Ask a super admin to send you a fresh invitation."}
         </p>
-        <Link href="/login" className="inline-block text-sm text-brand-600 hover:underline">
-          Go to sign in →
+        <Link href="/login" className="btn-primary w-full">
+          Go to sign in
         </Link>
       </div>
     </Shell>
@@ -89,7 +87,7 @@ export default async function AcceptInvitePage({ searchParams }: PageProps) {
   }
 
   return (
-    <Shell>
+    <Shell title="Accept your invitation" subtitle="Set up your account to join Help24 Operations.">
       <AcceptInviteForm
         token={token}
         email={invite.email}

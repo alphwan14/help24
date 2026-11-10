@@ -26,6 +26,13 @@
   html {
     scroll-padding-top: 56px;
   }
+
+  /* Every password box has its own Show / Hide (components/PasswordInputs).
+     Edge adds a second, built-in eye next to it; one control is enough. */
+  input[type="password"]::-ms-reveal,
+  input[type="password"]::-ms-clear {
+    display: none;
+  }
 }
 
 @layer components {

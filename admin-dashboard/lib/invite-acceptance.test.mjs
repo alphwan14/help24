@@ -4,7 +4,7 @@
 // flow runs in a real browser in e2e/run.mjs.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { INVITE_ERRORS, acceptInvitation, inviteErrorMessage, isCompletedInvite, validateInviteForm } from "./invite-acceptance.ts";
+import { INVITE_ERRORS, acceptInvitation, inviteErrorMessage, isCompletedInvite, joinName, validateInviteForm } from "./invite-acceptance.ts";
 
 const INVITED = "dave@help24.co.ke";
 const PASSWORD = "Dave-initial-1";
@@ -196,4 +196,24 @@ test("an error travels as a code from a fixed list — nothing typed into the UR
   for (const hostile of [null, undefined, "", "Call +254700000000 to verify", "__proto__", "constructor", "toString"]) {
     assert.equal(inviteErrorMessage(hostile), null, String(hostile));
   }
+});
+
+test("the name is First name + Last name: both needed, spaces tidied; an older one-box form still works", () => {
+  assert.equal(joinName("  Lincoln ", " Waniala  "), "Lincoln Waniala");
+  assert.equal(joinName("Mary  Anne", "Wanjiku"), "Mary Anne Wanjiku");
+  assert.equal(joinName("Lincoln", ""), "");
+  assert.equal(joinName("", "Waniala"), "");
+  assert.equal(joinName("", "", "  Dave   Otieno "), "Dave Otieno");
+  assert.equal(validateInviteForm({ ...form(), name: joinName("Lincoln", "") }), "name");
+  assert.equal(inviteErrorMessage("name"), "Enter your first and last name.");
+});
+
+test("the invitation refuses exactly what the shared password rule refuses (the app's rule)", async () => {
+  const { passwordProblem } = await import("./admin-password.ts");
+  for (const password of ["", "short1", "12345678", "1234567890123", "a".repeat(73), "é".repeat(40), "correct horse", "Abcdefg1"]) {
+    const code = validateInviteForm({ ...form(), password, confirm: password });
+    const passwordCode = code && code.startsWith("password-") ? code : null;
+    assert.equal(passwordCode === null, passwordProblem(password) === null, `"${password.slice(0, 20)}": ${code} vs ${passwordProblem(password)}`);
+  }
+  assert.equal(inviteErrorMessage("password-digits"), "Add letters as well as numbers.");
 });

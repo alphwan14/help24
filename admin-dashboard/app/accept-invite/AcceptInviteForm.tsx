@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { AdminRole } from "@/lib/api";
+import { passwordProblem, passwordRequirements } from "@/lib/admin-password";
+import { PasswordChecklist, PasswordField, PasswordStrengthMeter } from "@/components/PasswordInputs";
 
 const ROLE_LABELS: Record<AdminRole, string> = {
   support_agent: "Support Agent",
@@ -15,6 +17,10 @@ const ROLE_LABELS: Record<AdminRole, string> = {
  * answers with a redirect: the dashboard, the sign-in page, or back here with
  * an error. lib/invite-acceptance.ts has the story of why it is not a Server
  * Action, and of the client-side sign-in this component used to attempt.
+ *
+ * The password boxes are the ones Settings and Reset password use: each with
+ * its own show/hide, and under the new password the app's strength meter and
+ * checklist (lib/admin-password.ts). The server checks the same rules again.
  */
 export default function AcceptInviteForm({
   token,
@@ -33,7 +39,10 @@ export default function AcceptInviteForm({
   /** A message chosen by the page from a fixed list, never text from the URL. */
   error: string | null;
 }) {
-  const [showPassword, setShowPassword] = useState(false);
+  const hintId = useId();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ password?: string; confirm?: string }>({});
   const [submitting, setSubmitting] = useState(false);
 
   // One submission per page load. A double-click or a double Enter must not
@@ -44,6 +53,15 @@ export default function AcceptInviteForm({
       e.preventDefault();
       return;
     }
+    // Said here, beside the box, rather than after a round trip.
+    const problem = passwordProblem(password);
+    const mismatch = !problem && password !== confirm ? "Passwords do not match." : undefined;
+    if (problem || mismatch) {
+      e.preventDefault();
+      setFieldErrors({ password: problem ?? undefined, confirm: mismatch });
+      return;
+    }
+    setFieldErrors({});
     sent.current = true;
     setSubmitting(true);
   }
@@ -59,16 +77,14 @@ export default function AcceptInviteForm({
   }, []);
 
   return (
-    <div className="card p-6 space-y-4">
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <span className="badge bg-green-100 text-green-700">✓ Valid invitation</span>
-        </div>
-        <p className="text-sm text-gray-500">You&apos;ve been invited to join as</p>
-        <p className="font-semibold text-gray-900">{email}</p>
-        <span className="badge bg-indigo-100 text-indigo-700 mt-1 inline-block">
-          {ROLE_LABELS[role] ?? role}
-        </span>
+    // AuthShell (the page) draws the card; this is its content.
+    <div className="space-y-5">
+      <div className="rounded-xl bg-surface-sunken px-4 py-3">
+        <p className="text-xs font-medium text-positive-700">✓ Valid invitation</p>
+        <p className="mt-1 break-all text-[15px] font-semibold text-gray-900">{email}</p>
+        <p className="mt-0.5 text-[13px] text-gray-500">
+          Joining as <span className="font-medium text-gray-700">{ROLE_LABELS[role] ?? role}</span>
+        </p>
       </div>
 
       <form method="post" action="/accept-invite/submit" onSubmit={onSubmit} className="space-y-4">
@@ -85,62 +101,73 @@ export default function AcceptInviteForm({
           </div>
         )}
 
-        <div>
-          <label htmlFor="invite-name" className="block text-sm font-medium text-gray-700 mb-1">
-            Full name
-          </label>
-          <input id="invite-name" name="name" type="text" className="input" placeholder="Jane Doe" required minLength={2} autoComplete="name" />
-        </div>
-
-        <div>
-          <label htmlFor="invite-password" className="block text-sm font-medium text-gray-700 mb-1">
-            Create password
-          </label>
-          <div className="relative">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="invite-first-name" className="block text-sm font-medium text-gray-700 mb-1">
+              First name
+            </label>
             <input
-              id="invite-password"
-              name="password"
-              type={showPassword ? "text" : "password"}
-              className="input pr-16"
-              placeholder="Min 8 characters"
+              id="invite-first-name"
+              name="first_name"
+              type="text"
+              className="input"
+              placeholder="Jane"
               required
-              minLength={8}
-              autoComplete="new-password"
+              maxLength={60}
+              autoComplete="given-name"
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword((s) => !s)}
-              aria-label={showPassword ? "Hide passwords" : "Show passwords"}
-              aria-pressed={showPassword}
-              className="absolute inset-y-0 right-0 flex items-center px-3 text-xs text-gray-400 hover:text-gray-600"
-            >
-              {showPassword ? "Hide" : "Show"}
-            </button>
+          </div>
+          <div>
+            <label htmlFor="invite-last-name" className="block text-sm font-medium text-gray-700 mb-1">
+              Last name
+            </label>
+            <input
+              id="invite-last-name"
+              name="last_name"
+              type="text"
+              className="input"
+              placeholder="Doe"
+              required
+              maxLength={60}
+              autoComplete="family-name"
+            />
           </div>
         </div>
 
-        <div>
-          <label htmlFor="invite-confirm" className="block text-sm font-medium text-gray-700 mb-1">
-            Confirm password
-          </label>
-          <input
-            id="invite-confirm"
-            name="confirm"
-            type={showPassword ? "text" : "password"}
-            className="input"
-            placeholder="Re-enter password"
-            required
-            minLength={8}
-            autoComplete="new-password"
-          />
-        </div>
+        <PasswordField
+          label="Create password"
+          name="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(v) => {
+            setPassword(v);
+            if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined }));
+          }}
+          error={fieldErrors.password}
+          describedBy={`${hintId}-strength ${hintId}-rules`}
+        >
+          <PasswordStrengthMeter id={`${hintId}-strength`} password={password} />
+          <PasswordChecklist id={`${hintId}-rules`} items={passwordRequirements(password)} />
+        </PasswordField>
+
+        <PasswordField
+          label="Confirm password"
+          name="confirm"
+          autoComplete="new-password"
+          value={confirm}
+          onChange={(v) => {
+            setConfirm(v);
+            if (fieldErrors.confirm) setFieldErrors((f) => ({ ...f, confirm: undefined }));
+          }}
+          error={fieldErrors.confirm}
+        />
 
         <button type="submit" disabled={submitting} className="btn-primary w-full">
           {submitting ? "Setting up your account…" : "Accept invitation"}
         </button>
         {submitting && (
           <p className="text-center text-xs text-gray-400" aria-live="polite">
-            Creating your account and signing you in — this is safe to wait on.
+            Creating your account and signing you in. This is safe to wait on.
           </p>
         )}
       </form>

@@ -150,7 +150,9 @@ try {
     return fake.lastEmailTo(email);
   }
   async function fillInvite(name, password, confirm = password) {
-    await fill('input[name="name"]', name);
+    const [first, ...rest] = name.split(" ");
+    await fill('input[name="first_name"]', first);
+    await fill('input[name="last_name"]', rest.join(" "));
     await fill('input[name="password"]', password);
     await fill('input[name="confirm"]', confirm);
   }
@@ -501,6 +503,19 @@ try {
   // person, but linking the login to their identity is a human step.
   await goto(`${APP}/accept-invite?token=inv-dave`);
   await waitFor(bodyHas("Valid invitation"), "dave's invitation");
+  check("invite: First name and Last name, each password box with its own Show",
+    await evaluate(`!!document.querySelector('input[name="first_name"][autocomplete="given-name"]') && !!document.querySelector('input[name="last_name"][autocomplete="family-name"]') && !document.querySelector('input[name="name"]') && !!document.querySelector('button[aria-label="Show create password"]') && !!document.querySelector('button[aria-label="Show confirm password"]')`));
+  await click('button[aria-label="Show confirm password"]');
+  check("invite: Show on the confirm box reveals that box only",
+    await evaluate(`document.querySelector('input[name="confirm"]').type === 'text' && document.querySelector('input[name="password"]').type === 'password'`));
+  await click('button[aria-label="Hide confirm password"]');
+  await fill('input[name="password"]', "12345678");
+  check("invite: the app's password checker: digits only reads Too weak, with the checklist",
+    await evaluate(`${bodyHas("Too weak")} && ${bodyHas("Not only numbers")}`));
+  await fill('input[name="password"]', "Kilimanjaro-2026");
+  check("invite: a long mixed password reads Strong", await evaluate(bodyHas("Strong")));
+  check("invite: the page wears the Help24 mark, like sign-in", await evaluate(`!!document.querySelector('img[alt="Help24"]') && ${bodyHas("Accept your invitation")}`));
+  await shot("5-invite-form.png", true);
   await fillInvite("Dave Otieno", DAVE_PW, DAVE_PW + "!");
   await click("form button[type=submit]");
   await waitFor(bodyHas("Passwords do not match."), "invite mismatch");
@@ -511,6 +526,7 @@ try {
   await waitFor(bodyHas("A super admin still has to finish activating"), "pending message");
   check("first-time invitee: password set, told activation is pending — never 'Invite already completed'",
     fake.password(DAVE) === DAVE_PW && fake.roleOf(DAVE) === "admin" && !fake.isLinked(DAVE));
+  check("invite: the two name boxes reach the backend as one full name", fake.admins.get(DAVE)?.name === "Dave Otieno", fake.admins.get(DAVE)?.name);
   check("first-time invitee is left with no session and no arbitration token",
     (await sessionCookies()).length === 0 && !(await pg.cookie(APP, "h24_admin_token")));
   await shot("6-invite-pending.png");
