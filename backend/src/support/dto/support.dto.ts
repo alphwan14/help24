@@ -36,6 +36,14 @@ export class StartConversationDto {
   @IsString()
   @MaxLength(10000)
   body: string;
+
+  /**
+   * Which inbox it comes from: support@ as Help24 Support (default) or
+   * security@ as Help24 Security. The member's reply comes back to the same one.
+   */
+  @IsOptional()
+  @IsIn(['support', 'security'])
+  from?: 'support' | 'security';
 }
 
 /**

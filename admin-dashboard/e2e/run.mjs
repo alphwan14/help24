@@ -256,6 +256,8 @@ try {
   const savedAlerts = fake.alertEmailSettings.get(ALICE);
   check("Email alerts: a morning summary without Marketplace is saved for this admin only",
     savedAlerts?.frequency === "daily" && savedAlerts.categories.join() === "financial,trust_safety,support" && !fake.alertEmailSettings.has(BOB), JSON.stringify(savedAlerts));
+  // "Saved." shows before the save's page refresh settles; the buttons stay disabled until then.
+  await waitFor(`[...document.querySelectorAll('[data-testid="alert-emails"] button')].every((b) => b.textContent === "Save" ? true : !b.disabled)`, "test button ready", 15000);
   await clickText("Send me a test", '[data-testid="alert-emails"] button');
   await waitFor(bodyHas(`Test email sent to ${ALICE}`), "test alert email", 15000);
   check("Email alerts: a test goes to the admin's own address", fake.alertEmailTests.at(-1) === ALICE);
@@ -716,6 +718,8 @@ try {
     const sec = fake.support.inbound({ from: DAVE, name: "Dave Kamau", to: "security@help24.co.ke", subject: "Odd reset email", text: "I got a reset email I did not ask for." });
     await goto(`${APP}/dashboard/inbox`);
     await waitFor(`!!document.querySelector('[data-testid="inbox-status-filters"]') && !!document.querySelector('[data-testid="security-open"]')`, "inbox with security count", 15000);
+    check("answered and closed conversations stay in the Inbox, each showing where it stands",
+      await evaluate(`(() => { const rows = [...document.querySelectorAll('[data-testid="inbox-list"] li')]; const payout = rows.find((r) => r.innerText.includes("Payout not received")); const started = rows.find((r) => r.innerText.includes("About your verification")); return !!payout && payout.querySelector('[data-testid="row-status"]').textContent === "Closed" && !!started && started.querySelector('[data-testid="row-status"]').textContent === "Waiting on member"; })()`));
     check("security@ mail stays out of the support view, which shows a Security count instead",
       !(await evaluate(bodyHas("Odd reset email"))) && (await evaluate(`document.querySelector('[data-testid="security-open"]').textContent === "1"`)));
     await goto(`${APP}/dashboard/inbox?label=security`);
@@ -729,6 +733,43 @@ try {
     const secOut = fake.support.mailOut.at(-1);
     check("a security reply is emailed from security@, signed Help24 Security",
       secOut.from === "Help24 Security <security@help24.co.ke>" && secOut.text.endsWith("Help24 Security\nhelp24.co.ke"), secOut.from);
+
+    // Writing first: the admin chooses who it comes from; the Security view starts it as Security.
+    await goto(`${APP}/dashboard/inbox?label=security`);
+    await waitFor(`!!document.querySelector('[data-testid="security-new"]')`, "security new link", 15000);
+    await click('[data-testid="security-new"]');
+    await waitFor(`!!document.querySelector('input[name="new-from"][value="security"]')?.checked && ${bodyHas("Sent from security@help24.co.ke, signed Help24 Security")}`, "new message as security", 15000);
+    check("New message from the Security view starts as Help24 Security", true);
+    await click('input[name="new-from"][value="support"]');
+    await waitFor(bodyHas("Sent from support@help24.co.ke, signed Help24 Support"), "switched to support", 5000);
+    await click('input[name="new-from"][value="security"]');
+    await fill("#new-email", DAVE);
+    await fill("#new-subject", "A sign-in we did not expect");
+    await fill("#new-body", "Was this you?");
+    await clickText("Send");
+    await waitFor(`location.pathname.startsWith("/dashboard/inbox/") && ${bodyHas("A sign-in we did not expect")} && ${bodyHas("Emailed")}`, "security conversation started", 15000);
+    const started = fake.support.mailOut.at(-1);
+    const startedConv = fake.support.conversations.at(-1);
+    check("a message started as Help24 Security is sent from security@ and filed under Security",
+      started.from === "Help24 Security <security@help24.co.ke>" && startedConv.label === "security", `${started.from} / ${startedConv.label}`);
+
+    // Message Help24: a member writes from the app; the answer goes back to the app, not by email.
+    const app = fake.support.fromApp({ email: DAVE, name: "Dave Kamau", text: "How do I change my phone number?" });
+    await goto(`${APP}/dashboard/inbox`);
+    await waitFor(bodyHas("How do I change my phone number?"), "app message listed", 15000);
+    check("a message from the app is in the Inbox, marked App",
+      await evaluate(`[...document.querySelectorAll('[data-testid="inbox-list"] li')].some((r) => r.innerText.includes("How do I change my phone number?") && !!r.querySelector('[data-testid="row-app"]'))`));
+    await goto(`${APP}/dashboard/inbox/${app.id}`);
+    await waitFor(`!!document.querySelector('[data-testid="composer"]') && ${bodyHas("Sent to Dave Kamau in the Help24 app as Help24 Support, with a notification.")}`, "app thread", 15000);
+    check("an app thread says where it came from and that answers go to the app, with no forged-sender warning",
+      (await evaluate(`${bodyHas("Support, in the app")} && ${bodyHas("Written from the Help24 app")}`)) && !(await evaluate(bodyHas("Sender not verified"))));
+    const mailBefore = fake.support.mailOut.length;
+    await fill("#composer-text", "Go to Profile, then Sign-in methods.");
+    await clickText("Send reply");
+    await waitFor(`${bodyHas("Delivered in the app")} && ${bodyHas("Waiting on member")}`, "app reply delivered", 15000);
+    const pushed = fake.support.pushOut.at(-1);
+    check("an answer to an app thread is delivered in the app with a notification, never emailed",
+      fake.support.mailOut.length === mailBefore && pushed?.type === "support_reply" && pushed.body === "Go to Profile, then Sign-in methods.", JSON.stringify(pushed));
   }
 
   /* ════════════════════════════════════════════════════════════════════ */

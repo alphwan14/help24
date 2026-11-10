@@ -56,6 +56,8 @@ const _backendTypes = <String>[
   // Provider vetting (backend/src/verifications, migration 135).
   'verification_approved',
   'verification_rejected',
+  // Message Help24 (backend/src/support, migration 142).
+  'support_reply',
 ];
 
 AppNotification _n(

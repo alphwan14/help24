@@ -99,13 +99,41 @@ dashboard e2e section "support inbox" (11 checks).
 7. **Check:** email support@ from a personal address, see it in the Inbox,
    reply, reply to the reply.
 
+## Phase 2: Message Help24 in the app (built 2026-11-11)
+
+Profile → Support → **Message Help24** (it replaces the "Contact support" web
+link) opens the member's one ongoing conversation with Help24, like a chat.
+
+- **Backend** (`/support/app/thread`, `/support/app/messages`,
+  `/support/app/read`; `support-app.controller.ts`): each route serves the
+  SIGNED-IN member only (the Firebase identity is bound onto `user_id`). The
+  first message opens the thread (label Support, `reply_via = 'app'`, titled by
+  the first line); every later one joins it and reopens it if closed. A
+  retried send is stored once (`client_id`). The app sees messages as the
+  member's or Help24's: never notes, never which admin wrote one.
+- **Staff answers** to an app thread are stored (that is delivery) and the
+  member gets a `support_reply` notification and push; nothing is emailed. A
+  failed push loses nothing. The dashboard marks the thread "App", says
+  "Delivered in the app", and "Seen" once the member has opened it.
+- **Email never joins an app thread** (a From line can be forged; the app is
+  signed in), and an app message never needs an email address: members who
+  signed up by phone can write too.
+- **The app** (`support_thread_screen.dart`, `support_service.dart`): a
+  message shows the moment it is written; a failed send is kept, marked "Not
+  sent. Tap to try again", and retried with the same id. An answer arriving
+  while the screen is open shows at once and its notification is marked read.
+  Copy is in Dart and the icons were all in release `1b473b7`, so it ships as a
+  Shorebird patch.
+- **Migration 142**: `reply_via`, `member_read_at`, nullable `contact_email`,
+  one app thread per member, `support_messages.client_id`.
+
+Also on 2026-11-11: the Inbox opens on **All** (answered conversations stay in
+sight, marked "Waiting on member"; nothing is ever deleted), and **New message**
+asks who it comes from (Help24 Support from support@, or Help24 Security from
+security@); the thread keeps that sender.
+
 ## Next phases (not built)
 
-2. **In the app:** Profile → Support → "Message Help24" opens the member's
-   conversation; staff replies arrive as in-app notifications and pushes. Same
-   tables (`channel = 'app'`), plus a member read policy on their own
-   non-internal messages. Needs an app release (or a patch without new
-   translation strings).
 3. **Broadcasts:** announcements to an audience (everyone, providers,
    clients, a city, chosen people) by in-app + push, and by email from
    `Help24 <info@help24.co.ke>` with one-click unsubscribe (announcements only).

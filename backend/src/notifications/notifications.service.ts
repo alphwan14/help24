@@ -49,7 +49,10 @@ export type NotificationType =
   | 'content_removed'            // one of the user's listings was hidden
   // Provider vetting (migration 135). data = { screen: 'verification', kind, status }.
   | 'verification_approved'      // ID / receipt / certificate accepted
-  | 'verification_rejected';     // a submission was turned down, with the reason
+  | 'verification_rejected'      // a submission was turned down, with the reason
+  // Message Help24 (migration 142): staff answered the member's in-app support
+  // thread. data = { conversation_id, screen: 'support' }; the app opens the thread.
+  | 'support_reply';
 
 export interface NotificationPayload {
   userId: string;

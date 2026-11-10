@@ -21,6 +21,7 @@ import 'screens/approve_or_dispute_screen.dart';
 import 'screens/dispute_thread_screen.dart';
 import 'screens/job_lifecycle_screen.dart';
 import 'screens/review_submission_screen.dart';
+import 'screens/support_thread_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
@@ -598,6 +599,14 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
         debugPrint('[NAV][OPEN_ACCOUNT_STATUS] type=$type');
         await Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => const AccountStatusScreen(),
+        ));
+        break;
+
+      // ── Help24 answered the member's message (Message Help24) ─────────────
+      case 'support_reply':
+        debugPrint('[NAV][OPEN_SUPPORT_THREAD]');
+        await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const SupportThreadScreen(),
         ));
         break;
 

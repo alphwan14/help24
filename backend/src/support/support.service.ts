@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnav
 import { randomUUID } from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AdminContext } from '../admin/auth/admin-role';
+import { NotificationsService } from '../notifications/notifications.service';
 import { MailNotSentError, SupportMailerService } from './support-mailer.service';
 import {
   INBOX_LABELS,
@@ -32,16 +33,29 @@ export interface Conversation {
   label: InboxLabel;
   status: ConversationStatus;
   subject: string;
-  contact_email: string;
+  /** Empty only for an app thread whose member has no email (migration 142). */
+  contact_email: string | null;
   contact_name: string | null;
   user_id: string | null;
   started_by: 'member' | 'staff';
+  /** Where Help24's answers go: by email, or into the app (migration 142). */
+  reply_via: 'email' | 'app';
+  /** When the member last opened the thread in the app. */
+  member_read_at: string | null;
   last_message_at: string;
   created_at: string;
 }
 
 const CONVERSATION_COLUMNS =
-  'id, ref, label, status, subject, contact_email, contact_name, user_id, started_by, last_message_at, created_at';
+  'id, ref, label, status, subject, contact_email, contact_name, user_id, started_by, reply_via, member_read_at, last_message_at, created_at';
+
+/** What the app shows of one message: never which admin wrote it, never a note. */
+export interface AppMessage {
+  id: string;
+  author: 'member' | 'staff';
+  body: string;
+  created_at: string;
+}
 const MESSAGE_COLUMNS =
   'id, conversation_id, author, admin_id, internal, channel, body, full_body, email_message_id, sender_verified, attachment_count, delivery, delivery_error, created_at';
 
@@ -63,6 +77,7 @@ export class SupportService {
   constructor(
     private readonly supabase: SupabaseService,
     private readonly mailer: SupportMailerService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private get db() {
@@ -131,10 +146,12 @@ export class SupportService {
   private async findThread(email: InboundEmail, label: InboxLabel): Promise<Conversation | null> {
     const sender = email.from.address;
 
+    // Email never joins an in-app conversation: those are answered in the app,
+    // where the member is signed in, and an email's sender could be forged.
     const ref = refInSubject(email.subject);
     if (ref) {
       const { data } = await this.db.from('support_conversations').select(CONVERSATION_COLUMNS)
-        .eq('ref', ref).eq('contact_email', sender).maybeSingle();
+        .eq('ref', ref).eq('contact_email', sender).neq('reply_via', 'app').maybeSingle();
       if (data) return data as unknown as Conversation;
     }
 
@@ -144,14 +161,15 @@ export class SupportService {
       const convIds = [...new Set((msgs ?? []).map((m: Row) => m.conversation_id as string))];
       if (convIds.length) {
         const { data } = await this.db.from('support_conversations').select(CONVERSATION_COLUMNS)
-          .in('id', convIds).eq('contact_email', sender).order('last_message_at', { ascending: false }).limit(1);
+          .in('id', convIds).eq('contact_email', sender).neq('reply_via', 'app')
+          .order('last_message_at', { ascending: false }).limit(1);
         if (data?.[0]) return data[0] as unknown as Conversation;
       }
     }
 
     const since = new Date(Date.now() - THREAD_WINDOW_DAYS * 86_400_000).toISOString();
     const { data: recent } = await this.db.from('support_conversations').select(CONVERSATION_COLUMNS)
-      .eq('contact_email', sender).eq('label', label).in('status', ['open', 'waiting'])
+      .eq('contact_email', sender).eq('label', label).neq('reply_via', 'app').in('status', ['open', 'waiting'])
       .gte('last_message_at', since).order('last_message_at', { ascending: false }).limit(10);
     const subject = normalizeSubject(email.subject);
     const same = (recent ?? []).find((c: Row) => subject !== '' && normalizeSubject(c.subject as string) === subject);
@@ -291,10 +309,14 @@ export class SupportService {
     return data as unknown as Conversation;
   }
 
-  /** Reply to the member by email. The message is kept even if sending fails. */
+  /**
+   * Reply to the member: by email, or into the app for an in-app thread. The
+   * message is kept even if an email fails to send.
+   */
   async reply(id: string, admin: AdminContext, text: string) {
     const body = cleanBody(text);
     const conversation = await this.conversation(id);
+    if (conversation.reply_via === 'app') return this.replyInApp(conversation, admin, body);
     const messageId = randomUUID();
     const emailMessageId = `<${messageId}@help24.co.ke>`;
     const { error } = await this.db.from('support_messages').insert({
@@ -340,6 +362,7 @@ export class SupportService {
     let delivery: 'sent' | 'failed' = 'sent';
     let deliveryError: string | null = null;
     try {
+      if (!conversation.contact_email) throw new MailNotSentError('This conversation has no email address to answer.');
       await this.mailer.send({
         from: identity.from,
         to: conversation.contact_email,
@@ -360,6 +383,167 @@ export class SupportService {
     // Sent: the thread now waits on the member. Not sent: still on Help24.
     await this.touch(conversation.id, { status: delivery === 'sent' ? 'waiting' : 'open' });
     return { id: messageId, delivery, delivery_error: deliveryError };
+  }
+
+  /**
+   * An answer to an in-app thread: stored, which is delivery (the app reads it
+   * from here), then a notification and push so the member knows. A push that
+   * fails costs nothing but speed: the answer is already in the app.
+   */
+  private async replyInApp(conversation: Conversation, admin: AdminContext, body: string) {
+    const { data, error } = await this.db.from('support_messages').insert({
+      conversation_id: conversation.id,
+      author: 'staff',
+      admin_id: admin.id,
+      channel: 'app',
+      body,
+      delivery: 'sent',
+    }).select('id').single();
+    if (error || !data) throw new ServiceUnavailableException('Could not save the reply right now.');
+    await this.touch(conversation.id, { status: 'waiting' });
+
+    if (conversation.user_id) {
+      try {
+        await this.notifications.send({
+          userId: conversation.user_id,
+          type: 'support_reply',
+          title: identityFor(conversation.label).signature,
+          body: body.replace(/\s+/g, ' ').slice(0, 140),
+          data: { conversation_id: conversation.id, screen: 'support' },
+        });
+      } catch (e) {
+        this.logger.warn(`[SUPPORT] reply ${data.id} stored; the notification failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return { id: data.id as string, delivery: 'sent' as const, delivery_error: null };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Message Help24 (the app) — always the signed-in member's own thread
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** The member's in-app thread: every message they can see, and how many answers are unread. */
+  async appThread(userId: string): Promise<{
+    conversation: { id: string; ref: string; status: ConversationStatus } | null;
+    messages: AppMessage[];
+    unread: number;
+  }> {
+    const conversation = await this.appConversation(userId);
+    if (!conversation) return { conversation: null, messages: [], unread: 0 };
+    const { data, error } = await this.db.from('support_messages').select('id, author, body, created_at')
+      .eq('conversation_id', conversation.id).eq('internal', false)
+      .order('created_at', { ascending: true }).limit(500);
+    if (error) throw new ServiceUnavailableException('Could not load your messages right now.');
+    const messages = ((data ?? []) as Row[]).map((m): AppMessage => ({
+      id: m.id as string,
+      author: m.author as 'member' | 'staff',
+      body: m.body as string,
+      created_at: m.created_at as string,
+    }));
+    const readAt = conversation.member_read_at ? Date.parse(conversation.member_read_at) : 0;
+    const unread = messages.filter((m) => m.author === 'staff' && Date.parse(m.created_at) > readAt).length;
+    return { conversation: { id: conversation.id, ref: conversation.ref, status: conversation.status }, messages, unread };
+  }
+
+  /**
+   * A message from the member, in the app. Opens their thread the first time;
+   * after that it always joins the same one, reopening it if it was closed.
+   * Idempotent on the app's client id: a retried send is stored once.
+   */
+  async appSend(userId: string, text: string, clientId: string): Promise<{ message: AppMessage; conversation: { id: string; ref: string; status: ConversationStatus } }> {
+    const body = cleanBody(text);
+    const existing = await this.appMessageByClientId(userId, clientId);
+    if (existing) return existing;
+
+    const conversation = (await this.appConversation(userId)) ?? (await this.openAppConversation(userId, body));
+    const { data, error } = await this.db.from('support_messages').insert({
+      conversation_id: conversation.id,
+      author: 'member',
+      channel: 'app',
+      body,
+      // Signed in to the app: the backend verified who sent it.
+      sender_verified: true,
+      client_id: clientId,
+    }).select('id, author, body, created_at').single();
+    if (error) {
+      if (error.code === '23505') {
+        const again = await this.appMessageByClientId(userId, clientId);
+        if (again) return again;
+      }
+      this.logger.error(`[SUPPORT] could not store an app message: ${error.message}`);
+      throw new ServiceUnavailableException('Could not send your message right now.');
+    }
+    await this.touch(conversation.id, { status: 'open' });
+    return {
+      message: data as unknown as AppMessage,
+      conversation: { id: conversation.id, ref: conversation.ref, status: 'open' },
+    };
+  }
+
+  /** The member opened their thread: answers so far count as read. */
+  async appMarkRead(userId: string): Promise<{ ok: true }> {
+    const { error } = await this.db.from('support_conversations')
+      .update({ member_read_at: new Date().toISOString() }).eq('user_id', userId).eq('reply_via', 'app');
+    if (error) throw new ServiceUnavailableException('Could not update your messages right now.');
+    return { ok: true };
+  }
+
+  private async appConversation(userId: string): Promise<Conversation | null> {
+    const { data, error } = await this.db.from('support_conversations').select(CONVERSATION_COLUMNS)
+      .eq('user_id', userId).eq('reply_via', 'app').maybeSingle();
+    if (error) throw new ServiceUnavailableException('Could not load your messages right now.');
+    return (data as unknown as Conversation) ?? null;
+  }
+
+  /** A retried send: the message already stored under this client id, in this member's thread only. */
+  private async appMessageByClientId(userId: string, clientId: string) {
+    const { data: msg } = await this.db.from('support_messages').select('id, author, body, created_at, conversation_id')
+      .eq('client_id', clientId).maybeSingle();
+    if (!msg) return null;
+    const conversation = await this.appConversation(userId);
+    if (!conversation || conversation.id !== msg.conversation_id) {
+      throw new BadRequestException('That message id is already taken.');
+    }
+    const { conversation_id: _ignored, ...message } = msg as Row;
+    return {
+      message: message as unknown as AppMessage,
+      conversation: { id: conversation.id, ref: conversation.ref, status: conversation.status },
+    };
+  }
+
+  /**
+   * The member's first message from the app opens their thread: a Support
+   * conversation answered in the app, titled by the first line they wrote.
+   */
+  private async openAppConversation(userId: string, firstMessage: string): Promise<Conversation> {
+    const { data: member, error: memberError } = await this.db.from('users').select('id, name, email').eq('id', userId).maybeSingle();
+    if (memberError) throw new ServiceUnavailableException('Could not send your message right now.');
+    if (!member) throw new BadRequestException('Finish setting up your profile first, then try again.');
+    const email = typeof member.email === 'string' ? member.email.trim().toLowerCase() : '';
+    const firstLine = firstMessage.split('\n').find((l) => l.trim()) ?? '';
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const { data, error } = await this.db.from('support_conversations').insert({
+        ref: makeRef(),
+        label: 'support',
+        status: 'open',
+        subject: threadSubject(firstLine.length > 80 ? `${firstLine.slice(0, 79).trimEnd()}…` : firstLine),
+        contact_email: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : null,
+        contact_name: typeof member.name === 'string' && member.name.trim() ? member.name.trim().slice(0, 120) : null,
+        user_id: userId,
+        started_by: 'member',
+        reply_via: 'app',
+      }).select(CONVERSATION_COLUMNS).single();
+      if (!error) return data as unknown as Conversation;
+      if (error.code !== '23505') {
+        this.logger.error(`[SUPPORT] could not open an app conversation: ${error.message}`);
+        throw new ServiceUnavailableException('Could not send your message right now.');
+      }
+      // Either another send from this member opened it a moment ago (one thread
+      // per member) or the reference was taken: use theirs, or draw again.
+      const theirs = await this.appConversation(userId);
+      if (theirs) return theirs;
+    }
+    throw new ServiceUnavailableException('Could not send your message right now.');
   }
 
   /** A staff-only note. Never sent; does not change the status. */
@@ -386,8 +570,12 @@ export class SupportService {
     return { id, status };
   }
 
-  /** Write to someone first: a new Support thread, sent by email. */
-  async start(admin: AdminContext, input: { email: string; subject: string; body: string }) {
+  /**
+   * Write to someone first, by email, from the inbox the admin chose: support@
+   * as Help24 Support (default) or security@ as Help24 Security. The thread
+   * belongs to that inbox, so the reply and every later message stay there.
+   */
+  async start(admin: AdminContext, input: { email: string; subject: string; body: string; from?: string }) {
     const email = input.email.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.endsWith('@help24.co.ke')) {
       throw new BadRequestException('Enter the member\'s email address.');
@@ -395,7 +583,7 @@ export class SupportService {
     const subject = threadSubject(input.subject);
     cleanBody(input.body);
     const conversation = await this.createConversation({
-      label: 'support',
+      label: input.from === 'security' ? 'security' : 'support',
       subject,
       contactEmail: email,
       contactName: null,

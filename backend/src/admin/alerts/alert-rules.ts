@@ -260,7 +260,7 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
   support_waiting: {
     category: 'support',
     priority: 'medium',
-    href: '/dashboard/inbox',
+    href: '/dashboard/inbox?status=open',
     action: 'Reply from the Inbox',
     title: (n) => `${plural(n, 'support conversation is', 'support conversations are')} waiting for a reply`,
   },

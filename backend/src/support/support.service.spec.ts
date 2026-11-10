@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AdminContext } from '../admin/auth/admin-role';
+import { NotificationPayload, NotificationsService } from '../notifications/notifications.service';
 import { MailNotSentError, OutboundEmail, SupportMailerService } from './support-mailer.service';
 import { SupportService } from './support.service';
 import { SupportInboundController } from './support-inbound.controller';
@@ -10,10 +11,10 @@ import { InboundEmail, signInbound } from './support-rules';
 
 type Row = Record<string, any>;
 
-/** The unique columns migration 138 declares, enforced like Postgres does (23505). */
+/** The unique columns migrations 138 and 142 declare, enforced like Postgres does (23505). */
 const UNIQUE: Record<string, string[]> = {
   support_conversations: ['id', 'ref'],
-  support_messages: ['id', 'email_message_id'],
+  support_messages: ['id', 'email_message_id', 'client_id'],
 };
 
 /**
@@ -24,7 +25,10 @@ function fakeDb(tables: Record<string, Row[]>) {
   let tick = 0;
   const stamp = () => new Date(Date.now() - 3_600_000 + tick++ * 1000).toISOString();
   const defaults: Record<string, () => Row> = {
-    support_conversations: () => ({ status: 'open', last_message_at: stamp(), created_at: stamp(), contact_name: null, user_id: null }),
+    support_conversations: () => ({
+      status: 'open', last_message_at: stamp(), created_at: stamp(), contact_name: null, user_id: null,
+      reply_via: 'email', member_read_at: null,
+    }),
     support_messages: () => ({
       created_at: stamp(), internal: false, attachment_count: 0, delivery: null, delivery_error: null,
       admin_id: null, full_body: null, email_message_id: null, sender_verified: null,
@@ -102,7 +106,7 @@ function fakeDb(tables: Record<string, Row[]>) {
 
 const ADMIN: AdminContext = { id: 'a0000000-0000-4000-8000-000000000001', email: 'agent@help24.co.ke', name: 'Wanjiru', role: 'support_agent' };
 
-function setup(opts: { failSend?: boolean } = {}) {
+function setup(opts: { failSend?: boolean; failPush?: boolean } = {}) {
   const tables: Record<string, Row[]> = {
     users: [{ id: 'FirebaseUid123', email: 'Mary.Wanjiku@Example.com', name: 'Mary Wanjiku', phone_number: '0712345678', created_at: '2026-09-01T00:00:00Z', last_seen: null }],
     admin_users: [{ id: ADMIN.id, name: 'Wanjiru', email: ADMIN.email }],
@@ -118,8 +122,15 @@ function setup(opts: { failSend?: boolean } = {}) {
       return { providerId: 're_1' };
     }),
   } as unknown as SupportMailerService;
-  const service = new SupportService(fakeDb(tables), mailer);
-  return { service, tables, sent, setFailing: (v: boolean) => (failing = v) };
+  const pushed: NotificationPayload[] = [];
+  const notifications = {
+    send: jest.fn(async (p: NotificationPayload) => {
+      if (opts.failPush) throw new Error('FCM is down');
+      pushed.push(p);
+    }),
+  } as unknown as NotificationsService;
+  const service = new SupportService(fakeDb(tables), mailer, notifications);
+  return { service, tables, sent, pushed, setFailing: (v: boolean) => (failing = v) };
 }
 
 function email(over: Partial<InboundEmail> = {}): InboundEmail {
@@ -287,6 +298,14 @@ describe('SupportService — the Inbox', () => {
     await expect(service.start(ADMIN, { email: 'info@help24.co.ke', subject: 'x', body: 'y' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('staff can write first from security@: sent as Help24 Security, and the thread lives under Security', async () => {
+    const { service, tables, sent } = setup();
+    await service.start(ADMIN, { email: 'mary.wanjiku@example.com', subject: 'A sign-in we did not expect', body: 'Was this you?', from: 'security' });
+    expect(tables.support_conversations[0].label).toBe('security');
+    expect(sent[0]).toMatchObject({ from: 'Help24 Security <security@help24.co.ke>', replyTo: 'security@help24.co.ke' });
+    expect(sent[0].text).toMatch(/\n\nHelp24 Security\n/);
+  });
+
   it('the list counts each status and previews the last message a member could see, never a note', async () => {
     const { service, tables } = setup();
     await service.ingest(email());
@@ -336,6 +355,103 @@ describe('SupportService — the Inbox', () => {
     expect(res.member).toMatchObject({ id: 'FirebaseUid123', name: 'Mary Wanjiku' });
     expect(res.messages.map((m: Row) => m.author)).toEqual(['member', 'staff']);
     expect(res.messages[1].admin_name).toBe('Wanjiru');
+  });
+});
+
+describe('SupportService — Message Help24 (the app)', () => {
+  const MARY = 'FirebaseUid123';
+  const id = () => randomUUID();
+
+  it('the first message opens the member\'s thread, answered in the app, titled by what they wrote', async () => {
+    const { service, tables } = setup();
+    expect(await service.appThread(MARY)).toEqual({ conversation: null, messages: [], unread: 0 });
+    const r = await service.appSend(MARY, 'My payout has not arrived\nIt was due yesterday.', id());
+    const [c] = tables.support_conversations;
+    expect(c).toMatchObject({
+      label: 'support', reply_via: 'app', status: 'open', started_by: 'member', user_id: MARY,
+      subject: 'My payout has not arrived', contact_email: 'mary.wanjiku@example.com', contact_name: 'Mary Wanjiku',
+    });
+    expect(tables.support_messages[0]).toMatchObject({ author: 'member', channel: 'app', sender_verified: true });
+    expect(r.conversation).toEqual({ id: c.id, ref: c.ref, status: 'open' });
+  });
+
+  it('every later message joins the same thread, and a closed one reopens', async () => {
+    const { service, tables } = setup();
+    await service.appSend(MARY, 'First', id());
+    tables.support_conversations[0].status = 'closed';
+    await service.appSend(MARY, 'One more thing', id());
+    expect(tables.support_conversations).toHaveLength(1);
+    expect(tables.support_conversations[0].status).toBe('open');
+    expect((await service.appThread(MARY)).messages.map((m) => m.body)).toEqual(['First', 'One more thing']);
+  });
+
+  it('a retried send is stored once; another member cannot reuse its id', async () => {
+    const { service, tables } = setup();
+    tables.users.push({ id: 'OtherUid', email: null, name: null });
+    const clientId = id();
+    const first = await service.appSend(MARY, 'Hello', clientId);
+    const again = await service.appSend(MARY, 'Hello', clientId);
+    expect(again.message.id).toBe(first.message.id);
+    expect(tables.support_messages).toHaveLength(1);
+    await expect(service.appSend('OtherUid', 'Hi', clientId)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('a member who signed up by phone (no email) can still write', async () => {
+    const { service, tables } = setup();
+    tables.users.push({ id: 'PhoneUid', email: null, name: 'Otieno' });
+    await service.appSend('PhoneUid', 'Hi', id());
+    expect(tables.support_conversations[0]).toMatchObject({ contact_email: null, contact_name: 'Otieno', user_id: 'PhoneUid' });
+  });
+
+  it('without a profile there is nothing to attach the thread to', async () => {
+    const { service } = setup();
+    await expect(service.appSend('NoSuchUid', 'Hi', id())).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('a staff answer goes into the app with a notification, never by email, and the thread waits on the member', async () => {
+    const { service, tables, sent, pushed } = setup();
+    await service.appSend(MARY, 'Payout question', id());
+    const c = tables.support_conversations[0];
+    const r = await service.reply(c.id, ADMIN, 'It went out this morning.\nCheck your M-Pesa messages.');
+    expect(r).toMatchObject({ delivery: 'sent', delivery_error: null });
+    expect(sent).toHaveLength(0);
+    expect(tables.support_messages.at(-1)).toMatchObject({ author: 'staff', channel: 'app', admin_id: ADMIN.id, delivery: 'sent' });
+    expect(pushed).toEqual([{
+      userId: MARY, type: 'support_reply', title: 'Help24 Support',
+      body: 'It went out this morning. Check your M-Pesa messages.', data: { conversation_id: c.id, screen: 'support' },
+    }]);
+    expect(c.status).toBe('waiting');
+  });
+
+  it('a failed push still leaves the answer delivered in the app', async () => {
+    const { service, tables } = setup({ failPush: true });
+    await service.appSend(MARY, 'Hello', id());
+    const r = await service.reply(tables.support_conversations[0].id, ADMIN, 'Hi Mary.');
+    expect(r.delivery).toBe('sent');
+    expect((await service.appThread(MARY)).messages.map((m) => m.author)).toEqual(['member', 'staff']);
+  });
+
+  it('the app sees answers as Help24 only: no notes, no admin names; unread counts until opened', async () => {
+    const { service, tables } = setup();
+    await service.appSend(MARY, 'Hello', id());
+    const c = tables.support_conversations[0];
+    await service.note(c.id, ADMIN, 'Internal: check the B2C log.');
+    await service.reply(c.id, ADMIN, 'Looking now.');
+    const thread = await service.appThread(MARY);
+    expect(thread.messages.map((m) => m.body)).toEqual(['Hello', 'Looking now.']);
+    expect(Object.keys(thread.messages[1]).sort()).toEqual(['author', 'body', 'created_at', 'id']);
+    expect(JSON.stringify(thread)).not.toContain('Wanjiru');
+    expect(thread.unread).toBe(1);
+    await service.appMarkRead(MARY);
+    expect((await service.appThread(MARY)).unread).toBe(0);
+  });
+
+  it('an email from the same member never joins their in-app thread', async () => {
+    const { service, tables } = setup();
+    await service.appSend(MARY, 'Payout not received', id());
+    await service.ingest(email({ subject: 'Payout not received' }));
+    expect(tables.support_conversations).toHaveLength(2);
+    expect(tables.support_conversations.map((c) => c.reply_via).sort()).toEqual(['app', 'email']);
   });
 });
 

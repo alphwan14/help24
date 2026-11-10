@@ -566,7 +566,8 @@ class NotificationKind {
       priority: NotificationPriority.high,
       icon: AppIcons.support,
       tone: NotificationTone.accent,
-      action: 'Open ticket',
+      // Opens Message Help24: one ongoing conversation, not a ticket.
+      action: 'Open conversation',
     ),
     NotificationKind._(
       type: 'support_ticket_updated',

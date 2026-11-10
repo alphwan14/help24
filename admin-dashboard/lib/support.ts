@@ -15,10 +15,15 @@ export type Conversation = {
   label: InboxLabel;
   status: ConversationStatus;
   subject: string;
-  contact_email: string;
+  /** Empty only for an app thread whose member has no email. */
+  contact_email: string | null;
   contact_name: string | null;
   user_id: string | null;
   started_by: "member" | "staff";
+  /** Where answers go: by email, or into the Help24 app (Message Help24, migration 142). */
+  reply_via: "email" | "app";
+  /** When the member last opened their thread in the app. */
+  member_read_at: string | null;
   last_message_at: string;
   created_at: string;
 };

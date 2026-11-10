@@ -10,6 +10,8 @@ export function createFakeSupport({ personByEmail }) {
   const messages = [];
   /** Every email the Inbox sent, as the mail provider would have. */
   const mailOut = [];
+  /** Every in-app answer's notification, as NotificationsService would have sent it. */
+  const pushOut = [];
   let mailDown = false;
   let refSeq = 0;
 
@@ -18,12 +20,13 @@ export function createFakeSupport({ personByEmail }) {
     if (status) c.status = status;
     c.last_message_at = now();
   };
-  const open = ({ email, name = null, subject, startedBy, label = "support" }) => {
+  const open = ({ email, name = null, subject, startedBy, label = "support", replyVia = "email" }) => {
     const c = {
       id: randomUUID(),
       ref: `H24-TEST${String.fromCharCode(65 + (refSeq++ % 26))}${String.fromCharCode(65 + (refSeq % 26))}`,
       label, status: "open", subject, contact_email: email.toLowerCase(), contact_name: name,
-      user_id: personByEmail(email)?.id ?? null, started_by: startedBy, last_message_at: now(), created_at: now(),
+      user_id: personByEmail(email)?.id ?? null, started_by: startedBy, reply_via: replyVia, member_read_at: null,
+      last_message_at: now(), created_at: now(),
     };
     conversations.push(c);
     return c;
@@ -48,14 +51,28 @@ export function createFakeSupport({ personByEmail }) {
     return { id: m.id, delivery: m.delivery, delivery_error: m.delivery_error };
   };
   const reply = (c, admin, body) => {
-    const m = { id: randomUUID(), conversation_id: c.id, author: "staff", admin_id: admin.id, internal: false, channel: "email", body: body.trim(), full_body: null, sender_verified: null, attachment_count: 0, delivery: "sending", delivery_error: null, created_at: now() };
+    const inApp = c.reply_via === "app";
+    const m = { id: randomUUID(), conversation_id: c.id, author: "staff", admin_id: admin.id, internal: false, channel: inApp ? "app" : "email", body: body.trim(), full_body: null, sender_verified: null, attachment_count: 0, delivery: "sending", delivery_error: null, created_at: now() };
     messages.push(m);
-    return deliver(c, m);
+    if (!inApp) return deliver(c, m);
+    // An in-app thread: stored is delivered, then a notification to the member.
+    m.delivery = "sent";
+    pushOut.push({ userId: c.user_id, type: "support_reply", title: "Help24 Support", body: m.body.slice(0, 140) });
+    touch(c, "waiting");
+    return { id: m.id, delivery: "sent", delivery_error: null };
   };
 
   return {
     mailOut,
+    pushOut,
     conversations,
+    /** As if the member had written from the app (Message Help24, POST /support/app/messages). */
+    fromApp({ email, name = null, text, readAt = null }) {
+      const c = open({ email, name, subject: text.split("\n")[0].slice(0, 80), startedBy: "member", replyVia: "app" });
+      c.member_read_at = readAt;
+      messages.push({ id: randomUUID(), conversation_id: c.id, author: "member", admin_id: null, internal: false, channel: "app", body: text, full_body: null, sender_verified: true, attachment_count: 0, delivery: null, delivery_error: null, created_at: now() });
+      return c;
+    },
     setMailDown(v) {
       mailDown = v;
     },
@@ -88,7 +105,8 @@ export function createFakeSupport({ personByEmail }) {
       }
       if (method === "POST" && p === "/admin/support/conversations") {
         if (!body.email || !body.subject?.trim() || !body.body?.trim()) return apiFail(400, "Write a message first.");
-        const c = open({ email: body.email, subject: body.subject.trim(), startedBy: "staff" });
+        if (body.from !== undefined && !["support", "security"].includes(body.from)) return apiFail(400, "from must be one of: support, security");
+        const c = open({ email: body.email, subject: body.subject.trim(), startedBy: "staff", label: body.from === "security" ? "security" : "support" });
         return send(201, { conversationId: c.id, ...reply(c, admin, body.body) });
       }
       const m = /^\/admin\/support\/conversations\/([0-9a-f-]{36})(\/.*)?$/.exec(p);

@@ -23,6 +23,7 @@ import 'promotion/campaign_detail_screen.dart';
 import 'provider_profile_screen.dart';
 import 'provider/verification_screen.dart';
 import 'review_submission_screen.dart';
+import 'support_thread_screen.dart';
 import 'messages_screen.dart';
 import 'post_detail_screen.dart';
 
@@ -396,6 +397,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'verification_approved':
       case 'verification_rejected':
         await _push(VerificationScreen(uid: widget.userId));
+        return;
+
+      // Help24 answered the member's message: open the conversation.
+      case 'support_reply':
+        await _push(const SupportThreadScreen());
         return;
 
       case 'badge_earned':

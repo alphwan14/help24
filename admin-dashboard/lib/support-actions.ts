@@ -83,6 +83,8 @@ export async function startSupportConversation(input: {
   email: string;
   subject: string;
   body: string;
+  /** support@ as Help24 Support (default) or security@ as Help24 Security. */
+  from?: "support" | "security";
 }): Promise<SupportResult> {
   try {
     const r = await adminActionRequest<{ conversationId: string } & Delivery>("/admin/support/conversations", {

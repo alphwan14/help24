@@ -31,6 +31,10 @@ function when(iso: string) {
 export default function ThreadView({ thread }: { thread: SupportThread }) {
   const { conversation: c, member, messages } = thread;
   const inbox = INBOXES[c.label] ?? INBOXES.support;
+  // Message Help24: the member wrote from the app, and answers go back there.
+  const inApp = c.reply_via === "app";
+  const who = c.contact_name || member?.name || c.contact_email || "Help24 member";
+  const seenAt = c.member_read_at ? Date.parse(c.member_read_at) : 0;
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [mode, setMode] = useState<"reply" | "note">("reply");
@@ -75,7 +79,7 @@ export default function ThreadView({ thread }: { thread: SupportThread }) {
             </Link>
             <h2 className="mt-1 text-lg font-semibold text-gray-900">{c.subject}</h2>
             <p className="mt-0.5 text-[13px] text-gray-500">
-              {c.ref} · {inbox.name} ({inbox.address.split("@")[0]}@) ·{" "}
+              {c.ref} · {inApp ? "Support, in the app" : `${inbox.name} (${inbox.address.split("@")[0]}@)`} ·{" "}
               <span data-testid="thread-status">{STATUS_TEXT[c.status]}</span>
             </p>
           </div>
@@ -99,7 +103,15 @@ export default function ThreadView({ thread }: { thread: SupportThread }) {
 
         <ol className="space-y-5" data-testid="thread-messages">
           {messages.map((m) => (
-            <MessageItem key={m.id} m={m} contact={c.contact_name || c.contact_email} staffName={inbox.signature} onRetry={() => run(() => retrySupportReply(c.id, m.id))} pending={pending} />
+            <MessageItem
+              key={m.id}
+              m={m}
+              contact={who}
+              staffName={inbox.signature}
+              seen={inApp && seenAt >= Date.parse(m.created_at)}
+              onRetry={() => run(() => retrySupportReply(c.id, m.id))}
+              pending={pending}
+            />
           ))}
         </ol>
 
@@ -130,14 +142,16 @@ export default function ThreadView({ thread }: { thread: SupportThread }) {
             }}
             rows={5}
             maxLength={10000}
-            placeholder={mode === "reply" ? `Write to ${c.contact_name || c.contact_email}…` : "Only staff will see this."}
+            placeholder={mode === "reply" ? `Write to ${who}…` : "Only staff will see this."}
             className={`input resize-y ${mode === "note" ? "bg-caution-50" : ""}`}
           />
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-gray-500">
-              {mode === "reply"
-                ? `Emailed to ${c.contact_email} from ${inbox.from}, signed ${inbox.signature}.`
-                : "Notes are never sent."}
+              {mode !== "reply"
+                ? "Notes are never sent."
+                : inApp
+                  ? `Sent to ${who} in the Help24 app as ${inbox.signature}, with a notification.`
+                  : `Emailed to ${c.contact_email} from ${inbox.from}, signed ${inbox.signature}.`}
             </p>
             <button type="button" className="btn-primary ml-auto" disabled={pending || !text.trim()} onClick={submit}>
               {pending ? "Saving…" : mode === "reply" ? "Send reply" : "Add note"}
@@ -158,8 +172,8 @@ export default function ThreadView({ thread }: { thread: SupportThread }) {
 
       <aside className="space-y-2 text-[13px]" data-testid="member-panel">
         <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">From</p>
-        <p className="font-medium text-gray-900">{c.contact_name || c.contact_email}</p>
-        <p className="break-all text-gray-500">{c.contact_email}</p>
+        <p className="font-medium text-gray-900">{who}</p>
+        {c.contact_email && <p className="break-all text-gray-500">{c.contact_email}</p>}
         {member ? (
           <div className="space-y-1 pt-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Help24 account</p>
@@ -174,7 +188,9 @@ export default function ThreadView({ thread }: { thread: SupportThread }) {
           <p className="pt-3 text-gray-500">No Help24 account uses this address.</p>
         )}
         <p className="pt-3 text-xs text-gray-400">
-          The From line of an email can be forged. Confirm who you are talking to before changing anything on an account.
+          {inApp
+            ? "Written from the Help24 app while signed in to this account."
+            : "The From line of an email can be forged. Confirm who you are talking to before changing anything on an account."}
         </p>
       </aside>
     </div>
@@ -185,12 +201,15 @@ function MessageItem({
   m,
   contact,
   staffName,
+  seen,
   onRetry,
   pending,
 }: {
   m: SupportMessage;
   contact: string;
   staffName: string;
+  /** An answer in the app that the member has since opened. */
+  seen: boolean;
   onRetry: () => void;
   pending: boolean;
 }) {
@@ -225,7 +244,8 @@ function MessageItem({
             {m.attachment_count === 1 ? "1 attachment" : `${m.attachment_count} attachments`}, in the copy sent to the team inbox
           </span>
         )}
-        {staff && m.delivery === "sent" && <span>Emailed</span>}
+        {staff && m.delivery === "sent" && m.channel === "app" && <span>{seen ? "Delivered in the app · Seen" : "Delivered in the app"}</span>}
+        {staff && m.delivery === "sent" && m.channel !== "app" && <span>Emailed</span>}
         {staff && m.delivery === "sending" && <span>Sending…</span>}
         {staff && m.delivery === "failed" && (
           <span className="text-critical-700">

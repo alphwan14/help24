@@ -28,6 +28,13 @@ Bundled-file changes on `main` that a patch cannot carry, so they wait for
 1.0.12: `assets/l10n/en.json` sentence-case labels (Profile already cases
 them in Dart, so nothing looks wrong meanwhile).
 
+Ready for a patch (not yet published): **Message Help24** (docs/support-inbox.md
+§ Phase 2): Profile → Support opens an in-app conversation with Help24 instead
+of the website; `support_reply` notifications open it. Copy in Dart, no new
+icons (`AppIcons.support` and `AppIcons.send` were both used in `1b473b7`).
+Needs migration 142 and the backend deployed first: without them the screen
+reads "We couldn't load this".
+
 ## Patches on 1.0.11 (stable)
 
 Checked on the S20+ running the published v1.0.11 APK (sha `84c88140…`).

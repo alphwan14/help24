@@ -43,6 +43,7 @@ import '../widgets/auth_guard.dart';
 import '../widgets/profile_widgets.dart';
 import 'professional_profile_screen.dart';
 import 'sign_in_methods_screen.dart';
+import 'support_thread_screen.dart';
 import 'agent_code_screen.dart';
 import '../services/agent_code_service.dart';
 import '../services/auth_service.dart';
@@ -256,11 +257,14 @@ class ProfileScreen extends StatelessWidget {
                   trailing: const _ExternalTrailing(),
                   onTap: () => _openHelpCenter(context),
                 ),
+                // In the app, not a web page: the member writes, Help24 answers
+                // here with a notification (Message Help24, migration 142).
                 _SettingsTile(
                   icon: AppIcons.support,
-                  title: _sentenceCase(AppLocalizations.of(context)?.t('contact_support') ?? 'Contact support'),
-                  trailing: const _ExternalTrailing(),
-                  onTap: () => _openSupport(context),
+                  title: 'Message Help24',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SupportThreadScreen()),
+                  ),
                 ),
               ],
             ),
@@ -364,9 +368,6 @@ class ProfileScreen extends StatelessWidget {
   // help24.co.ke, opened in an in-app browser tab. See utils/external_links.dart.
   void _openHelpCenter(BuildContext context) =>
       openHelp24Url(context, AppUrls.helpCentre);
-
-  void _openSupport(BuildContext context) =>
-      openHelp24Url(context, AppUrls.supportPortal);
 
   void _openTerms(BuildContext context) =>
       openHelp24Url(context, AppUrls.termsOfService);

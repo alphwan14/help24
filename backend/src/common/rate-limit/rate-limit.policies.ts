@@ -785,6 +785,17 @@ export const RATE_LIMIT_POLICIES: readonly RateLimitPolicy[] = [
   },
 
   {
+    name: 'support:app',
+    rationale:
+      'Message Help24 in the app: a signed-in member reads their support ' +
+      'thread, marks it read and sends messages. Opening the screen costs two ' +
+      'requests and each message one; a person typing does not exceed a few a ' +
+      'minute. 60 a minute per IP leaves room for a household on one ' +
+      'connection while stopping a script from filling the Inbox.',
+    rules: [{ id: 'ip', algorithm: 'sliding-window', by: 'ip', windowMs: MINUTE, limit: 60 }],
+  },
+
+  {
     name: 'support:inbound',
     rationale:
       'Mail to support@ and info@, delivered by the Cloudflare Email Worker. ' +
