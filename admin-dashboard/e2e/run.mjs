@@ -693,6 +693,24 @@ try {
     await clickText("Send");
     await waitFor(`location.pathname.startsWith("/dashboard/inbox/") && ${bodyHas("About your verification")} && ${bodyHas("Emailed")}`, "started conversation", 15000);
     check("staff can write first: the email goes out and the conversation opens", fake.support.mailOut.at(-1).subject.startsWith("Re: About your verification"));
+
+    // security@ is its own inbox: never in the support view, answered as Help24 Security.
+    const sec = fake.support.inbound({ from: DAVE, name: "Dave Kamau", to: "security@help24.co.ke", subject: "Odd reset email", text: "I got a reset email I did not ask for." });
+    await goto(`${APP}/dashboard/inbox`);
+    await waitFor(`!!document.querySelector('[data-testid="inbox-status-filters"]') && !!document.querySelector('[data-testid="security-open"]')`, "inbox with security count", 15000);
+    check("security@ mail stays out of the support view, which shows a Security count instead",
+      !(await evaluate(bodyHas("Odd reset email"))) && (await evaluate(`document.querySelector('[data-testid="security-open"]').textContent === "1"`)));
+    await goto(`${APP}/dashboard/inbox?label=security`);
+    await waitFor(bodyHas("Odd reset email"), "security inbox", 15000);
+    check("the Security view lists it on its own", !(await evaluate(bodyHas("About your verification"))));
+    await goto(`${APP}/dashboard/inbox/${sec.id}`);
+    await waitFor(`!!document.querySelector('[data-testid="composer"]') && ${bodyHas("from security@help24.co.ke, signed Help24 Security")}`, "security thread", 15000);
+    await fill("#composer-text", "Thanks for telling us. Nothing was changed on your account.");
+    await clickText("Send reply");
+    await waitFor(`${bodyHas("Waiting on member")} && ${bodyHas("Emailed")}`, "security reply sent", 15000);
+    const secOut = fake.support.mailOut.at(-1);
+    check("a security reply is emailed from security@, signed Help24 Security",
+      secOut.from === "Help24 Security <security@help24.co.ke>" && secOut.text.endsWith("Help24 Security\nhelp24.co.ke"), secOut.from);
   }
 
   /* ════════════════════════════════════════════════════════════════════ */

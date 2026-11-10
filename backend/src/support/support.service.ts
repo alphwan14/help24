@@ -4,11 +4,11 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { AdminContext } from '../admin/auth/admin-role';
 import { MailNotSentError, SupportMailerService } from './support-mailer.service';
 import {
+  INBOX_LABELS,
   InboundEmail,
   InboxLabel,
-  SUPPORT_ADDRESS,
-  SUPPORT_FROM,
   THREAD_WINDOW_DAYS,
+  identityFor,
   inboundBody,
   labelFor,
   makeRef,
@@ -203,15 +203,22 @@ export class SupportService {
   // The Inbox (dashboard)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /** Conversations, newest activity first, with counts per status. */
+  /**
+   * Conversations, newest activity first, with counts per status. Without a
+   * label this is support@ and info@ together; security@ mail is only ever
+   * listed on its own, so it never mixes with member support.
+   */
   async list(filter: { status?: string; label?: string }) {
     const status = STATUSES.includes(filter.status as ConversationStatus) ? (filter.status as ConversationStatus) : null;
-    const label = filter.label === 'support' || filter.label === 'general' ? filter.label : null;
+    const label = INBOX_LABELS.includes(filter.label as InboxLabel) ? (filter.label as InboxLabel) : null;
+    // PostgREST builders differ per call site; this only narrows by label.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const scoped = <Q extends { eq: any; neq: any }>(query: Q): Q =>
+      label ? query.eq('label', label) : query.neq('label', 'security');
 
-    let q = this.db.from('support_conversations').select(CONVERSATION_COLUMNS)
-      .order('last_message_at', { ascending: false }).limit(200);
+    let q = scoped(this.db.from('support_conversations').select(CONVERSATION_COLUMNS)
+      .order('last_message_at', { ascending: false }).limit(200));
     if (status) q = q.eq('status', status);
-    if (label) q = q.eq('label', label);
     const { data, error } = await q;
     if (error) throw new ServiceUnavailableException('Could not read the Inbox right now.');
     const conversations = (data ?? []) as unknown as Conversation[];
@@ -228,13 +235,22 @@ export class SupportService {
     }
 
     const counts: Record<ConversationStatus, number> = { open: 0, waiting: 0, closed: 0 };
-    await Promise.all(STATUSES.map(async (s) => {
-      const { count } = await this.db.from('support_conversations').select('id', { count: 'exact', head: true }).eq('status', s);
-      counts[s] = count ?? 0;
-    }));
+    const openByLabel: Record<InboxLabel, number> = { support: 0, general: 0, security: 0 };
+    await Promise.all([
+      ...STATUSES.map(async (s) => {
+        const { count } = await scoped(this.db.from('support_conversations').select('id', { count: 'exact', head: true }).eq('status', s));
+        counts[s] = count ?? 0;
+      }),
+      ...INBOX_LABELS.map(async (l) => {
+        const { count } = await this.db.from('support_conversations').select('id', { count: 'exact', head: true })
+          .eq('status', 'open').eq('label', l);
+        openByLabel[l] = count ?? 0;
+      }),
+    ]);
 
     return {
       counts,
+      open_by_label: openByLabel,
       conversations: conversations.map((c) => ({ ...c, preview: previews.get(c.id) ?? null })),
     };
   }
@@ -320,16 +336,17 @@ export class SupportService {
     if (lastFromMember) headers['In-Reply-To'] = lastFromMember;
     if (ids.length) headers.References = [...ids].reverse().join(' ');
 
+    const identity = identityFor(conversation.label);
     let delivery: 'sent' | 'failed' = 'sent';
     let deliveryError: string | null = null;
     try {
       await this.mailer.send({
-        from: SUPPORT_FROM,
+        from: identity.from,
         to: conversation.contact_email,
-        replyTo: SUPPORT_ADDRESS,
+        replyTo: identity.address,
         subject: replySubject(conversation.subject, conversation.ref),
-        text: replyText(body),
-        html: replyHtml(body),
+        text: replyText(body, identity.signature),
+        html: replyHtml(body, identity.signature),
         headers,
         idempotencyKey: `support-${messageId}`,
       });

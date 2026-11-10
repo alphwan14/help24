@@ -7,7 +7,7 @@ import { adminRequest } from "./api";
  */
 
 export type ConversationStatus = "open" | "waiting" | "closed";
-export type InboxLabel = "support" | "general";
+export type InboxLabel = "support" | "general" | "security";
 
 export type Conversation = {
   id: string;
@@ -29,6 +29,8 @@ export type ConversationListItem = Conversation & {
 
 export type SupportList = {
   counts: Record<ConversationStatus, number>;
+  /** Conversations needing a reply, per inbox (absent from an older backend). */
+  open_by_label?: Record<InboxLabel, number>;
   conversations: ConversationListItem[];
 };
 

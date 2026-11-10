@@ -28,7 +28,8 @@ export default async function InboxPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const status: ConversationStatus | "all" =
     params.status === "all" ? "all" : STATUSES.includes(params.status as ConversationStatus) ? (params.status as ConversationStatus) : "open";
-  const label: InboxLabel | null = params.label === "support" || params.label === "general" ? params.label : null;
+  const label: InboxLabel | null =
+    params.label === "support" || params.label === "general" || params.label === "security" ? params.label : null;
 
   const listRequest = startEarly(getSupportList({ status: status === "all" ? undefined : status, label: label ?? undefined }));
   const admin = await getCurrentAdmin();
@@ -50,6 +51,7 @@ export default async function InboxPage({ searchParams }: PageProps) {
     return `/dashboard/inbox${qs ? `?${qs}` : ""}`;
   };
   const now = Date.now();
+  const securityOpen = list?.open_by_label?.security ?? 0;
 
   return (
     <FilterScope>
@@ -76,6 +78,16 @@ export default async function InboxPage({ searchParams }: PageProps) {
             <FilterLink href={href(status, "general")} active={label === "general"} className="text-gray-500 hover:text-gray-900" activeClassName="font-semibold text-gray-900">
               General
             </FilterLink>
+            {/* Kept apart: security@ mail is never in "Every inbox". */}
+            <FilterLink
+              href={href(status, "security")}
+              active={label === "security"}
+              className="ml-3 text-gray-500 hover:text-gray-900"
+              activeClassName="ml-3 font-semibold text-gray-900"
+            >
+              Security
+              {securityOpen > 0 && <span className="ml-1.5 text-caution-700" data-testid="security-open">{securityOpen}</span>}
+            </FilterLink>
           </div>
         </div>
 
@@ -90,7 +102,9 @@ export default async function InboxPage({ searchParams }: PageProps) {
                 {status === "open" ? "Nothing needs a reply." : "No conversations here."}
               </p>
               <p className="mt-1 text-[13px] text-gray-400">
-                New mail to support@ and info@ appears here as it arrives.
+                {label === "security"
+                  ? "New mail to security@ appears here as it arrives."
+                  : "New mail to support@ and info@ appears here as it arrives."}
               </p>
             </div>
           ) : (

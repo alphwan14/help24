@@ -50,12 +50,14 @@ export function replySubject(subject: string, ref: string): string {
   return `Re: ${threadSubject(subject)} [${ref}]`;
 }
 
-export type InboxLabel = 'support' | 'general';
+export type InboxLabel = 'support' | 'general' | 'security';
+export const INBOX_LABELS: readonly InboxLabel[] = ['support', 'general', 'security'];
 
 /**
- * Which inbox an email was sent to. info@ is General; support@ and anything
- * else at help24.co.ke is Support. Null when no help24.co.ke address is among
- * the recipients (the worker should not have sent it).
+ * Which inbox an email was sent to. security@ is Security (kept apart from the
+ * rest, even when support@ is copied in); info@ is General; support@ and
+ * anything else at help24.co.ke is Support. Null when no help24.co.ke address
+ * is among the recipients (the worker should not have sent it).
  */
 export function labelFor(recipients: string[]): InboxLabel | null {
   const ours = recipients
@@ -63,6 +65,7 @@ export function labelFor(recipients: string[]): InboxLabel | null {
     .filter((r) => r.endsWith('@help24.co.ke'));
   if (ours.length === 0) return null;
   const local = (a: string) => a.split('@')[0].split('+')[0];
+  if (ours.some((a) => local(a) === 'security')) return 'security';
   if (ours.some((a) => local(a) === 'support')) return 'support';
   if (ours.some((a) => local(a) === 'info')) return 'general';
   return 'support';
@@ -209,9 +212,31 @@ export const SUPPORT_FROM = 'Help24 Support <support@help24.co.ke>';
 export const SUPPORT_ADDRESS = 'support@help24.co.ke';
 const SIGNATURE = 'Help24 Support';
 
+/** Who a reply comes from, and how it is signed. */
+export interface InboxIdentity {
+  from: string;
+  address: string;
+  signature: string;
+}
+
+const SUPPORT_IDENTITY: InboxIdentity = { from: SUPPORT_FROM, address: SUPPORT_ADDRESS, signature: SIGNATURE };
+const SECURITY_IDENTITY: InboxIdentity = {
+  from: 'Help24 Security <security@help24.co.ke>',
+  address: 'security@help24.co.ke',
+  signature: 'Help24 Security',
+};
+
+/**
+ * Security mail is answered from security@, so the conversation stays there;
+ * support@ and info@ mail is answered from support@ as Help24 Support.
+ */
+export function identityFor(label: InboxLabel): InboxIdentity {
+  return label === 'security' ? SECURITY_IDENTITY : SUPPORT_IDENTITY;
+}
+
 /** Plain text of a staff reply email. */
-export function replyText(body: string): string {
-  return `${body.trim()}\n\n${SIGNATURE}\nhelp24.co.ke`;
+export function replyText(body: string, signature: string = SIGNATURE): string {
+  return `${body.trim()}\n\n${signature}\nhelp24.co.ke`;
 }
 
 const escapeHtml = (s: string) =>
@@ -221,7 +246,7 @@ const escapeHtml = (s: string) =>
  * HTML of a staff reply email: the words, the signature, nothing else. Plain
  * and readable in any client; no images, no tracking.
  */
-export function replyHtml(body: string): string {
+export function replyHtml(body: string, signature: string = SIGNATURE): string {
   const paragraphs = body
     .trim()
     .split(/\n{2,}/)
@@ -231,7 +256,7 @@ export function replyHtml(body: string): string {
     '<!doctype html><html lang="en"><body style="margin:0;padding:24px 16px;background:#ffffff;">' +
     '<div style="max-width:560px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:24px;color:#12161A;">' +
     paragraphs +
-    `<p style="margin:24px 0 0;font-weight:600;">${SIGNATURE}</p>` +
+    `<p style="margin:24px 0 0;font-weight:600;">${escapeHtml(signature)}</p>` +
     '<p style="margin:2px 0 0;font-size:13px;color:#686F77;"><a href="https://help24.co.ke" style="color:#686F77;">help24.co.ke</a></p>' +
     '</div></body></html>'
   );
