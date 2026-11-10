@@ -5,6 +5,7 @@ import { deriveSettlementState } from '../../jobs/settlement-state';
 import { toHttpError } from '../../moderation/moderation-errors';
 import { AdminContext } from '../auth/admin-role';
 import { AlertReviewDto } from './dto/alert-review.dto';
+import { isMissingTable } from '../../mpesa/advance';
 import {
   AdminAlert,
   AlertId,
@@ -333,8 +334,25 @@ export class AdminAlertsService {
       stalled = stalled.filter((e) => !progressed.has(e.tx.post_id));
     }
 
+    // Materials Advance payouts (migration 139) have their own row and their
+    // own M-Pesa ids, so a lost callback leaves the ADVANCE sending, not the
+    // transaction. Same meaning as a stuck payout, so the same alert. A table
+    // that does not exist yet holds none.
+    const { data: advanceRows, error: advanceError } = await this.db
+      .from('materials_advances')
+      .select('id, transaction_id, post_id, amount, release_requested_at, created_at')
+      .eq('status', 'sending')
+      .lte('release_requested_at', new Date(now - THRESHOLDS.payoutStuckMinutes * MINUTE).toISOString())
+      .limit(500);
+    if (advanceError && !isMissingTable(advanceError)) throw new Error(`materials_advances: ${advanceError.message}`);
+    const stuckAdvances = ((advanceRows ?? []) as Row[]).map((a) => ({
+      tx: { id: `advance:${a.id}`, post_id: a.post_id, created_at: a.created_at, total_paid: a.amount },
+      escrow: null,
+      since: a.release_requested_at as string,
+    }));
+
     const flagged = [...buckets.failed, ...buckets.processing, ...owed, ...buckets.mismatch,
-      ...buckets.phantom, ...buckets.unconfirmed, ...stalled];
+      ...buckets.phantom, ...buckets.unconfirmed, ...stalled, ...stuckAdvances];
     const titles = await this.titles(flagged.map((e) => e.tx.post_id));
 
     // `amount` omitted → the payment's own total; an explicit null → no money
@@ -383,6 +401,10 @@ export class AdminAlertsService {
     }
     for (const { e, since } of stuck) {
       add('payout_stuck', e, item(e, since, `Sent to M-Pesa ${ageOf(since, now)} ago, no result since`));
+    }
+    for (const a of stuckAdvances) {
+      add('payout_stuck', a, item(a, a.since, `Materials advance sent to M-Pesa ${ageOf(a.since, now)} ago, no result since`,
+        a.tx.total_paid as number, jobOrEscrow(a)));
     }
     for (const e of owed) {
       const d = decision.get(e.tx.id);

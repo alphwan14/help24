@@ -20,6 +20,7 @@ import { normalizeMsisdn } from '../common/phone/msisdn';
 import { PayoutDestinationsService } from '../payouts/payout-destinations.service';
 import { PayoutAuditService } from '../payouts/payout-audit.service';
 import { explainFailure } from '../payouts/payout-destination.resolver';
+import { MaterialsAdvanceService } from './materials-advance.service';
 
 /**
  * A Daraja STK callback reduced to the fields consumers need. All STK pushes
@@ -77,6 +78,8 @@ export class MpesaService {
     private readonly events: EventsService,
     private readonly payoutDestinations: PayoutDestinationsService,
     private readonly payoutAudit: PayoutAuditService,
+    // Required, never @Optional: a payout that cannot see the advance would pay the 40% twice.
+    private readonly advances: MaterialsAdvanceService,
   ) {
     // NON-NEGOTIABLE hard block: dev payment simulation must never run in production.
     if (process.env.MPESA_DEV_FORCE_SUCCESS === 'true' && process.env.NODE_ENV === 'production') {
@@ -198,6 +201,13 @@ export class MpesaService {
     const totalPaid = calculateTotal(amount);
     this.logger.log(`[PAY] fee=${fee} totalPaid=${totalPaid}`);
 
+    // Materials Advance: refused here, before anything exists, unless the job
+    // qualifies (switch on, KES 10,000+, verified provider). Same fee: the
+    // customer pays once and Help24 carries the second payout's cost.
+    const advanceAmount = dto.materials_advance
+      ? await this.advances.assertEligible(amount, post.selected_provider_id as string)
+      : 0;
+
     const transaction = await this.transactions.create({
       postId: dto.post_id,
       buyerUserId: dto.buyer_user_id,
@@ -206,6 +216,22 @@ export class MpesaService {
       fee,
       totalPaid,
     });
+
+    if (advanceAmount > 0) {
+      try {
+        await this.advances.createForTransaction({
+          transactionId: transaction.id,
+          postId: dto.post_id,
+          clientUserId: dto.buyer_user_id,
+          providerUserId: post.selected_provider_id as string,
+          amount: advanceAmount,
+        });
+      } catch (err) {
+        // No prompt has been sent: fail this attempt cleanly so a retry starts fresh.
+        await this.transactions.update(transaction.id, { status: 'failed', failure_reason: 'materials advance not recorded' });
+        throw err;
+      }
+    }
 
     // Audit: payment flow started.
     void this.events.emit({
@@ -633,6 +659,19 @@ export class MpesaService {
     // first, nothing is sent.
     const txId = transaction.id as string;
     const sourceStatus = transaction.status as string;
+
+    // MATERIALS ADVANCE. What it already paid comes off this payout; an unsent
+    // one is cancelled so the full amount goes now; one still in flight makes
+    // this refuse (the event retry returns once M-Pesa has answered). Read
+    // before the claim, and a read failure throws: never pay the 40% twice.
+    const advancePaid = await this.advances.prepareFinalPayout(txId);
+    const payAmount = (transaction.amount as number) - advancePaid;
+    if (advancePaid > 0) {
+      this.logger.log(
+        `[PAYOUT][ADVANCE] postId=${dto.post_id} txId=${txId} job=${transaction.amount as number} advance=${advancePaid} paying=${payAmount}`,
+      );
+    }
+
     const claimed = await this.transactions.claimStatus(txId, [sourceStatus], 'payout_pending');
     if (!claimed) {
       this.logger.warn(
@@ -650,7 +689,7 @@ export class MpesaService {
     }
 
     this.logger.log(
-      `[PAYOUT][DARAJA_REQUEST] postId=${dto.post_id} txId=${transaction.id as string} amount=${transaction.amount as number} providerPhone=${providerPhone}`,
+      `[PAYOUT][DARAJA_REQUEST] postId=${dto.post_id} txId=${transaction.id as string} amount=${payAmount} providerPhone=${providerPhone}`,
     );
 
     let b2cResult: Awaited<ReturnType<typeof this.daraja.b2cPayout>>;
@@ -667,7 +706,7 @@ export class MpesaService {
       try {
         b2cResult = await this.daraja.b2cPayout({
           phone: providerPhone,
-          amount: transaction.amount as number,
+          amount: payAmount,
           jobId: dto.post_id,
         });
       } catch (err) {
@@ -714,7 +753,8 @@ export class MpesaService {
       channel: 'mpesa',
       metadata: {
         post_id: dto.post_id,
-        amount: transaction.amount as number,
+        amount: payAmount,
+        materials_advance_paid: advancePaid,
         conversation_id: b2cResult.conversationId,
         originator_conversation_id: b2cResult.originatorConversationId,
         simulated: this.devForceSuccess,
@@ -972,6 +1012,15 @@ export class MpesaService {
   }): Promise<{ outcome: string; reason: string }> {
     const tx = await this.transactions.findByConversationId(input.conversationId);
     if (!tx) {
+      // Not the job's final payout: it may be a Materials Advance, which keeps
+      // its own conversation ids (migration 139).
+      const handled = await this.advances.settleByConversation({
+        conversationId: input.conversationId,
+        resultCode: input.resultCode,
+        resultDesc: input.resultDesc,
+        source: input.source,
+      });
+      if (handled) return { outcome: 'advance', reason: 'materials_advance' };
       this.logger.error(
         `${MpesaService.PS} [${input.source}] no transaction for ConversationID ${input.conversationId}`,
       );
@@ -1043,6 +1092,21 @@ export class MpesaService {
     // Correlate the answer back to our transaction.
     let tx = occasion ? await this.transactions.findByConversationId(occasion) : null;
     if (!tx && originator) tx = await this.transactions.findByOriginatorConversationId(originator);
+    if (!tx && queryResultCode === 0) {
+      // A Materials Advance payout settles the same way: only on a definitive status.
+      const s = (txnStatus ?? '').toLowerCase();
+      const definitive = s === 'completed' ? 0 : ['failed', 'cancelled', 'canceled'].includes(s) ? 1 : null;
+      if (definitive !== null) {
+        const handled = await this.advances.settleByConversation({
+          conversationId: occasion,
+          originatorConversationId: originator,
+          resultCode: definitive,
+          resultDesc: `status-query: ${txnStatus}`,
+          source: 'status-result',
+        });
+        if (handled) return;
+      }
+    }
     if (!tx) {
       this.logger.error(
         `${PS} [status-result] could not correlate to a transaction (occasion=${occasion ?? 'n/a'} originator=${originator ?? 'n/a'})`,

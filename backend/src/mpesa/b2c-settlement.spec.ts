@@ -88,7 +88,7 @@ function buildService(opts: { dev?: boolean; escrowRow?: EscrowRow; post?: any }
     emitOrThrow: jest.fn().mockResolvedValue(null),
   };
 
-  // constructor: (daraja, transactions, supabase, notifications, events, payoutDestinations, payoutAudit)
+  // constructor: (daraja, transactions, supabase, notifications, events, payoutDestinations, payoutAudit, advances)
   const service = new MpesaService(
     daraja as any,
     transactions as any,
@@ -97,6 +97,8 @@ function buildService(opts: { dev?: boolean; escrowRow?: EscrowRow; post?: any }
     events as any,
     payoutDestinations as any,
     payoutAudit as any,
+    // These payouts have no Materials Advance; an unmatched result is not one either.
+    { prepareFinalPayout: async () => 0, settleByConversation: async () => false } as any,
   );
   return { service, transactions, daraja, events, escrowUpdates };
 }

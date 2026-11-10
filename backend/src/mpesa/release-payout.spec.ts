@@ -50,7 +50,10 @@ function makeSupabase(txStatus: string, capture: Captured[]) {
   };
 }
 
-function buildService(txStatus: string, opts: { claimWins?: boolean; b2c?: () => Promise<unknown> } = {}) {
+function buildService(
+  txStatus: string,
+  opts: { claimWins?: boolean; b2c?: () => Promise<unknown>; advancePaid?: () => Promise<number> } = {},
+) {
   const capture: Captured[] = [];
   const daraja = {
     b2cPayout: jest.fn(opts.b2c ?? (() => Promise.resolve({ conversationId: 'c1', originatorConversationId: 'o1' }))),
@@ -80,7 +83,7 @@ function buildService(txStatus: string, opts: { claimWins?: boolean; b2c?: () =>
     emitOrThrow: jest.fn().mockResolvedValue(null),
   };
 
-  // constructor: (daraja, transactions, supabase, notifications, events, payoutDestinations, payoutAudit)
+  // constructor: (daraja, transactions, supabase, notifications, events, payoutDestinations, payoutAudit, advances)
   const service = new MpesaService(
     daraja as any,
     transactions as any,
@@ -89,6 +92,8 @@ function buildService(txStatus: string, opts: { claimWins?: boolean; b2c?: () =>
     events as any,
     payoutDestinations as any,
     payoutAudit as any,
+    // No Materials Advance unless a test gives one: the full amount is paid.
+    { prepareFinalPayout: opts.advancePaid ?? (async () => 0), settleByConversation: async () => false } as any,
   );
   return { service, capture, daraja, payoutDestinations, payoutAudit, transactions };
 }
@@ -178,5 +183,25 @@ describe('MpesaService.releasePayout claims the payment before Daraja', () => {
     expect(transactions.update).toHaveBeenCalledWith(
       'tx1', { failure_reason: expect.stringContaining('B2C outcome unknown') },
     );
+  });
+});
+
+describe('MpesaService.releasePayout with a Materials Advance (migration 139)', () => {
+  it('pays only what is still held once an advance reached the provider', async () => {
+    // The fake transaction is a KES 100 job; an advance of 40 already went out.
+    const { service, daraja } = buildService('paid', { advancePaid: async () => 40 });
+    await service.releasePayout({ post_id: 'p1' });
+    expect(daraja.b2cPayout).toHaveBeenCalledWith(expect.objectContaining({ amount: 60 }));
+  });
+
+  it('refuses before claiming the payment while the advance is still in flight', async () => {
+    const { service, daraja, transactions } = buildService('paid', {
+      advancePaid: async () => {
+        throw new Error('The materials advance on this job is still being confirmed by M-Pesa.');
+      },
+    });
+    await expect(service.releasePayout({ post_id: 'p1' })).rejects.toThrow(/still being confirmed/);
+    expect(transactions.claimStatus).not.toHaveBeenCalled();
+    expect(daraja.b2cPayout).not.toHaveBeenCalled();
   });
 });

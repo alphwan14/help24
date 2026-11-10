@@ -49,6 +49,8 @@ function build() {
     mpesa as any,
     events as any,
     disputes as any,
+    // No Materials Advance on these payments (materials-advance.spec.ts covers one).
+    { forTransaction: async () => null } as any,
   );
   return { service, supa, mpesa, notifications, events, disputes };
 }

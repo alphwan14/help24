@@ -20,6 +20,7 @@ import {
   RequestEvidenceDto,
 } from './dto/participant.dto';
 import { DisputeStorageService } from './dispute-storage.service';
+import { MaterialsAdvanceService } from '../../mpesa/materials-advance.service';
 
 /** Disputes a user may not exceed in a rolling window (anti-spam). */
 const RATE_LIMIT_MAX_PER_WINDOW = 5;
@@ -53,6 +54,7 @@ export class DisputesService {
     private readonly notifications: NotificationsService,
     private readonly events: EventsService,
     private readonly storage: DisputeStorageService,
+    private readonly advances: MaterialsAdvanceService,
   ) {}
 
   // ── Create (user-facing: client or provider) ───────────────────────────────
@@ -773,6 +775,9 @@ export class DisputesService {
       .select('id');
     if (claimError) throw new BadRequestException(`Could not freeze the payment: ${claimError.message}`);
     const frozen = (claimed?.length ?? 0) > 0;
+    // An unsent Materials Advance freezes with it (held -> frozen), so the
+    // customer cannot send it while the case is open. Never blocks the dispute.
+    await this.advances.freezeForDispute(txId);
     if (!frozen) {
       this.logger.warn(`[DISPUTES] tx=${txId} already claimed by a payout — case opens without a freeze`);
     }

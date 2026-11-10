@@ -14,6 +14,8 @@ import { EVENT_TYPES, EventType } from '../../events/event.types';
 import { AdminContext, roleAtLeast } from '../auth/admin-role';
 import { DecisionDto, DecisionType } from './dto/decision.dto';
 import { DisputesService } from './disputes.service';
+import { MaterialsAdvanceService } from '../../mpesa/materials-advance.service';
+import { advanceInFlight, advancePaidOut } from '../../mpesa/advance';
 
 const TERMINAL = ['resolved', 'escalated', 'merged', 'resolved_release', 'resolved_refund', 'resolved_partial'];
 
@@ -42,6 +44,7 @@ export class DecisionsService {
     private readonly mpesa: MpesaService,
     private readonly events: EventsService,
     private readonly disputes: DisputesService,
+    private readonly advances: MaterialsAdvanceService,
   ) {}
 
   async decide(
@@ -92,8 +95,20 @@ export class DecisionsService {
     const providerId = post.selected_provider_id as string;
     const buyerId = post.author_user_id as string;
     const postTitle = post.title as string;
-    const escrowAmount = (tx.amount as number) ?? 0;
     const txStatus = tx.status as string;
+
+    // Materials Advance (migration 139): money the fundi already received is no
+    // longer held, so every ruling works on what is left. A refund then returns
+    // the held part plus the fee (owner decision 2026-11-10). While an advance
+    // is still in flight its outcome is unknown, so no money ruling until it settles.
+    const advance = await this.advances.forTransaction(txId);
+    if (advanceInFlight(advance) && dto.decision_type !== 'ESCALATE') {
+      throw new ConflictException(
+        'A materials advance on this job is still being confirmed by M-Pesa. Rule once it settles, or ESCALATE.',
+      );
+    }
+    const advancePaid = advancePaidOut(advance);
+    const escrowAmount = ((tx.amount as number) ?? 0) - advancePaid;
 
     // Edge case: dispute decided after funds already moved → no reversal path.
     if ((txStatus === 'released' || txStatus === 'refunded') && dto.decision_type !== 'ESCALATE') {
@@ -106,7 +121,7 @@ export class DecisionsService {
 
     // ── 3. Write the immutable decision row FIRST (audit before action) ─────────
     const providerAmount = this.providerAmountFor(dto, escrowAmount);
-    const clientRefund = this.clientRefundFor(dto, tx.total_paid as number);
+    const clientRefund = this.clientRefundFor(dto, (tx.total_paid as number) - advancePaid);
 
     const { data: decision, error: decErr } = await this.supabase.client
       .from('dispute_decisions')

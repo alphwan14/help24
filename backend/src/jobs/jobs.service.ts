@@ -15,6 +15,7 @@ import { MarkCompleteDto } from './dto/mark-complete.dto';
 import { ApproveDto } from './dto/client-decision.dto';
 import { SelectProviderDto } from './dto/select-provider.dto';
 import { deriveSettlementState } from './settlement-state';
+import { AdvanceRow, advancePaidOut, canRelease, isMissingTable } from '../mpesa/advance';
 import { autoApproveDeadline, autoApproveHours } from './auto-approval';
 import { POST_IMAGES_BUCKET, postPhotoPaths } from './post-photos';
 
@@ -493,6 +494,22 @@ export class JobsService {
       escrow = esc ?? null;
     }
 
+    // Materials Advance on this payment, if it was paid that way (migration 139).
+    // Display only: a read failure shows no advance block rather than failing
+    // the screen; nothing here moves money.
+    let advance: Pick<AdvanceRow, 'status' | 'amount' | 'failure_reason' | 'release_requested_at' | 'paid_out_at'> | null = null;
+    if (tx) {
+      const { data: adv, error: advError } = await this.supabase.client
+        .from('materials_advances')
+        .select('status, amount, failure_reason, release_requested_at, paid_out_at')
+        .eq('transaction_id', tx.id as string)
+        .maybeSingle();
+      if (advError && !isMissingTable(advError)) {
+        this.logger.warn(`[LIFECYCLE] materials advance unreadable for tx=${tx.id as string}: ${advError.message}`);
+      }
+      advance = (adv as typeof advance) ?? null;
+    }
+
     // Latest completion request.
     const { data: completion } = await this.supabase.client
       .from('job_completions')
@@ -606,11 +623,25 @@ export class JobsService {
         (latestDecision?.provider_amount as number | null) ?? (dispute?.provider_amount as number | null) ?? null,
       clientRefund:
         (latestDecision?.client_refund_amount as number | null) ?? (dispute?.buyer_refund as number | null) ?? null,
+      advancePaid: advancePaidOut(advance),
       paidAt: (tx?.created_at as string | null) ?? null,
       releasedAt: (escrow?.released_at as string | null) ?? null,
       disputedAt: (dispute?.created_at as string | null) ?? null,
       resolvedAt: (dispute?.resolved_at as string | null) ?? null,
     });
+
+    const materialsAdvance = advance
+      ? {
+          status: advance.status,
+          amount: advance.amount,
+          // Only the customer can send it, and only while it is releasable.
+          can_release:
+            isClient && canRelease({ row: advance, txStatus: (tx?.status as string | null) ?? null, activeDispute }).ok,
+          failure_reason: isClient ? advance.failure_reason : null,
+          release_requested_at: advance.release_requested_at,
+          paid_out_at: advance.paid_out_at,
+        }
+      : null;
 
     return {
       post: {
@@ -635,6 +666,7 @@ export class JobsService {
           }
         : null,
       escrow: escrow ? { status: escrow.status, released_at: escrow.released_at } : null,
+      materials_advance: materialsAdvance,
       completion: completion ?? null,
       dispute: dispute ? { ...dispute, decisions } : null,
       timeline,

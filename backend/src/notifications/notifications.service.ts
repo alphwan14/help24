@@ -24,6 +24,7 @@ export type NotificationType =
   | 'dispute_evidence_requested'  // admin asked a party for more evidence
   | 'dispute_evidence_uploaded'   // a party submitted evidence (notifies the other side + admin)
   | 'escrow_released'
+  | 'materials_advance_failed'   // M-Pesa could not deliver a Materials Advance; it is still held
   | 'review_requested'           // client prompted to review after approval
   | 'review_received'            // provider notified a review arrived
   | 'job_cancelled'              // selected provider notified the client removed the job

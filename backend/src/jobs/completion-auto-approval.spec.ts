@@ -227,7 +227,8 @@ describe('DisputesService.freezeForDispute — never over a payout already under
       table === 'transactions' && isUpdate(ops) ? { data: frozenRows, error: null } : { data: null, error: null },
     );
     const events = { emit: jest.fn() };
-    const service = new DisputesService(supa as any, {} as any, events as any, {} as any);
+    const advances = { freezeForDispute: jest.fn().mockResolvedValue(undefined) };
+    const service = new DisputesService(supa as any, {} as any, events as any, {} as any, advances as any);
     return { service, supa, events };
   }
 

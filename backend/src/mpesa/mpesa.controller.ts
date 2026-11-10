@@ -8,11 +8,14 @@ import {
   Logger,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MpesaService } from './mpesa.service';
+import { MaterialsAdvanceService } from './materials-advance.service';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
+import { ReleaseAdvanceDto } from './dto/release-advance.dto';
 import { ReleasePayoutDto } from './dto/release-payout.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import { AdminAuth, Auth, Public } from '../common/auth/auth.decorator';
@@ -26,6 +29,7 @@ export class MpesaController {
   constructor(
     private readonly mpesa: MpesaService,
     private readonly config: ConfigService,
+    private readonly advances: MaterialsAdvanceService,
   ) {}
 
   @Post('initiate')
@@ -122,6 +126,35 @@ export class MpesaController {
   b2cStatusResult(@Body() body: Record<string, unknown>) {
     this.logger.log(`[B2C] status-result received: ${JSON.stringify(body)}`);
     return this.mpesa.handleB2cStatusResult(body);
+  }
+
+  /**
+   * Materials Advance for one job: can it be used, and what would it be
+   * (payment screen). Only the customer who posted the job; the service checks
+   * that, and binding stops a caller asking as someone else.
+   */
+  @Get('materials-advance/:postId')
+  @RateLimit('payments:read')
+  @Auth('query.user_id')
+  advanceQuote(@Param('postId') postId: string, @Query('user_id') userId: string) {
+    return this.advances.quote(postId, userId);
+  }
+
+  /**
+   * The customer's "Send materials money": pays the advance to the provider.
+   * Money moves on this call, so it is bound and rate-limited like a payment.
+   * Deliberately NOT @Restrict('pay'): the money was already paid for this
+   * job, so sending it settles an existing deal (like approving), and a
+   * restriction must never strand the provider's materials money
+   * (moderation.contract.spec.ts). The service requires the post's author.
+   */
+  @Post('materials-advance/:postId/release')
+  @HttpCode(HttpStatus.OK)
+  @RateLimit('payments:initiate')
+  @Auth('body.user_id')
+  releaseAdvance(@Param('postId') postId: string, @Body() dto: ReleaseAdvanceDto) {
+    this.logger.log(`[ADVANCE] release requested — post=${postId} by=${dto.user_id}`);
+    return this.advances.release(postId, dto.user_id);
   }
 
   @Get('status/:postId')

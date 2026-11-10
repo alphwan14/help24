@@ -31,6 +31,8 @@ interface World {
   /** Rows admin_unlinked_dashboard_logins returns (migration 122). */
   unlinkedLogins?: Array<Record<string, unknown>>;
   failUnlinked?: boolean;
+  /** A Materials Advance (migration 139) sent to M-Pesa 2 h ago with no result. */
+  stuckAdvance?: boolean;
 }
 
 /** One marketplace with exactly one instance of every condition, plus near-misses. */
@@ -147,6 +149,10 @@ function world(opts: World = {}) {
         ] };
       case 'settlements':
         return { data: opts.paidSplit ? [{ transaction_id: 'split' }] : [] };
+      case 'materials_advances':
+        return { data: opts.stuckAdvance
+          ? [{ id: 'adv1', transaction_id: 'held-short', post_id: 'post-held-short', amount: 400, release_requested_at: ago(2 * H), created_at: ago(2 * D) }]
+          : [] };
       case 'admin_alert_reviews':
         if (call.ops.some(([o]) => o === 'insert')) return { data: null };
         if (opts.failReviews) return { error: { message: 'relation "admin_alert_reviews" does not exist' } };
@@ -194,6 +200,19 @@ describe('AdminAlertsService — financial & escrow (through deriveSettlementSta
     const a = byId((await world().service.compute(NOW)).alerts).get('payout_stuck');
     expect(a?.priority).toBe('high');
     expect(ids(a)).toEqual(['stuck']);
+  });
+
+  it('a Materials Advance with no M-Pesa result is a stuck payout too, for the advance amount', async () => {
+    const { service, calls } = world({ stuckAdvance: true });
+    const a = byId((await service.compute(NOW)).alerts).get('payout_stuck');
+    expect(ids(a)).toEqual(['stuck', 'advance:adv1']);
+    const adv = a?.items.find((i) => i.id === 'advance:adv1');
+    expect(adv?.detail).toContain('Materials advance sent to M-Pesa');
+    expect(adv?.amount_kes).toBe(400);
+    expect(adv?.label).toBe('Job held-short');
+    // Only advances in flight, and only past the stuck threshold.
+    const read = calls.find((c) => c.table === 'materials_advances');
+    expect(read && has(read, 'eq', 'status', 'sending')).toBe(true);
   });
 
   it('a split decision leaves the provider\'s share owed — HIGH, for the provider amount', async () => {
