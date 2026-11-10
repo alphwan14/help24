@@ -1,0 +1,15 @@
+{
+  "name": "help24-mail",
+  "private": true,
+  "type": "module",
+  "description": "support@ and info@ help24.co.ke: Cloudflare Email Worker that hands each email to the backend's support Inbox",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "postal-mime": "4.1.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

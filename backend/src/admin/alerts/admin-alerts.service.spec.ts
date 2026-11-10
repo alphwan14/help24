@@ -519,7 +519,7 @@ describe('alert-rules', () => {
   it('every rule has a priority, a category, a link into the dashboard and an action', () => {
     for (const [id, rule] of Object.entries(RULES)) {
       expect(['high', 'medium', 'low']).toContain(rule.priority);
-      expect(['financial', 'trust_safety', 'marketplace']).toContain(rule.category);
+      expect(['financial', 'trust_safety', 'support', 'marketplace']).toContain(rule.category);
       expect(rule.href.startsWith('/dashboard/')).toBe(true);
       expect(rule.action.length).toBeGreaterThan(3);
       expect(rule.title(1)).not.toEqual(rule.title(2)); // singular and plural read differently

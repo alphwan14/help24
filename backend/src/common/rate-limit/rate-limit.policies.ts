@@ -773,6 +773,18 @@ export const RATE_LIMIT_POLICIES: readonly RateLimitPolicy[] = [
     ],
   },
 
+  {
+    name: 'support:inbound',
+    rationale:
+      'Mail to support@ and info@, delivered by the Cloudflare Email Worker. ' +
+      'Every request must carry the Worker\'s HMAC signature, so this limit is ' +
+      'not the control: it only keeps a flood of unsigned requests from ' +
+      'reaching the signature check at speed. Cloudflare delivers from a ' +
+      'small set of addresses, so the limit is per IP and generous: 120 a ' +
+      'minute is far beyond the mail a small team receives.',
+    rules: [{ id: 'ip', algorithm: 'sliding-window', by: 'ip', windowMs: MINUTE, limit: 120 }],
+  },
+
   // ═══════════════════════════════════════════════════════════════════════════
   // OPERATIONAL
   // ═══════════════════════════════════════════════════════════════════════════

@@ -119,6 +119,7 @@ export class AdminAlertsService {
       isolate('promotions', () => this.promotionAlerts()),
       isolate('verifications', () => this.verificationAlerts(now)),
       isolate('access', () => this.accessAlerts()),
+      isolate('support', () => this.supportAlerts(now)),
     ]);
 
     const alerts = sortAlerts(groups.flat().filter((a): a is AdminAlert => a !== null));
@@ -670,6 +671,24 @@ export class AdminAlertsService {
    * middleware refuses them however correct the password, so each one is a
    * staff member locked out with no way to fix it themselves.
    */
+  /** Conversations waiting on Help24: the member wrote last (migration 138). */
+  private async supportAlerts(now: number): Promise<Array<AdminAlert | null>> {
+    const { data } = await must<Row[]>(this.db.from('support_conversations')
+      .select('id, subject, contact_email, contact_name, last_message_at')
+      .eq('status', 'open')
+      .order('last_message_at', { ascending: true })
+      .limit(200));
+    return [
+      buildAlert('support_waiting', (data ?? []).map((c): AlertItem => ({
+        id: c.id,
+        label: c.subject,
+        detail: [c.contact_name || c.contact_email, `waiting ${ageOf(c.last_message_at, now)}`].join(' · '),
+        at: c.last_message_at,
+        href: `/dashboard/inbox/${c.id}`,
+      })), () => 'Members get an answer by email from support@help24.co.ke, signed Help24 Support.'),
+    ];
+  }
+
   private async accessAlerts(): Promise<Array<AdminAlert | null>> {
     const { data } = await must<Row[]>(this.db.rpc('admin_unlinked_dashboard_logins', { p_days: 30 }));
     return [

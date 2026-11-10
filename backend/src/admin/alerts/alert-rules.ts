@@ -25,7 +25,7 @@ import { createHash } from 'crypto';
  */
 
 export type AlertPriority = 'high' | 'medium' | 'low';
-export type AlertCategory = 'financial' | 'trust_safety' | 'marketplace';
+export type AlertCategory = 'financial' | 'trust_safety' | 'support' | 'marketplace';
 
 export type AlertId =
   | 'payout_failed'
@@ -40,6 +40,7 @@ export type AlertId =
   | 'reports_untriaged'
   | 'verifications_waiting'
   | 'dashboard_login_unlinked'
+  | 'support_waiting'
   | 'completion_overdue'
   | 'paid_stalled'
   | 'urgent_unanswered'
@@ -253,6 +254,17 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     title: (n) => `${plural(n, 'dashboard login is', 'dashboard logins are')} waiting to be linked`,
   },
 
+  // A member wrote to support@ or info@ and Help24 has not answered yet
+  // (migration 138). Medium: a person is waiting on us, nobody's money is at
+  // risk. Clears the moment a reply is sent or the conversation is closed.
+  support_waiting: {
+    category: 'support',
+    priority: 'medium',
+    href: '/dashboard/inbox',
+    action: 'Reply from the Inbox',
+    title: (n) => `${plural(n, 'support conversation is', 'support conversations are')} waiting for a reply`,
+  },
+
   // ── Marketplace health ───────────────────────────────────────────────────
   // The dashboard cannot message users outside a dispute. Each item opens the
   // request's own page, which carries both people's phone numbers and, for an
@@ -309,7 +321,7 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
 };
 
 const PRIORITY_RANK: Record<AlertPriority, number> = { high: 0, medium: 1, low: 2 };
-const CATEGORY_RANK: Record<AlertCategory, number> = { financial: 0, trust_safety: 1, marketplace: 2 };
+const CATEGORY_RANK: Record<AlertCategory, number> = { financial: 0, trust_safety: 1, support: 2, marketplace: 3 };
 
 /** Stable across ordering; changes when the set of records does. */
 export function fingerprint(ids: string[]): string {

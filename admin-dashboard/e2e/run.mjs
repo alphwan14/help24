@@ -637,6 +637,65 @@ try {
   }
 
   /* ════════════════════════════════════════════════════════════════════ */
+  section("support inbox");
+  {
+    // Mail to support@, as workers/help24-mail would hand it to the backend.
+    const conv = fake.support.inbound({ from: DAVE, name: "Dave Kamau", subject: "Payout not received", text: "Hello, my payout has not arrived.", verified: false, attachments: 1 });
+    await goto(`${APP}/dashboard/inbox`);
+    await waitFor(`!!document.querySelector('[data-testid="inbox-list"]') && ${bodyHas("Payout not received")}`, "inbox list");
+    await waitFor(`!document.body.innerText.includes('Opening the console')`, "console ready", 30000).catch(() => {});
+    await shot("17-inbox-list.png", true);
+    check("the Inbox is in the sidebar", await evaluate(`!!document.querySelector('nav a[href="/dashboard/inbox"]')`));
+    check("new mail opens under Needs reply: sender, subject, reference and the start of the message",
+      await evaluate(`(() => { const t = document.querySelector('[data-testid="inbox-list"]').innerText; return t.includes("Dave Kamau") && t.includes("Payout not received") && t.includes(${JSON.stringify(conv.ref)}) && t.includes("my payout has not arrived"); })()`));
+    await goto(`${APP}/dashboard/inbox/${conv.id}`);
+    await waitFor(`!!document.querySelector('[data-testid="composer"]')`, "thread");
+    check("the thread warns that the sender is not verified and names the attachment", await evaluate(`${bodyHas("Sender not verified")} && ${bodyHas("1 attachment")}`));
+    check("the Help24 account behind the address is shown, with its member page", await evaluate(`!!document.querySelector('[data-testid="member-panel"] a[href^="/dashboard/users/"]')`));
+    await waitFor(`!document.body.innerText.includes('Opening the console')`, "console ready", 30000).catch(() => {});
+    await shot("18-inbox-thread.png", true);
+
+    await fill("#composer-text", "Your payout went out this morning.");
+    await clickText("Send reply");
+    await waitFor(`${bodyHas("Waiting on member")} && ${bodyHas("Emailed")}`, "reply sent", 15000);
+    const out = fake.support.mailOut.at(-1);
+    check("a reply is emailed to the member, signed Help24 Support, with the reference in the subject",
+      !!out && out.to === DAVE && out.subject.includes(`[${conv.ref}]`) && out.text.endsWith("Help24 Support\nhelp24.co.ke"), out?.subject);
+    check("the team sees which admin wrote it; the email does not say", (await evaluate(bodyHas("written by"))) && !/alice/i.test(out.text));
+
+    const sentBefore = fake.support.mailOut.length;
+    await clickText("Internal note", '[role="tab"]');
+    await fill("#composer-text", "Checked the B2C log first.");
+    await clickText("Add note");
+    await waitFor(bodyHas("Checked the B2C log first."), "note shown", 15000);
+    check("an internal note is shown to staff and never emailed", fake.support.mailOut.length === sentBefore && (await evaluate(bodyHas("Only staff can see it"))));
+
+    fake.support.setMailDown(true);
+    await clickText("Reply", '[role="tab"]');
+    await fill("#composer-text", "One more thing.");
+    await clickText("Send reply");
+    await waitFor(bodyHas("Not sent"), "not sent shown", 15000);
+    check("a reply that could not be emailed is kept and marked Not sent, and the thread needs a reply again",
+      await evaluate(`${bodyHas("RESEND_API_KEY")} && document.querySelector('[data-testid="thread-status"]').textContent === "Needs reply"`));
+    fake.support.setMailDown(false);
+    await clickText("Try again");
+    await waitFor(`!(${bodyHas("Not sent")})`, "retried", 15000);
+    check("Try again sends it", fake.support.mailOut.length === sentBefore + 1);
+
+    await clickText("Close");
+    await waitFor(`document.querySelector('[data-testid="thread-status"]').textContent === "Closed"`, "closed", 15000);
+    check("a conversation can be closed", fake.support.conversations.find((c) => c.id === conv.id).status === "closed");
+
+    await goto(`${APP}/dashboard/inbox/new?email=${encodeURIComponent(DAVE)}`);
+    await waitFor(`document.querySelector('#new-email')?.value === ${JSON.stringify(DAVE)}`, "new message form");
+    await fill("#new-subject", "About your verification");
+    await fill("#new-body", "Please send your ID again.");
+    await clickText("Send");
+    await waitFor(`location.pathname.startsWith("/dashboard/inbox/") && ${bodyHas("About your verification")} && ${bodyHas("Emailed")}`, "started conversation", 15000);
+    check("staff can write first: the email goes out and the conversation opens", fake.support.mailOut.at(-1).subject.startsWith("Re: About your verification"));
+  }
+
+  /* ════════════════════════════════════════════════════════════════════ */
   section("provider verifications");
   {
     const V = "/dashboard/trust-safety/verifications";
@@ -852,8 +911,8 @@ try {
     await shot("10-member.png", true);
     check("member page: activity, standing and push reach in the header",
       await evaluate(`${bodyHas("Active today")} && ${bodyHas("Good standing")} && ${bodyHas("Reach 1 phone")}`));
-    check("member page: call, WhatsApp and email go to this member",
-      await evaluate(`!!document.querySelector('a[href="tel:+254712345678"]') && !!document.querySelector('a[href="https://wa.me/254712345678"]') && !!document.querySelector('a[href^="mailto:"]')`));
+    check("member page: call and WhatsApp go to this member; Email opens the Inbox, sent as Help24 Support",
+      await evaluate(`!!document.querySelector('a[href="tel:+254712345678"]') && !!document.querySelector('a[href="https://wa.me/254712345678"]') && !!document.querySelector('a[href^="/dashboard/inbox/new?email="]') && !document.querySelector('a[href^="mailto:"]')`));
     check("member page: Trust & Safety record links to the same member",
       await evaluate(`!!document.querySelector('a[href="/dashboard/trust-safety/users/${daveId}"]')`));
     check("member page: empty history reads as none, not as a failed read",

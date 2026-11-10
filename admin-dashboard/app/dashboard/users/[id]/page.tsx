@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PostStatusBadge } from "@/components/PostStatusBadge";
 import { ACTIVITY_LABELS, ACTIVITY_MEANING, ACTIVITY_STYLES, activityState, agoLabel, lastActiveAt } from "@/lib/activity";
-import { mailtoHref, telHref, whatsappHref } from "@/lib/contact-links";
+import { telHref, whatsappHref } from "@/lib/contact-links";
 import { normalizeStatus, STATUS_LABELS as DISPUTE_LABELS, STATUS_STYLES as DISPUTE_STYLES } from "@/lib/dispute-status";
 import { loadMember, type MemberProfile, type Section } from "@/lib/member-profile";
 import { ACCOUNT_STATUS_LABELS, ACCOUNT_STATUS_STYLES, fmtDate, fmtDateTime } from "@/lib/moderation-labels";
@@ -201,7 +201,13 @@ function Header({ m }: { m: MemberProfile }) {
       <div className="flex flex-wrap gap-2">
         <ContactAction href={telHref(phone)} label="Call" />
         <ContactAction href={whatsappHref(phone)} label="WhatsApp" external />
-        <ContactAction href={mailtoHref(u.email)} label="Email" />
+        {/* From the Inbox, not the admin's own mail app: sent as Help24 Support,
+            and the conversation is kept where the team can see it. */}
+        {u.email && (
+          <Link href={`/dashboard/inbox/new?email=${encodeURIComponent(u.email)}`} className="btn-ghost border border-gray-200">
+            Email
+          </Link>
+        )}
         <Link href={`/dashboard/trust-safety/users/${encodeURIComponent(u.id)}`} className="btn-ghost border border-gray-200">
           Trust &amp; Safety record
           {m.openReports ? (

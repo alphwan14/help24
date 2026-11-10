@@ -32,6 +32,7 @@ import { ModerationModule } from './moderation/moderation.module';
 import { AdminAlertsModule } from './admin/alerts/admin-alerts.module';
 import { FinanceRepairsModule } from './admin/finance/finance-repairs.module';
 import { VerificationsModule } from './verifications/verifications.module';
+import { SupportModule } from './support/support.module';
 
 @Module({
   imports: [
@@ -108,6 +109,9 @@ import { VerificationsModule } from './verifications/verifications.module';
     // that hides listings whose verification window ran out and deletes
     // documents 30 days after the decision.
     VerificationsModule,
+    // The support Inbox (migration 138): support@/info@ mail in through the
+    // Cloudflare Email Worker, staff replies out by email. A leaf.
+    SupportModule,
     // The client configuration plane: kill switches, maintenance mode, the
     // minimum-version gate and the client tunables that previously required a
     // Play release. A leaf — nothing imports it. Serves compiled defaults when

@@ -4,7 +4,7 @@
  */
 
 export type AlertPriority = "high" | "medium" | "low";
-export type AlertCategory = "financial" | "trust_safety" | "marketplace";
+export type AlertCategory = "financial" | "trust_safety" | "support" | "marketplace";
 
 export interface AlertItem {
   id: string;
@@ -74,6 +74,7 @@ export const PRIORITY_META: Record<AlertPriority, { heading: string; hint: strin
 export const CATEGORY_LABELS: Record<AlertCategory, string> = {
   financial: "Money & escrow",
   trust_safety: "Trust & safety",
+  support: "Support",
   marketplace: "Marketplace",
 };
 
@@ -85,6 +86,9 @@ export const SOURCE_LABELS: Record<string, string> = {
   requests: "Requests",
   promotions: "Promotions",
   reviews: "Review status",
+  verifications: "Verifications",
+  access: "Dashboard logins",
+  support: "Support Inbox",
 };
 
 export function fmtKesShort(n: number | null | undefined): string | null {

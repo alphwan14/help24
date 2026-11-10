@@ -1,0 +1,22 @@
+# support@ and info@help24.co.ke: hands each email to the backend's support
+# Inbox. See DEPLOY.md before deploying.
+name = "help24-mail"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# Email only: no HTTP address at all. Email Routing invokes it directly.
+workers_dev = false
+preview_urls = false
+
+# Invocation logs would record senders and recipients. Off; the Worker's own
+# console lines never contain addresses or content.
+[observability]
+enabled = false
+
+[vars]
+SUPPORT_INBOUND_URL = "https://api.help24.co.ke/support/inbound-email"
+
+# Secrets — set with `wrangler secret put <NAME>`, never written here:
+#   SUPPORT_INBOUND_SECRET  the same value as the backend's (Render)
+#   FORWARD_TO              the team inbox that gets a copy of every email
+#                           (a verified Email Routing destination). Unset = no copy.

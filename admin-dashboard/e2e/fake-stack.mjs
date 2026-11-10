@@ -15,6 +15,7 @@ import { createServer } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createFakeSupport } from "./fake-support.mjs";
 
 export async function startFakeStack({ port, siteUrl, redirectAllowList, templatesDir }) {
   const origin = `http://127.0.0.1:${port}`;
@@ -73,6 +74,8 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     [...auth.values()].find((u) => u.email.toLowerCase() === String(email ?? "").toLowerCase()) ?? null;
   const personByEmail = (email) =>
     [...people.values()].find((p) => p.email.toLowerCase() === String(email ?? "").toLowerCase()) ?? null;
+
+  const support = createFakeSupport({ personByEmail });
 
   /** GoTrue's rule: the Site URL's host, or an allow-list entry; otherwise the Site URL itself. */
   function allowedRedirect(candidate) {
@@ -474,6 +477,12 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       restores.set(email, (restores.get(email) ?? 0) + 1);
       return send(201, { email: a.email, name: a.name, role: a.role, token: a.token });
     }
+    if (p.startsWith("/admin/support/")) {
+      const a = adminByToken();
+      if (!a) return apiFail(401, "Invalid admin token.");
+      const handled = support.handle({ method: req.method, p, url, body, admin: a, send, apiFail });
+      if (handled !== null) return handled;
+    }
     if (req.method === "GET" && p === "/admin/alerts") {
       return adminByToken() ? send(200, { generated_at: new Date().toISOString(), alerts: alertList, unavailable: [] }) : apiFail(401, "Invalid admin token.");
     }
@@ -585,6 +594,8 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
 
   return {
     origin, server, log, outbox, restores, admins, appConfig, configHistory,
+    /** The support Inbox: fake.support.inbound(...) delivers an email; mailOut is what was sent. */
+    support,
     /** Alerts for GET /admin/alerts, in the backend's shape (lib/alerts.ts). */
     setAlerts(list) {
       alertList = list;

@@ -14,6 +14,7 @@ export type NavPage = { label: string; href: string; keywords?: string };
 export type NavSectionId =
   | "overview"
   | "operations"
+  | "inbox"
   | "users"
   | "marketplace"
   | "payments"
@@ -61,6 +62,17 @@ export const NAV: NavSection[] = [
       { label: "Growth", href: "/dashboard/overview/growth", keywords: "signups" },
       { label: "Geography", href: "/dashboard/overview/geography", keywords: "cities map" },
       { label: "Revenue", href: "/dashboard/overview/revenue", keywords: "fees money" },
+    ],
+  },
+  {
+    id: "inbox",
+    group: "queues",
+    label: "Inbox",
+    href: "/dashboard/inbox",
+    base: "/dashboard/inbox",
+    pages: [
+      { label: "Conversations", href: "/dashboard/inbox", keywords: "support messages email info help" },
+      { label: "New message", href: "/dashboard/inbox/new", keywords: "email member write compose" },
     ],
   },
   {
