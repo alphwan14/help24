@@ -1,4 +1,5 @@
 import Link from "next/link";
+import BrandMark from "@/components/BrandMark";
 
 /**
  * Shared by both hosts — admin.help24.co.ke and partners.help24.co.ke route to
@@ -9,8 +10,7 @@ export default function NotFound() {
   return (
     <main className="min-h-screen bg-page flex items-center justify-center px-4">
       <div className="max-w-sm text-center">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/favicon.svg" alt="" className="mx-auto h-12 w-12" />
+        <BrandMark size={48} className="mx-auto" />
         <h1 className="mt-5 text-xl font-bold text-gray-900">This page doesn&apos;t exist</h1>
         <p className="mt-2 text-sm text-gray-500">The link may be old or mistyped.</p>
         <Link href="/" className="btn-primary mt-6">
