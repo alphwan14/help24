@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- shrinkResources would drop drawables that only Dart names by string.
+     The notification icon is one: notification_service.dart passes
+     "@drawable/ic_stat_help24" to flutter_local_notifications. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_help24" />

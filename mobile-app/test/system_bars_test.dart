@@ -36,6 +36,7 @@ void main() {
     'light': SystemBars.light,
     'dark': SystemBars.dark,
     'splash': SystemBars.splash,
+    'splashLight': SystemBars.splashLight,
     'immersive': SystemBars.immersive,
   };
 
@@ -79,6 +80,13 @@ void main() {
       expect(SystemBars.dark.systemNavigationBarColor, AppTheme.darkSurface);
       expect(
           SystemBars.dark.systemNavigationBarIconBrightness, Brightness.light);
+    });
+
+    test('the light splash paints paper and asks for dark icons', () {
+      expect(SystemBars.splashLight.statusBarColor, AppTheme.lightBackground);
+      expect(SystemBars.splashLight.statusBarIconBrightness, Brightness.dark);
+      expect(SystemBars.splashLight.systemNavigationBarIconBrightness,
+          Brightness.dark);
     });
 
     test('the deliberately dark styles ask for light icons', () {

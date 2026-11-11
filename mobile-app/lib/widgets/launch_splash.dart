@@ -24,10 +24,22 @@ import '../theme/system_bars.dart';
 class LaunchSplash extends StatelessWidget {
   const LaunchSplash({super.key});
 
-  /// Matches `android/app/src/main/res/values/colors.xml` → `splash_background`
-  /// and the `windowSplashScreenBackground` used by the Android 12+ theme. If
-  /// one changes, both change.
+  /// The field in dark mode. Matches `res/values-night/colors.xml` →
+  /// `splash_background`, which the native splash paints. If one changes, both
+  /// change.
   static const Color background = Color(0xFF12161A);
+
+  /// The field in light mode: the app's paper (AppTheme.lightBackground), and
+  /// `res/values/colors.xml` → `splash_background`. Since 1.0.12 the splash
+  /// follows the phone's theme instead of flashing Ink before a light app.
+  static const Color backgroundLight = Color(0xFFFAF9F7);
+
+  /// Light or dark, as the PHONE is set: the native splash before this one
+  /// follows the system, not the app's own theme choice, and this must match
+  /// it pixel for pixel.
+  static bool _isDark() =>
+      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+      Brightness.dark;
 
   /// The badge's logical size, taken from the mdpi drawable (116×116 px at
   /// 1×). The bundled asset is the xxxhdpi copy, so it renders at native
@@ -65,6 +77,11 @@ class LaunchSplash extends StatelessWidget {
   /// "the splash screen blinks" describes.
   static const String asset = 'assets/splash_badge.png';
 
+  /// The same badge with ink bars, for the light field.
+  static const String assetLight = 'assets/splash_badge_light.png';
+
+  static String _assetFor(bool dark) => dark ? asset : assetLight;
+
   @override
   Widget build(BuildContext context) {
     // The bars must stay as the Android launch theme left them: light icons
@@ -76,15 +93,16 @@ class LaunchSplash extends StatelessWidget {
     // theme's own bars by itself the moment this unmounts — which is what
     // stops the brand-dark bars outliving the splash. See
     // lib/theme/system_bars.dart.
+    final dark = _isDark();
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemBars.splash,
+      value: dark ? SystemBars.splash : SystemBars.splashLight,
       child: ColoredBox(
-        color: background,
+        color: dark ? background : backgroundLight,
         child: Center(
           child: Transform.translate(
             offset: Offset(0, _screenCentreOffset(context)),
-            child: const Image(
-              image: AssetImage(asset),
+            child: Image(
+              image: AssetImage(_assetFor(dark)),
               width: _badgeSize,
               height: _badgeSize,
               filterQuality: FilterQuality.medium,
@@ -106,7 +124,7 @@ class LaunchSplash extends StatelessWidget {
   static Future<void> warm() {
     final completer = Completer<void>();
     final stream =
-        const AssetImage(asset).resolve(ImageConfiguration.empty);
+        AssetImage(_assetFor(_isDark())).resolve(ImageConfiguration.empty);
     late final ImageStreamListener listener;
     void done() {
       stream.removeListener(listener);

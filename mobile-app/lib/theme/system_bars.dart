@@ -103,6 +103,19 @@ class SystemBars extends StatelessWidget {
     systemNavigationBarContrastEnforced: false,
   );
 
+  /// The light-mode launch field: the app's paper with dark icons, matching
+  /// `values/styles.xml` and the light native splash (since 1.0.12).
+  static const SystemUiOverlayStyle splashLight = SystemUiOverlayStyle(
+    statusBarColor: AppTheme.lightBackground,
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+    systemStatusBarContrastEnforced: false,
+    systemNavigationBarColor: AppTheme.lightBackground,
+    systemNavigationBarDividerColor: Colors.transparent,
+    systemNavigationBarIconBrightness: Brightness.dark,
+    systemNavigationBarContrastEnforced: false,
+  );
+
   /// Fullscreen media on a black backdrop, where black bars are the design
   /// rather than an accident.
   static const SystemUiOverlayStyle immersive = SystemUiOverlayStyle(

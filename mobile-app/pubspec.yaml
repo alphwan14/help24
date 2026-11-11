@@ -1,7 +1,7 @@
 name: help24
 description: A modern multi-service marketplace mobile app.
 publish_to: 'none'
-version: 1.0.11+12
+version: 1.0.12+13
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -94,8 +94,10 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/help24_icon.png"
   min_sdk_android: 21
-  adaptive_icon_background: "#12161A"
+  adaptive_icon_background: "#F5F3EF"
   adaptive_icon_foreground: "branding/adaptive_foreground.png"
+  # Android 13+ themed icons: a white silhouette the launcher tints itself.
+  adaptive_icon_monochrome: "branding/adaptive_monochrome.png"
   # MUST be 0. The package insets the foreground by 16% on each side by default,
   # which is right when the foreground is a full-bleed image and wrong here: the
   # padding is already drawn into adaptive_foreground.png, where the mark spans
