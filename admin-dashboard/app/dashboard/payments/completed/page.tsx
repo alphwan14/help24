@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
 import { ErrorState } from "@/components/moderation/States";
 import { attachPosts } from "@/lib/transaction-posts";
+import { paymentHref, paymentStatusWords } from "@/lib/payment-status";
 import { fmtKes } from "@/lib/post-display";
 import { ArchivedBadge } from "@/components/PostStatusBadge";
 
@@ -64,7 +66,9 @@ export default async function CompletedPaymentsPage() {
       label: "Transaction",
       render: (r: TxRow) => (
         <div>
-          <p className="font-mono text-xs text-gray-900">{r.id.slice(0, 12)}…</p>
+          <Link href={paymentHref(r.id)} className="block font-mono text-xs text-info-700 hover:underline">
+            {r.id.slice(0, 12)}…
+          </Link>
           {r.mpesa_receipt && <p className="text-xs text-gray-400">{r.mpesa_receipt}</p>}
         </div>
       ),
@@ -74,9 +78,9 @@ export default async function CompletedPaymentsPage() {
       label: "Request",
       render: (r: TxRow) => (
         <div className="flex items-center gap-2 max-w-[220px]">
-          <span className="text-gray-700 truncate">
+          <Link href={paymentHref(r.id)} className="text-gray-800 truncate hover:underline">
             {r.posts?.title || r.post_id.slice(0, 12) + "…"}
-          </span>
+          </Link>
           {r.posts?.archived_at && <ArchivedBadge />}
         </div>
       ),
@@ -96,7 +100,7 @@ export default async function CompletedPaymentsPage() {
       label: "Status",
       render: (r: TxRow) => (
         <span className={`badge ${STATUS_COLORS[r.status] ?? "bg-gray-100 text-gray-600"}`}>
-          {r.status.replace("_", " ")}
+          {paymentStatusWords(r.status)}
         </span>
       ),
     },

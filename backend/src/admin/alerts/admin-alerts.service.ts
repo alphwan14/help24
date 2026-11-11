@@ -377,6 +377,10 @@ export class AdminAlertsService {
     // The job, where both people's phones are — unless its listing is gone.
     const jobOrEscrow = (e: { tx: Row }) =>
       titles.has(e.tx.post_id) ? jobPage(e.tx.post_id) : '/dashboard/payments/escrow';
+    // The payment's own page: both people's phones, everything that happened,
+    // and Retry payout / Check with M-Pesa (admin/payments). It exists for
+    // every transaction, so it needs no fallback.
+    const paymentPage = (e: { tx: Row }) => `/dashboard/payments/${String(e.tx.id)}`;
 
     // Real money raises its own alerts; test money (the Daraja sandbox, or
     // anything from before the production cutover) is listed once, quietly.
@@ -397,10 +401,10 @@ export class AdminAlertsService {
 
     for (const e of buckets.failed) {
       add('payout_failed', e, item(e, failedAt.get(e.tx.id) ?? e.tx.created_at, `M-Pesa said: ${truncate(e.tx.failure_reason, 80)}`,
-        undefined, jobOrEscrow(e)));
+        undefined, paymentPage(e)));
     }
     for (const { e, since } of stuck) {
-      add('payout_stuck', e, item(e, since, `Sent to M-Pesa ${ageOf(since, now)} ago, no result since`));
+      add('payout_stuck', e, item(e, since, `Sent to M-Pesa ${ageOf(since, now)} ago, no result since`, undefined, paymentPage(e)));
     }
     for (const a of stuckAdvances) {
       add('payout_stuck', a, item(a, a.since, `Materials advance sent to M-Pesa ${ageOf(a.since, now)} ago, no result since`,

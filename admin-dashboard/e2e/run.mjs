@@ -673,6 +673,65 @@ try {
   }
 
   /* ════════════════════════════════════════════════════════════════════ */
+  section("payment page");
+  {
+    const pay = fake.payments.addAwaitingApproval({ title: "Fix the kitchen sink", clientId: fake.idOf(DAVE), providerId: fake.idOf(CAROL) });
+    const PAGE = `/dashboard/payments/${pay.id}`;
+    fake.setTable("transactions", [pay.row]);
+    await goto(`${APP}/dashboard/payments`);
+    await waitFor(`!!document.querySelector('a[href="${PAGE}"]')`, "payments list");
+    check("Payments list: a row opens its payment, says who paid and the status in words",
+      await evaluate(`${bodyHas("dave Kamau")} && ${bodyHas("Held by Help24")} && !document.querySelector("tbody").innerText.includes("payout_pending")`));
+    await click(`a[href="${PAGE}"]`);
+    await waitFor(`${pathIs(PAGE)} && ${bodyHas("What happened")}`, "payment page", 30000);
+    await waitFor(`!document.body.innerText.includes('Opening the console')`, "console ready", 30000).catch(() => {});
+    check("payment page: the money's state in words, the job, and both people with a number to call",
+      await evaluate(`${bodyHas("Payment protected")} && ${bodyHas("held safely by Help24")} && ${bodyHas("Fix the kitchen sink")} && ${bodyHas("Waiting for the client to approve")} && document.querySelectorAll('a[href="tel:+254712345678"]').length === 2`));
+    check("payment page: the story in order",
+      await evaluate(`(() => { const t = [...document.querySelectorAll("ol li")].map((l) => l.innerText); const i = (s) => t.findIndex((x) => x.includes(s)); return i("Request posted") === 0 && i("Request posted") < i("KES 2,545 paid") && i("KES 2,545 paid") < i("Provider marked the job as done"); })()`));
+    const offered = () => evaluate(`JSON.stringify([...document.querySelectorAll("section button")].filter((b) => !b.closest('[role="dialog"]')).map((b) => b.textContent.trim()))`);
+    check("payment page: only the actions that fit are offered", (await offered()) === JSON.stringify(["Approve completion now", "Open a dispute"]), await offered());
+    await shot("19-payment-page.png", true);
+
+    await clickText("Approve completion now");
+    await waitFor(`!!document.querySelector('[role="dialog"]')`, "approve dialog");
+    check("approving says what will happen and is refused without a reason",
+      await evaluate(`document.querySelector('[role="dialog"]').innerText.includes("starts the payout to the provider") && [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.includes("Approve and pay")).disabled`));
+    await fill('[role="dialog"] textarea', "Client confirmed by phone that the sink works");
+    await clickText("Approve and pay the provider");
+    await waitFor(`!document.querySelector('[role="dialog"]') && ${bodyHas("Approved. The payout to the provider has started.")}`, "approved", 15000);
+    const approved = fake.payments.taken.at(-1);
+    check("one approve request, with the reason, as the signed-in admin",
+      approved?.action === "approve_completion" && approved.body.reason === "Client confirmed by phone that the sink works" && approved.admin === ALICE && fake.payments.taken.length === 1, JSON.stringify(approved));
+    await waitFor(`${bodyHas("Payout processing")} && ${bodyHas("Admin approved the finished work")}`, "page refreshed", 15000);
+    check("the page reads it back: who did it and why, and the actions move on",
+      (await evaluate(`${bodyHas(`By ${ALICE} (super_admin)`)} && ${bodyHas("Work approved by Help24")}`)) && (await offered()) === JSON.stringify(["Check with M-Pesa", "Open a dispute"]), await offered());
+
+    await clickText("Open a dispute");
+    await waitFor(`!!document.querySelector('[role="dialog"]')`, "dispute dialog");
+    await fill('[role="dialog"] textarea', "Provider says the client stopped answering");
+    check("a dispute needs to know who it is for", await evaluate(`[...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === "Open the dispute").disabled`));
+    await click('[role="dialog"] input[name="party"][value="provider"]');
+    await clickText("Open the dispute");
+    await waitFor(`!document.querySelector('[role="dialog"]') && ${bodyHas("Dispute opened.")}`, "dispute opened", 15000);
+    const opened = fake.payments.taken.at(-1);
+    check("the dispute is opened for the provider, with the reason, and the page links to it",
+      opened?.action === "open_dispute" && opened.body.raised_by === "provider" && opened.body.reason === "Provider says the client stopped answering" &&
+        (await evaluate(`!!document.querySelector('a[href^="/dashboard/disputes/"]')`)), JSON.stringify(opened));
+    await waitFor(bodyHas("Dispute opened by Help24 for the provider"), "dispute in the story", 15000);
+    check("with a dispute open, no money action is offered", (await offered()) === JSON.stringify(["Check with M-Pesa"]), await offered());
+
+    await goto(`${APP}/dashboard/payments/00000000-0000-4000-8000-000000000000`);
+    check("an unknown payment shows the not-found page, not an error or an empty payment",
+      await waitFor(`${bodyHas("This page doesn't exist")} && !(${bodyHas("What happened")})`, "not found", 15000).then(() => true, () => false),
+      await evaluate("document.body.innerText.slice(0, 160)"));
+    await goto(`${APP}/dashboard/payments/not-a-payment`);
+    check("a malformed payment id is not-found too, without asking the backend",
+      (await waitFor(bodyHas("This page doesn't exist"), "not found", 15000).then(() => true, () => false)) &&
+        !fake.log.some((l) => l.path === "/admin/transactions/not-a-payment"));
+  }
+
+  /* ════════════════════════════════════════════════════════════════════ */
   section("support inbox");
   {
     // Mail to support@, as workers/help24-mail would hand it to the backend.

@@ -140,7 +140,7 @@ describe('AdminPaymentsService', () => {
     expect(disputes.createDispute).toHaveBeenCalledWith(expect.objectContaining({
       post_id: 'p-1', raised_by_user_id: 'u-pro', raised_by_role: 'provider',
       reason: 'Opened by Help24 for the provider: Provider says the client refuses to approve',
-    }));
+    }), { openedByHelp24: true });
     const mark = calls.find((c) => c.table === 'disputes' && c.ops.some(([o]) => o === 'update'));
     expect(opArgs(mark, 'update')?.[0]).toEqual({ opened_by_admin_id: 'a-support_agent' });
   });

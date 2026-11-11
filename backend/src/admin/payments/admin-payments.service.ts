@@ -178,12 +178,15 @@ export class AdminPaymentsService {
     const userId = (raisedBy === 'client' ? post.author_user_id : post.selected_provider_id) as string | null;
     if (!userId) throw new BadRequestException(`This job has no ${raisedBy}.`);
     await this.audit('dispute_opened', facts, admin, reason);
-    const created = await this.disputes.createDispute({
-      post_id: post.id as string,
-      raised_by_user_id: userId,
-      raised_by_role: raisedBy,
-      reason: `Opened by Help24 for the ${raisedBy}: ${reason.trim()}`.slice(0, 1000),
-    });
+    const created = await this.disputes.createDispute(
+      {
+        post_id: post.id as string,
+        raised_by_user_id: userId,
+        raised_by_role: raisedBy,
+        reason: `Opened by Help24 for the ${raisedBy}: ${reason.trim()}`.slice(0, 1000),
+      },
+      { openedByHelp24: true },
+    );
     if (!created.deduped) {
       const { error } = await this.db.from('disputes').update({ opened_by_admin_id: admin.id }).eq('id', created.dispute_id);
       if (error) this.logger.warn(`[ADMIN_PAYMENTS] dispute ${created.dispute_id} opened; marking who opened it failed: ${error.message}`);

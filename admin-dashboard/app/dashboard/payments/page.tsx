@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
 import { ErrorState } from "@/components/moderation/States";
-import { attachPosts } from "@/lib/transaction-posts";
+import { attachBuyers, attachPosts, type TxBuyer } from "@/lib/transaction-posts";
+import { PAYMENT_STATUS_WORDS, paymentHref, paymentStatusWords } from "@/lib/payment-status";
 import { fmtKes } from "@/lib/post-display";
 import { ArchivedBadge } from "@/components/PostStatusBadge";
 
@@ -18,8 +20,10 @@ type TxRow = {
   total_paid: number;
   status: string;
   mpesa_receipt: string | null;
+  failure_reason: string | null;
   created_at: string;
   posts: { title: string | null; archived_at: string | null } | null;
+  buyer: TxBuyer;
   // One receipt per transaction (UNIQUE on transaction_id), so this embed is
   // an array of at most one. Absent until a participant first opens it.
   payment_receipts: { receipt_number: string }[] | null;
@@ -49,13 +53,14 @@ async function getTransactions() {
   const { data, error } = await db
     .from("transactions")
     .select(
-      "id, post_id, buyer_user_id, amount, fee, total_paid, status, mpesa_receipt, created_at, payment_receipts(receipt_number)",
+      "id, post_id, buyer_user_id, amount, fee, total_paid, status, mpesa_receipt, failure_reason, created_at, payment_receipts(receipt_number)",
     )
     .order("created_at", { ascending: false })
     .limit(200);
   // A failed read is reported, never rendered as an empty table.
   if (error) return { rows: [] as TxRow[], error: error.message };
-  const rows = await attachPosts(db, (data ?? []) as unknown as Array<{ post_id: string }>);
+  const withPosts = await attachPosts(db, (data ?? []) as unknown as Array<{ post_id: string; buyer_user_id: string | null }>);
+  const rows = await attachBuyers(db, withPosts);
   return { rows: rows as unknown as TxRow[], error: null as string | null };
 }
 
@@ -79,7 +84,9 @@ export default async function PaymentsPage() {
         const receiptNumber = r.payment_receipts?.[0]?.receipt_number;
         return (
           <div className="space-y-0.5">
-            <p className="font-mono text-xs text-gray-900">{r.id.slice(0, 12)}…</p>
+            <Link href={paymentHref(r.id)} className="block font-mono text-xs text-info-700 hover:underline">
+              {r.id.slice(0, 12)}…
+            </Link>
             {receiptNumber && (
               <p className="font-mono text-xs text-brand-600">{receiptNumber}</p>
             )}
@@ -95,21 +102,24 @@ export default async function PaymentsPage() {
       label: "Request",
       render: (r: TxRow) => (
         <div className="flex items-center gap-2 max-w-[220px]">
-          <span className="text-gray-700 truncate">
+          <Link href={paymentHref(r.id)} className="text-gray-800 truncate hover:underline">
             {r.posts?.title || r.post_id.slice(0, 12) + "…"}
-          </span>
+          </Link>
           {r.posts?.archived_at && <ArchivedBadge />}
         </div>
       ),
     },
     {
       key: "buyer_user_id",
-      label: "Buyer",
-      render: (r: TxRow) => (
-        <span className="font-mono text-xs text-gray-500">
-          {r.buyer_user_id ? r.buyer_user_id.slice(0, 14) + "…" : "—"}
-        </span>
-      ),
+      label: "Paid by",
+      render: (r: TxRow) =>
+        r.buyer?.name || r.buyer?.email ? (
+          <span className="text-gray-700 truncate inline-block max-w-[180px]">{r.buyer.name || r.buyer.email}</span>
+        ) : (
+          <span className="font-mono text-xs text-gray-500">
+            {r.buyer_user_id ? r.buyer_user_id.slice(0, 14) + "…" : "—"}
+          </span>
+        ),
     },
     {
       key: "amount",
@@ -130,8 +140,10 @@ export default async function PaymentsPage() {
       key: "status",
       label: "Status",
       render: (r: TxRow) => (
-        <span className={`badge ${STATUS_COLORS[r.status] ?? "bg-gray-100 text-gray-600"}`}>
-          {r.status}
+        <span
+          className={`badge ${r.status === "paid" && r.failure_reason ? "bg-red-100 text-red-700" : STATUS_COLORS[r.status] ?? "bg-gray-100 text-gray-600"}`}
+        >
+          {paymentStatusWords(r.status, r.failure_reason)}
         </span>
       ),
     },
@@ -155,7 +167,7 @@ export default async function PaymentsPage() {
           const count = rows.filter((r) => r.status === s).length;
           return (
             <div key={s} className={`badge ${STATUS_COLORS[s] ?? ""} py-1 px-3`}>
-              {s}: {count}
+              {PAYMENT_STATUS_WORDS[s] ?? s}: {count}
             </div>
           );
         })}

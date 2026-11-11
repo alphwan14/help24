@@ -68,8 +68,16 @@ export class DisputesService {
    *   • duplicate → returns the existing open case (no second row)
    *   • spam      → rate-limited per raiser
    *   • post-payout → blocked once funds already released (no reversal path)
+   *
+   * `openedByHelp24`: an admin opened it for the client or provider from the
+   * payment page (admin/payments, audited there). Both people are told Help24
+   * opened it, and the raiser's own spam limit does not apply: they did not
+   * raise it.
    */
-  async createDispute(dto: CreateDisputeDto): Promise<{ dispute_id: string; deduped: boolean }> {
+  async createDispute(
+    dto: CreateDisputeDto,
+    opts: { openedByHelp24?: boolean } = {},
+  ): Promise<{ dispute_id: string; deduped: boolean }> {
     const { data: post } = await this.supabase.client
       .from('posts')
       .select('id, title, author_user_id, selected_provider_id')
@@ -91,8 +99,8 @@ export class DisputesService {
       throw new BadRequestException('raised_by_role does not match your relationship to this job.');
     }
 
-    // Rate limit (anti-spam).
-    await this.enforceRateLimit(dto.raised_by_user_id);
+    // Rate limit (anti-spam), for cases a person raised themselves.
+    if (!opts.openedByHelp24) await this.enforceRateLimit(dto.raised_by_user_id);
 
     // Dedupe: one active case per post. Return the existing one.
     const { data: existing } = await this.supabase.client
@@ -167,11 +175,12 @@ export class DisputesService {
 
     const disputeId = created.id as string;
 
+    const openedBy = opts.openedByHelp24 ? `Help24 for the ${dto.raised_by_role}` : dto.raised_by_role;
     await this.systemMessage(
       disputeId,
       frozen
-        ? `Dispute opened by ${dto.raised_by_role}. Escrow frozen pending review.`
-        : `Dispute opened by ${dto.raised_by_role}. The payout had already started, so the funds could not be frozen; review for a refund.`,
+        ? `Dispute opened by ${openedBy}. Escrow frozen pending review.`
+        : `Dispute opened by ${openedBy}. The payout had already started, so the funds could not be frozen; review for a refund.`,
     );
 
     void this.events.emit({
@@ -191,20 +200,25 @@ export class DisputesService {
     });
 
     // Notify both parties + the admin queue.
+    const title = (mine: boolean) =>
+      opts.openedByHelp24 ? 'Help24 opened a dispute' : mine ? 'Dispute Submitted' : 'Dispute Opened';
+    const body = opts.openedByHelp24
+      ? `Help24 opened a dispute on "${post.title as string}" for the ${dto.raised_by_role}. The money is frozen while it is reviewed.`
+      : `A dispute on "${post.title as string}" is now under review. Funds are frozen.`;
     await this.notifications.sendMany([
       {
         userId: authorId,
         type: 'dispute_opened',
-        title: dto.raised_by_role === 'client' ? 'Dispute Submitted' : 'Dispute Opened',
-        body: `A dispute on "${post.title as string}" is now under review. Funds are frozen.`,
+        title: title(dto.raised_by_role === 'client'),
+        body,
         data: { post_id: dto.post_id, dispute_id: disputeId },
       },
       ...(providerId
         ? [{
             userId: providerId,
             type: 'dispute_opened' as const,
-            title: dto.raised_by_role === 'provider' ? 'Dispute Submitted' : 'Dispute Opened',
-            body: `A dispute on "${post.title as string}" is now under review. Funds are frozen.`,
+            title: title(dto.raised_by_role === 'provider'),
+            body,
             data: { post_id: dto.post_id, dispute_id: disputeId },
           }]
         : []),

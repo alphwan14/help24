@@ -157,9 +157,9 @@ export const RULES: Readonly<Record<AlertId, RuleMeta>> = {
     category: 'financial',
     priority: 'high',
     href: '/dashboard/payments/escrow',
-    // The dashboard has no retry (POST /mpesa/release-payout is admin-only and
-    // not wired to any page). Each item opens the job, with the provider's phone.
-    action: 'Call the provider',
+    // Each item opens the payment's page: the provider's phone, what M-Pesa
+    // said, and Retry payout (senior admins; admin/payments).
+    action: 'Retry the payout or call the provider',
     title: (n) => `${plural(n, 'payout', 'payouts')} failed — provider not paid`,
   },
   payout_stuck: {

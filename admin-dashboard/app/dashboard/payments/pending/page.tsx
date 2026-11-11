@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
 import { ErrorState } from "@/components/moderation/States";
-import { attachPosts } from "@/lib/transaction-posts";
+import { attachBuyers, attachPosts, type TxBuyer } from "@/lib/transaction-posts";
+import { paymentHref } from "@/lib/payment-status";
 import { fmtKes } from "@/lib/post-display";
 
 // Live money and job state. This page was prerendered at build time, so it
@@ -18,6 +20,7 @@ type TxRow = {
   mpesa_receipt: string | null;
   created_at: string;
   posts: { title: string | null } | null;
+  buyer: TxBuyer;
 };
 
 // Money is stored in WHOLE KES, not cents: mpesa.service.ts writes
@@ -41,7 +44,7 @@ async function getPending() {
     .limit(200);
   // A failed read is reported, never rendered as an empty table.
   if (error) return { rows: [] as TxRow[], error: error.message };
-  const rows = await attachPosts(db, (data ?? []) as unknown as Array<{ post_id: string }>);
+  const rows = await attachBuyers(db, await attachPosts(db, (data ?? []) as unknown as Array<{ post_id: string; buyer_user_id: string | null }>));
   return { rows: rows as unknown as TxRow[], error: null as string | null };
 }
 
@@ -55,7 +58,9 @@ export default async function PendingPaymentsPage() {
       label: "Transaction",
       render: (r: TxRow) => (
         <div>
-          <p className="font-mono text-xs text-gray-900">{r.id.slice(0, 12)}…</p>
+          <Link href={paymentHref(r.id)} className="block font-mono text-xs text-info-700 hover:underline">
+            {r.id.slice(0, 12)}…
+          </Link>
           {r.mpesa_receipt && <p className="text-xs text-gray-400">{r.mpesa_receipt}</p>}
         </div>
       ),
@@ -64,19 +69,22 @@ export default async function PendingPaymentsPage() {
       key: "request",
       label: "Request",
       render: (r: TxRow) => (
-        <span className="text-gray-700 max-w-[180px] truncate block">
+        <Link href={paymentHref(r.id)} className="text-gray-800 max-w-[180px] truncate block hover:underline">
           {r.posts?.title || r.post_id.slice(0, 12) + "…"}
-        </span>
+        </Link>
       ),
     },
     {
       key: "buyer",
-      label: "Buyer",
-      render: (r: TxRow) => (
-        <span className="font-mono text-xs text-gray-500">
-          {r.buyer_user_id ? r.buyer_user_id.slice(0, 14) + "…" : "—"}
-        </span>
-      ),
+      label: "Paid by",
+      render: (r: TxRow) =>
+        r.buyer?.name || r.buyer?.email ? (
+          <span className="text-gray-700 truncate inline-block max-w-[180px]">{r.buyer.name || r.buyer.email}</span>
+        ) : (
+          <span className="font-mono text-xs text-gray-500">
+            {r.buyer_user_id ? r.buyer_user_id.slice(0, 14) + "…" : "—"}
+          </span>
+        ),
     },
     {
       key: "total_paid",
