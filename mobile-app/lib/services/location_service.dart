@@ -448,7 +448,7 @@ class LocationService {
                 notificationText:
                     'Help24 is sharing your live location with this chat until you arrive or stop.',
                 notificationIcon:
-                    AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+                    AndroidResource(name: 'ic_stat_help24', defType: 'drawable'),
                 enableWakeLock: false,
                 setOngoing: true,
               )

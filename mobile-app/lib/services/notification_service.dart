@@ -14,6 +14,7 @@ import 'chat_push_ingest.dart';
 import 'chat_sync.dart';
 import 'delivery_receipts.dart';
 import 'notification_capability.dart';
+import '../theme/app_theme.dart';
 import 'user_profile_service.dart';
 
 export 'notification_capability.dart' show NotificationCapability;
@@ -23,6 +24,13 @@ export 'notification_capability.dart' show NotificationCapability;
 //   AndroidManifest.xml → com.google.firebase.messaging.default_notification_channel_id
 //   MainActivity.kt     → NotificationChannel id
 //   Backend             → android.notification.channelId
+/// The status-bar icon: the Help24 mark as a white silhouette
+/// (res/drawable-*/ic_stat_help24.png), which Android tints with [_kAccent].
+/// It used to be the launcher tile, which Android draws as a boxed blob.
+/// Ships in the 1.0.12 APK: a patch for an older release must not name it.
+const String _kSmallIcon = '@drawable/ic_stat_help24';
+const Color _kAccent = AppTheme.brandAmber;
+
 const String _kChannelId   = 'help24_high_importance';
 const String _kChannelName = 'Help24 Notifications';
 const String _kChannelDesc = 'Job updates, payments, and messages';
@@ -174,7 +182,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await _localNotifications
       .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
       ?.createNotificationChannel(_androidChannel);
-  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const androidInit = AndroidInitializationSettings(_kSmallIcon);
   await _localNotifications.initialize(
     const InitializationSettings(android: androidInit),
   );
@@ -254,7 +262,8 @@ Future<void> _showMessagingStyleNotif({
           priority:        Priority.high,
           playSound:       true,
           enableVibration: true,
-          icon: '@mipmap/ic_launcher',
+          icon: _kSmallIcon,
+          color: _kAccent,
           groupKey:        groupKey,
           setAsGroupSummary: false,
           styleInformation: MessagingStyleInformation(
@@ -279,6 +288,8 @@ Future<void> _showMessagingStyleNotif({
           android: AndroidNotificationDetails(
             _kChannelId, _kChannelName,
             channelDescription: _kChannelDesc,
+            icon: _kSmallIcon,
+            color: _kAccent,
             importance: Importance.max,
             priority:   Priority.high,
             playSound:       true,
@@ -342,7 +353,7 @@ class NotificationService {
       debugPrint('[FCM][CHANNEL] created id=$_kChannelId');
 
       // Initialise flutter_local_notifications.
-      const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const androidInit = AndroidInitializationSettings(_kSmallIcon);
       await _localNotifications.initialize(
         const InitializationSettings(android: androidInit),
         onDidReceiveNotificationResponse: _onLocalNotificationTap,
