@@ -62,7 +62,10 @@ export default function DisputeDetailClient({
   const isOwner = dispute.assigned_admin_id === admin.id;
   const isSuper = admin.role === "super_admin";
   const canDecideFinancial = admin.role === "senior_admin" || isSuper;
-  const canRule = !terminal && (isOwner || isSuper);
+  // An escalated case waits for a senior ruling: any senior admin may give it,
+  // without claiming it from whoever escalated (backend authorizeDecision).
+  const escalated = status === "escalated";
+  const canRule = !terminal && (escalated ? canDecideFinancial : isOwner || isSuper);
 
   const tx = dispute.transactions;
   const post = dispute.posts;
@@ -202,7 +205,7 @@ export default function DisputeDetailClient({
             <p className="text-sm text-gray-500 mt-1">Unassigned</p>
           )}
         </div>
-        {!terminal && (!dispute.assigned_admin_id || (isSuper && !isOwner)) && (
+        {!terminal && !escalated && (!dispute.assigned_admin_id || (isSuper && !isOwner)) && (
           <button onClick={handleClaim} disabled={isPending} className="btn-primary text-sm disabled:opacity-50">
             {dispute.assigned_admin_id ? "Reassign to me" : "Claim case"}
           </button>
@@ -463,16 +466,21 @@ export default function DisputeDetailClient({
         </div>
       ) : !canRule ? (
         <div className="card p-4 border border-amber-200 bg-amber-50 text-sm text-amber-700">
-          {dispute.assigned_admin_id
-            ? "This case is assigned to another admin. Only they or a super_admin may rule."
-            : "Claim the case before issuing a ruling."}
+          {escalated
+            ? "This case was escalated. A senior admin decides it."
+            : dispute.assigned_admin_id
+              ? "This case is assigned to another admin. Only they or a super_admin may rule."
+              : "Claim the case before issuing a ruling."}
         </div>
       ) : (
         <form onSubmit={handleDecision} className="card p-5 space-y-4">
           <p className="text-sm font-bold text-gray-900">Issue Ruling</p>
 
           <div className="grid grid-cols-2 gap-2">
-            {(["FULL_RELEASE", "FULL_REFUND", "PARTIAL_SPLIT", "ESCALATE"] as DecisionType[]).map((t) => {
+            {(escalated
+              ? (["FULL_RELEASE", "FULL_REFUND", "PARTIAL_SPLIT"] as DecisionType[]) // already escalated
+              : (["FULL_RELEASE", "FULL_REFUND", "PARTIAL_SPLIT", "ESCALATE"] as DecisionType[])
+            ).map((t) => {
               const financial = t !== "ESCALATE";
               const disabled = financial && !canDecideFinancial;
               return (

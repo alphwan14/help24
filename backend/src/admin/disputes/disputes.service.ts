@@ -10,7 +10,7 @@ import { SupabaseService } from '../../supabase/supabase.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { EventsService } from '../../events/events.service';
 import { EVENT_TYPES } from '../../events/event.types';
-import { AdminContext } from '../auth/admin-role';
+import { AdminContext, roleAtLeast } from '../auth/admin-role';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { AddEvidenceDto } from './dto/evidence.dto';
 import {
@@ -35,8 +35,11 @@ const NON_TERMINAL = [
   'awaiting_client_evidence',
   'awaiting_provider_evidence',
   'awaiting_admin_review',
+  // Handed up for a senior ruling: still in play (decisions.service.ts). Listed
+  // so it shows in the queue and a party cannot open a second case meanwhile.
+  'escalated',
 ];
-const TERMINAL = ['resolved', 'escalated', 'merged', 'resolved_release', 'resolved_refund', 'resolved_partial'];
+const TERMINAL = ['resolved', 'merged', 'resolved_release', 'resolved_refund', 'resolved_partial'];
 
 /**
  * Orchestration for the Disputes Centre: case creation (user-facing), context
@@ -299,7 +302,12 @@ export class DisputesService {
     }
 
     const currentAssignee = dispute.assigned_admin_id as string | null;
-    if (currentAssignee && currentAssignee !== admin.id && admin.role !== 'super_admin') {
+    if (dispute.status === 'escalated') {
+      // Escalated cases belong to senior admins; any of them may take it over.
+      if (!roleAtLeast(admin.role, 'senior_admin')) {
+        throw new ForbiddenException('This case was escalated: a senior admin takes it.');
+      }
+    } else if (currentAssignee && currentAssignee !== admin.id && admin.role !== 'super_admin') {
       throw new ConflictException('Case is already assigned to another admin.');
     }
 
@@ -314,8 +322,9 @@ export class DisputesService {
       })
       .eq('id', disputeId);
 
-    // Lock: only succeed if unassigned, unless super_admin overriding.
-    if (admin.role !== 'super_admin') {
+    // Lock: only succeed if unassigned, unless super_admin overriding, or a
+    // senior admin taking over an escalated case.
+    if (admin.role !== 'super_admin' && dispute.status !== 'escalated') {
       update = update.is('assigned_admin_id', null);
     }
 

@@ -17,7 +17,50 @@ import { DisputesService } from './disputes.service';
 import { MaterialsAdvanceService } from '../../mpesa/materials-advance.service';
 import { advanceInFlight, advancePaidOut } from '../../mpesa/advance';
 
-const TERMINAL = ['resolved', 'escalated', 'merged', 'resolved_release', 'resolved_refund', 'resolved_partial'];
+/**
+ * Closed for good. NOT 'escalated': an escalated case is waiting for a senior
+ * admin's ruling, and treating it as closed left every escalated case (the SLA
+ * sweep escalates any case left 3 days) with no way to be decided.
+ */
+const TERMINAL = ['resolved', 'merged', 'resolved_release', 'resolved_refund', 'resolved_partial'];
+
+/**
+ * Who may rule on a case, as it stands. Throws when the admin may not.
+ *   - closed cases: nobody (decisions are immutable);
+ *   - escalated cases: any senior admin, whoever claimed or escalated it, and
+ *     not by escalating again;
+ *   - otherwise: the admin who claimed it, or a super admin;
+ *   - money rulings (anything but ESCALATE): senior admins and up.
+ */
+export function authorizeDecision(
+  dispute: { status: string; assigned_admin_id: string | null },
+  decisionType: DecisionType,
+  admin: AdminContext,
+): void {
+  if (TERMINAL.includes(dispute.status)) {
+    throw new ConflictException('This dispute is already closed; decisions are immutable.');
+  }
+  if (dispute.status === 'escalated') {
+    if (!roleAtLeast(admin.role, 'senior_admin')) {
+      throw new ForbiddenException('This case was escalated: a senior admin decides it.');
+    }
+    if (decisionType === 'ESCALATE') {
+      throw new ConflictException('This case is already escalated. Decide it instead.');
+    }
+  } else {
+    const assignee = dispute.assigned_admin_id;
+    const isSuper = admin.role === 'super_admin';
+    if (assignee && assignee !== admin.id && !isSuper) {
+      throw new ConflictException('Case is assigned to another admin. Only they or a super_admin may rule.');
+    }
+    if (!assignee && !isSuper) {
+      throw new ConflictException('Claim (assign) the case before issuing a decision.');
+    }
+  }
+  if (decisionType !== 'ESCALATE' && !roleAtLeast(admin.role, 'senior_admin')) {
+    throw new ForbiddenException('Financial decisions require senior_admin or higher.');
+  }
+}
 
 /**
  * The decision execution engine — the financial "ruling" layer.
@@ -55,24 +98,11 @@ export class DecisionsService {
     const dispute = await this.disputes.requireDispute(disputeId);
 
     // ── 1. Authorize ──────────────────────────────────────────────────────────
-    if (TERMINAL.includes(dispute.status as string)) {
-      throw new ConflictException('This dispute is already closed; decisions are immutable.');
-    }
-
-    const assignee = dispute.assigned_admin_id as string | null;
-    const isOwner = assignee === admin.id;
-    const isSuper = admin.role === 'super_admin';
-    if (assignee && !isOwner && !isSuper) {
-      throw new ConflictException('Case is assigned to another admin. Only they or a super_admin may rule.');
-    }
-    if (!assignee && !isSuper) {
-      throw new ConflictException('Claim (assign) the case before issuing a decision.');
-    }
-
-    // Financial rulings require senior_admin+. ESCALATE is open to any admin.
-    if (dto.decision_type !== 'ESCALATE' && !roleAtLeast(admin.role, 'senior_admin')) {
-      throw new ForbiddenException('Financial decisions require senior_admin or higher.');
-    }
+    authorizeDecision(
+      { status: dispute.status as string, assigned_admin_id: (dispute.assigned_admin_id as string | null) ?? null },
+      dto.decision_type,
+      admin,
+    );
 
     // ── 2. Validate against escrow state ────────────────────────────────────────
     const postId = dispute.post_id as string;
@@ -166,7 +196,7 @@ export class DecisionsService {
   /** Auto-escalate a stale case. Writes a SYSTEM decision row (no admin). */
   async systemEscalate(disputeId: string, reasoning: string): Promise<void> {
     const dispute = await this.disputes.requireDispute(disputeId);
-    if (TERMINAL.includes(dispute.status as string)) return;
+    if (TERMINAL.includes(dispute.status as string) || dispute.status === 'escalated') return;
 
     const { data } = await this.supabase.client
       .from('dispute_decisions')
