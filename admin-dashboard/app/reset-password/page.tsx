@@ -1,4 +1,4 @@
-import Image from "next/image";
+import BrandMark from "@/components/BrandMark";
 import { parseRecoveryLinkError } from "@/lib/recovery-session";
 import ResetPasswordFlow from "./ResetPasswordFlow";
 
@@ -24,14 +24,8 @@ export default async function ResetPasswordPage({ searchParams }: PageProps) {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-rail-950 to-rail-900 p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <Image
-            src="/help24.png"
-            alt="Help24 logo"
-            width={56}
-            height={56}
-            className="w-14 h-14 mx-auto mb-4"
-            priority
-          />
+          {/* This page stands on the dark rail field in both themes. */}
+          <BrandMark size={56} className="mx-auto mb-4 !text-rail-50" />
           <h1 className="text-2xl font-bold text-rail-50">Help24 Admin</h1>
           <p className="text-rail-200 text-sm mt-1">Choose a new password</p>
         </div>
