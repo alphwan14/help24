@@ -3,6 +3,7 @@ import { AdminAuthModule } from '../admin/auth/admin-auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SupportAdminController } from './support-admin.controller';
 import { SupportAppController } from './support-app.controller';
+import { SupportPhotosController } from './support-photos.controller';
 import { SupportInboundController } from './support-inbound.controller';
 import { SupportMailerService } from './support-mailer.service';
 import { SupportStorageService } from './support-storage.service';
@@ -19,7 +20,7 @@ import { SupportService } from './support.service';
  */
 @Module({
   imports: [AdminAuthModule, NotificationsModule],
-  controllers: [SupportAdminController, SupportInboundController, SupportAppController],
+  controllers: [SupportAdminController, SupportInboundController, SupportAppController, SupportPhotosController],
   providers: [SupportService, SupportMailerService, SupportStorageService],
   exports: [SupportMailerService],
 })

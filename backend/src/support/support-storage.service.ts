@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 
 /** A photo on a message, as stored in support_messages.attachments (migration 143). */
@@ -8,11 +9,13 @@ export interface StoredAttachment {
   mime: string;
 }
 
-/** A photo as shown: a short-lived link, never the storage path. */
+/** A photo as shown: a short-lived Help24 link, never a storage address. */
 export interface ShownAttachment {
   url: string;
   mime: string;
 }
+
+const HOUR_S = 60 * 60;
 
 /**
  * Service-role gateway to the PRIVATE `support-attachments` bucket (Message
@@ -22,7 +25,10 @@ export interface ShownAttachment {
  *   2. it uploads the bytes straight to Storage with them;
  *   3. it sends the message naming those paths; the backend checks each one is
  *      under that member's prefix and really exists (verify);
- *   4. every read mints short-lived signed DOWNLOAD links (show).
+ *   4. every read gets a Help24 link, `https://api.help24.co.ke/support/photos/
+ *      <message>/<n>?e=<expiry>&s=<signature>` (show). The backend checks the
+ *      signature and serves the bytes itself (fetchPhoto), so no one ever sees
+ *      the storage provider's address or the member's account id in a link.
  * The bucket itself enforces type and size, whatever the app claims.
  */
 @Injectable()
@@ -31,15 +37,18 @@ export class SupportStorageService {
 
   static readonly BUCKET = 'support-attachments';
   static readonly MAX_FILES = 5;
-  /** Long enough to scroll a thread; a reload makes fresh ones. */
-  static readonly DOWNLOAD_TTL_SECONDS = 60 * 60;
   static readonly ALLOWED: Readonly<Record<string, string>> = {
     'image/jpeg': 'jpg',
     'image/png': 'png',
     'image/webp': 'webp',
   };
 
-  constructor(private readonly supabase: SupabaseService) {}
+  private linkKeyCache: Buffer | null = null;
+
+  constructor(
+    private readonly supabase: SupabaseService,
+    private readonly config: ConfigService,
+  ) {}
 
   private get bucket() {
     return this.supabase.client.storage.from(SupportStorageService.BUCKET);
@@ -96,19 +105,61 @@ export class SupportStorageService {
     return out;
   }
 
-  /** Short-lived links for stored photos. Never throws: a photo that cannot be signed is left out. */
-  async show(attachments: unknown): Promise<ShownAttachment[]> {
+  // ── Help24 photo links ──────────────────────────────────────────────────
+
+  /**
+   * The links for a message's photos, on Help24's own address. Each is good
+   * for one to two hours: the expiry is rounded to the hour, so the same photo
+   * keeps the same link (and the browser's cached copy) within the hour.
+   */
+  show(messageId: string, attachments: unknown, now = Date.now()): ShownAttachment[] {
     if (!Array.isArray(attachments) || attachments.length === 0) return [];
-    const shown: ShownAttachment[] = [];
-    for (const a of attachments as StoredAttachment[]) {
-      if (!a?.path || typeof a.path !== 'string') continue;
-      const { data, error } = await this.bucket.createSignedUrl(a.path, SupportStorageService.DOWNLOAD_TTL_SECONDS);
-      if (error || !data) {
-        this.logger.warn(`[SUPPORT_STORAGE] could not sign a photo: ${error?.message}`);
-        continue;
-      }
-      shown.push({ url: data.signedUrl, mime: a.mime });
+    const exp = (Math.floor(now / 1000 / HOUR_S) + 2) * HOUR_S;
+    const base = (this.config.get<string>('PUBLIC_API_URL') ?? 'https://api.help24.co.ke').replace(/\/+$/, '');
+    return (attachments as StoredAttachment[]).flatMap((a, i) =>
+      a && typeof a.path === 'string'
+        ? [{ url: `${base}/support/photos/${messageId}/${i}?e=${exp}&s=${this.sign(messageId, i, exp)}`, mime: a.mime }]
+        : [],
+    );
+  }
+
+  /** True when a photo link is genuine and has not expired. */
+  checkLink(messageId: string, index: number, exp: number, signature: string, now = Date.now()): boolean {
+    const nowS = Math.floor(now / 1000);
+    // Expired, or further ahead than a link is ever issued for: refused.
+    if (!Number.isInteger(exp) || exp <= nowS || exp > nowS + 3 * HOUR_S) return false;
+    if (!/^[A-Za-z0-9_-]{43}$/.test(signature)) return false;
+    const expected = Buffer.from(this.sign(messageId, index, exp));
+    const given = Buffer.from(signature);
+    return expected.length === given.length && timingSafeEqual(expected, given);
+  }
+
+  /** The bytes of a stored photo, for the Help24 link to serve. */
+  async fetchPhoto(attachment: StoredAttachment): Promise<{ bytes: Buffer; mime: string }> {
+    const { data, error } = await this.bucket.download(attachment.path);
+    if (error || !data) {
+      this.logger.warn(`[SUPPORT_STORAGE] could not read a photo: ${error?.message}`);
+      throw new NotFoundException('Photo not found.');
     }
-    return shown;
+    return { bytes: Buffer.from(await data.arrayBuffer()), mime: attachment.mime };
+  }
+
+  private sign(messageId: string, index: number, exp: number): string {
+    return createHmac('sha256', this.linkKey()).update(`${messageId}:${index}:${exp}`).digest('base64url');
+  }
+
+  /**
+   * The key photo links are signed with: derived from the service-role key the
+   * backend already holds, under its own label, so there is no new secret to
+   * manage and it signs nothing else. Rotating that key ends every open link,
+   * which is harmless: the next read issues fresh ones.
+   */
+  private linkKey(): Buffer {
+    if (!this.linkKeyCache) {
+      const root = this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+      if (!root) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
+      this.linkKeyCache = createHmac('sha256', root).update('help24/support-photo-links/v1').digest();
+    }
+    return this.linkKeyCache;
   }
 }

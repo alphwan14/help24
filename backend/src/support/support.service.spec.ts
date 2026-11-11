@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
@@ -115,6 +115,8 @@ function fakeBucket(uploaded: Set<string>) {
       error: null,
     }),
     createSignedUrl: async (path: string, ttl: number) => ({ data: { signedUrl: `https://storage.test/signed/${path}?ttl=${ttl}` }, error: null }),
+    download: async (path: string) =>
+      uploaded.has(path) ? { data: new Blob([`bytes of ${path}`]), error: null } : { data: null, error: { message: 'Object not found' } },
   };
 }
 
@@ -145,7 +147,10 @@ function setup(opts: { failSend?: boolean; failPush?: boolean } = {}) {
   } as unknown as NotificationsService;
   const uploaded = new Set<string>();
   const supabase = fakeDb(tables, fakeBucket(uploaded));
-  const service = new SupportService(supabase, mailer, notifications, new SupportStorageService(supabase));
+  const storageConfig = {
+    get: (k: string) => ({ SUPABASE_SERVICE_ROLE_KEY: 'service-role-key-for-tests', PUBLIC_API_URL: 'https://api.test/' } as Row)[k],
+  } as unknown as ConfigService;
+  const service = new SupportService(supabase, mailer, notifications, new SupportStorageService(supabase, storageConfig));
   return { service, tables, sent, pushed, uploaded, setFailing: (v: boolean) => (failing = v) };
 }
 
@@ -480,9 +485,35 @@ describe('SupportService — Message Help24 (the app)', () => {
     });
     expect(r.message.attachments.map((a) => a.mime)).toEqual(['image/jpeg', 'image/png']);
     const thread = await service.appThread(MARY);
-    expect(thread.messages[0].attachments[0].url).toMatch(/^https:\/\/storage\.test\/signed\/members\/.+\?ttl=3600$/);
+    const msgId = tables.support_messages[0].id;
+    // Help24's own address: no storage provider, no member account id.
+    expect(thread.messages[0].attachments[0].url).toMatch(new RegExp(`^https://api\\.test/support/photos/${msgId}/0\\?e=\\d+&s=[A-Za-z0-9_-]{43}$`));
+    expect(JSON.stringify(thread)).not.toMatch(/storage\.test|members\//);
     expect((await service.get(c.id)).messages[0].attachments).toHaveLength(2); // staff see them in the Inbox
     expect((await service.list({})).conversations[0].preview).toEqual({ author: 'member', body: '2 photos' });
+  });
+
+  it('photo links: a genuine link serves the photo; tampered, expired, out-of-range or note links are not found', async () => {
+    const { service, tables, uploaded } = setup();
+    const { files } = await service.appUploadUrls(MARY, [{ content_type: 'image/png' }]);
+    uploaded.add(files[0].path);
+    await service.appSend(MARY, 'Screenshot', id(), [files[0].path]);
+    const [, msgId, index, e, s] = /\/photos\/([^/]+)\/(\d+)\?e=(\d+)&s=(.+)$/.exec((await service.appThread(MARY)).messages[0].attachments[0].url)!;
+
+    const photo = await service.photo(msgId, Number(index), Number(e), s);
+    expect(photo).toMatchObject({ mime: 'image/png' });
+    expect(photo.bytes.toString()).toBe(`bytes of ${files[0].path}`);
+
+    const notFound = (p: Promise<unknown>) => expect(p).rejects.toBeInstanceOf(NotFoundException);
+    await notFound(service.photo(msgId, Number(index), Number(e), `${s.slice(0, -1)}${s.endsWith('A') ? 'B' : 'A'}`));
+    await notFound(service.photo(msgId, 1, Number(e), s)); // the signature names photo 0
+    await notFound(service.photo(msgId, Number(index), Number(e) + 3600, s)); // a stretched expiry breaks the signature
+    const past = Math.floor(Date.now() / 1000) - 10;
+    await notFound(service.photo(msgId, Number(index), past, s));
+
+    // A note is never served, even with a correctly signed link to it.
+    tables.support_messages[0].internal = true;
+    await notFound(service.photo(msgId, Number(index), Number(e), s));
   });
 
   it('photos: someone else\'s path, a path never uploaded, or a file that is not a photo is refused', async () => {

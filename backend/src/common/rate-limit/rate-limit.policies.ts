@@ -796,6 +796,17 @@ export const RATE_LIMIT_POLICIES: readonly RateLimitPolicy[] = [
   },
 
   {
+    name: 'support:photos',
+    rationale:
+      'Message Help24 photos served on Help24\'s own address. Every request ' +
+      'must carry a valid signed link, so this limit is not the control: it ' +
+      'keeps a flood of guesses from reaching the signature check at speed. A ' +
+      'thread with a few photos, or an admin scrolling the Inbox, loads a ' +
+      'handful at once; 240 a minute per IP leaves room for that.',
+    rules: [{ id: 'ip', algorithm: 'sliding-window', by: 'ip', windowMs: MINUTE, limit: 240 }],
+  },
+
+  {
     name: 'support:inbound',
     rationale:
       'Mail to support@ and info@, delivered by the Cloudflare Email Worker. ' +

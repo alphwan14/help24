@@ -302,14 +302,27 @@ export class SupportService {
     return {
       conversation,
       member,
-      messages: await Promise.all(messages.map(async (m) => ({
+      messages: messages.map((m) => ({
         ...m,
-        // Photos as short-lived signed links: the bucket is private, so a link
-        // copied out of the Inbox stops working within the hour.
-        attachments: await this.storage.show(m.attachments),
+        // Photos as short-lived Help24 links (api.help24.co.ke): the bucket is
+        // private, and a link copied out of the Inbox stops working within two hours.
+        attachments: this.storage.show(m.id as string, m.attachments),
         admin_name: m.admin_id ? admins.get(m.admin_id as string) ?? null : null,
-      }))),
+      })),
     };
+  }
+
+  /**
+   * The photo behind a Help24 photo link, if the link is genuine and unexpired
+   * and the message is one a member or staff can see (never a note). Anything
+   * else is "not found", so a guess learns nothing.
+   */
+  async photo(messageId: string, index: number, exp: number, signature: string) {
+    if (!this.storage.checkLink(messageId, index, exp, signature)) throw new NotFoundException('Photo not found.');
+    const { data } = await this.db.from('support_messages').select('attachments, internal').eq('id', messageId).maybeSingle();
+    const attachment = Array.isArray(data?.attachments) ? data.attachments[index] : null;
+    if (!data || data.internal || !attachment?.path) throw new NotFoundException('Photo not found.');
+    return this.storage.fetchPhoto(attachment);
   }
 
   private async conversation(id: string): Promise<Conversation> {
@@ -505,7 +518,7 @@ export class SupportService {
       id: m.id as string,
       author: m.author as 'member' | 'staff',
       body: m.body as string,
-      attachments: await this.storage.show(m.attachments),
+      attachments: this.storage.show(m.id as string, m.attachments),
       created_at: m.created_at as string,
     };
   }
