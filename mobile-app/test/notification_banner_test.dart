@@ -525,7 +525,8 @@ void main() {
       // exit animation. This is the exact window in which the old static
       // `_dismiss` removed whichever entry happened to be current — which by
       // then was the new one.
-      await tester.tap(find.byIcon(Icons.close_rounded));
+      // There is no close button: a tap opens the message and starts the exit.
+      await tester.tap(find.text('First Sender'));
       await tester.pump(const Duration(milliseconds: 40));
 
       await showBanner(tester,
