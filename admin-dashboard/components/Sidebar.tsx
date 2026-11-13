@@ -47,6 +47,12 @@ function useAttention(): Attention {
  */
 async function signOut() {
   try {
+    // The role AdminShell remembers for a fast first paint goes with the session.
+    localStorage.removeItem("h24_admin_identity");
+  } catch {
+    /* private mode */
+  }
+  try {
     await fetch("/api/admin/session", { method: "DELETE" });
   } catch {
     /* still end the Supabase session */

@@ -15,15 +15,43 @@ import ConnectAccess from "@/app/dashboard/disputes/ConnectAccess";
 import CommandPalette from "@/components/CommandPalette";
 import { ShellContext, type Shell } from "@/components/ShellContext";
 
-type Status = "checking" | "ready" | "recovery";
+type Status = "checking" | "restoring" | "ready" | "recovery";
+
+/** The last confirmed identity, so the nav knows the admin's role on the first
+ *  paint. Per browser; checked against the live answer moments later. */
+const IDENTITY_KEY = "h24_admin_identity";
+
+function cachedIdentity(): ArbitrationIdentity {
+  try {
+    const raw = localStorage.getItem(IDENTITY_KEY);
+    const v = raw ? (JSON.parse(raw) as ArbitrationIdentity) : null;
+    return v && v.connected ? v : { connected: false };
+  } catch {
+    return { connected: false };
+  }
+}
+
+function rememberIdentity(ident: ArbitrationIdentity) {
+  try {
+    if (ident.connected) localStorage.setItem(IDENTITY_KEY, JSON.stringify(ident));
+    else localStorage.removeItem(IDENTITY_KEY);
+  } catch {
+    /* private mode: the nav waits for the live answer instead */
+  }
+}
 
 /**
  * Authenticated app shell. This is the SINGLE place arbitration access is
  * established: on load it detects the Supabase session and silently restores the
- * arbitration token before any admin UI is shown. The dashboard, sidebar and all
- * admin routes stay behind a "Opening the console" splash until the
- * arbitration state is confirmed — so a normal login never surfaces a reconnect
- * prompt or token field.
+ * arbitration token if it is missing.
+ *
+ * The page shows AT ONCE. Middleware has already checked the session and the
+ * server already rendered the page with the admin cookie, so in the normal case
+ * (cookie present) there is nothing to wait for: the check runs behind the page
+ * and the nav uses the role this browser last saw. The full-screen "Opening the
+ * console" splash appears only in the rare case that access must actually be
+ * restored (first visit after sign-in, or a token for another account), and the
+ * recovery screen only when it cannot be.
  *
  * Recovery (ConnectAccess) is reached ONLY when a valid Supabase session cannot
  * be turned into arbitration access (no admin record, inactive/revoked, backend
@@ -36,6 +64,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const [arbitration, setArbitration] = useState<ArbitrationIdentity>({
     connected: false,
   });
+  // Read after mount (localStorage is not on the server), before paint.
+  useEffect(() => {
+    const cached = cachedIdentity();
+    if (cached.connected) setArbitration((a) => (a.connected ? a : cached));
+  }, []);
   const resolved = useRef(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const openSearch = useCallback(() => setSearchOpen(true), []);
@@ -79,9 +112,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         /* fall through to restore */
       }
 
-      // 3. Not connected → silently restore from the authenticated session.
+      // 3. Not connected → restore from the authenticated session. Only now
+      //    does the page step aside: it was rendered without access.
       let didRestore = false;
       if (!ident.connected) {
+        if (sessionEmail) setStatus("restoring");
         ident = await restoreArbitration();
         if (ident.connected) didRestore = true;
       }
@@ -94,12 +129,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         ident.email &&
         sessionEmail.toLowerCase() !== ident.email.toLowerCase()
       ) {
+        setStatus("restoring");
         await clearArbitrationToken();
         ident = await restoreArbitration(true);
         didRestore = true;
       }
 
       setArbitration(ident);
+      rememberIdentity(ident);
 
       // 5. If the cookie changed, re-render server pages so they see it.
       if (didRestore && ident.connected) router.refresh();
@@ -136,7 +173,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           {/* Who is in the console now; Admin Roles reads it (migration 132). */}
           <ConsolePresence enabled={status === "ready"} />
           <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} role={role} />
-          {status === "checking" && <Splash />}
+          {status === "restoring" && <Splash />}
           {status === "recovery" && <RecoveryOverlay />}
         </div>
       </AlertsProvider>
@@ -144,7 +181,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   );
 }
 
-/** Opaque full-screen splash — shown until arbitration access is confirmed. */
+/** Opaque full-screen splash, only while access is being restored. */
 function Splash() {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-page">
