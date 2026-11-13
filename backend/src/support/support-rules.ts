@@ -1,3 +1,4 @@
+import { emailPage, paragraphs, signature } from '../common/email/email-layout';
 import { createHmac, randomInt, timingSafeEqual } from 'crypto';
 
 /**
@@ -239,25 +240,19 @@ export function replyText(body: string, signature: string = SIGNATURE): string {
   return `${body.trim()}\n\n${signature}\nhelp24.co.ke`;
 }
 
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
 /**
- * HTML of a staff reply email: the words, the signature, nothing else. Plain
- * and readable in any client; no images, no tracking.
+ * HTML of a staff reply email, in the shared Help24 frame
+ * (common/email/email-layout.ts): the logo, the words, the signature. A
+ * personal reply gets no heading and no button; it reads like a letter. No
+ * tracking; the only image is the logo, with alt text.
  */
-export function replyHtml(body: string, signature: string = SIGNATURE): string {
-  const paragraphs = body
-    .trim()
-    .split(/\n{2,}/)
-    .map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
-    .join('');
-  return (
-    '<!doctype html><html lang="en"><body style="margin:0;padding:24px 16px;background:#ffffff;">' +
-    '<div style="max-width:560px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:24px;color:#12161A;">' +
-    paragraphs +
-    `<p style="margin:24px 0 0;font-weight:600;">${escapeHtml(signature)}</p>` +
-    '<p style="margin:2px 0 0;font-size:13px;color:#686F77;"><a href="https://help24.co.ke" style="color:#686F77;">help24.co.ke</a></p>' +
-    '</div></body></html>'
-  );
+export function replyHtml(body: string, signatureName: string = SIGNATURE): string {
+  const security = signatureName === SECURITY_IDENTITY.signature;
+  return emailPage({
+    title: signatureName,
+    preheader: body.trim().split(/\n/)[0].slice(0, 120),
+    eyebrow: security ? 'Security' : 'Support',
+    body: paragraphs(body) + signature(signatureName),
+    footer: 'Reply to this email to continue the conversation. Your reply reaches the Help24 team.',
+  });
 }

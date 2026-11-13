@@ -1,3 +1,4 @@
+import { emailPage, escapeHtml, lead, rows } from '../../common/email/email-layout';
 import { AdminAlert, AlertCategory } from '../alerts/alert-rules';
 
 /**
@@ -113,9 +114,6 @@ export function consoleLink(href: string | null | undefined): string {
   return typeof href === 'string' && inside.test(href) ? `${CONSOLE_URL}${href}` : `${CONSOLE_URL}/dashboard`;
 }
 
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
 const things = (n: number) => `${n} ${n === 1 ? 'thing needs' : 'things need'} attention`;
 
 const FOOTER_TEXT =
@@ -141,44 +139,48 @@ export function alertEmail(kind: 'new' | 'digest', alerts: AdminAlert[]): AlertE
     lines.map((l) => `- ${l.title}\n  ${l.action}: ${l.link}`).join('\n\n') +
     `\n\n${FOOTER_TEXT}`;
 
-  const html = page(
-    `<p style="margin:0 0 16px;">${escapeHtml(intro)}</p>` +
-      lines
-        .map(
-          (l) =>
-            `<p style="margin:0 0 14px;"><span style="font-weight:600;">${escapeHtml(l.title)}</span><br>` +
-            `<a href="${escapeHtml(l.link)}" style="color:#12161A;">${escapeHtml(l.action)}</a></p>`,
-        )
-        .join(''),
-  );
+  // One alert: its title is the heading and its action the button. Several:
+  // a count as the heading, each alert a row, and one way into the console.
+  const one = lines.length === 1 ? lines[0] : null;
+  const heading =
+    kind === 'digest'
+      ? `Good morning. ${things(alerts.length).replace(/^./, (c) => c.toUpperCase())}`
+      : one
+        ? one.title
+        : things(alerts.length).replace(/^./, (c) => c.toUpperCase());
+  const html = emailPage({
+    title: subject,
+    preheader: one ? `${one.action} in the Help24 console.` : intro,
+    eyebrow: 'Admin alerts',
+    heading: escapeHtml(heading),
+    body: one && kind === 'new' ? lead(intro.replace(/:$/, '.')) : lead(intro) + rows(lines.map((l) => ({ title: l.title, action: l.action, url: l.link }))),
+    action: one && kind === 'new' ? { label: one.action, url: one.link } : { label: 'Open the console', url: `${CONSOLE_URL}/dashboard` },
+    footer: FOOTER_HTML,
+  });
   return { subject, text, html };
 }
 
 /** The "send me a test" email: what an alert will look like, and that it works. */
 export function testEmail(): AlertEmailContent {
-  const intro = 'This is a test. When something needs you in the console, the email looks like this:';
+  const intro = 'This is a test. When something needs you in the console, the email looks like this.';
   const sample = '1 support conversation is waiting for a reply';
   const link = `${CONSOLE_URL}/dashboard/inbox`;
+  const subject = 'Help24: test alert email';
   return {
-    subject: 'Help24: test alert email',
+    subject,
     text: `${intro}\n\n- ${sample}\n  Reply from the Inbox: ${link}\n\n${FOOTER_TEXT}`,
-    html: page(
-      `<p style="margin:0 0 16px;">${escapeHtml(intro)}</p>` +
-        `<p style="margin:0 0 14px;"><span style="font-weight:600;">${escapeHtml(sample)}</span><br>` +
-        `<a href="${link}" style="color:#12161A;">Reply from the Inbox</a></p>`,
-    ),
+    html: emailPage({
+      title: subject,
+      preheader: 'Alert emails are working.',
+      eyebrow: 'Admin alerts',
+      heading: escapeHtml(sample),
+      body: lead(intro),
+      action: { label: 'Reply from the Inbox', url: link },
+      footer: FOOTER_HTML,
+    }),
   };
 }
 
-function page(body: string): string {
-  return (
-    '<!doctype html><html lang="en"><body style="margin:0;padding:24px 16px;background:#ffffff;">' +
-    '<div style="max-width:560px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:24px;color:#12161A;">' +
-    body +
-    `<p style="margin:24px 0 0;font-size:13px;line-height:20px;color:#686F77;">You get these emails because of your ` +
-    `<a href="${CONSOLE_URL}/dashboard/settings" style="color:#686F77;">alert settings</a> in the console. ` +
-    'This address does not take replies.</p>' +
-    '<p style="margin:12px 0 0;font-weight:600;">Help24 Admin</p>' +
-    '</div></body></html>'
-  );
-}
+const FOOTER_HTML =
+  `You get these emails because of your <a href="${CONSOLE_URL}/dashboard/settings" target="_blank" style="color:#686F77;">alert settings</a> ` +
+  'in the console. This address does not take replies.';

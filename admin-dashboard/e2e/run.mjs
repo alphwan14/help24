@@ -359,7 +359,7 @@ try {
   check("the email's button and printed link are Help24's, and the provider's address appears nowhere", mail.html.split(mail.link).length - 1 === 3 && !mail.html.includes(FAKE) && !mail.html.includes("/auth/v1/"));
   // Preview copy only: the logo from this checkout, so rendering it fetches nothing live.
   writeFileSync(join(ARTIFACTS, "reset-email.html"),
-    mail.html.replaceAll("https://admin.help24.co.ke/help24.png", pathToFileURL(join(ADMIN, "public", "help24.png")).href));
+    mail.html.replaceAll("https://admin.help24.co.ke/email-logo.png", pathToFileURL(join(ADMIN, "public", "email-logo.png")).href));
   const holder = fake.signInDirect(ALICE, ALICE_PW2);
   const bobBeforeReset = fake.signInDirect(BOB, BOB_PW);
   await goto(mail.link);
