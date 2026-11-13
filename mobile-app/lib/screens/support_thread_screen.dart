@@ -13,6 +13,7 @@ import '../theme/app_icons.dart';
 import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../utils/time_utils.dart';
+import '../widgets/chat/chat_bubbles.dart';
 import '../widgets/loading_empty_offline.dart';
 import 'image_viewer_screen.dart';
 
@@ -389,32 +390,62 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
               ),
             GestureDetector(
               onTap: m.state == SupportSendState.failed ? () => _retry(m) : null,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: AppSpace.sm),
-                decoration: BoxDecoration(color: fill, borderRadius: AppRadius.lgAll),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (hasPhotos) ...[
-                      _photos(m),
-                      if (m.body.isNotEmpty) const SizedBox(height: AppSpace.sm),
-                    ],
-                    if (m.body.isNotEmpty)
-                      SelectableText(
-                        m.body,
-                        style: TextStyle(fontSize: ChatGeometry.bodySize, height: 1.33, color: ink),
+              // Photos sit as they do in Messages: the photo IS the bubble, edge
+              // to edge, no coloured mat around it. With no words, the time rides
+              // on the photo in a pill; with words, they follow under the photo.
+              child: hasPhotos && m.body.isEmpty
+                  ? ClipRRect(
+                      borderRadius: const BorderRadius.all(Radius.circular(ChatGeometry.bubbleRadius)),
+                      child: Stack(
+                        children: [
+                          _photos(m),
+                          PositionedDirectional(
+                            end: ChatGeometry.mediaPillInset,
+                            bottom: ChatGeometry.mediaPillInset,
+                            child: ChatMediaPill(time: status),
+                          ),
+                        ],
                       ),
-                    const SizedBox(height: AppSpace.xs),
-                    Text(
-                      status,
-                      style: TextStyle(
-                        fontSize: ChatGeometry.metaSize,
-                        color: m.state == SupportSendState.failed ? c.criticalText : meta,
+                    )
+                  : ClipRRect(
+                      borderRadius: hasPhotos
+                          ? const BorderRadius.all(Radius.circular(ChatGeometry.bubbleRadius))
+                          : AppRadius.lgAll,
+                      child: ColoredBox(
+                        color: fill,
+                        child: SizedBox(
+                          width: hasPhotos ? ChatWidths.media(context) : null,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (hasPhotos) _photos(m),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: AppSpace.sm),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SelectableText(
+                                      m.body,
+                                      style: TextStyle(fontSize: ChatGeometry.bodySize, height: 1.33, color: ink),
+                                    ),
+                                    const SizedBox(height: AppSpace.xs),
+                                    Text(
+                                      status,
+                                      style: TextStyle(
+                                        fontSize: ChatGeometry.metaSize,
+                                        color: m.state == SupportSendState.failed ? c.criticalText : meta,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  ],
-                ),
-              ),
             ),
           ],
         ),
@@ -422,38 +453,60 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
     );
   }
 
-  /// The message's photos: the phone's own copies while sending, then the
-  /// stored ones. A stored photo opens full screen.
+  /// The message's photos, edge to edge: one keeps its own shape (as tall as
+  /// 132 to 330, cropped from the centre, like Messages); several sit in a
+  /// two-column album with a hairline gap. The phone's own copies show while
+  /// sending, then the stored ones, which open full screen.
   Widget _photos(SupportMessage m) {
     final local = m.localPhotos.isNotEmpty;
     final count = local ? m.localPhotos.length : m.attachments.length;
-    final side = count == 1 ? 200.0 : 96.0;
-    return Wrap(
-      spacing: AppSpace.xs,
-      runSpacing: AppSpace.xs,
-      children: [
-        for (var i = 0; i < count; i++)
-          ClipRRect(
-            borderRadius: AppRadius.mdAll,
-            child: SizedBox(
-              width: side,
-              height: side,
-              child: local
-                  ? Image.memory(m.localPhotos[i].bytes, fit: BoxFit.cover, gaplessPlayback: true)
-                  : GestureDetector(
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => ImageViewerScreen(imageUrl: m.attachments[i].url)),
-                      ),
-                      child: Image.network(
-                        m.attachments[i].url,
-                        fit: BoxFit.cover,
-                        semanticLabel: 'Photo',
-                        errorBuilder: (_, __, ___) => ColoredBox(color: AppColors.of(context).surfaceSunken),
-                      ),
-                    ),
-            ),
+    final width = ChatWidths.media(context);
+    final empty = ColoredBox(color: AppColors.of(context).surfaceSunken);
+
+    Widget image(int i, {double? w, double? h}) {
+      final Widget img = local
+          ? Image.memory(m.localPhotos[i].bytes, width: w, height: h, fit: BoxFit.cover, gaplessPlayback: true)
+          : Image.network(
+              m.attachments[i].url,
+              width: w,
+              height: h,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              semanticLabel: 'Photo',
+              frameBuilder: (_, child, frame, sync) =>
+                  sync || frame != null ? child : SizedBox(width: w, height: h ?? ChatGeometry.photoMinHeight, child: empty),
+              errorBuilder: (_, __, ___) => SizedBox(width: w, height: h ?? ChatGeometry.photoMinHeight, child: empty),
+            );
+      if (local) return img;
+      return GestureDetector(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => ImageViewerScreen(imageUrl: m.attachments[i].url)),
+        ),
+        child: img,
+      );
+    }
+
+    if (count == 1) {
+      return SizedBox(
+        width: width,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: ChatGeometry.photoMinHeight,
+            maxHeight: ChatGeometry.photoMaxHeight,
           ),
-      ],
+          child: ClipRect(child: image(0, w: width)),
+        ),
+      );
+    }
+    const gap = 2.0;
+    final tile = (width - gap) / 2;
+    return SizedBox(
+      width: width,
+      child: Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        children: [for (var i = 0; i < count; i++) image(i, w: tile, h: tile)],
+      ),
     );
   }
 

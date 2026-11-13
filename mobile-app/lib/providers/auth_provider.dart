@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../config/app_firebase.dart';
+import '../services/profile_snapshot_cache.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
@@ -598,6 +599,8 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
         await NotificationService.removeTokenOnLogout(uid);
       }
       await AuthService.signOut();
+      // This account's last known profile must not greet the next one.
+      unawaited(ProfileSnapshotCache.clear());
       _currentUser = null;
       _failure = null;
       clearPhoneState();

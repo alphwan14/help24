@@ -23,6 +23,7 @@ import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/connectivity_provider.dart';
 import '../providers/location_provider.dart';
+import '../services/profile_snapshot_cache.dart';
 import '../services/account_status_service.dart';
 import '../services/current_location_service.dart' show CurrentLocationResult;
 import '../services/notification_service.dart';
@@ -541,34 +542,60 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
   /// Reads the two facts the profile row does not carry: identity check and
   /// payout number. A failed read leaves its fact null, which hides the setup
   /// row and lists the separate rows instead.
+  ///
+  /// Both reads run at once, and the screen does not wait for them: it opens
+  /// from the last answers this phone saw (ProfileSnapshotCache), so the row
+  /// is there on the first frame. A read that fails keeps the last answer
+  /// rather than hiding a row that was on screen.
   Future<void> _loadSetup() async {
-    bool? idVerified;
-    bool? hasPayout;
+    final cached = ProfileSnapshotCache.setup(widget.uid);
     var payoutAvailable = true;
-    try {
-      idVerified = (await VerificationService.myStatus()).idVerified;
-    } catch (_) {
-      idVerified = null;
-    }
-    try {
-      final destinations = await PayoutService.listDestinations(widget.uid);
-      hasPayout = destinations.any((d) => d.status == PayoutDestinationStatus.active);
-    } on PayoutException catch (e) {
-      if (e.featureUnavailable) {
-        payoutAvailable = false;
-      } else {
-        hasPayout = null;
+
+    Future<bool?> readIdVerified() async {
+      try {
+        return (await VerificationService.myStatus()).idVerified;
+      } catch (_) {
+        return cached?.idVerified;
       }
-    } catch (_) {
-      hasPayout = null;
     }
+
+    Future<bool?> readHasPayout() async {
+      try {
+        final destinations = await PayoutService.listDestinations(widget.uid);
+        return destinations.any((d) => d.status == PayoutDestinationStatus.active);
+      } on PayoutException catch (e) {
+        if (e.featureUnavailable) {
+          payoutAvailable = false;
+          return null;
+        }
+        return cached?.hasPayout;
+      } catch (_) {
+        return cached?.hasPayout;
+      }
+    }
+
+    final results = await Future.wait([readIdVerified(), readHasPayout()]);
+    final facts = ProfileSetupFacts(
+      idVerified: results[0],
+      hasPayout: results[1],
+      payoutAvailable: payoutAvailable,
+    );
+    ProfileSnapshotCache.rememberSetup(widget.uid, facts);
     if (!mounted) return;
-    setState(() {
-      _idVerified = idVerified;
-      _hasPayout = hasPayout;
-      _payoutAvailable = payoutAvailable;
-      _setupLoaded = true;
-    });
+    setState(() => _applySetup(facts));
+  }
+
+  void _applySetup(ProfileSetupFacts facts) {
+    _idVerified = facts.idVerified;
+    _hasPayout = facts.hasPayout;
+    _payoutAvailable = facts.payoutAvailable;
+    _setupLoaded = true;
+  }
+
+  /// Start from the last known answers, if this phone has them.
+  void _restoreSetup() {
+    final cached = ProfileSnapshotCache.setup(widget.uid);
+    if (cached != null) _applySetup(cached);
   }
 
   /// Whether "Who helped you join?" applies to this account, the SERVER's
@@ -584,6 +611,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
   @override
   void initState() {
     super.initState();
+    _restoreSetup();
     _loadAgentWindow();
     _loadSetup();
   }
@@ -596,6 +624,7 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
       _ensureAttempted = false;
       _agentCodesOpen = false;
       _setupLoaded = false;
+      _restoreSetup();
       _loadAgentWindow();
       _loadSetup();
     }
@@ -612,6 +641,9 @@ class _LoggedInSectionsState extends State<_LoggedInSections> {
   Widget build(BuildContext context) {
     return StreamBuilder<UserModel?>(
       stream: _stream,
+      // The last profile this phone saw, so the professional row and the
+      // Business rows are there on the first frame (ProfileSnapshotCache).
+      initialData: ProfileSnapshotCache.user(widget.uid),
       builder: (context, snap) {
         // Never block the whole screen (settings, logout, activity) on the
         // profile fetch. We already hold the signed-in user, so the header
