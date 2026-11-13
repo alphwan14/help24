@@ -1,5 +1,7 @@
 "use client";
 
+import { PhotoLink, type Photo } from "@/components/PhotoViewer";
+
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -233,20 +235,10 @@ function MessageItem({
         {!staff && m.sender_verified !== true && <span className="ml-2 text-caution-700">Sender not verified</span>}
       </p>
       {m.attachments && m.attachments.length > 0 && (
-        // Signed links that expire within the hour; reload the page for fresh ones.
-        <div className="mt-2 flex flex-wrap gap-2" data-testid="message-photos">
-          {m.attachments.map((a, i) => (
-            <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" className="block">
-              {/* eslint-disable-next-line @next/next/no-img-element -- signed storage links, not static assets */}
-              <img
-                src={a.url}
-                alt={`Photo ${i + 1} from ${contact}`}
-                className="h-32 w-32 rounded-lg bg-surface-sunken object-cover"
-                loading="lazy"
-              />
-            </a>
-          ))}
-        </div>
+        // As the app's chats show them: the photo itself, edge to edge, no frame.
+        // One photo keeps its shape; several sit in a two-column album. They open
+        // over the page (components/PhotoViewer.tsx). Links last an hour.
+        <MessagePhotos urls={m.attachments.map((a) => a.url)} contact={contact} />
       )}
       {m.body && (
         <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-900">{full && m.full_body ? m.full_body : m.body}</p>
@@ -276,5 +268,29 @@ function MessageItem({
         )}
       </div>
     </li>
+  );
+}
+
+function MessagePhotos({ urls, contact }: { urls: string[]; contact: string }) {
+  const photos: Photo[] = urls.map((src, i) => ({ src, alt: `Photo ${i + 1} from ${contact}` }));
+  if (photos.length === 1) {
+    return (
+      <div className="mt-2" data-testid="message-photos">
+        <PhotoLink photos={photos} className="inline-block overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element -- storage photos, not static assets */}
+          <img src={photos[0].src} alt={photos[0].alt} className="block max-h-80 max-w-full rounded-xl sm:max-w-xs" loading="lazy" />
+        </PhotoLink>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 grid w-full max-w-xs grid-cols-2 gap-1 overflow-hidden rounded-xl" data-testid="message-photos">
+      {photos.map((p, i) => (
+        <PhotoLink key={i} photos={photos} index={i} className="overflow-hidden rounded-none">
+          {/* eslint-disable-next-line @next/next/no-img-element -- storage photos, not static assets */}
+          <img src={p.src} alt={p.alt} className="block aspect-square w-full object-cover" loading="lazy" />
+        </PhotoLink>
+      ))}
+    </div>
   );
 }

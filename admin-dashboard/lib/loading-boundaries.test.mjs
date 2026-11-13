@@ -14,7 +14,8 @@ import { fileURLToPath } from "node:url";
 const DASHBOARD = resolve(dirname(fileURLToPath(import.meta.url)), "..", "app", "dashboard");
 
 // Folders whose only page is a redirect elsewhere: there is nothing to wait for.
-const REDIRECT_ONLY = new Set(["offers", "requests"]);
+// "media" is no page at all: a route that serves photos (lib/media-link.ts).
+const REDIRECT_ONLY = new Set(["offers", "requests", "media"]);
 
 test("every dashboard section has a loading boundary", () => {
   const sections = readdirSync(DASHBOARD).filter(

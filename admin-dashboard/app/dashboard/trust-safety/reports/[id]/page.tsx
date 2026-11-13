@@ -1,3 +1,4 @@
+import { maskMediaUrls } from "@/lib/media-link";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ActiveRestrictions, AccountHeader, SignalsGrid } from "@/components/moderation/AccountPanels";
@@ -41,7 +42,8 @@ export default async function ReportInvestigationPage({ params }: PageProps) {
     return <ErrorState message={inv.error} />;
   }
 
-  const { report, reporter, reported, target, conversation, job, related_reports, decisions, notes, timeline } = inv.data;
+  // Evidence and photos open under admin.help24.co.ke, never a storage address.
+  const { report, reporter, reported, target, conversation, job, related_reports, decisions, notes, timeline } = maskMediaUrls(inv.data);
   const reportedName = reported.user?.name?.trim() || "Unnamed account";
 
   return (
