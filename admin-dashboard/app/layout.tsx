@@ -25,12 +25,15 @@ export const metadata: Metadata = {
   // The Apple touch icon is drawn at 180px, well clear of that, so it keeps the
   // standard tile.
   icons: {
+    // ?v= changes whenever the artwork does: browsers keep favicons in a
+    // cache of their own for weeks, so without it the old dark tile stayed in
+    // tabs after the theme-following icon shipped (2026-11-11).
     icon: [
-      { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/favicon-32.png", type: "image/png", sizes: "32x32" },
+      { url: "/favicon.svg?v=2", type: "image/svg+xml" },
+      { url: "/favicon-32.png?v=2", type: "image/png", sizes: "32x32" },
     ],
-    shortcut: "/favicon-32.png",
-    apple:    "/help24.png",
+    shortcut: "/favicon-32.png?v=2",
+    apple:    "/help24.png?v=2",
   },
 };
 
