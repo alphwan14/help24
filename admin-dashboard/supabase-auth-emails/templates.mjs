@@ -35,8 +35,11 @@ import tokens from "../lib/design-tokens.generated.json" with { type: "json" };
 
 const C = tokens.color.light;
 
-/** Served by the dashboard itself (public/help24.png), so it ships with every deploy. */
-export const LOGO_URL = "https://admin.help24.co.ke/help24.png";
+/** Served by the dashboard itself (public/email-logo.png), so it ships with every
+ *  deploy. The dark tile, shared with the backend's emails
+ *  (backend/src/common/email/email-layout.ts): crisp on white and in dark-mode
+ *  mail apps. public/help24.png became the light app icon in 1.0.12. */
+export const LOGO_URL = "https://admin.help24.co.ke/email-logo.png";
 /** The footer's link: Help24 itself, since admins and partners both get these emails. */
 export const SITE_URL = "https://help24.co.ke";
 export const SUPPORT_EMAIL = "support@help24.co.ke";

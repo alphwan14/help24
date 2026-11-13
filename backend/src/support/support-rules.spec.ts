@@ -122,6 +122,14 @@ describe('support rules', () => {
     const html = replyHtml('Use <b>this</b> & that\nline two\n\nNext paragraph');
     expect(html).toContain('Use &lt;b&gt;this&lt;/b&gt; &amp; that<br>line two');
     expect(html).toContain('Help24 Support');
-    expect(html).not.toMatch(/<img|<script/i);
+    expect(html).not.toMatch(/<script/i);
+    // One image only: the Help24 logo, with alt text for clients that block it.
+    expect(html.match(/<img /g)).toHaveLength(1);
+    expect(html).toContain('alt="Help24"');
+  });
+
+  it('a security reply says so in its header', () => {
+    expect(replyHtml('Hi', 'Help24 Security')).toContain('>Security</span>');
+    expect(replyHtml('Hi')).toContain('>Support</span>');
   });
 });
