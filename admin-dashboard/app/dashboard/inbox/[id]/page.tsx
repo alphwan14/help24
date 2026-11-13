@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import RestoringAccess from "../../disputes/RestoringAccess";
 import { ApiError, getCurrentAdmin, startEarly } from "@/lib/api";
 import { getSupportThread, type SupportThread } from "@/lib/support";
+import { maskMediaUrls } from "@/lib/media-link";
 import ThreadView from "./ThreadView";
 
 export const dynamic = "force-dynamic";
@@ -27,5 +28,6 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
     );
   }
 
-  return <ThreadView thread={thread} />;
+  // Photos open under admin.help24.co.ke, never a storage address.
+  return <ThreadView thread={maskMediaUrls(thread)} />;
 }

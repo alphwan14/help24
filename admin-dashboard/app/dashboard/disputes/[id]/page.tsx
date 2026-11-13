@@ -1,3 +1,4 @@
+import { maskMediaUrls } from "@/lib/media-link";
 import { notFound, redirect } from "next/navigation";
 import { ApiError, getCurrentAdmin, getDispute, getRecommendation, startEarly } from "@/lib/api";
 import type { DisputeRecommendation } from "@/lib/api";
@@ -56,7 +57,7 @@ export default async function DisputeDetailPage({ params }: PageProps) {
   return (
     <div className="space-y-6">
       {money && <MoneyPanel money={money} role={admin.role} />}
-      <DisputeDetailClient dispute={dispute} recommendation={recommendation} admin={admin} />
+      <DisputeDetailClient dispute={maskMediaUrls(dispute)} recommendation={recommendation} admin={admin} />
     </div>
   );
 }
