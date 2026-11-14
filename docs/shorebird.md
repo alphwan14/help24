@@ -1,12 +1,36 @@
 # Shorebird — over-the-air updates for the Android app
 
-Status: **live since 2026-11-07.** The current release is `1.0.11+12`
-(v1.0.11, `1b473b7`, Flutter 3.44.9), published on GitHub and help24.co.ke on
-2026-11-08; the owner raises `ops.min_version` to it from the admin dashboard.
-`1.0.10+11` (`fae8c20`) was the first Shorebird release and keeps its Patches
-1 to 3. Patch lists for both are in docs/next-app-release.md. Each release's
-`pubspec.lock` is kept in `~/h24build/shorebird/locks/<version>/` for later
-patches.
+Status: **live since 2026-11-07.** The current release is **`1.0.12+13`**
+(v1.0.12, PR #13 merge `af8ae1c`, Flutter 3.44.9), registered with Shorebird
+on 2026-11-13: APK 84,986,212 bytes, sha256 `eae85178…cdf9f`, signer
+`48f1d72b…`, engines for all three ABIs, permissions identical to 1.0.11. It
+carries the light launcher icon with a themed-icon layer, the amber
+notification silhouette (`ic_stat_help24`), a splash that follows the phone's
+theme, and the pill in-app banner, all checked on the S20+ before merging.
+**Patch 1** (2026-11-14, stable, from `d81a691`, PR #15): Message Help24 photos
+edge to edge with the time on the photo, and Profile complete on its first
+frame. Icon check against `af8ae1c`: none added or removed; no asset diffs.
+Phone-checked on the published APK (`patches/1` active). Members install the
+release once from the APK; then raise `ops.min_version` to 1.0.12 from the
+admin dashboard.
+
+**Build note (2026-11-14):** four patch builds died when the WSL VM itself
+stopped in the AOT step: Windows had about 5 GB of commit headroom left, and
+the VM grows past that. With `GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx2g
+-Dorg.gradle.workers.max=2"` it builds. A crash mid-build can leave an empty
+`configure_fingerprint.bin` under `~/.pub-cache/hosted/pub.dev/jni-*/android/.cxx`,
+which fails the next build ("Was not a C/C++ structured log file"): delete
+that `.cxx` folder. Long builds survive a `wsl.exe` client crash only when
+started detached (`setsid nohup`).
+
+**Do not patch 1.0.11 from main any more.** Main's notification code names
+`@drawable/ic_stat_help24`, which only the 1.0.12 APK contains; a patch built
+from main for 1.0.11 would ask Android for a drawable that release does not
+have. 1.0.11+12 (`1b473b7`) keeps its Patches 1 to 7, and new work ships as a
+patch to 1.0.12+13. `1.0.10+11` (`fae8c20`) was the first Shorebird release
+and keeps its Patches 1 to 3. Patch lists are in docs/next-app-release.md. Each
+release's `pubspec.lock` is kept in `~/h24build/shorebird/locks/<version>/`
+for later patches.
 
 **Check patches only on the published APK.** On 2026-11-08 the test phone was
 found running a Windows arm64 build from another session. It is built with
@@ -146,7 +170,7 @@ stable Flutter (3.47.x as of 2026-11-08), so always set it. Export it once
 per shell:
 
 ```bash
-export H24_FLUTTER_VERSION=3.44.9       # 1.0.11's Flutter; `shorebird flutter versions list` shows what is offered
+export H24_FLUTTER_VERSION=3.44.9       # 1.0.11's and 1.0.12's Flutter; `shorebird flutter versions list` shows what is offered
 ```
 
 ## 3. The first Shorebird release (1.0.10) — members install this once
