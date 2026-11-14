@@ -10,7 +10,7 @@ import { SupabaseService } from '../../supabase/supabase.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { EventsService } from '../../events/events.service';
 import { EVENT_TYPES } from '../../events/event.types';
-import { AdminContext } from '../auth/admin-role';
+import { AdminContext, roleAtLeast } from '../auth/admin-role';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { AddEvidenceDto } from './dto/evidence.dto';
 import {
@@ -35,8 +35,11 @@ const NON_TERMINAL = [
   'awaiting_client_evidence',
   'awaiting_provider_evidence',
   'awaiting_admin_review',
+  // Handed up for a senior ruling: still in play (decisions.service.ts). Listed
+  // so it shows in the queue and a party cannot open a second case meanwhile.
+  'escalated',
 ];
-const TERMINAL = ['resolved', 'escalated', 'merged', 'resolved_release', 'resolved_refund', 'resolved_partial'];
+const TERMINAL = ['resolved', 'merged', 'resolved_release', 'resolved_refund', 'resolved_partial'];
 
 /**
  * Orchestration for the Disputes Centre: case creation (user-facing), context
@@ -65,8 +68,16 @@ export class DisputesService {
    *   • duplicate → returns the existing open case (no second row)
    *   • spam      → rate-limited per raiser
    *   • post-payout → blocked once funds already released (no reversal path)
+   *
+   * `openedByHelp24`: an admin opened it for the client or provider from the
+   * payment page (admin/payments, audited there). Both people are told Help24
+   * opened it, and the raiser's own spam limit does not apply: they did not
+   * raise it.
    */
-  async createDispute(dto: CreateDisputeDto): Promise<{ dispute_id: string; deduped: boolean }> {
+  async createDispute(
+    dto: CreateDisputeDto,
+    opts: { openedByHelp24?: boolean } = {},
+  ): Promise<{ dispute_id: string; deduped: boolean }> {
     const { data: post } = await this.supabase.client
       .from('posts')
       .select('id, title, author_user_id, selected_provider_id')
@@ -88,8 +99,8 @@ export class DisputesService {
       throw new BadRequestException('raised_by_role does not match your relationship to this job.');
     }
 
-    // Rate limit (anti-spam).
-    await this.enforceRateLimit(dto.raised_by_user_id);
+    // Rate limit (anti-spam), for cases a person raised themselves.
+    if (!opts.openedByHelp24) await this.enforceRateLimit(dto.raised_by_user_id);
 
     // Dedupe: one active case per post. Return the existing one.
     const { data: existing } = await this.supabase.client
@@ -164,11 +175,12 @@ export class DisputesService {
 
     const disputeId = created.id as string;
 
+    const openedBy = opts.openedByHelp24 ? `Help24 for the ${dto.raised_by_role}` : dto.raised_by_role;
     await this.systemMessage(
       disputeId,
       frozen
-        ? `Dispute opened by ${dto.raised_by_role}. Escrow frozen pending review.`
-        : `Dispute opened by ${dto.raised_by_role}. The payout had already started, so the funds could not be frozen; review for a refund.`,
+        ? `Dispute opened by ${openedBy}. Escrow frozen pending review.`
+        : `Dispute opened by ${openedBy}. The payout had already started, so the funds could not be frozen; review for a refund.`,
     );
 
     void this.events.emit({
@@ -188,20 +200,25 @@ export class DisputesService {
     });
 
     // Notify both parties + the admin queue.
+    const title = (mine: boolean) =>
+      opts.openedByHelp24 ? 'Help24 opened a dispute' : mine ? 'Dispute Submitted' : 'Dispute Opened';
+    const body = opts.openedByHelp24
+      ? `Help24 opened a dispute on "${post.title as string}" for the ${dto.raised_by_role}. The money is frozen while it is reviewed.`
+      : `A dispute on "${post.title as string}" is now under review. Funds are frozen.`;
     await this.notifications.sendMany([
       {
         userId: authorId,
         type: 'dispute_opened',
-        title: dto.raised_by_role === 'client' ? 'Dispute Submitted' : 'Dispute Opened',
-        body: `A dispute on "${post.title as string}" is now under review. Funds are frozen.`,
+        title: title(dto.raised_by_role === 'client'),
+        body,
         data: { post_id: dto.post_id, dispute_id: disputeId },
       },
       ...(providerId
         ? [{
             userId: providerId,
             type: 'dispute_opened' as const,
-            title: dto.raised_by_role === 'provider' ? 'Dispute Submitted' : 'Dispute Opened',
-            body: `A dispute on "${post.title as string}" is now under review. Funds are frozen.`,
+            title: title(dto.raised_by_role === 'provider'),
+            body,
             data: { post_id: dto.post_id, dispute_id: disputeId },
           }]
         : []),
@@ -299,7 +316,12 @@ export class DisputesService {
     }
 
     const currentAssignee = dispute.assigned_admin_id as string | null;
-    if (currentAssignee && currentAssignee !== admin.id && admin.role !== 'super_admin') {
+    if (dispute.status === 'escalated') {
+      // Escalated cases belong to senior admins; any of them may take it over.
+      if (!roleAtLeast(admin.role, 'senior_admin')) {
+        throw new ForbiddenException('This case was escalated: a senior admin takes it.');
+      }
+    } else if (currentAssignee && currentAssignee !== admin.id && admin.role !== 'super_admin') {
       throw new ConflictException('Case is already assigned to another admin.');
     }
 
@@ -314,8 +336,9 @@ export class DisputesService {
       })
       .eq('id', disputeId);
 
-    // Lock: only succeed if unassigned, unless super_admin overriding.
-    if (admin.role !== 'super_admin') {
+    // Lock: only succeed if unassigned, unless super_admin overriding, or a
+    // senior admin taking over an escalated case.
+    if (admin.role !== 'super_admin' && dispute.status !== 'escalated') {
       update = update.is('assigned_admin_id', null);
     }
 

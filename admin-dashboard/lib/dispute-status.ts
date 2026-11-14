@@ -62,10 +62,13 @@ export const STATUS_LABELS: Record<CanonicalStatus, string> = {
   merged: "Merged",
 };
 
-/** True when the case is closed (no further decisions possible). */
+/**
+ * True when the case is closed (no further decisions possible). NOT escalated:
+ * an escalated case waits for a senior admin's ruling (backend authorizeDecision).
+ */
 export function isTerminal(status: string): boolean {
   const s = normalizeStatus(status);
-  return s === "resolved" || s === "escalated" || s === "merged";
+  return s === "resolved" || s === "merged";
 }
 
 export const PRIORITY_STYLES: Record<string, string> = {

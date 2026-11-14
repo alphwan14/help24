@@ -365,12 +365,11 @@ describe('AdminAlertsService — each item opens the page where the admin can ac
     expect(hrefOf('assigned_unpaid')).toBe('/dashboard/marketplace/requests/post-assigned');
   });
 
-  it('a failed payout and a stalled job open the job, where the provider\'s phone is', async () => {
+  it('a failed or stuck payout opens its payment page (Retry payout, Check with M-Pesa); a stalled job opens the job', async () => {
     const alerts = byId((await world().service.compute(NOW)).alerts);
-    expect(alerts.get('payout_failed')?.items[0].href).toBe('/dashboard/marketplace/requests/post-failed-payout');
+    expect(alerts.get('payout_failed')?.items[0].href).toBe('/dashboard/payments/failed-payout');
     expect(alerts.get('paid_stalled')?.items[0].href).toBe('/dashboard/marketplace/requests/post-held-long');
-    // A stuck payout stays on the escrow page — "Check with M-Pesa" is there.
-    expect(alerts.get('payout_stuck')?.items[0].href).toBe('/dashboard/payments/escrow');
+    expect(alerts.get('payout_stuck')?.items[0].href).toBe('/dashboard/payments/stuck');
   });
 
   it('a payment whose listing is gone falls back to the escrow page instead of a page that 404s', async () => {

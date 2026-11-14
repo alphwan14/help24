@@ -19,5 +19,8 @@ import { EventsModule } from '../events/events.module';
   // CompletionAutoApprovalService is the review-window sweep (migration 134):
   // it approves through JobsService.approveCompletion, so it lives beside it.
   providers: [JobsService, ServiceRecordsService, CompletionAutoApprovalService],
+  // The dashboard's payment page approves through the same transition
+  // (admin/payments, "Approve completion now").
+  exports: [JobsService],
 })
 export class JobsModule {}

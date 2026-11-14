@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { TransactionsService } from '../transactions/transactions.service';
@@ -509,6 +510,46 @@ export class MpesaService {
   }
 
   // ── Release payout (B2C) ───────────────────────────────────────────────────
+
+  /**
+   * POST /mpesa/release-payout: an admin sending a payout by hand. The audit
+   * row (who, role, why, the state before) is written FIRST; if it cannot be
+   * written, nothing is paid. Then the one payout path, with its own
+   * compare-and-set guards, does the rest.
+   */
+  async adminReleasePayout(
+    postId: string,
+    admin: { id: string; email: string; role: string },
+    reason: string,
+  ) {
+    const why = (reason ?? '').trim();
+    if (why.length < 5) throw new BadRequestException('Say why, in a few words (at least 5 characters).');
+    const tx = await this.transactions.findLatestByPostId(postId);
+    if (!tx) throw new NotFoundException(`No transaction found for post ${postId}.`);
+
+    const { data: escrow } = await this.supabase.client
+      .from('escrow').select('status').eq('transaction_id', tx.id).maybeSingle();
+    const { error } = await this.supabase.client.from('admin_finance_actions').insert({
+      action_type: 'payout_retried',
+      transaction_id: tx.id,
+      dispute_id: null,
+      admin_id: admin.id,
+      admin_email: admin.email,
+      admin_role: admin.role,
+      reason: why.slice(0, 1000),
+      previous_state: {
+        transaction_status: tx.status,
+        escrow_status: (escrow?.status as string | undefined) ?? null,
+        via: 'mpesa/release-payout',
+      },
+    });
+    if (error) {
+      this.logger.error(`[PAYOUT][ADMIN] audit not written post=${postId}: ${error.message}`);
+      throw new ServiceUnavailableException('This payout could not be recorded, so it was not sent. Please try again.');
+    }
+    this.logger.warn(`[PAYOUT][ADMIN] manual release post=${postId} by=${admin.email}`);
+    return this.releasePayout({ post_id: postId });
+  }
 
   async releasePayout(dto: ReleasePayoutDto, opts: { allowFromDisputed?: boolean } = {}) {
     this.logger.log(`[PAYOUT][START] postId=${dto.post_id}${opts.allowFromDisputed ? ' (dispute-release)' : ''}`);

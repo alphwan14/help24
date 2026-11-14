@@ -16,10 +16,12 @@ import { MpesaService } from './mpesa.service';
 import { MaterialsAdvanceService } from './materials-advance.service';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { ReleaseAdvanceDto } from './dto/release-advance.dto';
-import { ReleasePayoutDto } from './dto/release-payout.dto';
+import { AdminReleasePayoutDto } from './dto/release-payout.dto';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import { AdminAuth, Auth, Public } from '../common/auth/auth.decorator';
 import { AdminAuthGuard } from '../admin/auth/admin-auth.guard';
+import { AdminContext } from '../admin/auth/admin-role';
+import { CurrentAdmin, Roles } from '../admin/auth/roles.decorator';
 import { Restrict } from '../moderation/restrict.decorator';
 
 @Controller('mpesa')
@@ -96,14 +98,23 @@ export class MpesaController {
    * `MpesaService.releasePayout` in-process and never touches this route, and
    * the mobile app declares a constant for it that no code path uses. What
    * remains is manual operator intervention, which is what the admin token is for.
+   *
+   * SENIOR ADMINS ONLY, WITH A REASON, ON THE RECORD (2026-11-11). Before, any
+   * admin (a support agent too) could send escrow out with nothing recorded
+   * but a system log line. Now the route needs senior_admin, the body says
+   * why, and an admin_finance_actions row (who, role, why, the state before)
+   * is written BEFORE the payout; if it cannot be written, nothing is paid.
+   * The dashboard's payment page uses POST /admin/transactions/:id/retry-payout,
+   * which follows the same rule.
    */
   @Post('release-payout')
   @HttpCode(HttpStatus.OK)
   @RateLimit('payments:release')
   @UseGuards(AdminAuthGuard)
   @AdminAuth()
-  releasePayout(@Body() dto: ReleasePayoutDto) {
-    return this.mpesa.releasePayout(dto);
+  @Roles('senior_admin')
+  releasePayout(@Body() dto: AdminReleasePayoutDto, @CurrentAdmin() admin: AdminContext) {
+    return this.mpesa.adminReleasePayout(dto.post_id, admin, dto.reason);
   }
 
   // Daraja sends raw JSON — skip DTO validation, accept as-is.

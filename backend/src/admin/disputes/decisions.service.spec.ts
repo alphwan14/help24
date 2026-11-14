@@ -1,4 +1,5 @@
-import { DecisionsService } from './decisions.service';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { DecisionsService, authorizeDecision } from './decisions.service';
 
 /**
  * Regression protection for the FULL_RELEASE payout fix (Sprint 1, Phase 1.1).
@@ -111,5 +112,30 @@ describe('DecisionsService FULL_RELEASE payout', () => {
     expect(supa.updates['disputes']).toBeUndefined();
     expect(supa.updates['posts']).toBeUndefined();
     expect(notifications.sendMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('who may rule on a case (authorizeDecision)', () => {
+  const as = (role: string, id = 'a1') => ({ id, email: `${id}@help24.test`, name: id, role }) as any;
+  const escalated = { status: 'escalated', assigned_admin_id: 'agent-1' };
+  const ruling = (d: { status: string; assigned_admin_id: string | null }, type: any, who: any) => () => authorizeDecision(d, type, who);
+
+  it('an escalated case is decided by ANY senior admin, even one who never claimed it', () => {
+    expect(ruling(escalated, 'FULL_RELEASE', as('senior_admin', 'senior-2'))).not.toThrow();
+    expect(ruling(escalated, 'PARTIAL_SPLIT', as('super_admin', 'super-3'))).not.toThrow();
+  });
+
+  it('an escalated case is not for a support agent, and cannot be escalated again', () => {
+    expect(ruling(escalated, 'FULL_REFUND', as('support_agent', 'agent-1'))).toThrow(ForbiddenException);
+    expect(ruling(escalated, 'ESCALATE', as('senior_admin'))).toThrow(ConflictException);
+  });
+
+  it('closed cases stay closed; open ones keep the claim rule; money rulings need a senior', () => {
+    expect(ruling({ status: 'resolved', assigned_admin_id: 'a1' }, 'FULL_RELEASE', as('super_admin'))).toThrow(ConflictException);
+    expect(ruling({ status: 'reviewing', assigned_admin_id: 'other' }, 'FULL_RELEASE', as('senior_admin'))).toThrow(ConflictException);
+    expect(ruling({ status: 'reviewing', assigned_admin_id: null }, 'FULL_RELEASE', as('senior_admin'))).toThrow(ConflictException);
+    expect(ruling({ status: 'reviewing', assigned_admin_id: 'a1' }, 'FULL_RELEASE', as('senior_admin'))).not.toThrow();
+    expect(ruling({ status: 'reviewing', assigned_admin_id: 'a1' }, 'FULL_RELEASE', as('support_agent'))).toThrow(ForbiddenException);
+    expect(ruling({ status: 'reviewing', assigned_admin_id: 'a1' }, 'ESCALATE', as('support_agent'))).not.toThrow();
   });
 });

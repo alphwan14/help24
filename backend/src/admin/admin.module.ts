@@ -23,11 +23,16 @@ import { DisputesController } from './disputes/disputes.controller';
 import { DisputesPublicController } from './disputes/disputes-public.controller';
 import { RequestRescueController } from './marketplace/request-rescue.controller';
 import { RequestRescueService } from './marketplace/request-rescue.service';
+// ── Payments (the dashboard's transaction page) ────────────────────────────────
+import { JobsModule } from '../jobs/jobs.module';
+import { AdminPaymentsController } from './payments/admin-payments.controller';
+import { AdminPaymentsService } from './payments/admin-payments.service';
 
 @Module({
-  imports: [SupabaseModule, NotificationsModule, MpesaModule, EventsModule, AdminAuthModule],
+  imports: [SupabaseModule, NotificationsModule, MpesaModule, EventsModule, AdminAuthModule, JobsModule],
   controllers: [
     AdminController, // legacy dispute resolver (kept for compatibility)
+    AdminPaymentsController,
     AdminUsersController,
     AdminInvitesPublicController,
     DisputesPublicController,
@@ -47,6 +52,8 @@ import { RequestRescueService } from './marketplace/request-rescue.service';
     DisputeStorageService,
     // Marketplace operations
     RequestRescueService,
+    // Payments: one transaction's story and the actions on it
+    AdminPaymentsService,
   ],
   // Re-exported so feature modules (e.g. PromotionsModule) can guard their own
   // admin controllers with the same RBAC instead of duplicating it. Importers

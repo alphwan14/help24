@@ -34,3 +34,26 @@ export async function attachPosts<T extends { post_id: string | null }>(
   }
   return rows.map((r) => ({ ...r, posts: (r.post_id && byId.get(r.post_id)) || null }));
 }
+
+export type TxBuyer = { name: string | null; email: string | null } | null;
+
+/**
+ * Attach who paid (name, email), by id, for the same reason as attachPosts.
+ * Names are decoration: a failed read leaves the id showing.
+ */
+export async function attachBuyers<T extends { buyer_user_id: string | null }>(
+  db: Db,
+  rows: T[],
+): Promise<Array<T & { buyer: TxBuyer }>> {
+  const ids = [...new Set(rows.map((r) => r.buyer_user_id).filter((id): id is string => !!id))];
+  const byId = new Map<string, TxBuyer>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await db.from("users").select("id, name, email").in("id", ids.slice(i, i + 100));
+    if (error) {
+      console.error("[payments] buyer names unavailable:", error.message);
+      break;
+    }
+    for (const u of data ?? []) byId.set(u.id as string, { name: u.name as string | null, email: u.email as string | null });
+  }
+  return rows.map((r) => ({ ...r, buyer: (r.buyer_user_id && byId.get(r.buyer_user_id)) || null }));
+}

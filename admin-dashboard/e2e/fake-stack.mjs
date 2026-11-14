@@ -16,6 +16,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createFakeSupport } from "./fake-support.mjs";
+import { createFakePayments } from "./fake-payments.mjs";
 
 export async function startFakeStack({ port, siteUrl, redirectAllowList, templatesDir }) {
   const origin = `http://127.0.0.1:${port}`;
@@ -76,6 +77,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     [...people.values()].find((p) => p.email.toLowerCase() === String(email ?? "").toLowerCase()) ?? null;
 
   const support = createFakeSupport({ personByEmail });
+  const payments = createFakePayments();
   const alertEmailSettings = new Map(); // admin email → { frequency, categories }
   const alertEmailTests = []; // admin emails a test alert was sent to
 
@@ -485,6 +487,12 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       const handled = support.handle({ method: req.method, p, url, body, admin: a, send, apiFail });
       if (handled !== null) return handled;
     }
+    if (p.startsWith("/admin/transactions/")) {
+      const a = adminByToken();
+      if (!a) return apiFail(401, "Invalid admin token.");
+      const handled = payments.handle({ method: req.method, p, body, admin: a, send, apiFail });
+      if (handled !== null) return handled;
+    }
     if (p === "/admin/alert-emails" || p === "/admin/alert-emails/test") {
       // The admin's own alert email setting (backend admin-alert-emails, migration 141).
       const a = adminByToken();
@@ -617,6 +625,8 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     origin, server, log, outbox, restores, admins, appConfig, configHistory,
     /** The support Inbox: fake.support.inbound(...) delivers an email; mailOut is what was sent. */
     support,
+    /** The payment page: fake.payments.addAwaitingApproval(...) adds one; `taken` is every action accepted. */
+    payments,
     /** Alert email settings per admin email, and every test email requested. */
     alertEmailSettings,
     alertEmailTests,

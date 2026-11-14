@@ -897,7 +897,8 @@ export class JobsService {
     postTitle: string;
     providerId: string;
     clientUserId: string;
-    by: 'client' | 'system';
+    /** 'admin': Help24 staff approved it from the dashboard (migration 144). */
+    by: 'client' | 'system' | 'admin';
   }): Promise<boolean> {
     const { data: moved, error } = await this.supabase.client
       .from('job_completions')
