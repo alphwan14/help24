@@ -53,6 +53,7 @@ import 'services/reputation_service.dart';
 import 'services/session_scope.dart';
 import 'services/startup_prefetch.dart';
 import 'services/supabase_auth_bridge.dart';
+import 'services/support_photo_cache.dart';
 import 'services/terms_acceptance.dart';
 import 'screens/terms_acceptance_screen.dart';
 import 'theme/app_theme.dart';
@@ -243,6 +244,8 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // Chat photos cached on disk are the conversation's own content: the
       // next account on this phone must not find them.
       SessionScope.instance.register(const ChatAttachmentScope());
+      // So are the Message Help24 photos this phone keeps.
+      SessionScope.instance.register(const SupportPhotoScope());
       // The chat database and the chat media beside it: deleted at sign-out
       // (and ONLY then — not on a 401, an expired token or an app update).
       SessionScope.instance.register(ChatStore.instance);

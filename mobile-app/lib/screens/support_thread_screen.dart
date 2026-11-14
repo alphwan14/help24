@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../models/support_thread.dart';
 import '../providers/auth_provider.dart';
 import '../services/notification_store.dart';
+import '../services/support_photo_cache.dart';
 import '../services/support_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/tokens.dart';
@@ -28,7 +30,8 @@ import 'image_viewer_screen.dart';
 /// Photos (migration 143): up to 5 per message, from the camera or the
 /// gallery, shrunk on the phone and uploaded to a private bucket; a message may
 /// be photos only. They show at once from the phone, then from short-lived
-/// links once stored.
+/// links once stored, and from this phone's own cache after that
+/// (SupportPhotoCache), so a photo downloads once, not on every open.
 ///
 /// Copy lives here, not in en.json: a Shorebird patch cannot change assets.
 /// Every icon used was already in release 1b473b7.
@@ -248,6 +251,9 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
     try {
       final paths = await _api.uploadPhotos(userId: _uid, photos: m.localPhotos);
       final stored = await _api.send(userId: _uid, body: m.body, clientId: m.clientId!, photoPaths: paths);
+      // The phone already has these photos: keep them under the stored message,
+      // so the member's own bubble never downloads them back.
+      unawaited(SupportPhotoCache.remember(messageId: stored.id, stored: stored.attachments, local: m.localPhotos));
       if (!mounted) return;
       setState(() {
         _messages = [
@@ -466,23 +472,33 @@ class _SupportThreadScreenState extends State<SupportThreadScreen> with WidgetsB
     Widget image(int i, {double? w, double? h}) {
       final Widget img = local
           ? Image.memory(m.localPhotos[i].bytes, width: w, height: h, fit: BoxFit.cover, gaplessPlayback: true)
-          : Image.network(
-              m.attachments[i].url,
+          // From the phone's own copy once it has one (SupportPhotoCache): the
+          // signed link changes on every open, so the key is the message.
+          : CachedNetworkImage(
+              imageUrl: m.attachments[i].url,
+              cacheKey: SupportPhotoCache.keyFor(m.id, i),
+              cacheManager: SupportPhotoCache.instance,
               width: w,
               height: h,
               fit: BoxFit.cover,
-              gaplessPlayback: true,
-              semanticLabel: 'Photo',
-              frameBuilder: (_, child, frame, sync) =>
-                  sync || frame != null ? child : SizedBox(width: w, height: h ?? ChatGeometry.photoMinHeight, child: empty),
-              errorBuilder: (_, __, ___) => SizedBox(width: w, height: h ?? ChatGeometry.photoMinHeight, child: empty),
+              fadeInDuration: Duration.zero,
+              fadeOutDuration: Duration.zero,
+              placeholderFadeInDuration: Duration.zero,
+              placeholder: (_, __) => SizedBox(width: w, height: h ?? ChatGeometry.photoMinHeight, child: empty),
+              errorWidget: (_, __, ___) => SizedBox(width: w, height: h ?? ChatGeometry.photoMinHeight, child: empty),
             );
       if (local) return img;
       return GestureDetector(
         onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => ImageViewerScreen(imageUrl: m.attachments[i].url)),
+          MaterialPageRoute(
+            builder: (_) => ImageViewerScreen(
+              imageUrl: m.attachments[i].url,
+              cacheKey: SupportPhotoCache.keyFor(m.id, i),
+              cacheManager: SupportPhotoCache.instance,
+            ),
+          ),
         ),
-        child: img,
+        child: Semantics(label: 'Photo', image: true, child: img),
       );
     }
 
