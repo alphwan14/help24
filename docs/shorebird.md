@@ -14,8 +14,12 @@ Phone-checked on the published APK (`patches/1` active). **Patch 2**
 (2026-11-14, stable, from `191e585`, PR #20): Message Help24 photos kept in
 their own cache on the phone (keyed by message, not by the hourly signed
 link), so they download once; no icons, no asset diffs; `patches/2` active on
-the published APK. Members install the release once from the APK; then raise
-`ops.min_version` to 1.0.12 from the admin dashboard.
+the published APK. **Published 2026-11-14** (§3 done): GitHub release
+`v1.0.12` (Latest, tag at `af8ae1c`, asset `app-release.apk`, digest matches),
+help24.co.ke via `help24_website@60c67e1` (download link checked: same size and
+sha256); `ops.min_version` is being raised to 1.0.12 (soft and hard) by the
+owner in App controls. The APK is kept at
+`C:\Users\840 g8\Documents\Help24 releases\help24-1.0.12+13.apk`.
 
 **Build note (2026-11-14):** four patch builds died when the WSL VM itself
 stopped in the AOT step: Windows had about 5 GB of commit headroom left, and

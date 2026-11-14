@@ -1,15 +1,16 @@
 # Next app release — changes waiting on it
 
 The changes below are merged on `main` but are **not on members' phones** yet.
-Current release: **v1.0.11** (versionCode 12, release commit `1b473b7`,
-Flutter 3.44.9), published 2026-11-08.
+Current release: **v1.0.12** (versionCode 13, release commit `af8ae1c`,
+Flutter 3.44.9), published 2026-11-14.
 
 A Dart-only change ships as a **patch** to installed phones of the current
 release (`scripts/shorebird/patch.sh`, docs/shorebird.md), with no new APK and
-no version bump. Patches now target **1.0.11+12**; 1.0.10 phones keep their
-Patches 1 to 3 and get nothing newer until they install 1.0.11. A full release
+no version bump. Patches now target **1.0.12+13**; 1.0.11 phones keep their
+Patches 1 to 7 and get nothing newer until they install 1.0.12 (never patch
+1.0.11 from `main`: it names a drawable only the 1.0.12 APK has). A full release
 is needed only for native code, assets, permissions, plugins or a Flutter
-upgrade; the next one must be **≥ 1.0.12+13**. Check `gh release list` first;
+upgrade; the next one must be **≥ 1.0.13+14**. Check `gh release list` first;
 parallel sessions have shipped versions before.
 
 Keep this file current: add a row when a change to `mobile-app/` lands, and
@@ -21,12 +22,35 @@ Build in WSL from a commit, never from Windows:
 
 ## Waiting
 
-Nothing for a full release. `ops.min_version` goes to 1.0.11 (block), set by
-the owner from the admin dashboard on 2026-11-08.
+Nothing. `ops.min_version` is being raised to 1.0.12 (soft and hard, so older
+apps go to the update screen) by the owner in App controls, 2026-11-14.
 
-Bundled-file changes on `main` that a patch cannot carry, so they wait for
-1.0.12: `assets/l10n/en.json` sentence-case labels (Profile already cases
-them in Dart, so nothing looks wrong meanwhile).
+## Patches on 1.0.12 (stable)
+
+Checked on the S20+ running the published v1.0.12 APK (sha `eae85178…`).
+
+| Patch | Commit | Change | Verified |
+|---|---|---|---|
+| 1 | `d81a691` (PR #15) | Message Help24 photos edge to edge with the time on the photo; Profile shows "Get ready to work" and the Business rows on its first frame (ProfileSnapshotCache) | 1680 tests (3 known WSL-mirror failures); release-signed test build checked on the S20+ first. Published 2026-11-14; icons 0 added vs `af8ae1c`, no asset diffs. On the published APK: start 1 downloaded it, start 2 ran `patches/1` |
+| 2 | `191e585` (PR #20) | Message Help24 photos kept in their own cache, keyed by message, so they download once instead of on every open | 1682 tests; after a cold restart the photos show 0.2 s after the thread (were several seconds of grey). Published 2026-11-14; no icons, no asset diffs; `patches/2` active on the published APK |
+
+## Shipped in 1.0.12 (2026-11-14)
+
+Release commit `af8ae1c` (PR #13), tag `v1.0.12` (Latest): 84,986,212 bytes,
+sha256 `eae85178…cdf9f` (matches GitHub's digest and a fresh download), cert
+`48f1d72b…`, all three ABIs with the engine, permissions identical to 1.0.11.
+Built with `scripts/shorebird/release.sh` (Flutter 3.44.9). New: the light
+launcher icon with an Android 13+ themed-icon layer, the amber notification
+silhouette (`ic_stat_help24`), a splash that follows the phone's theme, and the
+pill in-app banner; it also carries `main`'s en.json sentence-case labels.
+Checked on the S20+ before merging (icon, themed icon, status-bar and shade
+icon, light and dark cold starts recorded frame by frame, banner drop/open/fold,
+swipe and tap). Website `help24_website@60c67e1` serves it with new release
+notes; the download link returned the same size and sha256. The APK is kept at
+`C:\Users\840 g8\Documents\Help24 releases\help24-1.0.12+13.apk` and in WSL at
+`~/h24build/out/help24-1.0.12+13-shorebird.apk`.
+
+## Patches 6 and 7 on 1.0.11 (superseded by 1.0.12, which carries both)
 
 **Patch 6 (`44bc9a6`, published to stable 2026-11-11): Message Help24**
 (docs/support-inbox.md § Phase 2): Profile → Support opens an in-app
