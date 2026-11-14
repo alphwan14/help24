@@ -1,11 +1,14 @@
 import 'dart:typed_data';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:help24/models/support_thread.dart';
 import 'package:help24/providers/auth_provider.dart';
 import 'package:help24/providers/connectivity_provider.dart';
 import 'package:help24/screens/support_thread_screen.dart';
+import 'package:help24/services/support_photo_cache.dart';
 import 'package:help24/services/support_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -57,8 +60,21 @@ class _FakeApi implements SupportApi {
     sentBodies.add(body);
     sentPhotoPaths.add(photoPaths);
     if (failSends) throw SupportException('Service unavailable', statusCode: 503);
-    return SupportMessage(id: 'srv-${sentClientIds.length}', mine: true, body: body, createdAt: '2026-11-11T07:00:00Z');
+    return SupportMessage(
+      id: 'srv-${sentClientIds.length}',
+      mine: true,
+      body: body,
+      createdAt: '2026-11-11T07:00:00Z',
+      attachments: [
+        if (storeAttachments)
+          for (var i = 0; i < photoPaths.length; i++)
+            SupportAttachment(url: 'https://storage.example/signed/$i?token=fresh', mime: 'image/png'),
+      ],
+    );
   }
+
+  /// When set, a sent message comes back with its photos stored, as the backend answers.
+  bool storeAttachments = false;
 
   @override
   Future<void> markRead(String userId) async => reads.add(userId);
@@ -72,6 +88,30 @@ final _png = Uint8List.fromList(const [
   0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
   0x42, 0x60, 0x82,
 ]);
+
+/// The photo cache, in memory: answers every read with the test PNG and
+/// records the key it was asked for.
+class _PhotoCache implements BaseCacheManager {
+  _PhotoCache._(this._file);
+
+  static Future<_PhotoCache> create() async {
+    final file = await MemoryCacheSystem().createFile('photo.png');
+    await file.writeAsBytes(_png);
+    return _PhotoCache._(file);
+  }
+
+  final dynamic _file;
+  final List<String?> askedKeys = [];
+
+  @override
+  Stream<FileResponse> getFileStream(String url, {String? key, Map<String, String>? headers, bool withProgress = false}) {
+    askedKeys.add(key);
+    return Stream.value(FileInfo(_file, FileSource.Cache, DateTime.now().add(const Duration(days: 1)), url));
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 Widget _app(SupportApi api, {Future<List<XFile>> Function(ImageSource, int)? pick}) => MultiProvider(
       providers: [
@@ -205,6 +245,65 @@ void main() {
         ['members/member-1/photo-0.png'],
       ]);
       expect(_removeButtons, findsNothing, reason: 'the strip empties once the message is on its way');
+    });
+
+    testWidgets('stored photos come from this phone\'s cache, keyed by the message, not by the link', (tester) async {
+      final cache = (await tester.runAsync(_PhotoCache.create))!;
+      SupportPhotoCache.instanceForTest = cache;
+      addTearDown(() => SupportPhotoCache.instanceForTest = null);
+      SupportThread withLinks(String token) => SupportThread.fromJson({
+            'conversation': {'id': 'c1', 'ref': 'H24-ABCDEF', 'status': 'waiting'},
+            'messages': [
+              {
+                'id': 'm1',
+                'author': 'member',
+                'body': '',
+                'created_at': '2026-11-11T06:00:00Z',
+                'attachments': [
+                  {'url': 'https://storage.example/signed/a.jpg?token=$token', 'mime': 'image/jpeg'},
+                  {'url': 'https://storage.example/signed/b.jpg?token=$token', 'mime': 'image/jpeg'},
+                ],
+              },
+            ],
+            'unread': 0,
+          });
+      final api = _FakeApi(withLinks('first'));
+      await tester.pumpWidget(_app(api));
+      await tester.pumpAndSettle();
+      final keys = tester.widgetList<CachedNetworkImage>(find.byType(CachedNetworkImage)).map((i) => i.cacheKey).toSet();
+      expect(keys, {'support/m1/0', 'support/m1/1'});
+      expect(cache.askedKeys.toSet(), {'support/m1/0', 'support/m1/1'});
+
+      // The backend signs new links on every open; the key, and so the copy on
+      // the phone, stays the same.
+      api.thread0 = withLinks('second');
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(_app(api));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widgetList<CachedNetworkImage>(find.byType(CachedNetworkImage)).map((i) => i.cacheKey).toSet(),
+        {'support/m1/0', 'support/m1/1'},
+      );
+    });
+
+    testWidgets('a sent photo is kept under its stored message, so it never downloads back', (tester) async {
+      final written = <String, int>{};
+      final original = SupportPhotoCache.write;
+      SupportPhotoCache.write = (key, url, bytes, extension) async => written[key] = bytes.length;
+      addTearDown(() => SupportPhotoCache.write = original);
+      final api = _FakeApi(SupportThread.empty)..storeAttachments = true;
+      Future<List<XFile>> pick(ImageSource source, int max) async => [XFile.fromData(_png, name: 'one.png')];
+      await tester.pumpWidget(_app(api, pick: pick));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Add a photo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Choose from your photos'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pumpAndSettle();
+
+      expect(written, {'support/srv-1/0': _png.length});
     });
   });
 }
