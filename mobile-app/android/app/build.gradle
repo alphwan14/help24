@@ -118,6 +118,17 @@ android {
         versionName flutterVersionName
         multiDexEnabled true
         manifestPlaceholders += [MAPS_API_KEY: mapsApiKey]
+        // The in-app updater needs REQUEST_INSTALL_PACKAGES, which Play does
+        // not allow for self-updates. Sideloaded builds (the default) get it;
+        // a Play build passes -Phelp24Store=play (and --dart-define=HELP24_STORE=play,
+        // app_updater.dart), and the placeholder becomes a permission nothing
+        // declares, so nothing is requested.
+        def help24Store = project.findProperty('help24Store') ?: 'sideload'
+        manifestPlaceholders += [
+            INSTALL_PACKAGES_PERMISSION: help24Store == 'play'
+                ? 'com.help24.help24.permission.UNUSED_INSTALL'
+                : 'android.permission.REQUEST_INSTALL_PACKAGES',
+        ]
     }
 
     signingConfigs {

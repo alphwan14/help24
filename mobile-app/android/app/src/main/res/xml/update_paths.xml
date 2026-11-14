@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The ONLY directory UpdateFileProvider may hand out: the in-app updater's
+  downloads in the app's cache (Flutter's getTemporaryDirectory() is cacheDir).
+-->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

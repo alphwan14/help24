@@ -28,6 +28,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!--
+        In-app updates (app_updater.dart): lets Help24 open Android's install
+        prompt for an update it downloaded and checked. The member still taps
+        Install, and Android only installs an APK signed with Help24's key.
+        A Play build replaces this with an unused name (build.gradle).
+    -->
+    <uses-permission android:name="${INSTALL_PACKAGES_PERMISSION}"/>
 
     <application
         android:label="Help24"
@@ -84,6 +91,16 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/chat_document_paths" />
+        </provider>
+        <!-- A downloaded update, handed to the package installer (app_updater.dart). -->
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
         </provider>
         <!--
             FCM default channel — CRITICAL for sound on Android 8+.

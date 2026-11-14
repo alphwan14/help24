@@ -42,7 +42,7 @@ void main() {
       const backendDefaults = '''
 {"ops":{"kill_switches":{"payments":true,"promotions":true,"posting":true,"applications":true},
 "maintenance":{"active":false,"message":""},
-"min_version":{"soft":"","hard":"","message":"","store_url":""},
+"min_version":{"soft":"","hard":"","message":"","store_url":"","apk_url":"","sha256":"","size_bytes":0},
 "announcement":{"id":"","active":false,"message":"","url":""}},
 "tuning":{"payments":{"poll_interval_seconds":5,"poll_budget":24},
 "listings":{"urgent_window_minutes":60}}}

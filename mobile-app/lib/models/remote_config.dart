@@ -96,6 +96,9 @@ class MinVersionConfig {
     required this.hard,
     required this.message,
     required this.storeUrl,
+    this.apkUrl = '',
+    this.sha256 = '',
+    this.sizeBytes = 0,
   });
 
   /// Below this: a dismissible "update available" banner.
@@ -106,8 +109,27 @@ class MinVersionConfig {
   final String message;
   final String storeUrl;
 
+  /// The in-app updater's download (AppUpdater): the newest APK, its SHA-256
+  /// and its size. All three or none; with none, Update opens [storeUrl].
+  final String apkUrl;
+  final String sha256;
+  final int sizeBytes;
+
   static const MinVersionConfig defaults =
       MinVersionConfig(soft: '', hard: '', message: '', storeUrl: '');
+
+  /// True when the app can download and install the update itself: a https
+  /// link, a 64-character checksum and a size. Anything less falls back to
+  /// opening the download page, and nothing is installed unverified.
+  bool get hasInAppDownload =>
+      (apkUrl.trim().startsWith('https://') ||
+          (_testBuild && apkUrl.trim().startsWith('http://127.0.0.1:'))) &&
+      RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(sha256.trim()) &&
+      sizeBytes > 0;
+
+  /// A test build (RemoteConfigService's HELP24_TEST_MIN_VERSION) may fetch its
+  /// test APK from this computer through `adb reverse`. Release builds: https only.
+  static const bool _testBuild = String.fromEnvironment('HELP24_TEST_MIN_VERSION') != '';
 
   factory MinVersionConfig.fromJson(Map<String, dynamic>? json) {
     if (json == null) return defaults;
@@ -116,11 +138,21 @@ class MinVersionConfig {
       hard: _stringOr(json['hard'], defaults.hard),
       message: _stringOr(json['message'], defaults.message),
       storeUrl: _stringOr(json['store_url'], defaults.storeUrl),
+      apkUrl: _stringOr(json['apk_url'], defaults.apkUrl),
+      sha256: _stringOr(json['sha256'], defaults.sha256),
+      sizeBytes: _intOr(json['size_bytes'], defaults.sizeBytes, min: 0, max: 2000000000),
     );
   }
 
-  Map<String, dynamic> toJson() =>
-      {'soft': soft, 'hard': hard, 'message': message, 'store_url': storeUrl};
+  Map<String, dynamic> toJson() => {
+        'soft': soft,
+        'hard': hard,
+        'message': message,
+        'store_url': storeUrl,
+        'apk_url': apkUrl,
+        'sha256': sha256,
+        'size_bytes': sizeBytes,
+      };
 }
 
 /// A product announcement. Dismissal is remembered per [id], so reusing an id
@@ -245,6 +277,15 @@ class RemoteConfig {
   final AnnouncementConfig announcement;
   final PaymentsTuning payments;
   final ListingsTuning listings;
+
+  RemoteConfig copyWith({MinVersionConfig? minVersion}) => RemoteConfig(
+        killSwitches: killSwitches,
+        maintenance: maintenance,
+        minVersion: minVersion ?? this.minVersion,
+        announcement: announcement,
+        payments: payments,
+        listings: listings,
+      );
 
   /// Today's shipped behaviour, exactly. The floor under every failure mode.
   static const RemoteConfig defaults = RemoteConfig(

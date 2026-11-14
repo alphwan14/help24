@@ -10,7 +10,20 @@
 
 export type KillSwitches = { payments: boolean; promotions: boolean; posting: boolean; applications: boolean };
 export type Maintenance = { active: boolean; message: string };
-export type MinVersion = { soft: string; hard: string; message: string; store_url: string };
+/**
+ * apk_url, sha256 and size_bytes feed the in-app updater (app 1.0.13+): the app
+ * downloads the APK, installs it only when the SHA-256 matches, and shows the
+ * size first. All three or none; with none, Update opens store_url.
+ */
+export type MinVersion = {
+  soft: string;
+  hard: string;
+  message: string;
+  store_url: string;
+  apk_url: string;
+  sha256: string;
+  size_bytes: number;
+};
 export type Announcement = { id: string; active: boolean; message: string; url: string };
 
 export type ClientConfig = {
@@ -87,7 +100,35 @@ export function minVersionProblems(v: MinVersion, latest: string | null): string
     out.push("The required version cannot be higher than the suggested one.");
   }
   if ((v.hard || v.soft) && !v.store_url.trim()) out.push("Give the page the Update button opens.");
+  out.push(...downloadProblems(v));
   return out;
+}
+
+const APK_URL = /^https:\/\/(github\.com\/alphwan14\/help24\/releases\/download\/[^/]+\/[^/?#]+\.apk|help24\.co\.ke\/[^\s]+)$/;
+
+/**
+ * The in-app download: all three fields or none, the link a GitHub release
+ * asset of this repo or a help24.co.ke page, the checksum 64 hex characters,
+ * the size in bytes. The backend checks the same (validateMinVersionDownload).
+ */
+export function downloadProblems(v: Pick<MinVersion, "apk_url" | "sha256" | "size_bytes">): string[] {
+  const url = (v.apk_url ?? "").trim();
+  const sha = (v.sha256 ?? "").trim();
+  const size = Number(v.size_bytes ?? 0);
+  if (!url && !sha && !size) return [];
+  const out: string[] = [];
+  if (!url || !sha || !size) out.push("The in-app download needs all three: the APK link, its SHA-256 and its size. Or leave all three empty.");
+  if (url && !APK_URL.test(url)) out.push("APK link: use the release's app-release.apk on GitHub (alphwan14/help24) or a help24.co.ke link.");
+  if (sha && !/^[0-9a-fA-F]{64}$/.test(sha)) out.push("SHA-256: paste the 64-character checksum of the APK.");
+  if (size && (!Number.isInteger(size) || size < 1_000_000 || size > 500_000_000)) {
+    out.push("Size: the APK size in bytes, as GitHub shows it (for example 84986212).");
+  }
+  return out;
+}
+
+/** "81.0 MB", the way the app shows the size on its Update button. */
+export function formatMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**
@@ -167,6 +208,13 @@ export function describeChange(key: ControlKey, before: Record<string, unknown>,
     if (changed("hard")) lines.push(`Require update below: ${gate(before?.hard)} → ${gate(after?.hard)}`);
     if (changed("message")) lines.push(`Message: ${quote(after?.message)}`);
     if (changed("store_url")) lines.push(`Update button opens: ${quote(after?.store_url)}`);
+    if (changed("apk_url") || changed("sha256") || changed("size_bytes")) {
+      lines.push(
+        String(after?.apk_url ?? "").trim()
+          ? `In-app download: ${quote(after?.apk_url)}, ${formatMegabytes(Number(after?.size_bytes ?? 0))}, SHA-256 ${String(after?.sha256 ?? "").slice(0, 8)}…`
+          : "In-app download: off (Update opens the page)",
+      );
+    }
   }
   return lines;
 }
