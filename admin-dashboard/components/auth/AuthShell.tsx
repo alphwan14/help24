@@ -1,4 +1,4 @@
-import Image from "next/image";
+import BrandMark from "@/components/BrandMark";
 
 /**
  * The frame every sign-in page sits in — admin.help24.co.ke and
@@ -48,7 +48,7 @@ export default function AuthShell({
       <main className="relative flex flex-1 items-center justify-center px-4 py-12">
         <div className="w-full max-w-[400px]">
           <div className="rounded-2xl border border-gray-200 bg-surface px-7 py-9 sm:px-9 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_24px_48px_-16px_rgba(16,24,40,0.18)]">
-            <Image src="/help24.png" alt="Help24" width={44} height={44} priority />
+            <BrandMark size={44} className="-ml-1" />
             <h1 className="mt-6 text-[24px] font-bold tracking-tight text-gray-900">{title}</h1>
             <p className="mt-1 text-[14px] text-gray-500">{subtitle ?? <>to continue to {product}</>}</p>
             <div className="mt-7">{children}</div>

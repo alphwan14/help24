@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../models/app_notification.dart';
 import '../theme/app_icons.dart';
@@ -14,10 +13,29 @@ import '../theme/tokens.dart';
 // wrong" is a one-line change rather than a hunt through the build method.
 
 const double _kInset = 12; // card inset from the screen edges
-const double _kRadius = 22;
+const double _kRadius = 20; // the open card
+const double _kPillRadius = 24; // the closed pill: half its height
 
-const Duration _kEnter = Duration(milliseconds: 340);
-const Duration _kLeave = Duration(milliseconds: 220);
+/// The closed pill's width: just the sender and their name.
+const double _kPillWidth = 232;
+
+// ── The motion ───────────────────────────────────────────────────────────────
+// One controller, three phases, the way WhatsApp does it: a small pill drops
+// in from under the status bar, opens into the card as it lands, and on the
+// way out folds back to the pill before slipping up. The whole entrance is
+// under four tenths of a second, so what the eye catches is the message, not
+// the animation.
+//
+//   entrance (0 → 1)       0 ─ drop ─ 0.42                 1
+//                                0.28 ─── open ──────────── 1
+//   exit (1 → 0, reversed) folds first, then rises.
+
+const Duration _kEnter = Duration(milliseconds: 380);
+const Duration _kLeave = Duration(milliseconds: 300);
+const Interval _kDrop = Interval(0, 0.42, curve: Curves.easeOutCubic);
+const Interval _kDropBack = Interval(0, 0.42, curve: Curves.easeInCubic);
+const Interval _kOpen = Interval(0.28, 1, curve: Curves.easeOutQuart);
+const Interval _kFold = Interval(0.28, 1, curve: Curves.easeInCubic);
 const Duration _kSettle = Duration(milliseconds: 280);
 const Duration _kFling = Duration(milliseconds: 190);
 
@@ -219,6 +237,9 @@ class _NotificationBannerState extends State<_NotificationBanner>
   late final Animation<Offset> _slide;
   late final Animation<double> _fade;
 
+  /// 0 = the closed pill (avatar and name), 1 = the open card with the message.
+  late final Animation<double> _open;
+
   /// Settle-back and fling-out. Separate from [_enter] so a swipe that starts
   /// mid-entrance does not have to fight the entrance animation for the same
   /// controller.
@@ -242,7 +263,7 @@ class _NotificationBannerState extends State<_NotificationBanner>
   /// differently at 60Hz and at 120Hz.
   Offset _raw = Offset.zero;
 
-  /// One-way latch. The tap, the ✕, a swipe and the auto-dismiss timer can all
+  /// One-way latch. The tap, a swipe, the dismiss action and the timer can all
   /// reach the exit; exactly one of them gets to act on it. This is also what
   /// makes a double tap open one chat rather than two.
   bool _closing = false;
@@ -263,17 +284,22 @@ class _NotificationBannerState extends State<_NotificationBanner>
       reverseDuration: _kLeave,
     );
     _slide = Tween<Offset>(
-      begin: const Offset(0, -1.25),
+      begin: const Offset(0, -1.6),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _enter,
-      curve: Curves.easeOutCubic,
-      reverseCurve: Curves.easeInCubic,
+      curve: _kDrop,
+      reverseCurve: _kDropBack,
     ));
     _fade = CurvedAnimation(
       parent: _enter,
-      curve: const Interval(0, 0.65, curve: Curves.easeOut),
-      reverseCurve: Curves.easeIn,
+      curve: const Interval(0, 0.3, curve: Curves.easeOut),
+      reverseCurve: const Interval(0, 0.3, curve: Curves.easeIn),
+    );
+    _open = CurvedAnimation(
+      parent: _enter,
+      curve: _kOpen,
+      reverseCurve: _kFold,
     );
     _drag = AnimationController(vsync: this, duration: _kSettle)
       ..addListener(() {
@@ -299,7 +325,8 @@ class _NotificationBannerState extends State<_NotificationBanner>
   // ── Exit paths ─────────────────────────────────────────────────────────────
 
   /// The banner leaves the way it arrived, back up under the status bar.
-  /// Used by the ✕, by the auto-dismiss timer, and after a tap.
+  /// Used by the auto-dismiss timer, the screen reader's dismiss action, and
+  /// after a tap. In reverse the card folds back to the pill first, then rises.
   Future<void> _exitUpward() async {
     if (_closing) return;
     _closing = true;
@@ -454,7 +481,8 @@ class _NotificationBannerState extends State<_NotificationBanner>
               offset: off,
               child: Opacity(opacity: _opacityFor(off, _cardSize), child: child),
             ),
-            // Built once. The drag rebuilds the wrapper above, never this.
+            // The drag rebuilds the wrapper above, never this. The card itself
+            // rebuilds only while it opens or folds, a third of a second.
             child: GestureDetector(
               // Opaque so a drag that starts on the banner belongs to the
               // banner. Without it the pointer falls through to the route
@@ -470,7 +498,13 @@ class _NotificationBannerState extends State<_NotificationBanner>
               onVerticalDragUpdate: _onVerticalUpdate,
               onVerticalDragEnd: _onVerticalEnd,
               onVerticalDragCancel: _onDragCancel,
-              child: _card(context, isDark),
+              child: LayoutBuilder(
+                builder: (context, box) => AnimatedBuilder(
+                  animation: _open,
+                  builder: (context, _) =>
+                      _card(context, isDark, box.maxWidth, _open.value),
+                ),
+              ),
             ),
           ),
         ),
@@ -478,7 +512,9 @@ class _NotificationBannerState extends State<_NotificationBanner>
     );
   }
 
-  Widget _card(BuildContext context, bool isDark) {
+  /// The banner at [e] of the way from pill (0) to open card (1).
+  Widget _card(BuildContext context, bool isDark, double maxWidth, double e) {
+    final colors = AppColors.of(context);
     final tone = widget.kind.tone.color(isDark);
     final textPrimary =
         isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
@@ -487,139 +523,145 @@ class _NotificationBannerState extends State<_NotificationBanner>
     final textTertiary =
         isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
     final isMessage = widget.kind.category == NotificationCategory.messages;
+    final hasBody = widget.body.trim().isNotEmpty;
 
-    return Semantics(
-      button: true,
-      container: true,
-      liveRegion: true,
-      // An OverlayEntry is mounted outside the Scaffold, so nothing in this
-      // subtree inherits a DefaultTextStyle. Without a Material ancestor every
-      // Text falls back to DefaultTextStyle.fallback() — monospace, with the
-      // yellow debug underline — which is exactly how it rendered on device.
-      // Transparency, not a surface: the card paints its own colour, border
-      // and two-layer shadow in the BoxDecoration below.
-      child: Material(
-        type: MaterialType.transparency,
-        child: Container(
-          key: _cardKey,
-          decoration: BoxDecoration(
-            // Opaque, deliberately. The old card sat at 0.97 alpha and the
-            // screen behind it — a page title, a search field — read straight
-            // through the message. In dark mode the same card was #1C1C1E on a
-            // #0A0A0A background under a black shadow, which is to say invisible.
-            color: isDark
-                ? AppColors.of(context).surfaceRaised
-                : AppColors.of(context).surface,
-            borderRadius: BorderRadius.circular(_kRadius),
-            border: Border.all(color: AppColors.of(context).borderHairline),
-            // The two-shadow stack, and the reason for it, now live in
-            // AppElevation — this banner is the surface that taught us why a
-            // single shadow is not enough.
-            boxShadow: AppElevation.floating(
-                isDark ? Brightness.dark : Brightness.light),
-          ),
-          padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _leading(isMessage, tone),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _eyebrow(isDark, textTertiary),
-                    const SizedBox(height: 3),
-                    Text(
-                      widget.title,
-                      style: TextStyle(
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.w700,
-                        height: 1.2,
-                        color: textPrimary,
+    double lerp(double a, double b) => a + (b - a) * e;
+    final width = lerp(maxWidth < _kPillWidth ? maxWidth : _kPillWidth, maxWidth);
+    final avatar = lerp(28, 40);
+
+    return Align(
+      alignment: Alignment.topCenter,
+      child: Semantics(
+        button: true,
+        container: true,
+        liveRegion: true,
+        // There is no ✕: like WhatsApp's, the card leaves on its own or with a
+        // swipe. Screen readers get the same exit as a dismiss action.
+        onDismiss: _exitUpward,
+        // An OverlayEntry is mounted outside the Scaffold, so nothing in this
+        // subtree inherits a DefaultTextStyle. Without a Material ancestor every
+        // Text falls back to DefaultTextStyle.fallback(): monospace, with the
+        // yellow debug underline, which is exactly how it rendered on device.
+        child: Material(
+          type: MaterialType.transparency,
+          child: Container(
+            key: _cardKey,
+            width: width,
+            decoration: BoxDecoration(
+              // Opaque, deliberately: a see-through card let the page title
+              // read straight through the message.
+              color: isDark ? colors.surfaceRaised : colors.surface,
+              borderRadius: BorderRadius.circular(lerp(_kPillRadius, _kRadius)),
+              border: Border.all(color: colors.borderHairline),
+              boxShadow: AppElevation.floating(
+                  isDark ? Brightness.dark : Brightness.light),
+            ),
+            padding: EdgeInsets.fromLTRB(lerp(10, 12), lerp(10, 12), 16, lerp(10, 12)),
+            child: Row(
+              children: [
+                _leading(isMessage, tone, avatar),
+                SizedBox(width: lerp(10, 12)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.title,
+                              style: TextStyle(
+                                fontFamily: AppTypeScale.family,
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w600,
+                                height: 20 / 14.5,
+                                color: textPrimary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          // The category, quietly, once the card is open. The
+                          // pill is only who; the card adds what about.
+                          Opacity(
+                            opacity: e,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Text(
+                                widget.kind.category.label,
+                                style: TextStyle(
+                                  fontFamily: AppTypeScale.family,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w500,
+                                  height: 1,
+                                  color: textTertiary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (widget.body.trim().isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.body,
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          height: 1.32,
-                          color: textSecondary,
+                      if (hasBody)
+                        // The message unfolds under the name as the card opens,
+                        // and folds back into it on the way out.
+                        ClipRect(
+                          child: Align(
+                            alignment: Alignment.topLeft,
+                            heightFactor: e,
+                            child: Opacity(
+                              opacity: e,
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  widget.body,
+                                  style: TextStyle(
+                                    fontFamily: AppTypeScale.family,
+                                    fontSize: 13.5,
+                                    height: 19 / 13.5,
+                                    color: textSecondary,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              _closeButton(isDark, textTertiary),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  /// The Help24 mark plus the notification's own category, in the app's
-  /// vocabulary. Both come from data that already exists: the mark is the same
-  /// asset the sign-in screen renders, and the label is the category from the
-  /// notification registry the notifications screen already sorts by — so a new
-  /// backend type gets a correct banner without a second table to update.
-  Widget _eyebrow(bool isDark, Color textTertiary) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SvgPicture.asset(
-          isDark
-              ? 'assets/brand/help24-mark-on-dark.svg'
-              : 'assets/brand/help24-mark.svg',
-          width: 12,
-        ),
-        const SizedBox(width: 6),
-        Text(
-          widget.kind.category.label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.2,
-            height: 1,
-            color: textTertiary,
-          ),
-        ),
-      ],
-    );
-  }
-
   /// The sender, as a person: their photo when the app already has it, their
-  /// initials when it does not.
+  /// initials when it does not. Anything that is not a message gets its
+  /// category icon.
   ///
   /// The URL is handed in by the caller, read out of the conversation list
-  /// that is already in memory. The banner issues NO query of its own — the
-  /// push payload carries no avatar, and putting a round trip on the
-  /// notification path to decorate a card that lives four seconds would be a
-  /// bad trade. A chat this device has never opened simply shows initials.
-  Widget _leading(bool isMessage, Color tone) {
+  /// that is already in memory. The banner issues NO query of its own: putting
+  /// a round trip on the notification path to decorate a card that lives four
+  /// seconds would be a bad trade. A chat this device has never opened simply
+  /// shows initials.
+  Widget _leading(bool isMessage, Color tone, double size) {
     if (isMessage) {
-      final fallback = _initialsAvatar();
+      final fallback = _initialsAvatar(size);
       if (widget.avatarUrl.isEmpty) return fallback;
       return SizedBox(
-        width: 44,
-        height: 44,
+        width: size,
+        height: size,
         child: ClipOval(
-          // Never a visible load, exactly as the Messages list does it: a
-          // cached photo paints on the same frame, and one that is uncached or
-          // broken stays on the initials. A spinner inside a four-second card
-          // would be worse than no photo at all.
+          // Never a visible load: a cached photo paints on the same frame, and
+          // one that is uncached or broken stays on the initials.
           child: CachedNetworkImage(
             imageUrl: widget.avatarUrl,
-            width: 44,
-            height: 44,
+            width: size,
+            height: size,
             fit: BoxFit.cover,
             fadeInDuration: Duration.zero,
             fadeOutDuration: Duration.zero,
@@ -630,12 +672,16 @@ class _NotificationBannerState extends State<_NotificationBanner>
         ),
       );
     }
-    return IconBadge(widget.kind.icon, color: tone);
+    return SizedBox(
+      width: size,
+      height: size,
+      child: FittedBox(child: IconBadge(widget.kind.icon, color: tone)),
+    );
   }
 
-  Widget _initialsAvatar() => Container(
-        width: 44,
-        height: 44,
+  Widget _initialsAvatar(double size) => Container(
+        width: size,
+        height: size,
         alignment: Alignment.center,
         decoration: const BoxDecoration(
           color: AppTheme.primaryAccent,
@@ -643,45 +689,15 @@ class _NotificationBannerState extends State<_NotificationBanner>
         ),
         child: Text(
           initialsOf(widget.title),
-          style: const TextStyle(
+          style: TextStyle(
+            fontFamily: AppTypeScale.family,
             color: Colors.white,
-            fontSize: 16,
+            fontSize: size * 0.38,
             fontWeight: FontWeight.w700,
             height: 1,
           ),
         ),
       );
-
-  Widget _closeButton(bool isDark, Color textTertiary) {
-    return Semantics(
-      button: true,
-      label: 'Dismiss notification',
-      child: GestureDetector(
-        // A 44pt target around an 15pt glyph. The old ✕ was a bare 18pt Icon
-        // with no padding at all, so the tappable area was the glyph itself.
-        behavior: HitTestBehavior.opaque,
-        onTap: _exitUpward,
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Center(
-            child: Container(
-              width: 26,
-              height: 26,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.07)
-                    : AppColors.of(context).surfaceSunken,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(AppIcons.close, size: 15, color: textTertiary),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// First letter of the first and last word, upper-cased. Runes rather than

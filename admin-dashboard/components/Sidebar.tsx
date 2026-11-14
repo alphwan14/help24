@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import BrandMark from "@/components/BrandMark";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -46,6 +46,12 @@ function useAttention(): Attention {
  * "Signing out" hanging; a full page load also drops the dashboard from memory.
  */
 async function signOut() {
+  try {
+    // The role AdminShell remembers for a fast first paint goes with the session.
+    localStorage.removeItem("h24_admin_identity");
+  } catch {
+    /* private mode */
+  }
   try {
     await fetch("/api/admin/session", { method: "DELETE" });
   } catch {
@@ -152,7 +158,7 @@ export default function Sidebar({
       >
         {/* Brand and alerts */}
         <div className={["flex items-center h-14 shrink-0", collapsed ? "justify-center" : "gap-2.5 px-4"].join(" ")}>
-          <Image src="/help24.png" alt="Help24" width={28} height={28} className="w-7 h-7 shrink-0" priority />
+          <BrandMark size={28} />
           {!collapsed && (
             <>
               <span className="text-gray-900 font-semibold text-[14px] tracking-tight">Help24</span>
@@ -274,7 +280,7 @@ export default function Sidebar({
         ].join(" ")}
       >
         <div className="flex items-center gap-2.5 h-14 px-4 shrink-0">
-          <Image src="/help24.png" alt="Help24" width={28} height={28} className="w-7 h-7 shrink-0" />
+          <BrandMark size={28} />
           <span className="text-gray-900 font-semibold text-[15px] tracking-tight">Help24</span>
           <button
             onClick={() => setDrawerOpen(false)}

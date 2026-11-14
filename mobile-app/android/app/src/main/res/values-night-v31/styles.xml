@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Identical to values-v31: the splash is deliberately brand-dark in both
-     modes (like Uber/Bolt) so it always matches the app's dark-first theme.
-     This file must exist — night qualifiers outrank version qualifiers, so
+<!-- The dark-mode splash: Ink field, light bars, the paper-coloured badge
+     (drawable-night-*/splash_icon_v31). values-v31 is the light-mode twin;
+     since 1.0.12 the splash follows the phone's theme. This file must exist — night qualifiers outrank version qualifiers, so
      without it a dark-mode device would fall back to values-night (no splash
      icon config) instead of values-v31. -->
 <resources>

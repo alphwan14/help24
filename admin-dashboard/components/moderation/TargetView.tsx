@@ -1,3 +1,4 @@
+import { PhotoLink } from "@/components/PhotoViewer";
 import type { EvidenceItem, LedgerEntry, ReportInvestigation } from "@/lib/moderation-api";
 import { fmtDate, fmtDateTime, fmtKES, humanise } from "@/lib/moderation-labels";
 import ContentActionButton from "./ContentActionButton";
@@ -70,11 +71,11 @@ export default function TargetView({
           </dl>
           {Array.isArray(live?.images) && (live!.images as string[]).length > 0 && (
             <div className="flex gap-2 flex-wrap">
-              {(live!.images as string[]).slice(0, 6).map((src) => (
-                <a key={src} href={src} target="_blank" rel="noopener noreferrer" className="block">
+              {(live!.images as string[]).slice(0, 6).map((src, i, all) => (
+                <PhotoLink key={src} photos={all.map((s) => ({ src: s, alt: "Listing photo" }))} index={i} className="rounded-md">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={src} alt="Listing photo" className="w-20 h-20 object-cover rounded-md border border-gray-100 bg-gray-50" />
-                </a>
+                </PhotoLink>
               ))}
             </div>
           )}
@@ -185,10 +186,15 @@ export function EvidenceGallery({ items }: { items: EvidenceItem[] }) {
       <div className="flex gap-2 flex-wrap">
         {items.map((e) =>
           e.signed_url ? (
-            <a key={e.path} href={e.signed_url} target="_blank" rel="noopener noreferrer" className="block">
+            <PhotoLink
+              key={e.path}
+              photos={items.filter((x) => x.signed_url).map((x) => ({ src: x.signed_url!, alt: "Evidence attached by the reporter" }))}
+              index={items.filter((x) => x.signed_url).findIndex((x) => x.path === e.path)}
+              className="rounded-md"
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={e.signed_url} alt="Evidence attached by the reporter" className="w-28 h-28 object-cover rounded-md border border-gray-100 bg-gray-50" />
-            </a>
+            </PhotoLink>
           ) : (
             <span key={e.path} className="w-28 h-28 rounded-md border border-dashed border-gray-200 text-[11px] text-gray-400 flex items-center justify-center text-center px-2">
               Upload missing

@@ -26,6 +26,7 @@ import 'screens/home_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/post_detail_screen.dart';
+import 'services/profile_snapshot_cache.dart';
 import 'services/post_service.dart';
 import 'services/agent_code_service.dart';
 import 'services/provider_card_link.dart';
@@ -132,6 +133,8 @@ void main() async {
   // Terms acceptance, from the same preloaded prefs: known before the first
   // frame, so StartupGate decides synchronously (no wait added to the launch).
   TermsAcceptance.load(prefs);
+  // The last known profile, so Profile paints complete on its first frame.
+  ProfileSnapshotCache.load(prefs);
 
   // Decode the splash badge before the first frame. See LaunchSplash.warm.
   await LaunchSplash.warm();

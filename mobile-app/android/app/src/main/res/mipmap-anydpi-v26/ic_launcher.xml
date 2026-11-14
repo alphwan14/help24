@@ -6,4 +6,11 @@
           android:drawable="@drawable/ic_launcher_foreground"
           android:inset="0%" />
   </foreground>
+  <!-- Android 13+ themed icons: the launcher tints this silhouette to the
+       wallpaper's colours in light and dark, when the user turns them on. -->
+  <monochrome>
+      <inset
+          android:drawable="@drawable/ic_launcher_monochrome"
+          android:inset="0%" />
+  </monochrome>
 </adaptive-icon>

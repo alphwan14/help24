@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Splash background in DARK mode: brand Ink, the same value as
+         LaunchSplash.backgroundDark. -->
+    <color name="splash_background">#12161A</color>
+</resources>

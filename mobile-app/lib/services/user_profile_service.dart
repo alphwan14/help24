@@ -13,6 +13,7 @@ import 'remote_config_service.dart';
 import 'storage_service.dart';
 import 'supabase_auth_bridge.dart';
 import 'user_row.dart';
+import 'profile_snapshot_cache.dart';
 
 /// User profile: Supabase `users` table + Supabase Storage bucket `profiles` for avatar.
 /// No Firestore or Firebase Storage. id = Firebase Auth UID (synced to Supabase on login).
@@ -262,6 +263,8 @@ class UserProfileService {
         if (controller.isClosed) return;
         hasDelivered = true;
         if (r != null) {
+          // Kept for the next time Profile opens (ProfileSnapshotCache).
+          ProfileSnapshotCache.rememberRow(uid, r);
           controller.add(UserModel.fromSupabase(r));
         } else {
           controller.add(null);

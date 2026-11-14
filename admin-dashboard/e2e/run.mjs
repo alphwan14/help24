@@ -359,7 +359,7 @@ try {
   check("the email's button and printed link are Help24's, and the provider's address appears nowhere", mail.html.split(mail.link).length - 1 === 3 && !mail.html.includes(FAKE) && !mail.html.includes("/auth/v1/"));
   // Preview copy only: the logo from this checkout, so rendering it fetches nothing live.
   writeFileSync(join(ARTIFACTS, "reset-email.html"),
-    mail.html.replaceAll("https://admin.help24.co.ke/help24.png", pathToFileURL(join(ADMIN, "public", "help24.png")).href));
+    mail.html.replaceAll("https://admin.help24.co.ke/email-logo.png", pathToFileURL(join(ADMIN, "public", "email-logo.png")).href));
   const holder = fake.signInDirect(ALICE, ALICE_PW2);
   const bobBeforeReset = fake.signInDirect(BOB, BOB_PW);
   await goto(mail.link);
@@ -514,7 +514,7 @@ try {
     await evaluate(`${bodyHas("Too weak")} && ${bodyHas("Not only numbers")}`));
   await fill('input[name="password"]', "Kilimanjaro-2026");
   check("invite: a long mixed password reads Strong", await evaluate(bodyHas("Strong")));
-  check("invite: the page wears the Help24 mark, like sign-in", await evaluate(`!!document.querySelector('img[alt="Help24"]') && ${bodyHas("Accept your invitation")}`));
+  check("invite: the page wears the Help24 mark, like sign-in", await evaluate(`!!document.querySelector('[aria-label="Help24"]') && ${bodyHas("Accept your invitation")}`));
   await shot("5-invite-form.png", true);
   await fillInvite("Dave Otieno", DAVE_PW, DAVE_PW + "!");
   await click("form button[type=submit]");
@@ -842,10 +842,18 @@ try {
     check("an app thread says where it came from and that answers go to the app, with no forged-sender warning",
       (await evaluate(`${bodyHas("Support, in the app")} && ${bodyHas("Written from the Help24 app")}`)) && !(await evaluate(bodyHas("Sender not verified"))));
     await waitFor(`[...document.querySelectorAll('[data-testid="message-photos"] img')].filter((i) => i.complete && i.naturalWidth > 0).length === 2`, "photos loaded", 15000);
-    check("the member's photos show in the conversation, each opening full size",
-      await evaluate(`[...document.querySelectorAll('[data-testid="message-photos"] a')].every((a) => a.target === '_blank' && a.href.includes('/fake-doc/'))`)
+    check("the member's photos show in the conversation as buttons, not links to another tab",
+      (await evaluate(`[...document.querySelectorAll('[data-testid="message-photos"] button')].length === 2 && document.querySelectorAll('[data-testid="message-photos"] a').length === 0`))
         && !(await evaluate(bodyHas("in the copy sent to the team inbox"))));
     await shot("19-inbox-app-photos.png", true);
+    await evaluate(`document.querySelector('[data-testid="message-photos"] button').click()`);
+    await waitFor(`!!document.querySelector('[role="dialog"][aria-modal="true"] img')`, "photo viewer", 5000);
+    check("a photo opens over the page, the address bar unchanged, and moves to the next",
+      (await evaluate(`location.pathname.startsWith('/dashboard/inbox/') && ${bodyHas("1 of 2")}`)));
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))`);
+    await waitFor(bodyHas("2 of 2"), "next photo", 5000);
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`);
+    await waitFor(`!document.querySelector('[role="dialog"][aria-modal="true"]')`, "photo viewer closed", 5000);
     const mailBefore = fake.support.mailOut.length;
     await fill("#composer-text", "Go to Profile, then Sign-in methods.");
     await clickText("Send reply");

@@ -74,6 +74,18 @@ describe('alert email rules', () => {
     expect(mail.text).toContain('/dashboard/settings');
   });
 
+  it('one alert is the heading and its action the button; several are rows with one way into the console', () => {
+    const one = alertEmail('new', [alert()]).html;
+    expect(one).toContain('>1 support conversation is waiting for a reply</h1>');
+    expect(one).toContain(`href="${CONSOLE_URL}/dashboard/inbox"`);
+    expect(one).toContain('>Reply from the Inbox</a>');
+    expect(one).toContain('alt="Help24"');
+    const digest = alertEmail('digest', [alert(), alert({ id: 'payout_failed', title: 'A payout failed' })]).html;
+    expect(digest).toContain('Good morning. 2 things need attention');
+    expect(digest).toContain('>Open the console</a>');
+    expect(digest).not.toMatch(/<script/i);
+  });
+
   it('one alert puts its title in the subject; the morning summary says so', () => {
     expect(alertEmail('new', [alert()]).subject).toBe('Help24: 1 support conversation is waiting for a reply');
     expect(alertEmail('digest', [alert()]).subject).toBe('Help24 morning summary: 1 thing needs attention');

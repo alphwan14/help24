@@ -1,4 +1,5 @@
 "use client";
+import { PhotoLink, type Photo } from "@/components/PhotoViewer";
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -289,6 +290,9 @@ export default function DisputeDetailClient({
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {dispute.evidence.map((e) => {
+              const evidencePhotos: Photo[] = dispute.evidence
+                .filter((x) => x.type === "image" && !!x.file_url)
+                .map((x) => ({ src: x.file_url!, alt: x.file_name ?? "evidence" }));
               const isImage = e.type === "image" && !!e.file_url;
               const isFile = (e.type === "image" || e.type === "document" || e.type === "video") && !!e.file_url;
               return (
@@ -309,15 +313,15 @@ export default function DisputeDetailClient({
                   </div>
 
                   {isImage ? (
-                    <a href={e.file_url!} target="_blank" rel="noreferrer" className="block">
-                      {/* Signed URL — short TTL, opens full-size in a new tab. */}
+                    <PhotoLink photos={evidencePhotos} index={evidencePhotos.findIndex((p) => p.src === e.file_url)} className="w-full">
+                      {/* Opens over the page; the link lasts a short while. */}
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={e.file_url!}
                         alt={e.file_name ?? "evidence"}
                         className="w-full h-32 object-cover rounded-md bg-gray-50"
                       />
-                    </a>
+                    </PhotoLink>
                   ) : isFile ? (
                     <a href={e.file_url!} target="_blank" rel="noreferrer"
                       className="text-blue-600 hover:underline text-sm break-all">

@@ -294,36 +294,54 @@ void main() {
     });
   });
 
-  // ── The ✕ ──────────────────────────────────────────────────────────────────
+  // ── No ✕ ───────────────────────────────────────────────────────────────
 
-  group('close button', () {
-    testWidgets('dismisses immediately and never routes', (tester) async {
+  group('the card has no close button', () {
+    // Like WhatsApp's: it leaves on its own, on a swipe, or after a tap. A ✕
+    // made a four-second card heavier than the message it carried.
+    testWidgets('there is no ✕ to aim at', (tester) async {
+      await showBanner(tester);
+      expect(find.byIcon(Icons.close_rounded), findsNothing);
+      await closeBanner(tester);
+    });
+
+    testWidgets('a screen reader can still dismiss it, without routing',
+        (tester) async {
       var taps = 0;
       await showBanner(tester, onTap: () => taps++);
-
-      await tester.tap(find.byIcon(Icons.close_rounded));
+      final card = find.byWidgetPredicate(
+          (w) => w is Semantics && w.properties.onDismiss != null);
+      expect(card, findsOneWidget);
+      tester.widget<Semantics>(card).properties.onDismiss!();
       await tester.pumpAndSettle();
-
       expect(taps, 0);
       expect(NotificationBannerOverlay.isVisible, isFalse);
     });
+  });
 
-    testWidgets('offers a 44pt touch target around a small glyph',
+  // ── Open and fold ──────────────────────────────────────────────────────────
+
+  group('motion', () {
+    testWidgets('drops in as a pill, then opens to the full card',
         (tester) async {
-      await showBanner(tester);
-
-      final target = tester.getSize(
-        find
-            .ancestor(
-              of: find.byIcon(Icons.close_rounded),
-              matching: find.byType(SizedBox),
-            )
-            .first,
+      navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navKey,
+        home: const Scaffold(body: SizedBox.expand()),
+      ));
+      NotificationBannerOverlay.show(
+        context: navKey.currentContext!,
+        overlay: navKey.currentState!.overlay,
+        title: sender,
+        body: preview,
+        type: 'chat_message',
       );
-      // The old ✕ was a bare 18pt Icon with no padding: the tappable area was
-      // the glyph itself.
-      expect(target.width, greaterThanOrEqualTo(44));
-      expect(target.height, greaterThanOrEqualTo(44));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 90));
+      final early = tester.getSize(find.byType(Material).last).width;
+      await tester.pump(const Duration(milliseconds: 400));
+      final open = tester.getSize(find.byType(Material).last).width;
+      expect(early, lessThan(open));
       await closeBanner(tester);
     });
   });
@@ -507,7 +525,8 @@ void main() {
       // exit animation. This is the exact window in which the old static
       // `_dismiss` removed whichever entry happened to be current — which by
       // then was the new one.
-      await tester.tap(find.byIcon(Icons.close_rounded));
+      // There is no close button: a tap opens the message and starts the exit.
+      await tester.tap(find.text('First Sender'));
       await tester.pump(const Duration(milliseconds: 40));
 
       await showBanner(tester,

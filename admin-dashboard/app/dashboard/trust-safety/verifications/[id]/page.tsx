@@ -1,3 +1,5 @@
+import { PhotoLink } from "@/components/PhotoViewer";
+import { maskMediaUrls } from "@/lib/media-link";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Avatar } from "@/components/moderation/Badges";
@@ -37,7 +39,8 @@ export default async function VerificationPage({ params }: PageProps) {
     return <ErrorState message={detail.error} />;
   }
 
-  const v = detail.data;
+  // Documents open under admin.help24.co.ke, never a storage address.
+  const v = maskMediaUrls(detail.data);
   const name = v.person?.name?.trim() || "Unnamed member";
   const idPending = v.history.some((h) => h.kind === "id" && h.status === "pending");
   const approveBlockedReason =
@@ -80,10 +83,10 @@ export default async function VerificationPage({ params }: PageProps) {
                 {v.files.map((f, i) => (
                   <figure key={i} className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
                     {f.url && !f.is_pdf ? (
-                      <a href={f.url} target="_blank" rel="noreferrer noopener">
+                      <PhotoLink photos={[{ src: f.url, alt: f.role }]} className="w-full rounded-none">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={f.url} alt={f.role} className="w-full h-56 object-contain bg-gray-900/5" />
-                      </a>
+                      </PhotoLink>
                     ) : f.url ? (
                       <a
                         href={f.url}

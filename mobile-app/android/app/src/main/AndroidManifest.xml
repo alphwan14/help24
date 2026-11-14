@@ -93,6 +93,15 @@
               notification_service.dart → _kChannelId
               backend → android.notification.channelId
         -->
+        <!-- Notifications Android draws itself (a push while the app is in the
+             background) use the Help24 silhouette tinted amber, not the
+             launcher tile, which Android would render as a boxed blob. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_help24" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_accent" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="help24_high_importance" />
