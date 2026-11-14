@@ -10,9 +10,12 @@ theme, and the pill in-app banner, all checked on the S20+ before merging.
 **Patch 1** (2026-11-14, stable, from `d81a691`, PR #15): Message Help24 photos
 edge to edge with the time on the photo, and Profile complete on its first
 frame. Icon check against `af8ae1c`: none added or removed; no asset diffs.
-Phone-checked on the published APK (`patches/1` active). Members install the
-release once from the APK; then raise `ops.min_version` to 1.0.12 from the
-admin dashboard.
+Phone-checked on the published APK (`patches/1` active). **Patch 2**
+(2026-11-14, stable, from `191e585`, PR #20): Message Help24 photos kept in
+their own cache on the phone (keyed by message, not by the hourly signed
+link), so they download once; no icons, no asset diffs; `patches/2` active on
+the published APK. Members install the release once from the APK; then raise
+`ops.min_version` to 1.0.12 from the admin dashboard.
 
 **Build note (2026-11-14):** four patch builds died when the WSL VM itself
 stopped in the AOT step: Windows had about 5 GB of commit headroom left, and
@@ -21,7 +24,10 @@ the VM grows past that. With `GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx2g
 `configure_fingerprint.bin` under `~/.pub-cache/hosted/pub.dev/jni-*/android/.cxx`,
 which fails the next build ("Was not a C/C++ structured log file"): delete
 that `.cxx` folder. Long builds survive a `wsl.exe` client crash only when
-started detached (`setsid nohup`).
+started detached (`setsid nohup`). The fifth failure came with C: at 4.4 GB
+free: Windows could not grow the page file, nor WSL its disk file. Removing
+the old `~/h24build/sb-src-*` copies (prepare.sh recreates them; about 1.6 GB
+each) gave the next build room inside WSL's disk, and it published.
 
 **Do not patch 1.0.11 from main any more.** Main's notification code names
 `@drawable/ic_stat_help24`, which only the 1.0.12 APK contains; a patch built
