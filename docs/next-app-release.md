@@ -1,17 +1,18 @@
 # Next app release — changes waiting on it
 
 The changes below are merged on `main` but are **not on members' phones** yet.
-Current release: **v1.0.12** (versionCode 13, release commit `af8ae1c`,
-Flutter 3.44.9), published 2026-11-14.
+Current release: **v1.0.13** (versionCode 14, release commit `339749d`,
+Flutter 3.44.9), published 2026-11-16.
 
 A Dart-only change ships as a **patch** to installed phones of the current
 release (`scripts/shorebird/patch.sh`, docs/shorebird.md), with no new APK and
-no version bump. Patches now target **1.0.12+13**; 1.0.11 phones keep their
-Patches 1 to 7 and get nothing newer until they install 1.0.12 (never patch
-1.0.11 from `main`: it names a drawable only the 1.0.12 APK has). A full release
-is needed only for native code, assets, permissions, plugins or a Flutter
-upgrade; the next one must be **≥ 1.0.13+14**. Check `gh release list` first;
-parallel sessions have shipped versions before.
+no version bump. Patches now target **1.0.13+14**. 1.0.12 phones keep their
+Patches 1 and 2 and get nothing newer until they install 1.0.13 (never patch
+1.0.12 from `main`: main has the updater's native code and permission, which
+the 1.0.12 APK lacks); the same holds for 1.0.11. A full release is needed only
+for native code, assets, permissions, plugins or a Flutter upgrade; the next
+one must be **≥ 1.0.14+15**. Check `gh release list` first; parallel sessions
+have shipped versions before.
 
 Keep this file current: add a row when a change to `mobile-app/` lands, and
 clear the table (moving it under "Shipped in …") when a release goes out.
@@ -22,9 +23,29 @@ Build in WSL from a commit, never from Windows:
 
 ## Waiting
 
-This needs a full release, **1.0.13+14** (a new permission and native code),
-not a patch. `ops.min_version` was raised to 1.0.12 (soft and hard) by the
-owner in App controls, 2026-11-14.
+Nothing. Live `ops.min_version` is soft and hard **1.0.11** (read 2026-11-16);
+raising it is the owner's call in App controls. The in-app updater only helps
+from 1.0.13 on: 1.0.12 and older phones still update from the download page.
+For the next release, fill `apk_url`, `sha256` and `size_bytes` in App
+controls (the GitHub asset link, its sha256 and byte size) so 1.0.13 phones
+update in one tap.
+
+## Shipped in 1.0.13 (2026-11-16)
+
+Release commit `339749d` (merge of PR #22), tag `v1.0.13` (Latest):
+85,281,532 bytes, sha256 `09dbde98…ceaa7` (matches GitHub's digest), cert
+`48f1d72b…`, all three ABIs with the engine. Permissions as 1.0.12 plus
+`REQUEST_INSTALL_PACKAGES`; manifest has `UpdateFileProvider`
+(`com.help24.help24.updates`). Built with `scripts/shorebird/release.sh`
+(Flutter 3.44.9); Shorebird lists 1.0.13+14 active. On the S20+, `adb install
+-r` over the 1.0.14 test build: Play Protect verdict 0, ALLOW; still signed in,
+Discover on cold start, Shorebird "release_version changed 1.0.12+13 ->
+1.0.13+14", successful launch reported, patch check "No update". Backend
+(Render) and admin (`vercel --prod` from a clean `339749d` worktree) deployed
+the same day. Website `help24_website@eec9f93` serves it. The APK is kept at
+`C:\Users\840 g8\Documents\Help24 releases\help24-1.0.13+14.apk` and in WSL at
+`~/h24build/out/help24-1.0.13+14-shorebird.apk`. Carries Patches 1 and 2 of
+1.0.12 (PRs #15 and #20).
 
 | Commit | Change | Verified |
 |---|---|---|
