@@ -9,7 +9,8 @@
  *
  * Built for email clients, not browsers: tables for layout, every style inline,
  * no web fonts, no scripts, no tracking. The only image is the logo, with alt
- * text, so a client that blocks images still shows "Help24". The full link is
+ * text, styled as a small dark tile, so a client that blocks images (Gmail's
+ * "Show pictures" for a new sender) shows a tidy "H24" square, not a broken icon. The full link is
  * printed under every button for clients that strip them.
  */
 
@@ -115,7 +116,7 @@ export function emailPage(p: EmailPage): string {
     // Header: the tile, the name, the eyebrow.
     '<tr><td style="padding:0 4px 20px;">' +
     '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>' +
-    `<td style="padding-right:12px;"><img src="${EMAIL_LOGO_URL}" width="40" height="40" alt="Help24" style="display:block;border:0;border-radius:10px;"></td>` +
+    `<td style="padding-right:12px;"><img src="${EMAIL_LOGO_URL}" width="40" height="40" alt="H24" style="display:block;border:0;border-radius:10px;background:${C.ink};color:#FFFFFF;font-family:${FONT};font-size:12px;font-weight:700;line-height:40px;text-align:center;"></td>` +
     `<td style="font-family:${FONT};font-size:17px;font-weight:700;line-height:20px;color:${C.ink};">Help24<br>` +
     `<span style="font-size:11px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:${C.tertiary};">${escapeHtml(p.eyebrow)}</span></td>` +
     '</tr></table></td></tr>' +
