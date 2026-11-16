@@ -5,12 +5,39 @@ import {
   compareVersions,
   controlProblems,
   describeChange,
+  downloadProblems,
+  formatMegabytes,
   isRestrictive,
   minVersionProblems,
   nextAnnouncementId,
 } from "./app-controls.ts";
 
 const gate = (soft, hard, store_url = "https://help24.co.ke/download") => ({ soft, hard, message: "", store_url });
+
+const APK = "https://github.com/alphwan14/help24/releases/download/v1.0.13/app-release.apk";
+const SHA = "eae851787e4ddd249294f1cdbd1d738b598fd0d64eb8a0fac1740ae4fc1cdf9f";
+
+test("the in-app download: all three fields or none, a link we publish, a real checksum and size", () => {
+  assert.deepEqual(downloadProblems({ apk_url: "", sha256: "", size_bytes: 0 }), []);
+  assert.deepEqual(downloadProblems({ apk_url: APK, sha256: SHA, size_bytes: 84986212 }), []);
+  assert.deepEqual(downloadProblems({ apk_url: "https://help24.co.ke/download/help24.apk", sha256: SHA.toUpperCase(), size_bytes: 84986212 }), []);
+  assert.match(downloadProblems({ apk_url: APK, sha256: "", size_bytes: 0 }).join(" "), /all three/);
+  assert.match(downloadProblems({ apk_url: "https://evil.example/app.apk", sha256: SHA, size_bytes: 84986212 }).join(" "), /APK link/);
+  assert.match(downloadProblems({ apk_url: APK.replace("https:", "http:"), sha256: SHA, size_bytes: 84986212 }).join(" "), /APK link/);
+  assert.match(downloadProblems({ apk_url: APK, sha256: "abc", size_bytes: 84986212 }).join(" "), /SHA-256/);
+  assert.match(downloadProblems({ apk_url: APK, sha256: SHA, size_bytes: 500 }).join(" "), /Size/);
+  // A gate without the fields (an older backend) is not a problem.
+  assert.deepEqual(minVersionProblems(gate("1.0.12", ""), "1.0.12"), []);
+  assert.equal(formatMegabytes(84986212), "81.0 MB");
+});
+
+test("the confirm dialog names the in-app download when it changes", () => {
+  const before = { ...gate("1.0.12", ""), apk_url: "", sha256: "", size_bytes: 0 };
+  const after = { ...gate("1.0.13", ""), apk_url: APK, sha256: SHA, size_bytes: 84986212 };
+  const lines = describeChange("ops.min_version", before, after);
+  assert.ok(lines.some((l) => l.startsWith("In-app download:") && l.includes("81.0 MB") && l.includes("eae85178")), lines.join(" | "));
+  assert.ok(describeChange("ops.min_version", after, before).includes("In-app download: off (Update opens the page)"));
+});
 
 test("versions compare segment by segment, not as text", () => {
   assert.equal(compareVersions("1.0.10", "1.0.9"), 1);

@@ -7,8 +7,10 @@ import android.content.ClipData
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -78,6 +80,60 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+        // The in-app updater (app_updater.dart): Dart downloads the APK into
+        // cache/updates and checks its SHA-256; this side only answers whether
+        // Help24 may install apps, opens that setting, and opens the prompt.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.help24.help24/updater")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "canInstall" -> result.success(canInstallUpdates())
+                    "openInstallSettings" -> result.success(openInstallSettings())
+                    "install" -> result.success(installUpdate(call.argument<String>("path")))
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /** "Install unknown apps" for Help24 (Android 8+; before that, a global setting the prompt itself raises). */
+    private fun canInstallUpdates(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()
+
+    private fun openInstallSettings(): Boolean {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+        } else {
+            Intent(Settings.ACTION_SECURITY_SETTINGS)
+        }
+        return try {
+            startActivity(intent)
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        }
+    }
+
+    /**
+     * Opens Android's install prompt for a downloaded update. Only an .apk
+     * inside cache/updates/ is accepted, and the installer gets READ access to
+     * that one content:// URI. Android itself refuses an APK not signed with
+     * Help24's key, so this cannot install anything else over the app.
+     */
+    private fun installUpdate(path: String?): Boolean {
+        if (path == null || !path.endsWith(".apk")) return false
+        val root = File(cacheDir, "updates").canonicalFile
+        val file = File(path).canonicalFile
+        if (!file.path.startsWith(root.path + File.separator) || !file.isFile) return false
+        val uri = FileProvider.getUriForFile(this, "$packageName.updates", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            startActivity(intent)
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        }
     }
 
     /**

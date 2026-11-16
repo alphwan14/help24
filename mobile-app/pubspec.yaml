@@ -1,7 +1,7 @@
 name: help24
 description: A modern multi-service marketplace mobile app.
 publish_to: 'none'
-version: 1.0.12+13
+version: 1.0.13+14
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -50,6 +50,9 @@ dependencies:
   webview_flutter: ^4.10.0
   connectivity_plus: ^6.0.5
   http: ^1.2.0
+  # SHA-256 of a downloaded update before it may be installed (AppUpdater).
+  # Already in the app through other packages; named here because we use it.
+  crypto: ^3.0.6
   local_auth: ^2.3.0
   flutter_local_notifications: ^17.2.4
   # Pinned to 9.x deliberately. 10.1.0+ requires win32 ^6, while file_picker 8

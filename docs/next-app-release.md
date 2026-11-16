@@ -22,8 +22,22 @@ Build in WSL from a commit, never from Windows:
 
 ## Waiting
 
-Nothing. `ops.min_version` is being raised to 1.0.12 (soft and hard, so older
-apps go to the update screen) by the owner in App controls, 2026-11-14.
+This needs a full release, **1.0.13+14** (a new permission and native code),
+not a patch. `ops.min_version` was raised to 1.0.12 (soft and hard) by the
+owner in App controls, 2026-11-14.
+
+| Commit | Change | Verified |
+|---|---|---|
+| `4b39d3d` | In-app updater for sideloaded builds: "Update, 85 MB" on the banner and the blocking screen downloads the APK into the app's cache, checks its SHA-256 against `ops.min_version.sha256`, asks once for "Install unknown apps" and opens Android's install prompt. Config gains `apk_url`, `sha256`, `size_bytes` (backend validation, App controls form). A Play build (`HELP24_STORE=play`) turns it off and drops `REQUEST_INSTALL_PACKAGES` | 1696 Flutter tests (the 3 known WSL-mirror failures), backend app-config 37/37, admin app-controls 10/10, both `tsc` clean. S20+ (Android 13, One UI 5.1), 2026-11-16, release-key Windows arm64 test builds: A = 1.0.13+14 with a baked `min_version` of 1.0.14 (`HELP24_TEST_MIN_VERSION`), B = 1.0.14 (versionCode 14), served over `adb reverse` with HTTP Range. Wrong file (same size) refused and deleted, nothing installed; progress, Cancel, "Continue update" resumed with `Range` at the exact byte; a dropped connection resumed too, and the file stitched from three pieces still matched; permission asked once, then the prompt opened by itself on return; backing out of the prompt and tapping "Install update" reopened it; installed in place, still signed in, no blocking screen on 1.0.14; start-up cleanup removed the old file. Notes below |
+
+Notes from the phone test:
+- Samsung's Settings opens the whole "Install unknown apps" list, not Help24's
+  own page (it does the same for an adb intent naming the package), so the
+  member has to find Help24 in the list and switch it on.
+- Google Play Protect showed "App scan recommended" before installing each
+  test APK ("hasn't seen this app before"). Members will see it for an APK
+  Google has not scanned; the test builds were installed with "Install without
+  scanning" so they were never sent to Google.
 
 ## Patches on 1.0.12 (stable)
 

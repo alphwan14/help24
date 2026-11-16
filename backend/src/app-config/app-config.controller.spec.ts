@@ -112,6 +112,61 @@ describe('AppConfigAdminController', () => {
     ).rejects.toThrow(/min_version.soft/);
   });
 
+  describe('the in-app update download (apk_url, sha256, size_bytes)', () => {
+    const SHA = 'EAE851787E4DDD249294F1CDBD1D738B598FD0D64EB8A0FAC1740AE4FC1CDF9F';
+    const URL = 'https://github.com/alphwan14/help24/releases/download/v1.0.13/app-release.apk';
+    const setup = () => {
+      const saved: Array<Record<string, unknown>> = [];
+      const service = fakeService();
+      (service as unknown as { isClientKey: (k: string) => boolean }).isClientKey = () => true;
+      (service as unknown as { adminSet: (...a: unknown[]) => Promise<{ recorded: boolean }> }).adminSet = async (
+        ...a: unknown[]
+      ) => {
+        saved.push(a[2] as Record<string, unknown>);
+        return { recorded: true };
+      };
+      return { controller: new AppConfigAdminController(service), saved };
+    };
+
+    it('saves all three together, trimmed, the checksum in lowercase', async () => {
+      const { controller, saved } = setup();
+      await controller.updateConfig(
+        'ops.min_version',
+        { value: { soft: '1.0.13', hard: '', apk_url: ` ${URL} `, sha256: SHA, size_bytes: 85_000_000 }, reason },
+        admin,
+      );
+      expect(saved[0]).toMatchObject({ apk_url: URL, sha256: SHA.toLowerCase(), size_bytes: 85_000_000 });
+    });
+
+    it('allows none of them: the Update button then opens the download page', async () => {
+      const { controller, saved } = setup();
+      await controller.updateConfig(
+        'ops.min_version',
+        { value: { soft: '1.0.13', apk_url: '', sha256: '', size_bytes: 0 }, reason },
+        admin,
+      );
+      expect(saved).toHaveLength(1);
+    });
+
+    it('refuses a partial set, a foreign or plain-http link, a bad checksum or size', async () => {
+      const { controller, saved } = setup();
+      const bad = [
+        { apk_url: URL, sha256: '', size_bytes: 0 },
+        { apk_url: '', sha256: SHA, size_bytes: 85_000_000 },
+        { apk_url: 'https://evil.example/app-release.apk', sha256: SHA, size_bytes: 85_000_000 },
+        { apk_url: URL.replace('https:', 'http:'), sha256: SHA, size_bytes: 85_000_000 },
+        { apk_url: 'https://github.com/someone/else/releases/download/v1/app.apk', sha256: SHA, size_bytes: 85_000_000 },
+        { apk_url: URL, sha256: 'abc123', size_bytes: 85_000_000 },
+        { apk_url: URL, sha256: SHA, size_bytes: 500 },
+        { apk_url: URL, sha256: SHA, size_bytes: 85.5 },
+      ];
+      for (const value of bad) {
+        await expect(controller.updateConfig('ops.min_version', { value, reason }, admin)).rejects.toThrow(/min_version/);
+      }
+      expect(saved).toHaveLength(0);
+    });
+  });
+
   it('records the change with the admin and reason, and returns the merged result', async () => {
     const calls: unknown[][] = [];
     const service = fakeService();
