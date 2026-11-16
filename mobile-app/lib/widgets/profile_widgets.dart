@@ -10,6 +10,7 @@ import 'primitives.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
+import '../utils/photo_urls.dart';
 
 // =============================================================================
 // Shared profile presentation.
@@ -161,7 +162,7 @@ class ProfileAvatar extends StatelessWidget {
               ),
             )
           : CachedNetworkImage(
-              imageUrl: imageUrl,
+              imageUrl: displayPhotoUrl(imageUrl),
               width: size,
               height: size,
               fit: BoxFit.cover,

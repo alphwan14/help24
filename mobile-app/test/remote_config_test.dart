@@ -33,6 +33,7 @@ void main() {
       expect(switches.promotions, isTrue);
       expect(switches.posting, isTrue);
       expect(switches.applications, isTrue);
+      expect(switches.imageCdn, isTrue);
     });
 
     test('matches the backend contract byte for byte', () {
@@ -40,7 +41,7 @@ void main() {
       // document as DEFAULT_CLIENT_CONFIG; this is the assertion that stops the
       // two drifting the way the platform-fee tables did.
       const backendDefaults = '''
-{"ops":{"kill_switches":{"payments":true,"promotions":true,"posting":true,"applications":true},
+{"ops":{"kill_switches":{"payments":true,"promotions":true,"posting":true,"applications":true,"image_cdn":true},
 "maintenance":{"active":false,"message":""},
 "min_version":{"soft":"","hard":"","message":"","store_url":""},
 "announcement":{"id":"","active":false,"message":"","url":""}},

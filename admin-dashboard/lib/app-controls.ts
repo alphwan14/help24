@@ -8,7 +8,7 @@
  * it, so the words an admin confirms are the words that describe the change.
  */
 
-export type KillSwitches = { payments: boolean; promotions: boolean; posting: boolean; applications: boolean };
+export type KillSwitches = { payments: boolean; promotions: boolean; posting: boolean; applications: boolean; image_cdn: boolean };
 export type Maintenance = { active: boolean; message: string };
 export type MinVersion = { soft: string; hard: string; message: string; store_url: string };
 export type Announcement = { id: string; active: boolean; message: string; url: string };
@@ -35,7 +35,14 @@ export const SWITCHES: { key: keyof KillSwitches; label: string; off: string }[]
   { key: "applications", label: "Applying and offering", off: "Nobody can apply to a job or offer their service on a request." },
   { key: "payments", label: "Payments", off: "Nobody can start an M-Pesa payment into escrow. Payments already made are unaffected." },
   { key: "promotions", label: "Promotions", off: "Nobody can buy a promotion. Running campaigns keep running." },
+  // App 1.0.12 Patch 3 and later. Older apps always load photos straight from Supabase.
+  { key: "image_cdn", label: "Photos through Cloudflare", off: "Photos load straight from Supabase, as before img.help24.co.ke. Slower, nothing else changes." },
 ];
+
+/** A switch the backend has not sent yet is ON: absent means enabled, as in the app. */
+export function switchOn(value: Partial<KillSwitches> | undefined, key: keyof KillSwitches): boolean {
+  return value?.[key] !== false;
+}
 
 /** The app re-reads /config every 15 minutes, and the backend caches it for 60 s. */
 export const PICKUP_NOTE = "Phones pick a change up within about 15 minutes, or straight away when the app is opened.";
@@ -152,7 +159,9 @@ export function describeChange(key: ControlKey, before: Record<string, unknown>,
 
   if (key === "ops.kill_switches") {
     for (const s of SWITCHES) {
-      if (changed(s.key)) lines.push(`${s.label}: ${onOff(before?.[s.key])} → ${onOff(after?.[s.key])}`);
+      const was = switchOn(before as Partial<KillSwitches>, s.key);
+      const now = switchOn(after as Partial<KillSwitches>, s.key);
+      if (was !== now) lines.push(`${s.label}: ${onOff(was)} → ${onOff(now)}`);
     }
   } else if (key === "ops.maintenance") {
     if (changed("active")) lines.push(`Banner: ${onOff(before?.active)} → ${onOff(after?.active)}`);

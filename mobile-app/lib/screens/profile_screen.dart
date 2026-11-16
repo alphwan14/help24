@@ -53,6 +53,7 @@ import 'provider/payout_destinations_screen.dart';
 import 'provider/provider_card_screen.dart';
 import 'provider/verification_screen.dart';
 import '../widgets/provider_gate.dart';
+import '../utils/photo_urls.dart';
 import 'provider/provider_onboarding_screen.dart';
 import 'location_permission_explainer_screen.dart';
 import 'account_status_screen.dart';
@@ -918,7 +919,7 @@ class _LoggedInProfile extends StatelessWidget {
                 ? ClipRRect(
                     borderRadius: AppRadius.pillAll,
                     child: CachedNetworkImage(
-                      imageUrl: avatarUrl,
+                      imageUrl: displayPhotoUrl(avatarUrl),
                       width: 100,
                       height: 100,
                       fit: BoxFit.cover,
