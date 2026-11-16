@@ -8,6 +8,7 @@ import { DASHBOARD_HOME } from "@/lib/routes";
 import AuthShell from "@/components/auth/AuthShell";
 import { SIGN_IN_HELP } from "@/lib/auth-audiences";
 import GoogleButton, { type GoogleResult } from "@/components/auth/GoogleButton";
+import { rememberIdentity, restoreArbitration } from "@/lib/arbitration-client";
 
 /** URL-param messages (set by middleware / redirects). */
 const URL_MESSAGES: Record<string, { text: string; type: "info" | "error" }> = {
@@ -97,6 +98,8 @@ export default function LoginForm({ query }: { query: LoginQuery }) {
   // (components/auth/GoogleButton.tsx): only an admin gets past it.
   function handleGoogle(result: GoogleResult) {
     if (result.ok) {
+      // google-check already set console access, so the dashboard opens as is.
+      if (result.identity?.connected) rememberIdentity(result.identity);
       router.replace(DASHBOARD_HOME);
       return;
     }
@@ -123,7 +126,7 @@ export default function LoginForm({ query }: { query: LoginQuery }) {
     setInfo(null);
 
     const supabase = getSupabaseBrowser();
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     });
@@ -133,6 +136,12 @@ export default function LoginForm({ query }: { query: LoginQuery }) {
       setLoading(false);
       return;
     }
+
+    // Set console access while the button still says it is signing in, so the
+    // dashboard opens straight away rather than behind "Opening the console".
+    // A failure is not final: AdminShell restores again on arrival.
+    const ident = await restoreArbitration(true, data.session?.access_token);
+    if (ident.connected) rememberIdentity(ident);
 
     // Straight to the overview in ONE navigation. This was push("/dashboard")
     // then refresh(): two server round trips, then a redirect for a third.

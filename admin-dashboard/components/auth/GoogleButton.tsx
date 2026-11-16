@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { preload } from "react-dom";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
+import type { ArbitrationIdentity } from "@/lib/arbitration-client";
 import {
   GOOGLE_CLIENT_ID,
   GOOGLE_GSI_SRC,
@@ -29,7 +30,9 @@ declare global {
   }
 }
 
-export type GoogleResult = { ok: true } | { ok: false; error: GoogleSignInError };
+export type GoogleResult =
+  | { ok: true; identity?: ArbitrationIdentity }
+  | { ok: false; error: GoogleSignInError };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -73,6 +76,46 @@ async function googleEnabled(): Promise<boolean> {
   } catch {
     return true;
   }
+}
+
+/**
+ * Give Google's token to Supabase. A dropped connection or a Supabase hiccup
+ * is retried (the token is good for an hour); a real refusal is not.
+ */
+async function signInToSupabase(credential: string, nonce: string) {
+  const auth = getSupabaseBrowser().auth;
+  let result = await auth.signInWithIdToken({ provider: "google", token: credential, nonce });
+  for (let attempt = 1; attempt < 3 && result.error && transient(result.error); attempt++) {
+    await sleep(500 * attempt);
+    result = await auth.signInWithIdToken({ provider: "google", token: credential, nonce });
+  }
+  if (result.error) console.warn(`[google-sign-in] Supabase refused: ${result.error.code ?? result.error.status ?? ""} ${result.error.message}`);
+  return result;
+}
+
+function transient(error: { name?: string; status?: number }): boolean {
+  return error.name === "AuthRetryableFetchError" || !error.status || error.status >= 500;
+}
+
+/**
+ * Ask the admin gate, sending the new session's token: the cookie written at
+ * the same moment was not always readable by the server yet on a phone, which
+ * is what failed the first try. An answer that may be a blip is asked once more.
+ */
+async function askAdminGate(accessToken: string | undefined): Promise<GoogleResult> {
+  let verdict: GoogleResult = { ok: false, error: "google-failed" };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await sleep(700);
+    verdict = (await fetch("/api/admin/google-check", {
+      method: "POST",
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    })
+      .then((r) => r.json())
+      .catch(() => ({ ok: false, error: "google-failed" }))) as GoogleResult;
+    if (verdict.ok || (verdict.error !== "google-failed" && verdict.error !== "unavailable")) break;
+  }
+  if (!verdict.ok) console.warn(`[google-sign-in] admin check: ${verdict.error}`);
+  return verdict;
 }
 
 let gisScript: Promise<GoogleId> | null = null;
@@ -194,20 +237,18 @@ export default function GoogleButton({
         callback: async ({ credential }) => {
           const { onBusy: busy, onDone: done } = handlers.current;
           busy(true);
-          const { error } = await getSupabaseBrowser().auth.signInWithIdToken({
-            provider: "google",
-            token: credential,
-            nonce: nonce.raw,
-          });
+          const { data, error } = await signInToSupabase(credential, nonce.raw);
           if (error) {
             busy(false);
             done({ ok: false, error: idTokenError(error) });
             return;
           }
-          const verdict = (await fetch("/api/admin/google-check", { method: "POST" })
-            .then((r) => r.json())
-            .catch(() => ({ ok: false, error: "google-failed" }))) as GoogleResult;
-          if (!verdict.ok) busy(false);
+          const verdict = await askAdminGate(data.session?.access_token);
+          if (!verdict.ok) {
+            // The server signs a refused session out; make sure this tab is too.
+            await getSupabaseBrowser().auth.signOut({ scope: "local" }).catch(() => {});
+            busy(false);
+          }
           done(verdict);
         },
       });

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import {
+  IDENTITY_KEY,
+  rememberIdentity,
   restoreArbitration,
   type ArbitrationIdentity,
 } from "@/lib/arbitration-client";
@@ -17,10 +19,6 @@ import { ShellContext, type Shell } from "@/components/ShellContext";
 
 type Status = "checking" | "restoring" | "ready" | "recovery";
 
-/** The last confirmed identity, so the nav knows the admin's role on the first
- *  paint. Per browser; checked against the live answer moments later. */
-const IDENTITY_KEY = "h24_admin_identity";
-
 function cachedIdentity(): ArbitrationIdentity {
   try {
     const raw = localStorage.getItem(IDENTITY_KEY);
@@ -28,15 +26,6 @@ function cachedIdentity(): ArbitrationIdentity {
     return v && v.connected ? v : { connected: false };
   } catch {
     return { connected: false };
-  }
-}
-
-function rememberIdentity(ident: ArbitrationIdentity) {
-  try {
-    if (ident.connected) localStorage.setItem(IDENTITY_KEY, JSON.stringify(ident));
-    else localStorage.removeItem(IDENTITY_KEY);
-  } catch {
-    /* private mode: the nav waits for the live answer instead */
   }
 }
 
@@ -50,8 +39,10 @@ function rememberIdentity(ident: ArbitrationIdentity) {
  * (cookie present) there is nothing to wait for: the check runs behind the page
  * and the nav uses the role this browser last saw. The full-screen "Opening the
  * console" splash appears only in the rare case that access must actually be
- * restored (first visit after sign-in, or a token for another account), and the
- * recovery screen only when it cannot be.
+ * restored (a token for another account, or one the sign-in page could not
+ * set), and the recovery screen only when it cannot be. Signing in sets access
+ * before the dashboard opens (app/login, app/api/admin/google-check), so the
+ * first visit after sign-in does not see it.
  *
  * Recovery (ConnectAccess) is reached ONLY when a valid Supabase session cannot
  * be turned into arbitration access (no admin record, inactive/revoked, backend
