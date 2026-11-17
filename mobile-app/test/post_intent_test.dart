@@ -39,6 +39,9 @@ void main() {
       'Looking for work as a driver',
       'Kama unahitaji fundi nipigie',
       'Do you need a cleaner? Contact me',
+      // A provider looking for CLIENTS is not asking for help.
+      'Mechanic looking for clients in Thika',
+      'Natafuta wateja wa kushona nguo',
     ]) {
       test(text, () => expect(readPostIntent(text).leaning, PostType.offer));
     }
