@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { preload } from "react-dom";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
+import type { ArbitrationIdentity } from "@/lib/arbitration-client";
 import {
   GOOGLE_CLIENT_ID,
   GOOGLE_GSI_SRC,
@@ -29,37 +30,132 @@ declare global {
   }
 }
 
-export type GoogleResult = { ok: true } | { ok: false; error: GoogleSignInError };
+export type GoogleResult =
+  | { ok: true; identity?: ArbitrationIdentity }
+  | { ok: false; error: GoogleSignInError };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The last answer from Supabase, so one slow or failed check never hides the button. */
+const ENABLED_KEY = "h24_google_signin";
 
 /**
  * Whether Google sign-in is switched on in Supabase, from its public settings.
- * Until it is, nothing renders: a token Supabase would refuse is no use.
+ *
+ * Only a definite "off" hides the button. The button used to vanish whenever
+ * this one request failed or was slow to answer (often the first load after
+ * signing out), and came back only on a refresh. Now a failed check is retried,
+ * and if it still cannot answer, the last known answer stands (on, by default):
+ * if Google really were off, Supabase would refuse the sign-in and the page
+ * would say so.
  */
 async function googleEnabled(): Promise<boolean> {
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/settings`, {
-      headers: { apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! },
-    });
-    const body = (await res.json()) as { external?: { google?: boolean } };
-    return res.ok && body.external?.google === true;
-  } catch {
-    return false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/settings`, {
+        headers: { apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! },
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const body = (await res.json()) as { external?: { google?: boolean } };
+        const on = body.external?.google === true;
+        try {
+          localStorage.setItem(ENABLED_KEY, on ? "on" : "off");
+        } catch {
+          /* private mode */
+        }
+        return on;
+      }
+    } catch {
+      /* retry below */
+    }
+    await sleep(500 * (attempt + 1));
   }
+  try {
+    return localStorage.getItem(ENABLED_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Give Google's token to Supabase. A dropped connection or a Supabase hiccup
+ * is retried (the token is good for an hour); a real refusal is not.
+ */
+async function signInToSupabase(credential: string, nonce: string) {
+  const auth = getSupabaseBrowser().auth;
+  let result = await auth.signInWithIdToken({ provider: "google", token: credential, nonce });
+  for (let attempt = 1; attempt < 3 && result.error && transient(result.error); attempt++) {
+    await sleep(500 * attempt);
+    result = await auth.signInWithIdToken({ provider: "google", token: credential, nonce });
+  }
+  if (result.error) console.warn(`[google-sign-in] Supabase refused: ${result.error.code ?? result.error.status ?? ""} ${result.error.message}`);
+  return result;
+}
+
+function transient(error: { name?: string; status?: number }): boolean {
+  return error.name === "AuthRetryableFetchError" || !error.status || error.status >= 500;
+}
+
+/**
+ * Ask the admin gate, sending the new session's token: the cookie written at
+ * the same moment was not always readable by the server yet on a phone, which
+ * is what failed the first try. An answer that may be a blip is asked once more.
+ */
+async function askAdminGate(accessToken: string | undefined): Promise<GoogleResult> {
+  let verdict: GoogleResult = { ok: false, error: "google-failed" };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await sleep(700);
+    verdict = (await fetch("/api/admin/google-check", {
+      method: "POST",
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    })
+      .then((r) => r.json())
+      .catch(() => ({ ok: false, error: "google-failed" }))) as GoogleResult;
+    if (verdict.ok || (verdict.error !== "google-failed" && verdict.error !== "unavailable")) break;
+  }
+  if (!verdict.ok) console.warn(`[google-sign-in] admin check: ${verdict.error}`);
+  return verdict;
 }
 
 let gisScript: Promise<GoogleId> | null = null;
 
-/** Google's script, loaded once per page; rejects if it cannot be fetched (blocked, offline). */
-function loadGoogleId(): Promise<GoogleId> {
-  if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
-  gisScript ??= new Promise<GoogleId>((resolve, reject) => {
+/** One try at Google's script. Resolves once google.accounts.id exists. */
+function loadOnce(): Promise<GoogleId> {
+  return new Promise<GoogleId>((resolve, reject) => {
+    document.querySelectorAll(`script[data-gsi]`).forEach((el) => el.remove());
     const script = document.createElement("script");
     script.src = GOOGLE_GSI_SRC;
     script.async = true;
-    script.onload = () => (window.google?.accounts?.id ? resolve(window.google.accounts.id) : reject(new Error("no google.accounts.id")));
+    script.dataset.gsi = "1";
+    script.onload = async () => {
+      // The global can land a tick after onload; give it a moment before failing.
+      for (let i = 0; i < 20 && !window.google?.accounts?.id; i++) await sleep(50);
+      const id = window.google?.accounts?.id;
+      if (id) resolve(id);
+      else reject(new Error("no google.accounts.id"));
+    };
     script.onerror = () => reject(new Error("Google's sign-in script did not load"));
     document.head.appendChild(script);
-  }).catch((e) => {
+  });
+}
+
+/** Google's script, loaded once per page and retried twice before giving up
+ *  (blocked by an extension, or really offline). */
+function loadGoogleId(): Promise<GoogleId> {
+  if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
+  gisScript ??= (async () => {
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await loadOnce();
+      } catch (e) {
+        last = e;
+        await sleep(600 * (attempt + 1));
+      }
+    }
+    throw last;
+  })().catch((e) => {
     gisScript = null;
     throw e;
   });
@@ -126,6 +222,8 @@ export default function GoogleButton({
       ]);
       if (!live) return;
       if (!enabled || !google || !slot.current) {
+        // Say why in the console: this is the only trace when the button is missing.
+        console.warn(`[google-sign-in] button hidden: ${!enabled ? "Google is off in Supabase" : !google ? "Google's script did not load" : "no slot"}`);
         setState("off");
         return;
       }
@@ -139,20 +237,18 @@ export default function GoogleButton({
         callback: async ({ credential }) => {
           const { onBusy: busy, onDone: done } = handlers.current;
           busy(true);
-          const { error } = await getSupabaseBrowser().auth.signInWithIdToken({
-            provider: "google",
-            token: credential,
-            nonce: nonce.raw,
-          });
+          const { data, error } = await signInToSupabase(credential, nonce.raw);
           if (error) {
             busy(false);
             done({ ok: false, error: idTokenError(error) });
             return;
           }
-          const verdict = (await fetch("/api/admin/google-check", { method: "POST" })
-            .then((r) => r.json())
-            .catch(() => ({ ok: false, error: "google-failed" }))) as GoogleResult;
-          if (!verdict.ok) busy(false);
+          const verdict = await askAdminGate(data.session?.access_token);
+          if (!verdict.ok) {
+            // The server signs a refused session out; make sure this tab is too.
+            await getSupabaseBrowser().auth.signOut({ scope: "local" }).catch(() => {});
+            busy(false);
+          }
           done(verdict);
         },
       });

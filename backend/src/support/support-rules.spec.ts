@@ -125,7 +125,7 @@ describe('support rules', () => {
     expect(html).not.toMatch(/<script/i);
     // One image only: the Help24 logo, with alt text for clients that block it.
     expect(html.match(/<img /g)).toHaveLength(1);
-    expect(html).toContain('alt="Help24"');
+    expect(html).toContain('alt="H24"');
   });
 
   it('a security reply says so in its header', () => {

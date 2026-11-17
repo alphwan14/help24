@@ -22,9 +22,27 @@ let inFlight: Promise<RestoreResult> | null = null;
 let lastResult: RestoreResult | null = null;
 let lastAt = 0;
 
-async function doRestore(): Promise<RestoreResult> {
+/** The last confirmed identity, so the nav knows the admin's role on the first
+ *  paint. Per browser; AdminShell checks it against the live answer. */
+export const IDENTITY_KEY = "h24_admin_identity";
+
+export function rememberIdentity(ident: ArbitrationIdentity) {
   try {
-    const res = await fetch("/api/admin/session/restore", { method: "POST" });
+    if (ident.connected) localStorage.setItem(IDENTITY_KEY, JSON.stringify(ident));
+    else localStorage.removeItem(IDENTITY_KEY);
+  } catch {
+    /* private mode: the nav waits for the live answer instead */
+  }
+}
+
+async function doRestore(accessToken?: string): Promise<RestoreResult> {
+  try {
+    // A token straight from sign-in is sent along: the session cookie it also
+    // wrote may not be readable by the server yet on a slow phone.
+    const res = await fetch("/api/admin/session/restore", {
+      method: "POST",
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    });
     const data = (await res.json()) as RestoreResult;
     lastResult = data;
     lastAt = Date.now();
@@ -43,11 +61,11 @@ async function doRestore(): Promise<RestoreResult> {
  * briefly cached. Pass force=true to bypass the cache (used right after clearing
  * a mismatched token, where a brand-new identity must be minted).
  */
-export async function restoreArbitration(force = false): Promise<RestoreResult> {
+export async function restoreArbitration(force = false, accessToken?: string): Promise<RestoreResult> {
   if (!force && lastResult && Date.now() - lastAt < 5000) return lastResult;
   if (!force && inFlight) return inFlight;
 
-  const p = doRestore();
+  const p = doRestore(accessToken);
   inFlight = p;
   try {
     return await p;

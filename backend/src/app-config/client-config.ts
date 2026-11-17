@@ -64,8 +64,54 @@ export interface MinVersionConfig {
   /** Below this: blocking update screen at next cold start. '' = no gate. */
   hard: string;
   message: string;
-  /** Play Store listing; '' falls back to the client's compiled URL. */
+  /** The download page; '' falls back to the client's compiled URL. */
   store_url: string;
+  /**
+   * The in-app updater (app 1.0.13+, sideloaded builds): the newest APK, its
+   * SHA-256 and size. The app downloads it, refuses it unless the checksum
+   * matches, and opens Android's install prompt. All three or none; with none,
+   * the Update button opens [store_url] as before. See validateMinVersionDownload.
+   */
+  apk_url: string;
+  sha256: string;
+  size_bytes: number;
+}
+
+/** Where an APK may be downloaded from: this repo's GitHub releases, or help24.co.ke. */
+const APK_HOSTS: Array<{ host: string; path: RegExp }> = [
+  { host: 'github.com', path: /^\/alphwan14\/help24\/releases\/download\/[^/]+\/[^/]+\.apk$/ },
+  { host: 'help24.co.ke', path: /^\/.+/ },
+];
+
+/**
+ * Why an in-app update's download fields cannot be saved, or null when they
+ * can. They travel together: a URL without its checksum would be installed
+ * unverified (the app refuses that), and a checksum without its size cannot
+ * be shown before downloading.
+ */
+export function validateMinVersionDownload(v: { apk_url?: unknown; sha256?: unknown; size_bytes?: unknown }): string | null {
+  if (v.apk_url !== undefined && typeof v.apk_url !== 'string') return 'min_version.apk_url must be text.';
+  if (v.sha256 !== undefined && typeof v.sha256 !== 'string') return 'min_version.sha256 must be text.';
+  if (v.size_bytes !== undefined && (typeof v.size_bytes !== 'number' || !Number.isInteger(v.size_bytes))) {
+    return 'min_version.size_bytes must be a whole number of bytes.';
+  }
+  const url = typeof v.apk_url === 'string' ? v.apk_url.trim() : '';
+  const sha = typeof v.sha256 === 'string' ? v.sha256.trim() : '';
+  const size = typeof v.size_bytes === 'number' ? v.size_bytes : 0;
+  if (!url && !sha && size === 0) return null;
+  if (!url || !sha || !size) return 'min_version.apk_url, sha256 and size_bytes go together: fill all three, or none.';
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return 'min_version.apk_url must be a full https:// link.';
+  }
+  if (parsed.protocol !== 'https:' || !APK_HOSTS.some((h) => parsed.hostname === h.host && h.path.test(parsed.pathname))) {
+    return 'min_version.apk_url must be a GitHub release asset of alphwan14/help24 or a help24.co.ke link.';
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(sha)) return 'min_version.sha256 must be the 64-character SHA-256 of the APK.';
+  if (size < 1_000_000 || size > 500_000_000) return 'min_version.size_bytes must be the APK size in bytes (1 MB to 500 MB).';
+  return null;
 }
 
 export interface AnnouncementConfig {
@@ -118,7 +164,7 @@ export const DEFAULT_CLIENT_CONFIG: ClientConfig = {
       image_cdn: true,
     },
     maintenance: { active: false, message: '' },
-    min_version: { soft: '', hard: '', message: '', store_url: '' },
+    min_version: { soft: '', hard: '', message: '', store_url: '', apk_url: '', sha256: '', size_bytes: 0 },
     announcement: { id: '', active: false, message: '', url: '' },
   },
   tuning: {

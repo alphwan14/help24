@@ -79,7 +79,7 @@ describe('alert email rules', () => {
     expect(one).toContain('>1 support conversation is waiting for a reply</h1>');
     expect(one).toContain(`href="${CONSOLE_URL}/dashboard/inbox"`);
     expect(one).toContain('>Reply from the Inbox</a>');
-    expect(one).toContain('alt="Help24"');
+    expect(one).toContain('alt="H24"');
     const digest = alertEmail('digest', [alert(), alert({ id: 'payout_failed', title: 'A payout failed' })]).html;
     expect(digest).toContain('Good morning. 2 things need attention');
     expect(digest).toContain('>Open the console</a>');

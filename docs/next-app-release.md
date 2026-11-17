@@ -1,17 +1,18 @@
 # Next app release — changes waiting on it
 
 The changes below are merged on `main` but are **not on members' phones** yet.
-Current release: **v1.0.12** (versionCode 13, release commit `af8ae1c`,
-Flutter 3.44.9), published 2026-11-14.
+Current release: **v1.0.13** (versionCode 14, release commit `339749d`,
+Flutter 3.44.9), published 2026-11-16.
 
 A Dart-only change ships as a **patch** to installed phones of the current
 release (`scripts/shorebird/patch.sh`, docs/shorebird.md), with no new APK and
-no version bump. Patches now target **1.0.12+13**; 1.0.11 phones keep their
-Patches 1 to 7 and get nothing newer until they install 1.0.12 (never patch
-1.0.11 from `main`: it names a drawable only the 1.0.12 APK has). A full release
-is needed only for native code, assets, permissions, plugins or a Flutter
-upgrade; the next one must be **≥ 1.0.13+14**. Check `gh release list` first;
-parallel sessions have shipped versions before.
+no version bump. Patches now target **1.0.13+14**. 1.0.12 phones keep their
+Patches 1 and 2 and get nothing newer until they install 1.0.13 (never patch
+1.0.12 from `main`: main has the updater's native code and permission, which
+the 1.0.12 APK lacks); the same holds for 1.0.11. A full release is needed only
+for native code, assets, permissions, plugins or a Flutter upgrade; the next
+one must be **≥ 1.0.14+15**. Check `gh release list` first; parallel sessions
+have shipped versions before.
 
 Keep this file current: add a row when a change to `mobile-app/` lands, and
 clear the table (moving it under "Shipped in …") when a release goes out.
@@ -22,8 +23,42 @@ Build in WSL from a commit, never from Windows:
 
 ## Waiting
 
-Nothing. `ops.min_version` is being raised to 1.0.12 (soft and hard, so older
-apps go to the update screen) by the owner in App controls, 2026-11-14.
+Nothing. Live `ops.min_version` is soft and hard **1.0.11** (read 2026-11-16);
+raising it is the owner's call in App controls. The in-app updater only helps
+from 1.0.13 on: 1.0.12 and older phones still update from the download page.
+For the next release, fill `apk_url`, `sha256` and `size_bytes` in App
+controls (the GitHub asset link, its sha256 and byte size) so 1.0.13 phones
+update in one tap.
+
+## Shipped in 1.0.13 (2026-11-16)
+
+Release commit `339749d` (merge of PR #22), tag `v1.0.13` (Latest):
+85,281,532 bytes, sha256 `09dbde98…ceaa7` (matches GitHub's digest), cert
+`48f1d72b…`, all three ABIs with the engine. Permissions as 1.0.12 plus
+`REQUEST_INSTALL_PACKAGES`; manifest has `UpdateFileProvider`
+(`com.help24.help24.updates`). Built with `scripts/shorebird/release.sh`
+(Flutter 3.44.9); Shorebird lists 1.0.13+14 active. On the S20+, `adb install
+-r` over the 1.0.14 test build: Play Protect verdict 0, ALLOW; still signed in,
+Discover on cold start, Shorebird "release_version changed 1.0.12+13 ->
+1.0.13+14", successful launch reported, patch check "No update". Backend
+(Render) and admin (`vercel --prod` from a clean `339749d` worktree) deployed
+the same day. Website `help24_website@eec9f93` serves it. The APK is kept at
+`C:\Users\840 g8\Documents\Help24 releases\help24-1.0.13+14.apk` and in WSL at
+`~/h24build/out/help24-1.0.13+14-shorebird.apk`. Carries Patches 1 and 2 of
+1.0.12 (PRs #15 and #20).
+
+| Commit | Change | Verified |
+|---|---|---|
+| `4b39d3d` | In-app updater for sideloaded builds: "Update, 85 MB" on the banner and the blocking screen downloads the APK into the app's cache, checks its SHA-256 against `ops.min_version.sha256`, asks once for "Install unknown apps" and opens Android's install prompt. Config gains `apk_url`, `sha256`, `size_bytes` (backend validation, App controls form). A Play build (`HELP24_STORE=play`) turns it off and drops `REQUEST_INSTALL_PACKAGES` | 1696 Flutter tests (the 3 known WSL-mirror failures), backend app-config 37/37, admin app-controls 10/10, both `tsc` clean. S20+ (Android 13, One UI 5.1), 2026-11-16, release-key Windows arm64 test builds: A = 1.0.13+14 with a baked `min_version` of 1.0.14 (`HELP24_TEST_MIN_VERSION`), B = 1.0.14 (versionCode 14), served over `adb reverse` with HTTP Range. Wrong file (same size) refused and deleted, nothing installed; progress, Cancel, "Continue update" resumed with `Range` at the exact byte; a dropped connection resumed too, and the file stitched from three pieces still matched; permission asked once, then the prompt opened by itself on return; backing out of the prompt and tapping "Install update" reopened it; installed in place, still signed in, no blocking screen on 1.0.14; start-up cleanup removed the old file. Notes below |
+
+Notes from the phone test:
+- Samsung's Settings opens the whole "Install unknown apps" list, not Help24's
+  own page (it does the same for an adb intent naming the package), so the
+  member has to find Help24 in the list and switch it on.
+- Google Play Protect showed "App scan recommended" before installing each
+  test APK ("hasn't seen this app before"). Members will see it for an APK
+  Google has not scanned; the test builds were installed with "Install without
+  scanning" so they were never sent to Google.
 
 ## Patches on 1.0.12 (stable)
 

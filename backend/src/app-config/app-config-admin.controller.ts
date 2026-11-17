@@ -13,6 +13,7 @@ import { AdminAuth } from '../common/auth/auth.decorator';
 import { CurrentAdmin, Roles } from '../admin/auth/roles.decorator';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import { AppConfigService } from './app-config.service';
+import { validateMinVersionDownload } from './client-config';
 
 /** "major.minor.patch", or '' for "no gate" — what the app compares. */
 const VERSION = /^(\d+\.\d+\.\d+)?$/;
@@ -69,6 +70,11 @@ export class AppConfigAdminController {
           throw new BadRequestException(`min_version.${field} must look like 1.0.5, or be empty for no gate.`);
         }
       }
+      const download = validateMinVersionDownload(v);
+      if (download) throw new BadRequestException(download);
+      // Stored as the app compares it: trimmed, the checksum in lowercase.
+      if (typeof v.apk_url === 'string') v.apk_url = v.apk_url.trim();
+      if (typeof v.sha256 === 'string') v.sha256 = v.sha256.trim().toLowerCase();
     }
     const { recorded } = await this.config.adminSet(admin, key, value as Record<string, unknown>, reason);
     return { ...(await this.config.clientConfig()), recorded };

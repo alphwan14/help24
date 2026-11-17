@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 import '../theme/app_icons.dart';
 
+import '../models/remote_config.dart';
+import '../services/app_updater.dart';
 import '../services/remote_config_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/external_links.dart';
+import 'update_panel.dart';
+
+/// The in-app update for this config, or null when Update should open the
+/// download page. Tests replace it to exercise the panel off Android.
+@visibleForTesting
+UpdateTarget? Function(MinVersionConfig) updateTargetFor = UpdateTarget.fromConfig;
 
 /// The operational surfaces the backend can raise without an app release:
 /// a maintenance notice, a product announcement, and the two update prompts.
@@ -46,17 +54,28 @@ class OpsBanners extends StatelessWidget {
 
         if (config.suggestsUpdate) {
           final minVersion = config.config.minVersion;
+          final message = minVersion.message.trim().isEmpty
+              ? 'A newer version of Help24 is available.'
+              : minVersion.message;
+          // The app downloads and installs the update itself when the config
+          // carries the APK, its checksum and its size (sideloaded builds);
+          // otherwise Update opens the download page, as before.
+          final target = updateTargetFor(minVersion);
           banners.add(_OpsBanner(
             key: const ValueKey('soft-update'),
             icon: AppIcons.appUpdate,
             tone: AppTheme.primaryAccent,
-            message: minVersion.message.trim().isEmpty
-                ? 'A newer version of Help24 is available.'
-                : minVersion.message,
-            actionLabel: minVersion.storeUrl.trim().isEmpty ? null : 'Update',
-            onAction: minVersion.storeUrl.trim().isEmpty
-                ? null
-                : () => openHelp24Url(context, minVersion.storeUrl),
+            message: message,
+            actionLabel: target != null
+                ? 'Update, ${formatUpdateSize(target.sizeBytes)}'
+                : minVersion.storeUrl.trim().isEmpty
+                    ? null
+                    : 'Update',
+            onAction: target != null
+                ? () => showUpdateSheet(context, target: target, message: message)
+                : minVersion.storeUrl.trim().isEmpty
+                    ? null
+                    : () => openHelp24Url(context, minVersion.storeUrl),
           ));
         }
 
@@ -196,7 +215,9 @@ class HardUpdateScreen extends StatelessWidget {
                       ),
                 ),
                 const SizedBox(height: 32),
-                if (minVersion.storeUrl.trim().isNotEmpty)
+                if (updateTargetFor(minVersion) case final UpdateTarget target)
+                  UpdatePanel(target: target)
+                else if (minVersion.storeUrl.trim().isNotEmpty)
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(

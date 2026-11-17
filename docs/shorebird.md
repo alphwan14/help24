@@ -1,8 +1,23 @@
 # Shorebird — over-the-air updates for the Android app
 
-Status: **live since 2026-11-07.** The current release is **`1.0.12+13`**
-(v1.0.12, PR #13 merge `af8ae1c`, Flutter 3.44.9), registered with Shorebird
-on 2026-11-13: APK 84,986,212 bytes, sha256 `eae85178…cdf9f`, signer
+Status: **live since 2026-11-07.** The current release is **`1.0.13+14`**
+(v1.0.13, PR #22 merge `339749d`, Flutter 3.44.9), registered with Shorebird
+and published on 2026-11-16: APK 85,281,532 bytes, sha256 `09dbde98…ceaa7`,
+signer `48f1d72b…`, engines for all three ABIs, permissions as 1.0.12 plus
+`REQUEST_INSTALL_PACKAGES` (the in-app updater). GitHub release `v1.0.13`
+(Latest, tag at `339749d`, asset `app-release.apk`, digest matches),
+help24.co.ke via `help24_website@eec9f93`. Checked on the S20+ with `adb
+install -r`: Play Protect ALLOW, Shorebird saw the release change and reported
+a successful launch. The APK is kept at
+`C:\Users\840 g8\Documents\Help24 releases\help24-1.0.13+14.apk`. No patches
+yet. Details in docs/next-app-release.md.
+
+**Do not patch 1.0.12 from main any more.** Main has the updater's native code
+and the new permission, which the 1.0.12 APK lacks. 1.0.12+13 keeps its
+Patches 1 and 2; new work ships as a patch to 1.0.13+14.
+
+The previous release, **`1.0.12+13`** (v1.0.12, PR #13 merge `af8ae1c`, Flutter
+3.44.9), was registered with Shorebird on 2026-11-13: APK 84,986,212 bytes, sha256 `eae85178…cdf9f`, signer
 `48f1d72b…`, engines for all three ABIs, permissions identical to 1.0.11. It
 carries the light launcher icon with a themed-icon layer, the amber
 notification silhouette (`ic_stat_help24`), a splash that follows the phone's
@@ -17,8 +32,8 @@ link), so they download once; no icons, no asset diffs; `patches/2` active on
 the published APK. **Published 2026-11-14** (§3 done): GitHub release
 `v1.0.12` (Latest, tag at `af8ae1c`, asset `app-release.apk`, digest matches),
 help24.co.ke via `help24_website@60c67e1` (download link checked: same size and
-sha256); `ops.min_version` is being raised to 1.0.12 (soft and hard) by the
-owner in App controls. The APK is kept at
+sha256). Live `ops.min_version` was still soft and hard 1.0.11 on 2026-11-16.
+The APK is kept at
 `C:\Users\840 g8\Documents\Help24 releases\help24-1.0.12+13.apk`.
 
 **Build note (2026-11-14):** four patch builds died when the WSL VM itself
@@ -36,8 +51,7 @@ each) gave the next build room inside WSL's disk, and it published.
 **Do not patch 1.0.11 from main any more.** Main's notification code names
 `@drawable/ic_stat_help24`, which only the 1.0.12 APK contains; a patch built
 from main for 1.0.11 would ask Android for a drawable that release does not
-have. 1.0.11+12 (`1b473b7`) keeps its Patches 1 to 7, and new work ships as a
-patch to 1.0.12+13. `1.0.10+11` (`fae8c20`) was the first Shorebird release
+have. 1.0.11+12 (`1b473b7`) keeps its Patches 1 to 7. `1.0.10+11` (`fae8c20`) was the first Shorebird release
 and keeps its Patches 1 to 3. Patch lists are in docs/next-app-release.md. Each
 release's `pubspec.lock` is kept in `~/h24build/shorebird/locks/<version>/`
 for later patches.
