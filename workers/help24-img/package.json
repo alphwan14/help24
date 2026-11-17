@@ -1,0 +1,12 @@
+{
+  "name": "help24-img",
+  "private": true,
+  "type": "module",
+  "description": "img.help24.co.ke: the app's public photos from Supabase Storage, cached at Cloudflare's edge",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

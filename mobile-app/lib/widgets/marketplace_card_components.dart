@@ -4,6 +4,7 @@ import '../models/post_model.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
+import '../utils/photo_urls.dart';
 
 /// Spacing constants for card layout (8–12px system).
 const double kCardPadding = 12;
@@ -156,7 +157,7 @@ class MarketplaceAvatar extends StatelessWidget {
           // paint the same frame as the card; the rare cold fetch sits on the
           // initials placeholder — no spinner.
           child: CachedNetworkImage(
-            imageUrl: imageUrl!,
+            imageUrl: displayPhotoUrl(imageUrl!),
             fit: BoxFit.cover,
             fadeInDuration: Duration.zero,
             fadeOutDuration: Duration.zero,

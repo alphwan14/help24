@@ -9,6 +9,7 @@ import '../theme/tokens.dart';
 import '../widgets/loading_empty_offline.dart';
 import '../widgets/post_flows.dart';
 import '../widgets/reputation_widgets.dart';
+import '../utils/photo_urls.dart';
 import 'post_detail_screen.dart';
 
 enum _SavedFilter { all, requests, offers, jobs, providers }
@@ -323,7 +324,7 @@ class _SavedPostRow extends StatelessWidget {
                   height: 48,
                   child: post.images.isNotEmpty
                       ? CachedNetworkImage(
-                          imageUrl: post.images.first,
+                          imageUrl: displayPhotoUrl(post.images.first),
                           fit: BoxFit.cover,
                           errorWidget: (_, __, ___) =>
                               _iconTile(post.category.icon),
@@ -438,7 +439,7 @@ class _SavedProviderRow extends StatelessWidget {
             radius: 22,
             backgroundColor: AppTheme.primaryAccent.withValues(alpha: 0.15),
             backgroundImage: provider.avatarUrl.isNotEmpty
-                ? NetworkImage(provider.avatarUrl)
+                ? NetworkImage(displayPhotoUrl(provider.avatarUrl))
                 : null,
             child: provider.avatarUrl.isEmpty
                 ? Text(

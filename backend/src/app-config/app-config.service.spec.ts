@@ -70,6 +70,7 @@ describe('AppConfigService — safety floor', () => {
       promotions: true,
       posting: true,
       applications: true,
+      image_cdn: true,
     });
     expect(config.ops.maintenance.active).toBe(false);
   });

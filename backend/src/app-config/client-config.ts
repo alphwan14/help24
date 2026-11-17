@@ -44,6 +44,12 @@ export interface KillSwitches {
   posting: boolean;
   /** Applying / offering services on a listing. */
   applications: boolean;
+  /**
+   * Public photos load through img.help24.co.ke (workers/help24-img, cached at
+   * Cloudflare's edge). Off: the app goes back to the direct Supabase Storage
+   * URLs it stores. Stored URLs never change either way.
+   */
+  image_cdn: boolean;
 }
 
 export interface MaintenanceConfig {
@@ -155,6 +161,7 @@ export const DEFAULT_CLIENT_CONFIG: ClientConfig = {
       promotions: true,
       posting: true,
       applications: true,
+      image_cdn: true,
     },
     maintenance: { active: false, message: '' },
     min_version: { soft: '', hard: '', message: '', store_url: '', apk_url: '', sha256: '', size_bytes: 0 },

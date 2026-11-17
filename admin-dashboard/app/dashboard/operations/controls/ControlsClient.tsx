@@ -8,6 +8,7 @@ import {
   DEFAULT_STORE_URL,
   PICKUP_NOTE,
   SWITCHES,
+  switchOn,
   controlProblems,
   controlValue,
   describeChange,
@@ -229,7 +230,7 @@ function Pill({ tone, children }: { tone: "ok" | "off" | "warn" | "muted"; child
 
 function FeaturesCard({ value, last, canEdit, review }: CardProps<KillSwitches>) {
   const [draft, setDraft] = useState(value);
-  const off = SWITCHES.filter((s) => !value[s.key]);
+  const off = SWITCHES.filter((s) => !switchOn(value, s.key));
   return (
     <ControlCard
       title={CONTROL_TITLES["ops.kill_switches"]}
@@ -245,11 +246,11 @@ function FeaturesCard({ value, last, canEdit, review }: CardProps<KillSwitches>)
           <li key={s.key} className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
             <div className="min-w-0">
               <p className="text-sm font-medium text-gray-800">{s.label}</p>
-              <p className="text-[11.5px] text-gray-400 leading-snug">{draft[s.key] ? "On" : `Off: ${s.off}`}</p>
+              <p className="text-[11.5px] text-gray-400 leading-snug">{switchOn(draft, s.key) ? "On" : `Off: ${s.off}`}</p>
             </div>
             <Switch
               label={s.label}
-              checked={draft[s.key]}
+              checked={switchOn(draft, s.key)}
               disabled={!canEdit}
               onChange={(v) => setDraft({ ...draft, [s.key]: v })}
             />
