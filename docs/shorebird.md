@@ -9,8 +9,18 @@ signer `48f1d72b…`, engines for all three ABIs, permissions as 1.0.12 plus
 help24.co.ke via `help24_website@eec9f93`. Checked on the S20+ with `adb
 install -r`: Play Protect ALLOW, Shorebird saw the release change and reported
 a successful launch. The APK is kept at
-`C:\Users\840 g8\Documents\Help24 releases\help24-1.0.13+14.apk`. No patches
-yet. Details in docs/next-app-release.md.
+`C:\Users\840 g8\Documents\Help24 releases\help24-1.0.13+14.apk`. Details in
+docs/next-app-release.md.
+
+**Patch 1** (2026-11-17, stable, Shorebird id 815916, from `670e9b8`, PR #28,
+which carries main to `5d0f172`): post types people can't get wrong
+(docs/post-type-clarity.md) plus PR #26's photos through img.help24.co.ke
+behind the App controls switch. Every change since `339749d` is under
+`mobile-app/lib` or `test`; icon check: none added or removed; the log shows no
+asset diffs (`--allow-asset-diffs` was passed only so an unattended run could
+not stop on one). Log: `~/h24build/out/patch-1.0.13-ptc.log`. Phone check on
+the published APK owed. **Until PR #28 is merged, never patch from main**: a
+patch from main would take this work back off phones.
 
 **Do not patch 1.0.12 from main any more.** Main has the updater's native code
 and the new permission, which the 1.0.12 APK lacks. 1.0.12+13 keeps its
@@ -47,6 +57,20 @@ started detached (`setsid nohup`). The fifth failure came with C: at 4.4 GB
 free: Windows could not grow the page file, nor WSL its disk file. Removing
 the old `~/h24build/sb-src-*` copies (prepare.sh recreates them; about 1.6 GB
 each) gave the next build room inside WSL's disk, and it published.
+
+**Build note (2026-11-17, 1.0.13 Patch 1):** the 2 GB heap was no longer
+enough. Several Claude and VS Code processes left Windows with about 4 GB of
+commit, and five attempts died: one OOM kill inside the VM (the project's
+`-Xmx4G`), then four where WSL dropped the Ubuntu distro mid-Gradle while the
+VM stayed up (`Wsl/Service/E_UNEXPECTED`; `ps -o etime= -p 1` shows a
+seconds-old init). Neither `setsid nohup` nor a `systemd-run --user` unit
+survived that. What built and published it: `wsl --shutdown` with nothing
+running, then one attached `wsl.exe` running the build in the foreground with
+`-Xmx1536m -XX:MaxMetaspaceSize=512m` and `org.gradle.workers.max=1` set in the
+build copy's `gradle.properties` (and the same jvmargs in `GRADLE_OPTS`), with
+**no other `wsl.exe` command from any session until it finished**: a new WSL
+connection tore a running build down twice. Peak use was 4.6 GB in the VM, and
+Windows free commit bottomed out at 0.48 GB.
 
 **Do not patch 1.0.11 from main any more.** Main's notification code names
 `@drawable/ic_stat_help24`, which only the 1.0.12 APK contains; a patch built

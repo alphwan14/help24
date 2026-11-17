@@ -52,6 +52,32 @@ bool listingIsOpen({required PostType type, required String status}) {
   return status.isEmpty || status == 'open';
 }
 
+/// The kind the AUTHOR may switch their listing to, or null when they may not.
+///
+/// People pick the wrong kind ("Edger here anyone in need of plumber" went up
+/// as a request), so the author can swap a request and an offer while nothing
+/// depends on the old kind yet: the listing is open, nobody has been chosen,
+/// and nobody has responded. A job has its own form, so it never switches.
+///
+/// This only decides whether to OFFER the control. The database decides
+/// whether the change happens (migration 145, `trg_posts_type_change`), and an
+/// admin can still reclassify anything open from the console.
+PostType? ownerTypeSwitchTarget({
+  required PostType type,
+  required String status,
+  String? selectedProviderId,
+  required int applicationCount,
+}) {
+  if (status.isNotEmpty && status != 'open') return null;
+  if ((selectedProviderId ?? '').isNotEmpty) return null;
+  if (applicationCount > 0) return null;
+  return switch (type) {
+    PostType.request => PostType.offer,
+    PostType.offer => PostType.request,
+    PostType.job => null,
+  };
+}
+
 /// The primary action a listing should offer the person looking at it.
 enum ListingCta {
   /// Viewer owns the listing — open the management experience. Never an Apply.

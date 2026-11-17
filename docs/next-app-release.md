@@ -23,12 +23,24 @@ Build in WSL from a commit, never from Windows:
 
 ## Waiting
 
-Nothing. Live `ops.min_version` is soft and hard **1.0.11** (read 2026-11-16);
+Nothing since 1.0.13 Patch 1 (below). Live `ops.min_version` is soft and hard **1.0.11** (read 2026-11-16);
 raising it is the owner's call in App controls. The in-app updater only helps
 from 1.0.13 on: 1.0.12 and older phones still update from the download page.
 For the next release, fill `apk_url`, `sha256` and `size_bytes` in App
 controls (the GitHub asset link, its sha256 and byte size) so 1.0.13 phones
 update in one tap.
+
+## Shipped as 1.0.13+14 Patch 1 (2026-11-17)
+
+Shorebird patch #1 (id 815916) on stable, built from `670e9b8` (PR #28, which
+carries main to `5d0f172`). Dart only; no icons added or removed, no asset
+diffs. Build notes in docs/shorebird.md. **Until PR #28 is merged, never patch
+from main**: it would take this work back off phones.
+
+| Commit | Change | Verified |
+|---|---|---|
+| `da43477`, `5240086` (PR #28) | Post types people can't get wrong (docs/post-type-clarity.md): step 0 asks "What are you posting?" with "I need help" / "I offer a service" and a quieter "Hiring for a job", preselected from the account; a nudge when the words sound like the other kind, with a one-tap switch; the author can switch an open request and offer nobody has responded to; cards say "Needs help" / "Offering" / "Hiring"; a "Finding Plumbing near …" moment after a request is posted. Needs migration 145, live since 2026-11-17 | 1782 Flutter tests (the 3 known WSL-mirror failures); migration 145 as each real role, 17/17, rolled back, before and after applying; admin e2e 204/204 including the listing-type section. **Phone check owed** (S20+, published APK) |
+| `e3cb1c8`, `1a2d514` (PR #26) | Photos through img.help24.co.ke behind an App controls switch | See PR #26; its session (help24-d8) is checking photos on the phone |
 
 ## Shipped in 1.0.13 (2026-11-16)
 

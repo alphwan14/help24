@@ -1091,6 +1091,76 @@ try {
       await waitFor(`${bodyHas("404")} || ${bodyHas("could not be found")} || ${bodyHas("This page doesn't exist")} || ${bodyHas("not found")}`, "404", 15000).then(() => true, () => false),
       await evaluate("document.body.innerText.slice(0, 160)"));
   }
+
+  /* ════════════════════════════════════════════════════════════════════ */
+  // A listing posted as the wrong kind (migration 145): the provider who wrote
+  // "Edger here anyone in need of plumber" posted it as a Request.
+  section("listing type");
+  {
+    const listing = (id, over = {}) => ({
+      id, title: "Edger here anyone in need of plumber", description: "Call me for any plumbing work",
+      category: "Plumbing", location: "Muhoroni", latitude: null, longitude: null, urgency: "flexible", is_urgent: false,
+      price: 0, type: "request", status: "open", archived_at: null, archived_by: null, author_user_id: fake.idOf(DAVE),
+      author_name: null, selected_provider_id: null, created_at: new Date(Date.now() - 3 * 3600e3).toISOString(), attributes: {},
+      ...over,
+    });
+    const OPEN = "5f0c2a8e-1b7d-4c3a-9e21-0d6f4b8a7c11";
+    const TAKEN = "6a1d3b9f-2c8e-4d4b-8f32-1e7a5c9b8d22";
+    fake.setTable("posts", [listing(OPEN), listing(TAKEN, { title: "Fix my gate", status: "assigned", selected_provider_id: fake.idOf(CAROL) })]);
+    const saveButton = (label) => `[...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})`;
+
+    await goto(`${APP}/dashboard/marketplace/requests/${OPEN}`);
+    await waitFor(`${bodyHas("Listing type")} && ${bodyHas("Edger here anyone in need of plumber")}`, "listing page", 30000);
+    await waitFor(`!document.body.innerText.includes('Opening the console')`, "console ready", 30000).catch(() => {});
+    check("listing page: says the kind in the app's words, and offers to change it",
+      await evaluate(`${bodyHas("Request, shown in the app as Needs help.")} && !![...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Change type" && !b.disabled)`));
+
+    await clickText("Change type");
+    await waitFor(`!!document.querySelector('[role="dialog"]')`, "reclassify dialog");
+    check("the dialog offers only the other kinds", await evaluate(
+      `JSON.stringify([...document.querySelectorAll('[role="dialog"] input[name="listing-type"]')].map((i) => i.value)) === '["offer","job"]'`));
+    check("reclassifying is refused without a reason", await evaluate(`${saveButton("Change to offer")}.disabled`));
+    await fill('[role="dialog"] textarea', "The title says they offer plumbing");
+    await waitFor(`!${saveButton("Change to offer")}.disabled`, "save enabled");
+    await clickText("Change to offer");
+    await waitFor(`!document.querySelector('[role="dialog"]') && ${bodyHas("Changed: Request to Offer")}`, "reclassified", 15000);
+    const first = fake.reclassifications.at(-1);
+    check("one reclassify call: this listing, offer, the reason, as the signed-in admin",
+      fake.reclassifications.length === 1 && first?.body.p_post_id === OPEN && first.body.p_type === "offer" &&
+        first.body.p_employment_type === null && first.body.p_reason === "The title says they offer plumbing" && first.admin === ALICE,
+      JSON.stringify(first));
+    await waitFor(`${bodyHas("Offer, shown in the app as Offering.")} && !!document.querySelector('[data-testid="type-changes"]')`, "page refreshed", 15000);
+    check("the page reads it back: the new kind, and the change with who and why",
+      await evaluate(`(() => { const t = document.querySelector('[data-testid="type-changes"]').innerText; return t.includes("Request to Offer") && t.includes(${JSON.stringify(ALICE)}) && t.includes("The title says they offer plumbing"); })()`));
+    await shot("25-listing-reclassified.png", true);
+
+    await clickText("Change type");
+    await waitFor(`!!document.querySelector('[role="dialog"]')`, "reclassify dialog, again");
+    await click('[role="dialog"] input[name="listing-type"][value="job"]');
+    await fill('[role="dialog"] textarea', "They are hiring a full-time plumber");
+    await waitFor(`!!document.querySelector('[role="dialog"] select[name="employment-type"]')`, "employment type field");
+    check("a job is refused until it has an employment type", await evaluate(`${saveButton("Change to job")}.disabled`));
+    await evaluate(`(() => {
+      const s = document.querySelector('[role="dialog"] select[name="employment-type"]');
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(s, "full_time");
+      s.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
+    await waitFor(`!${saveButton("Change to job")}.disabled`, "job save enabled");
+    await clickText("Change to job");
+    await waitFor(`${bodyHas("Job, shown in the app as Hiring.")}`, "now a job", 15000);
+    const second = fake.reclassifications.at(-1);
+    check("to a job: the employment type goes with it, and the history lists both changes",
+      fake.reclassifications.length === 2 && second?.body.p_type === "job" && second.body.p_employment_type === "full_time" &&
+        (await evaluate(`document.querySelectorAll('[data-testid="type-changes"] li').length === 2`)),
+      JSON.stringify(second));
+
+    await goto(`${APP}/dashboard/marketplace/requests/${TAKEN}`);
+    await waitFor(`${bodyHas("Listing type")} && ${bodyHas("Fix my gate")}`, "assigned listing", 30000);
+    check("a listing with a provider keeps its type: the control is off and says why",
+      await evaluate(`${bodyHas("It already has a provider, so its type stays.")} && [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Change type").disabled`));
+    check("nothing was sent for it", fake.reclassifications.every((r) => r.body.p_post_id !== TAKEN));
+  }
+
   // Desktop: the shell is one screen tall and only <main> scrolls, so the rail
   // stays put. If anything on the page escapes that box the DOCUMENT scrolls
   // and carries the rail up with it.

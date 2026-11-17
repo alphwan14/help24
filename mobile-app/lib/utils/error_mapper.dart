@@ -740,6 +740,10 @@ class ErrorMapper {
     // Matched before 'already applied' etc. so the local pre-flight guard and
     // the database trigger produce the identical sentence.
     if (_isSelfApplication(raw)) return _selfApplicationFailure;
+    // A listing's type change refused (migration 145). Before the provider
+    // branch below, which "this listing already has a provider" would match
+    // and answer as a hiring problem.
+    if (s.contains('help24_type_change_refused')) return _typeChangeRefused(s);
     // A listing Trust & Safety hid (JobsService.selectProvider).
     if (s.contains('hidden by help24')) return _hiddenListing;
     if (s.contains('already applied')) return _alreadyApplied;
@@ -765,6 +769,27 @@ class ErrorMapper {
       return _alreadyPaid;
     }
     return null;
+  }
+
+  /// Why the author could not switch their listing's kind. Each reason the
+  /// trigger gives maps to a sentence with a way forward where there is one.
+  static AppFailure _typeChangeRefused(String s) {
+    final String message;
+    if (s.contains('already responded')) {
+      message = 'People have already responded to it, so its type stays. '
+          'You can delete it and post again.';
+    } else if (s.contains('already has a provider')) {
+      message = 'It already has a provider, so its type stays.';
+    } else if (s.contains('is closed')) {
+      message = 'It is closed, so its type stays.';
+    } else {
+      message = 'Only a request and an offer can be switched. A job keeps its type.';
+    }
+    return AppFailure(
+      title: "Type can't change",
+      message: message,
+      category: ErrorCategory.conflict,
+    );
   }
 
   static const AppFailure _hiddenListing = AppFailure(

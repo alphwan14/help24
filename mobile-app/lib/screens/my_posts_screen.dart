@@ -91,10 +91,11 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
   }
 
   Widget _body(BuildContext context) {
-    // Rebuild only when a post is created or archived — both are replaced,
-    // not mutated.
+    // Rebuild only when a post is created, edited or archived. All three are
+    // replaced, not mutated.
     final archived = context.select<AppProvider, Set<String>>((p) => p.archivedPostIds);
     final created = context.select<AppProvider, List<PostModel>>((p) => p.createdPosts);
+    final edited = context.select<AppProvider, Map<String, PostModel>>((p) => p.editedPosts);
     return FutureBuilder<List<PostModel>>(
         future: _future,
         builder: (context, snap) {
@@ -123,9 +124,14 @@ class _MyPostsScreenState extends State<MyPostsScreen> {
               ),
             );
           }
-          final posts = withoutArchived(
-            withCreated(snap.data ?? const <PostModel>[], created, authorId: widget.userId),
-            archived,
+          // Edits replace rows in place, so they can come last: an archived
+          // id is gone whichever copy of it was showing.
+          final posts = withEdited(
+            withoutArchived(
+              withCreated(snap.data ?? const <PostModel>[], created, authorId: widget.userId),
+              archived,
+            ),
+            edited,
           );
           // Nothing authored yet is a different situation from "nothing
           // matches", and it gets the empty state rather than a search box over
@@ -299,6 +305,18 @@ List<PostModel> withCreated(
       .toList();
   if (missing.isEmpty) return posts;
   return [...missing, ...posts];
+}
+
+/// [posts] with each one the author edited this session
+/// ([AppProvider.editedPosts]) replaced by the server's copy from that edit.
+///
+/// The third of the three merges: a listing switched from a request to an
+/// offer on its detail screen used to keep its old kind here until a
+/// pull-to-refresh, because this screen holds its own once-loaded copy.
+/// Same position, newer row. Returns [posts] itself when nothing applies.
+List<PostModel> withEdited(List<PostModel> posts, Map<String, PostModel> edited) {
+  if (edited.isEmpty || !posts.any((p) => edited.containsKey(p.id))) return posts;
+  return [for (final p in posts) edited[p.id] ?? p];
 }
 
 /// Filter an author's own posts by [query], matching TITLE or PROFESSION.

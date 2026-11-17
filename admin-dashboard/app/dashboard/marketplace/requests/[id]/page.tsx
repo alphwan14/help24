@@ -4,6 +4,8 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { PostStatusBadge } from "@/components/PostStatusBadge";
 import { CandidateRow, PersonCard, PhoneLink, StandingBadges, TIER_LABELS, accountHref } from "@/components/marketplace/People";
 import NotifyProviders, { type NotifyCandidate } from "@/components/marketplace/NotifyProviders";
+import ReclassifyListing from "@/components/marketplace/ReclassifyListing";
+import { LISTING_TYPE_WORDS, changeLabel, isListingType, reclassifyBlockedReason } from "@/lib/listing-type";
 import { CANNOT_TAKE_WORK, loadMatchingData, loadPeople, type Person } from "@/lib/marketplace-people";
 import { candidatesFor, countByTier, type Candidate } from "@/lib/provider-matching";
 import { requestBudgetLabel, schemasByName, smartAnswerLines, type Json } from "@/lib/post-display";
@@ -27,11 +29,21 @@ type PostRow = {
   type: string;
   status: string;
   archived_at: string | null;
+  archived_by: string | null;
   author_user_id: string | null;
   author_name: string | null;
   selected_provider_id: string | null;
   created_at: string;
   attributes: Json | null;
+};
+
+type TypeChangeRow = {
+  from_type: string;
+  to_type: string;
+  changed_by_kind: "owner" | "admin" | "system";
+  admin_email: string | null;
+  reason: string | null;
+  created_at: string;
 };
 
 type ApplicationRow = {
@@ -61,10 +73,10 @@ export default async function MarketplaceRequestPage({ params }: PageProps) {
   if (!UUID.test(id)) notFound();
 
   const db = createServiceClient();
-  const [postRes, appsRes, schemaRes] = await Promise.all([
+  const [postRes, appsRes, schemaRes, changesRes] = await Promise.all([
     db
       .from("posts")
-      .select("id, title, description, category, location, latitude, longitude, urgency, is_urgent, price, type, status, archived_at, author_user_id, author_name, selected_provider_id, created_at, attributes")
+      .select("id, title, description, category, location, latitude, longitude, urgency, is_urgent, price, type, status, archived_at, archived_by, author_user_id, author_name, selected_provider_id, created_at, attributes")
       .eq("id", id)
       .maybeSingle(),
     db
@@ -74,6 +86,14 @@ export default async function MarketplaceRequestPage({ params }: PageProps) {
       .order("created_at", { ascending: false })
       .limit(200),
     db.from("categories").select("name, question_schema"),
+    // Every change of kind, by the author in the app or by an admin here
+    // (migration 145).
+    db
+      .from("post_type_changes")
+      .select("from_type, to_type, changed_by_kind, admin_email, reason, created_at")
+      .eq("post_id", id)
+      .order("created_at", { ascending: false })
+      .limit(10),
   ]);
   if (postRes.error) throw new Error(`Could not load the listing: ${postRes.error.message}`);
   const post = postRes.data as PostRow | null;
@@ -81,6 +101,8 @@ export default async function MarketplaceRequestPage({ params }: PageProps) {
   // A failed read is said out loud, never shown as "nobody has applied".
   const appsError = appsRes.error?.message ?? null;
   const applications = (appsRes.data ?? []) as ApplicationRow[];
+  const changesError = changesRes.error?.message ?? null;
+  const typeChanges = (changesRes.data ?? []) as TypeChangeRow[];
   const answers = smartAnswerLines(
     schemasByName(schemaRes.data ?? []).get(post.category?.toLowerCase() ?? "") ?? null,
     post.type,
@@ -282,9 +304,68 @@ export default async function MarketplaceRequestPage({ params }: PageProps) {
               showRecord
             />
           )}
+          <ListingTypeCard
+            post={post}
+            applications={applications.length}
+            changes={typeChanges}
+            changesError={changesError}
+          />
         </aside>
       </div>
     </div>
+  );
+}
+
+/**
+ * What kind of listing this is, a way to fix it when it was posted as the
+ * wrong kind ("Edger here anyone in need of plumber" as a Request), and every
+ * change so far.
+ */
+function ListingTypeCard({
+  post,
+  applications,
+  changes,
+  changesError,
+}: {
+  post: PostRow;
+  applications: number;
+  changes: TypeChangeRow[];
+  changesError: string | null;
+}) {
+  const words = isListingType(post.type) ? LISTING_TYPE_WORDS[post.type] : null;
+  const by = (c: TypeChangeRow) =>
+    c.changed_by_kind === "owner" ? "the author, in the app" : c.changed_by_kind === "admin" ? (c.admin_email ?? "an admin") : "Help24";
+  return (
+    <section className="card p-4 sm:p-5 space-y-3">
+      <div>
+        <h3 className="text-[14px] font-semibold text-gray-900">Listing type</h3>
+        <p className="mt-1 text-[13px] text-gray-800">
+          {words ? `${words.name}, shown in the app as ${words.feed}.` : humanise(post.type)}
+        </p>
+        {words && <p className="text-[12px] text-gray-500">{words.means}</p>}
+      </div>
+      <ReclassifyListing
+        postId={post.id}
+        currentType={post.type}
+        applications={applications}
+        blockedReason={reclassifyBlockedReason(post)}
+      />
+      {changesError ? (
+        <p className="text-[12px] text-critical-700">Couldn&apos;t load earlier changes ({changesError}).</p>
+      ) : (
+        changes.length > 0 && (
+          <ul className="space-y-2" data-testid="type-changes">
+            {changes.map((c) => (
+              <li key={`${c.created_at}-${c.to_type}`} className="text-[12px] text-gray-600">
+                <span className="font-medium text-gray-800">{changeLabel(c.from_type, c.to_type)}</span>
+                {` by ${by(c)}, ${fmtDate(c.created_at)}`}
+                {c.reason && <span className="block text-gray-500">{c.reason}</span>}
+              </li>
+            ))}
+          </ul>
+        )
+      )}
+    </section>
   );
 }
 

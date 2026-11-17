@@ -7,6 +7,7 @@ import '../utils/feed_scope.dart';
 import 'remote_config_service.dart';
 import 'reputation_service.dart';
 import 'storage_service.dart';
+import 'supabase_auth_bridge.dart';
 
 /// Filter options for fetching posts
 class PostFilters {
@@ -606,6 +607,31 @@ class PostService {
     } catch (e) {
       throw PostServiceException('Failed to create job: $e');
     }
+  }
+
+  /// Switch one of the author's own listings between a request and an offer.
+  ///
+  /// The database decides (migration 145, `trg_posts_type_change`): only the
+  /// author, only request <-> offer, and only while the listing is open, with
+  /// nobody chosen and nobody responded yet. The vetting guard then judges it
+  /// as the new kind. The same trigger tidies what only one kind carries (an
+  /// offer has no urgency; each journey's reserved answer), so the row that
+  /// comes back, in feed shape and in the same round trip, is the row to show.
+  ///
+  /// Not wrapped in [PostServiceException]: the refusals carry Help24 markers
+  /// that ErrorMapper turns into sentences, and wrapping would hide them.
+  static Future<PostModel> changeType(String postId, PostType to) async {
+    if (to == PostType.job) {
+      throw PostServiceException('A job has its own form, so it is posted as a job.');
+    }
+    await SupabaseAuthBridge.ensureSessionForWriteAsync();
+    final row = await _client
+        .from('posts')
+        .update({'type': to.name})
+        .eq('id', postId)
+        .select(feedRowSelect)
+        .single();
+    return PostModel.fromJson(row);
   }
 
   /// Update an existing post

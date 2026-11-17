@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
 import { PostStatusBadge, archivedRowClass } from "@/components/PostStatusBadge";
@@ -72,7 +73,9 @@ export default async function MarketplaceJobsPage() {
         );
         return (
           <div className="max-w-xs">
-            <p className="font-medium text-gray-900 truncate">{r.title}</p>
+            <Link href={`/dashboard/marketplace/requests/${r.id}`} className="block font-medium text-gray-900 truncate hover:underline">
+              {r.title}
+            </Link>
             <p className="text-xs text-gray-400">{r.category} · {r.location}</p>
             {answers.length > 0 && (
               <p className="text-xs text-indigo-500 truncate" title={answers.join("\n")}>

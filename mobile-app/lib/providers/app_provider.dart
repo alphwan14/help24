@@ -223,6 +223,37 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _createdPosts = [post, ..._createdPosts.where((p) => p.id != post.id)];
   }
 
+  /// Listings the current user EDITED this session (so far: switched between a
+  /// request and an offer), by id, as the server returned them. The third
+  /// counterpart of [_archivedPostIds] and [_createdPosts]: My Posts shows
+  /// these in place of its once-loaded copy, so the change is there when the
+  /// author goes back instead of after a pull-to-refresh.
+  /// Replaced, never mutated, so `context.select` sees each change.
+  Map<String, PostModel> _editedPosts = const {};
+
+  /// See [_editedPosts].
+  Map<String, PostModel> get editedPosts => _editedPosts;
+
+  /// Put the server's copy of an edited listing everywhere this provider
+  /// holds it. An EDIT, not an install: the row keeps its place in the feed on
+  /// screen and nothing crossfades (see [_splice]).
+  void applyPostEdit(PostModel updated) {
+    _editedPosts = {..._editedPosts, updated.id: updated};
+    if (_createdPosts.any((p) => p.id == updated.id)) {
+      _createdPosts = [
+        for (final p in _createdPosts) p.id == updated.id ? updated : p,
+      ];
+    }
+    if (_posts.any((p) => p.id == updated.id)) {
+      _splice((posts) {
+        final i = posts.indexWhere((p) => p.id == updated.id);
+        if (i >= 0) posts[i] = updated;
+      });
+      _cachePostsIfDefault();
+    }
+    notifyListeners();
+  }
+
   // Getters
   /// The user's theme choice (Device Default / Light / Dark).
   ThemePreference get themePreference => _themePreference;
@@ -537,6 +568,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
     _appliedPostIds = {};
     _archivedPostIds = const {};
     _createdPosts = const [];
+    _editedPosts = const {};
     _activeChatId = null;
     _warmedAvatarUrls.clear();
     _errors.clearAll();

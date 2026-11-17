@@ -66,6 +66,10 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
   let alertList = []; // what GET /admin/alerts answers; empty unless a run sets it
   let overview = null; // what rpc admin_overview answers; null → PostgREST error, so the page falls back
   let tables = {}; // rows for plain table reads (transactions, promotion_payments…), set by a run
+  // Listing type changes (migration 145): the post_type_changes rows, and every
+  // admin_reclassify_post call accepted ({ body, admin }).
+  const typeChanges = [];
+  const reclassifications = [];
 
   const recoveryTemplate = readFileSync(join(templatesDir, "recovery.html"), "utf8");
   const recoverySubject = JSON.parse(readFileSync(join(templatesDir, "manifest.json"), "utf8"))
@@ -364,6 +368,37 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
         log(g.id, body.p_status === "suspended" ? "suspended" : "reactivated", a, body.p_reason);
         return send(200, { status: g.status, changed: true });
       }
+      if (fn === "admin_reclassify_post") {
+        // Migration 145's rules, in the same order and words.
+        const a = adminById(body.p_admin_id);
+        if (!a || !a.active) return pgError(403, "HELP24_ADMIN_INVALID: the acting admin is unknown or inactive");
+        const reason = String(body.p_reason ?? "").trim();
+        if (!["request", "offer", "job"].includes(body.p_type)) return pgError(400, "HELP24_RECLASSIFY_INVALID: choose request, offer or job");
+        if (reason.length < 5 || reason.length > 500) return pgError(400, "HELP24_RECLASSIFY_INVALID: give a reason, in 5 to 500 characters");
+        if (body.p_type === "job" && !["full_time", "part_time", "contract", "temporary"].includes(body.p_employment_type)) {
+          return pgError(400, "HELP24_RECLASSIFY_INVALID: a job needs an employment type");
+        }
+        const post = (tables.posts ?? []).find((r) => r.id === body.p_post_id);
+        if (!post) return pgError(400, "HELP24_RECLASSIFY_NOT_FOUND: no such listing");
+        if (post.archived_by === "moderation") return pgError(403, "HELP24_RECLASSIFY_REFUSED: this listing was hidden by moderation");
+        if (post.status !== "open" || post.selected_provider_id) {
+          return pgError(403, "HELP24_RECLASSIFY_REFUSED: this listing already has a provider, so its type stays");
+        }
+        if (post.type === body.p_type) return pgError(400, `HELP24_RECLASSIFY_REFUSED: it is already a ${body.p_type}`);
+        if (body.p_type === "offer" && post.vetting_blocked) {
+          return pgError(403, "HELP24_RECLASSIFY_REFUSED: the author needs a Care check to offer this work");
+        }
+        const from = post.type;
+        post.type = body.p_type;
+        post.employment_type = body.p_type === "job" ? body.p_employment_type : null;
+        typeChanges.push({
+          post_id: post.id, from_type: from, to_type: post.type, changed_by_kind: "admin", changed_by: a.id,
+          admin_email: a.email, reason, created_at: new Date().toISOString(),
+        });
+        reclassifications.push({ body, admin: a.email });
+        const applications = (tables.applications ?? []).filter((x) => x.post_id === post.id).length;
+        return send(200, { post_id: post.id, from_type: from, to_type: post.type, applications });
+      }
       const live = (h) => partnerInvites.find((i) => i.token_hash === h && !i.used_at && Date.parse(i.expires_at) > Date.now());
       if (fn === "partner_invite_preview") {
         const i = live(body.p_token_hash);
@@ -407,6 +442,16 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
           : []);
       }
       if (table === "app_settings_history") return send(200, [...configHistory].reverse());
+      // A listing page (/dashboard/marketplace/requests/:id) reads its post by
+      // id, and its applications and type changes by post_id.
+      if (table === "posts" && eq("id")) return send(200, (tables.posts ?? []).filter((r) => r.id === eq("id")));
+      if (table === "applications" && eq("post_id")) {
+        return send(200, (tables.applications ?? []).filter((r) => r.post_id === eq("post_id")));
+      }
+      if (table === "post_type_changes") {
+        const pid = eq("post_id");
+        return send(200, typeChanges.filter((c) => !pid || c.post_id === pid).slice().reverse());
+      }
       if (tables[table] && !url.searchParams.has("id")) {
         // List reads only: a lookup by id (the admin gate, a member page) still
         // goes to the handlers below.
@@ -642,6 +687,9 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
     setOverview(value) {
       overview = value;
     },
+    /** Listing type changes (migration 145) and the reclassify calls accepted. */
+    typeChanges,
+    reclassifications,
     addAuthUser(email, password) {
       const id = randomUUID();
       auth.set(id, { id, email, password });

@@ -172,9 +172,34 @@ void main() {
     testWidgets('the kind is said on mixed feeds and dropped on a filtered tab',
         (tester) async {
       await _pump(tester, ListingCard(post: _post()));
-      expect(find.text('Request'), findsOneWidget);
+      expect(find.text('Needs help'), findsOneWidget);
       await _pump(tester, ListingCard(post: _post(), showKind: false));
-      expect(find.text('Request'), findsNothing);
+      expect(find.text('Needs help'), findsNothing);
+    });
+
+    // "Edger here anyone in need of plumber" sat under "Request" in the same
+    // grey as every offer. The words now say who needs what, and the two
+    // kinds are drawn in different tones.
+    testWidgets('a request and an offer are told apart at a glance',
+        (tester) async {
+      await _pump(tester, ListingCard(post: _post(type: PostType.offer, price: 1500)));
+      expect(find.text('Offering'), findsOneWidget);
+      expect(find.text('Needs help'), findsNothing);
+      final offerTone = tester.widget<Text>(find.text('Offering')).style?.color;
+
+      await _pump(tester, ListingCard(post: _post()));
+      final requestTone = tester.widget<Text>(find.text('Needs help')).style?.color;
+      expect(offerTone, isNotNull);
+      expect(requestTone, isNotNull);
+      expect(offerTone, isNot(requestTone));
+
+      await _pump(
+        tester,
+        ListingCard(
+          post: _post(type: PostType.job, employmentType: EmploymentType.fullTime),
+        ),
+      );
+      expect(find.text('Hiring'), findsOneWidget);
     });
 
     testWidgets('the AUTHOR is never invited to act on their own listing',
