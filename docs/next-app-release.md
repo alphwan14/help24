@@ -23,8 +23,8 @@ Build in WSL from a commit, never from Windows:
 
 ## Waiting
 
-Nothing since 1.0.13 Patch 1 (below). Live `ops.min_version` is soft and hard **1.0.11** (read 2026-11-16);
-raising it is the owner's call in App controls. The in-app updater only helps
+Nothing since 1.0.13 Patch 1 (below). Live `ops.min_version` is soft and hard **1.0.13** (the owner
+raised it on 2026-11-17; read from `/config` that day). The in-app updater only helps
 from 1.0.13 on: 1.0.12 and older phones still update from the download page.
 For the next release, fill `apk_url`, `sha256` and `size_bytes` in App
 controls (the GitHub asset link, its sha256 and byte size) so 1.0.13 phones
@@ -40,7 +40,7 @@ from main**: it would take this work back off phones.
 | Commit | Change | Verified |
 |---|---|---|
 | `da43477`, `5240086` (PR #28) | Post types people can't get wrong (docs/post-type-clarity.md): step 0 asks "What are you posting?" with "I need help" / "I offer a service" and a quieter "Hiring for a job", preselected from the account; a nudge when the words sound like the other kind, with a one-tap switch; the author can switch an open request and offer nobody has responded to; cards say "Needs help" / "Offering" / "Hiring"; a "Finding Plumbing near …" moment after a request is posted. Needs migration 145, live since 2026-11-17 | 1782 Flutter tests (the 3 known WSL-mirror failures); migration 145 as each real role, 17/17, rolled back, before and after applying; admin e2e 204/204 including the listing-type section. **Phone check owed** (S20+, published APK) |
-| `e3cb1c8`, `1a2d514` (PR #26) | Photos through img.help24.co.ke behind an App controls switch | See PR #26; its session (help24-d8) is checking photos on the phone |
+| `e3cb1c8`, `1a2d514` (PR #26) | Public photos (post photos, thumbnails, avatars) load through img.help24.co.ke, the help24-img Worker that caches them at Cloudflare's edge; App controls switch "Photos through Cloudflare" (`ops.kill_switches.image_cdn`, default on) sends phones back to the stored Supabase URLs | Worker 31/31, Flutter 1723 (3 known WSL-mirror failures), backend app-config 37/37, admin 191/191. S20+ on the published 1.0.13+14 APK with `patches/1`, 2026-11-17: the app's photo requests go to img.help24.co.ke; MISS, then HIT at the same Cloudflare location (EBB); avatars revalidated by etag after 5 minutes |
 
 ## Shipped in 1.0.13 (2026-11-16)
 
@@ -73,6 +73,17 @@ Notes from the phone test:
   scanning" so they were never sent to Google.
 
 ## Patches on 1.0.12 (stable)
+
+**No Patch 3: the photo change was deliberately not patched onto 1.0.12**
+(owner's decision, 2026-11-17). It was built and tested for 1.0.12 on branch
+`patch/photo-cdn-1.0.12` (`1a2d514`, the PR #26 work without PR #22's native
+code). The same day the owner raised `ops.min_version` hard to 1.0.13, so every
+1.0.12 phone gets the blocking update screen at its next start and never shows
+a photo again. A patch there would only spend Shorebird patch installs (5,000 a
+month on the free plan) on phones that cannot use it. 1.0.12 phones get the
+photo change by installing 1.0.13, which carries it in 1.0.13 Patch 1. The
+branch stays on GitHub; patch it only if the hard gate is ever lowered below
+1.0.13.
 
 Checked on the S20+ running the published v1.0.12 APK (sha `eae85178…`).
 
