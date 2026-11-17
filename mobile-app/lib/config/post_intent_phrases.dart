@@ -39,6 +39,9 @@ const List<String> kOfferPhrases = [
   "i'm an",
   'am a',
   'am an',
+  // "I am" typed without its space, as it often is on a phone.
+  'iam a',
+  'iam an',
   'anyone in need of',
   'anyone who needs',
   'anyone looking for',

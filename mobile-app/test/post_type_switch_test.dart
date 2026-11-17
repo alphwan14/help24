@@ -200,12 +200,36 @@ void main() {
     });
   });
 
-  group('the request that was just posted', () {
-    test('goes to the finding-help moment, not a toast', () {
-      final composer = File('lib/screens/post_screen.dart').readAsStringSync();
-      expect(composer.contains('FindingHelpScreen(post: request)'), isTrue);
-      // The shell still learns that a listing was created.
+  group('the request being posted', () {
+    final composer = File('lib/screens/post_screen.dart').readAsStringSync();
+    final submit = composer.substring(composer.indexOf('Future<void> _submitPost() async {'));
+
+    test('swaps the form for the finding-help view at the tap, not after the server', () {
+      expect(composer.contains('FindingHelpView('), isTrue);
+      final starts = submit.indexOf('_findingHelp = true;');
+      final saves = submit.indexOf('await AuthService.ensureCurrentUserInSupabase()');
+      expect(starts, greaterThan(-1));
+      expect(saves, greaterThan(starts), reason: 'the mark must start before the work does');
+    });
+
+    test('turns "live" the moment the server confirms, with nothing added', () {
+      expect(submit.contains('setState(() => _postedRequest = request)'), isTrue);
+      expect(RegExp(r'Future\.delayed|Timer\(').hasMatch(submit), isFalse);
+    });
+
+    test('a failure brings the form back', () {
+      final failure = submit.substring(submit.indexOf('} catch (e) {'));
+      expect(failure.contains('_findingHelp = false;'), isTrue);
+    });
+
+    test('the shell still learns that a listing was created', () {
+      expect(RegExp(r'void _closeAfterPosting\(\) \{[\s\S]{0,300}pop\(true\)').hasMatch(composer), isTrue);
       expect(RegExp(r'pushReplacement\([\s\S]{0,200}result: true').hasMatch(composer), isTrue);
+    });
+
+    test('the upload reports its start, so "photo 1 of n" is true while it goes up', () {
+      final service = File('lib/services/post_service.dart').readAsStringSync();
+      expect(service.contains('onImageUploadProgress?.call(0, imageFiles.length);'), isTrue);
     });
   });
 }

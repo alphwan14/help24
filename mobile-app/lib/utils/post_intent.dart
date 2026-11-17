@@ -7,6 +7,19 @@ import '../models/post_model.dart';
 /// in config/post_intent_phrases.dart (a phrase counts 2, a hint 1), longest
 /// first so no word is counted twice. The composer uses the answer only to
 /// SUGGEST a switch; it never blocks posting, and a tie says nothing.
+///
+/// ── Where it looks ───────────────────────────────────────────────────────
+/// Anywhere in the title and the description together, in any case, with
+/// punctuation ignored: "Help24 test I am a plumber please ignore" is caught
+/// by "i am a" in the middle of the title, and the same words in the
+/// description count the same. Matching is by WHOLE WORDS, not raw
+/// substrings, on purpose: "am a" must not fire inside "Kama" or "drama",
+/// and "need" must not fire inside "needle".
+///
+/// The admin console runs the same check over live listings
+/// (admin-dashboard/lib/post-intent.ts). Its phrase lists are a copy of
+/// config/post_intent_phrases.dart, and a console test fails if the two
+/// drift apart.
 class PostIntentReading {
   const PostIntentReading({
     required this.offerPhrases,
@@ -153,19 +166,59 @@ PostIntentReading readPostIntent(String text) {
   );
 }
 
-/// The type to suggest instead of [chosen], or null to say nothing.
+/// A suggestion, and the words it rests on.
+class PostIntentSuggestion {
+  const PostIntentSuggestion(this.type, this.evidence);
+
+  /// The kind the words read as.
+  final PostType type;
+
+  /// The phrases and hints that read that way, as written in the lists.
+  final Set<String> evidence;
+}
+
+/// What to suggest instead of [chosen], or null to say nothing.
 ///
 /// Only a request and an offer are ever swapped for each other. A job has its
 /// own form, so a job is never nudged and nothing is nudged into one.
-PostType? suggestedPostType({
+PostIntentSuggestion? suggestPostType({
   required PostType chosen,
   required String title,
   String description = '',
 }) {
   if (chosen == PostType.job) return null;
-  final leaning = readPostIntent('$title\n$description').leaning;
+  final reading = readPostIntent('$title\n$description');
+  final leaning = reading.leaning;
   if (leaning == null || leaning == chosen) return null;
-  return leaning;
+  return PostIntentSuggestion(
+    leaning,
+    {...(leaning == PostType.offer ? reading.offerPhrases : reading.requestPhrases)},
+  );
+}
+
+/// The type to suggest instead of [chosen], or null to say nothing.
+PostType? suggestedPostType({
+  required PostType chosen,
+  required String title,
+  String description = '',
+}) =>
+    suggestPostType(chosen: chosen, title: title, description: description)?.type;
+
+/// Whether the nudge should show, given what the person already answered.
+///
+/// "Keep as a request" quiets the nudge for the words it was shown for, not
+/// for the rest of the post: if the description then adds NEW words that
+/// read the other way ("we offer repairs"), the nudge comes back once more.
+/// The same words, or fewer, stay quiet; typing on never brings it back.
+bool showPostIntentNudge({
+  required PostIntentSuggestion? suggestion,
+  required PostType chosen,
+  PostType? keptType,
+  Set<String> keptEvidence = const {},
+}) {
+  if (suggestion == null) return false;
+  if (keptType != chosen) return true;
+  return !keptEvidence.containsAll(suggestion.evidence);
 }
 
 /// The nudge, in words. One place, so the composer and its tests agree.

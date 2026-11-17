@@ -475,7 +475,11 @@ class PostService {
         debugPrint('📤 STARTING IMAGE UPLOAD FOR POST: $postId');
         debugPrint('═══════════════════════════════════════════');
         debugPrint('📤 Number of images to upload: ${imageFiles.length}');
-        
+        // "0 of n done": the upload starts now, after the row is saved, so a
+        // screen can say "Uploading photo 1 of n" while photo 1 is actually
+        // going up (the uploader itself only reports each photo finished).
+        onImageUploadProgress?.call(0, imageFiles.length);
+
         try {
           imageUrls = await StorageService.uploadMultipleImages(
             imageFiles,

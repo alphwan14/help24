@@ -26,7 +26,8 @@ import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
 import '../utils/post_intent.dart';
 import '../widgets/primitives.dart';
-import 'finding_help_screen.dart';
+import '../widgets/finding_help_view.dart';
+import 'post_detail_screen.dart';
 import '../widgets/location_experience.dart';
 import '../widgets/location_picker.dart';
 import '../widgets/post_preview_card.dart';
@@ -107,9 +108,12 @@ class _PostScreenState extends State<PostScreen> {
   /// role-based default may still be corrected by a late profile read.
   bool _typeTouched = false;
 
-  /// The kind the person said to keep when the nudge suggested the other one.
-  /// The nudge stays quiet for that kind until they switch.
+  /// The kind the person said to keep when the nudge suggested the other one,
+  /// and the words the nudge had read. The nudge stays quiet for those words;
+  /// new ones that read the other way (say, in the description) bring it back
+  /// once more. See [showPostIntentNudge].
   PostType? _nudgeKeptFor;
+  Set<String> _nudgeKeptEvidence = const {};
 
   // Form controllers
   final _titleController = TextEditingController();
@@ -134,6 +138,18 @@ class _PostScreenState extends State<PostScreen> {
   double? _pinnedLng;
   List<SelectedImage> _selectedImages = [];
   final ImagePicker _picker = ImagePicker();
+
+  /// A REQUEST is published behind the finding-help view, from the tap on
+  /// "Post Now" until the view closes: true swaps the whole form for it.
+  /// Offers and jobs keep the button's spinner and the toast.
+  ///
+  /// The view only shows what the work reports: [_upload] from the real photo
+  /// upload, [_postedRequest] when the server confirms. A failure swaps the
+  /// form back, exactly as it was, with the error and Retry.
+  bool _findingHelp = false;
+  String _findingLine = '';
+  ({int done, int total})? _upload;
+  PostModel? _postedRequest;
 
   // Submission state
   bool _isSubmitting = false;
@@ -287,6 +303,7 @@ class _PostScreenState extends State<PostScreen> {
     _selectType(to);
     setState(() {
       _nudgeKeptFor = null;
+      _nudgeKeptEvidence = const {};
       if (to == PostType.offer) {
         // The offer journey snapshots its questions step on leaving the title
         // step, which this jump skips. Requests snapshot on the When step,
@@ -299,28 +316,39 @@ class _PostScreenState extends State<PostScreen> {
     });
   }
 
-  /// The nudge for what has been written so far, or null to stay quiet.
-  PostType? get _suggestedType {
+  /// The nudge for everything written so far (title AND description), or
+  /// null to stay quiet.
+  PostIntentSuggestion? get _suggestion {
     final chosen = _selectedType;
-    if (chosen == null || chosen == _nudgeKeptFor) return null;
-    return suggestedPostType(
+    if (chosen == null) return null;
+    final suggestion = suggestPostType(
       chosen: chosen,
       title: _titleController.text,
       description: _descriptionController.text,
     );
+    final show = showPostIntentNudge(
+      suggestion: suggestion,
+      chosen: chosen,
+      keptType: _nudgeKeptFor,
+      keptEvidence: _nudgeKeptEvidence,
+    );
+    return show ? suggestion : null;
   }
 
   Widget _buildTypeNudge() {
-    final suggested = _suggestedType;
+    final suggestion = _suggestion;
     final chosen = _selectedType;
-    if (suggested == null || chosen == null) return const SizedBox.shrink();
+    if (suggestion == null || chosen == null) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: AppSpace.lg),
       child: _TypeNudge(
-        suggested: suggested,
+        suggested: suggestion.type,
         chosen: chosen,
-        onSwitch: () => _switchType(suggested),
-        onKeep: () => setState(() => _nudgeKeptFor = chosen),
+        onSwitch: () => _switchType(suggestion.type),
+        onKeep: () => setState(() {
+          _nudgeKeptFor = chosen;
+          _nudgeKeptEvidence = suggestion.evidence;
+        }),
       ),
     );
   }
@@ -676,9 +704,16 @@ class _PostScreenState extends State<PostScreen> {
     // only leaves from the first one. As a body swap, back abandoned the whole
     // form from any step — see the class doc.
     return PopScope(
-      canPop: _currentStep == 0,
+      canPop: _currentStep == 0 && !_findingHelp,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop || _currentStep == 0) return;
+        if (didPop) return;
+        if (_findingHelp) {
+          // Nothing to step back to while a request goes up; once it is live,
+          // back closes, as the view's close button does.
+          if (_postedRequest != null) _closeAfterPosting();
+          return;
+        }
+        if (_currentStep == 0) return;
         setState(() => _currentStep--);
       },
       // The Scaffold and the TOP inset are this screen's own now.
@@ -691,7 +726,20 @@ class _PostScreenState extends State<PostScreen> {
       // composer opened on a BLACK page with its title clipped under the
       // status bar.
       child: Scaffold(
-        body: SafeArea(
+        // A request, from the tap on Post: the finding-help view in place of
+        // the whole form (see [_findingHelp]).
+        body: _findingHelp
+            ? FindingHelpView(
+                line: _findingLine,
+                upload: _upload,
+                posted: _postedRequest,
+                onViewPost: (post) => Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)),
+                  result: true,
+                ),
+                onClose: _closeAfterPosting,
+              )
+            : SafeArea(
       child: Column(
         children: [
           // Header
@@ -2219,6 +2267,16 @@ class _PostScreenState extends State<PostScreen> {
   // The same words the feed card will use for this post.
   String _getTypeDisplayLabel() => _selectedType?.kindLabel ?? 'Post';
 
+  /// The finding-help view is done (its close button, back, or its own
+  /// timer): leave with `true`, a listing was created. Only while this screen
+  /// is the one on top; "View your post" replaces it first.
+  void _closeAfterPosting() {
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
+    Navigator.of(context).pop(true);
+  }
+
   Future<void> _submitPost() async {
     if (_isSubmitting) return;
 
@@ -2236,12 +2294,23 @@ class _PostScreenState extends State<PostScreen> {
       if (!mounted || !vetted) return;
     }
 
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
       _isSubmitting = true;
       _uploadedImages = 0;
       // The job journey has no photos step — never upload images that were
       // picked during an earlier request/offer attempt in this session.
       _totalImages = _isJobFlow ? 0 : _selectedImages.length;
+      if (_isRequestFlow) {
+        // The mark starts now, not when the server answers.
+        _findingHelp = true;
+        _findingLine = findingHelpLine(
+          category: (_selectedCategory ?? Category.all.last).name,
+          location: _locationLabel,
+        );
+        _upload = null;
+        _postedRequest = null;
+      }
     });
 
     final provider = context.read<AppProvider>();
@@ -2358,6 +2427,7 @@ class _PostScreenState extends State<PostScreen> {
               setState(() {
                 _uploadedImages = completed;
                 _totalImages = total;
+                if (_findingHelp) _upload = (done: completed, total: total);
               });
             }
           },
@@ -2369,15 +2439,13 @@ class _PostScreenState extends State<PostScreen> {
         if (createdPost.type == PostType.request) createdRequest = createdPost;
       }
 
-      // A request is someone waiting for help: they get a moment that says
-      // what happens next instead of a toast. `result: true` still reaches the
-      // shell, so Discover is underneath when they close it, as before.
+      // A request is someone waiting for help: the finding-help view already
+      // on screen turns to "Your request is live." now, with no wait added.
+      // It closes the composer with `true` (_closeAfterPosting), so the shell
+      // still learns a listing was created and puts Discover underneath.
       final request = createdRequest;
-      if (request != null && mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => FindingHelpScreen(post: request)),
-          result: true,
-        );
+      if (request != null && _findingHelp) {
+        if (mounted) setState(() => _postedRequest = request);
         return;
       }
 
@@ -2405,6 +2473,13 @@ class _PostScreenState extends State<PostScreen> {
       }
     } catch (e) {
       if (mounted) {
+        // Back to the form, as it was: nothing was published.
+        if (_findingHelp) {
+          setState(() {
+            _findingHelp = false;
+            _upload = null;
+          });
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
