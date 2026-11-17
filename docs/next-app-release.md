@@ -23,23 +23,33 @@ Build in WSL from a commit, never from Windows:
 
 ## Waiting
 
-Nothing since 1.0.13 Patch 1 (below). Live `ops.min_version` is soft and hard **1.0.13** (the owner
+Nothing since 1.0.13 Patch 2 (below). Live `ops.min_version` is soft and hard **1.0.13** (the owner
 raised it on 2026-11-17; read from `/config` that day). The in-app updater only helps
 from 1.0.13 on: 1.0.12 and older phones still update from the download page.
 For the next release, fill `apk_url`, `sha256` and `size_bytes` in App
 controls (the GitHub asset link, its sha256 and byte size) so 1.0.13 phones
 update in one tap.
 
-## Shipped as 1.0.13+14 Patch 1 (2026-11-17)
+## Shipped as 1.0.13+14 Patch 2 (2026-11-17)
 
-Shorebird patch #1 (id 815916) on stable, built from `670e9b8` (PR #28, which
-carries main to `5d0f172`). Dart only; no icons added or removed, no asset
-diffs. Build notes in docs/shorebird.md. **Until PR #28 is merged, never patch
-from main**: it would take this work back off phones.
+Shorebird patch #2 (id 816101) on stable, built from main `144244a` (PR #31
+merge). Dart only; no icons added since `339749d`, no asset diffs. Built
+first time with the lean settings in docs/shorebird.md (peak 4.75 GB in the
+VM). Carries Patch 1's changes too.
 
 | Commit | Change | Verified |
 |---|---|---|
-| `da43477`, `5240086` (PR #28) | Post types people can't get wrong (docs/post-type-clarity.md): step 0 asks "What are you posting?" with "I need help" / "I offer a service" and a quieter "Hiring for a job", preselected from the account; a nudge when the words sound like the other kind, with a one-tap switch; the author can switch an open request and offer nobody has responded to; cards say "Needs help" / "Offering" / "Hiring"; a "Finding Plumbing near …" moment after a request is posted. Needs migration 145, live since 2026-11-17 | 1782 Flutter tests (the 3 known WSL-mirror failures); migration 145 as each real role, 17/17, rolled back, before and after applying; admin e2e 204/204 including the listing-type section. **Phone check owed** (S20+, published APK) |
+| `bd1bd35` (PR #31) | Follow-ups from the owner's phone check of Patch 1. **The author's type switch is a correction, not a free choice**: shown only when the listing's own words read as the other kind ("This reads like an offer. Change to an offer"); Patch 1 let the owner turn "Am an experienced welder based in Mombasa" into a request, and it was switched back the same day. **Finding help paces itself and closes**: the H forms over 1.6 s, "Finding…" until about 3.8 s, "Your request is live." for 3 s, then it closes back to Discover. **Keyboard**: every composer step change puts it away (it stayed up after "Post as an offer"). "am an" added to the offer phrases | 1793 Flutter tests (the 3 known WSL-mirror failures). **Phone check owed** on the published APK |
+
+## Shipped as 1.0.13+14 Patch 1 (2026-11-17)
+
+Shorebird patch #1 (id 815916) on stable, built from `670e9b8` (PR #28, which
+carries main to `5d0f172`; merged as `8be4b31`). Dart only; no icons added or
+removed, no asset diffs. Build notes in docs/shorebird.md.
+
+| Commit | Change | Verified |
+|---|---|---|
+| `da43477`, `5240086` (PR #28) | Post types people can't get wrong (docs/post-type-clarity.md): step 0 asks "What are you posting?" with "I need help" / "I offer a service" and a quieter "Hiring for a job", preselected from the account; a nudge when the words sound like the other kind, with a one-tap switch; the author can switch an open request and offer nobody has responded to; cards say "Needs help" / "Offering" / "Hiring"; a "Finding Plumbing near …" moment after a request is posted. Needs migration 145, live since 2026-11-17 | 1782 Flutter tests (the 3 known WSL-mirror failures); migration 145 as each real role, 17/17, rolled back, before and after applying; admin e2e 204/204 including the listing-type section. S20+ on the published APK with `patches/1`, 2026-11-17: Needs help / Offering labels on Discover and My posts; step 0 preselects "I offer a service" for a provider account; the nudge on "Edger here anyone in need of plumber" and its one-tap switch (title carried over); the owner's switch and its dialog; a test request ("Test request from Help24 please ignore", Plumbing, Adams Arcade) showed "Finding Plumbing near Adams Arcade, Nairobi…", then "Your request is live.", and was deleted about 75 s later |
 | `e3cb1c8`, `1a2d514` (PR #26) | Public photos (post photos, thumbnails, avatars) load through img.help24.co.ke, the help24-img Worker that caches them at Cloudflare's edge; App controls switch "Photos through Cloudflare" (`ops.kill_switches.image_cdn`, default on) sends phones back to the stored Supabase URLs | Worker 31/31, Flutter 1723 (3 known WSL-mirror failures), backend app-config 37/37, admin 191/191. S20+ on the published 1.0.13+14 APK with `patches/1`, 2026-11-17: the app's photo requests go to img.help24.co.ke; MISS, then HIT at the same Cloudflare location (EBB); avatars revalidated by etag after 5 minutes |
 
 ## Shipped in 1.0.13 (2026-11-16)
