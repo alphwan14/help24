@@ -171,6 +171,7 @@ provider sends an offer). Revisit with supply; it belongs on
 docs/later-with-traction.md.
 
 ## Verification
+**Applied to production 2026-11-17** with `npx supabase db query --remote --file supabase/migrations/145_post_type_changes.sql` (not recorded in the migration ledger, like 139). Checked in the catalog afterwards: the table with RLS on, both triggers, `admin_reclassify_post` executable by service_role only. The same 17 role checks then ran against the live objects inside a rolled-back block, all as expected, with 0 rows left behind and post counts unchanged (request 49, offer 25, job 2).
 
 - Flutter: 1782 tests in the WSL mirror (the 3 known environmental failures),
   including `post_intent_test`, `finding_help_test` (copy, no digits ever on
