@@ -48,7 +48,8 @@ export const SWITCHES: { key: keyof KillSwitches; label: string; off: string }[]
   { key: "applications", label: "Applying and offering", off: "Nobody can apply to a job or offer their service on a request." },
   { key: "payments", label: "Payments", off: "Nobody can start an M-Pesa payment into escrow. Payments already made are unaffected." },
   { key: "promotions", label: "Promotions", off: "Nobody can buy a promotion. Running campaigns keep running." },
-  // App 1.0.12 Patch 3 and later. Older apps always load photos straight from Supabase.
+  // Read by the photo patch on 1.0.12 and 1.0.13 and every later build; apps
+  // without it always load photos straight from Supabase.
   { key: "image_cdn", label: "Photos through Cloudflare", off: "Photos load straight from Supabase, as before img.help24.co.ke. Slower, nothing else changes." },
 ];
 
