@@ -18,9 +18,15 @@ which carries main to `5d0f172`): post types people can't get wrong
 behind the App controls switch. Every change since `339749d` is under
 `mobile-app/lib` or `test`; icon check: none added or removed; the log shows no
 asset diffs (`--allow-asset-diffs` was passed only so an unattended run could
-not stop on one). Log: `~/h24build/out/patch-1.0.13-ptc.log`. Phone check on
-the published APK owed. **Until PR #28 is merged, never patch from main**: a
-patch from main would take this work back off phones.
+not stop on one). Log: `~/h24build/out/patch-1.0.13-ptc.log`. PR #28 merged as
+`8be4b31`. Phone-checked on the published APK (`patches/1` active).
+
+**Patch 2** (2026-11-17, stable, Shorebird id 816101, from main `144244a`,
+PR #31): the author's type switch only when the words disagree, Finding help
+paced and closing by itself, the composer keyboard fix. Dart only, no icons
+added since `339749d`, no asset diffs. Built first time with the lean
+settings (peak 4.75 GB in the VM). Log: `~/h24build/out/patch-1.0.13-p2.log`.
+Phone check on the published APK owed.
 
 **Do not patch 1.0.12 from main any more.** Main has the updater's native code
 and the new permission, which the 1.0.12 APK lacks. 1.0.12+13 keeps its
