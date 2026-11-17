@@ -63,3 +63,32 @@ The first real advances will show which of these finance needs first.
 
 **Start when:** the switch is on and the first few advances have gone out, or
 at the first dispute on a job with an advance, whichever comes first.
+
+## "Sent to N providers nearby" after a request
+
+Parked 2026-11-17, recommended by the post-type session
+(docs/post-type-clarity.md).
+
+**What:** when a request goes up, push it to the providers who could take it
+and tell the client how many were told, for example "Sent to 12 providers
+nearby" on the finding-help screen.
+
+**Why it waits:** nothing is sent anywhere when a request is posted today, so
+the screen shows no number (an invented one is the thing a trust product
+cannot show). With 9 confirmed professions on the platform the honest number
+would usually be 0 to 2, which reads worse than saying nothing.
+
+**What it needs:**
+
+- Automatic fan-out at post time with the Request rescue limits (never the
+  author, once per request, at most 3 a day per provider), using the
+  matching the console already has (`admin-dashboard/lib/provider-matching.ts`).
+- A home for it: posts are inserted from the app, so a backend endpoint the
+  app calls after the insert, or a trigger plus a worker, writing a record of
+  who was told per request. A backend change, so it needs a named driver
+  under the freeze.
+- The finding-help screen reading that count back, shown only when it is
+  real.
+
+**Start when:** most categories have several providers in each big town, so
+the count is usually worth saying.
