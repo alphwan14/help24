@@ -26,7 +26,8 @@ PR #31): the author's type switch only when the words disagree, Finding help
 paced and closing by itself, the composer keyboard fix. Dart only, no icons
 added since `339749d`, no asset diffs. Built first time with the lean
 settings (peak 4.75 GB in the VM). Log: `~/h24build/out/patch-1.0.13-p2.log`.
-Phone check on the published APK owed.
+Phone-checked 2026-11-17 on the published APK (sha `09dbde98…`): patch 2
+downloaded on the first start, `active path …/patches/2` on the second.
 
 **Do not patch 1.0.12 from main any more.** Main has the updater's native code
 and the new permission, which the 1.0.12 APK lacks. 1.0.12+13 keeps its
