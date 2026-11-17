@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase-server";
 import DataTable from "@/components/DataTable";
 import { ArchivedBadge, archivedRowClass } from "@/components/PostStatusBadge";
@@ -58,7 +59,10 @@ export default async function MarketplaceOffersPage() {
         return (
           <div className="max-w-xs">
             <div className="flex items-center gap-2">
-              <p className="font-medium text-gray-900 truncate">{r.title}</p>
+              {/* The listing page, where a mislabelled offer can be reclassified. */}
+              <Link href={`/dashboard/marketplace/requests/${r.id}`} className="font-medium text-gray-900 truncate hover:underline">
+                {r.title}
+              </Link>
               {r.archived_at && <ArchivedBadge />}
             </div>
             <p className="text-xs text-gray-400">{r.category} · {r.location}</p>

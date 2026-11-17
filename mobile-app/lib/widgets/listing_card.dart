@@ -24,12 +24,12 @@ import 'primitives.dart';
 ///
 /// A row now answers only what decides whether to open it:
 ///
-///     ┌────────┐  Offer  Gardening                   1mo ago
+///     ┌────────┐  Offering  Gardening                1mo ago
 ///     │  96px  │  Gardening
 ///     │ photo  │  ⌖ Westlands, Nairobi
 ///     └────────┘  From KES 1,000/day
 ///
-///     Request  Plumbing                                     1mo ago
+///     Needs help  Plumbing                                  1mo ago
 ///     Edger here anyone in need of plumber
 ///     ⌖ Muhoroni
 ///     Open to offers                                       [Urgent]
@@ -84,7 +84,8 @@ class ListingCard extends StatelessWidget {
   /// surface that REBUILDS on a timer.
   final String? urgentCountdown;
 
-  /// Whether to say "Request", "Offer" or "Job" before the category. Discover
+  /// Whether to say "Needs help", "Offering" or "Hiring" before the category
+  /// ([PostTypeKindLabel]). Discover
   /// turns it off on a filtered tab, where every row is the same kind.
   final bool showKind;
 
@@ -179,8 +180,14 @@ class ListingCard extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────
 
-/// "Request  Plumbing" on the left, the age (or "Sponsored") on the right.
-/// Kind and category are told apart by weight, not by a separator.
+/// "Needs help  Plumbing" on the left, the age (or "Sponsored") on the right.
+/// Kind and category are told apart by weight and tone, not by a separator.
+///
+/// The kind is the one fact a reader must not misread: a provider advertising
+/// and a client asking used to sit under "Offer" and "Request" in the same
+/// grey, so the feed showed "Edger here anyone in need of plumber" under
+/// "Request" and nobody could tell at a glance. The words now say who needs
+/// what, each in its own type tone (the same roles the detail badge uses).
 class _TopLine extends StatelessWidget {
   const _TopLine({
     required this.post,
@@ -200,19 +207,19 @@ class _TopLine extends StatelessWidget {
       fontSize: 12.5,
       color: c.contentTertiary,
     );
-    final kind = switch (post.type) {
-      PostType.request => 'Request',
-      PostType.offer => 'Offer',
-      PostType.job => 'Job',
+    final kindColor = switch (post.type) {
+      PostType.request => c.infoText,
+      PostType.offer => c.positiveText,
+      PostType.job => c.accentText,
     };
 
     return Row(
       children: [
         if (showKind) ...[
           Text(
-            kind,
+            post.type.kindLabel,
             style: base.copyWith(
-              color: c.contentSecondary,
+              color: kindColor,
               fontWeight: FontWeight.w600,
             ),
           ),

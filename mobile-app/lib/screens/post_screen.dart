@@ -16,13 +16,17 @@ import '../providers/location_provider.dart';
 import '../services/auth_service.dart';
 import '../services/category_schema_service.dart';
 import '../services/location_registry.dart';
+import '../services/profession_registry.dart';
+import '../services/profile_snapshot_cache.dart';
 import '../services/user_profile_service.dart';
 import '../services/verification_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../utils/error_mapper.dart';
 import '../utils/format_utils.dart';
+import '../utils/post_intent.dart';
 import '../widgets/primitives.dart';
+import 'finding_help_screen.dart';
 import '../widgets/location_experience.dart';
 import '../widgets/location_picker.dart';
 import '../widgets/post_preview_card.dart';
@@ -83,6 +87,14 @@ class PostScreen extends StatefulWidget {
 class _PostScreenState extends State<PostScreen> {
   int _currentStep = 0;
   PostType? _selectedType;
+
+  /// The person chose (or switched) the kind themselves. Until then the
+  /// role-based default may still be corrected by a late profile read.
+  bool _typeTouched = false;
+
+  /// The kind the person said to keep when the nudge suggested the other one.
+  /// The nudge stays quiet for that kind until they switch.
+  PostType? _nudgeKeptFor;
 
   // Form controllers
   final _titleController = TextEditingController();
@@ -194,9 +206,114 @@ class _PostScreenState extends State<PostScreen> {
   static Future<VerificationStatus?> _readVettingStatus() =>
       VerificationService.myStatus().then<VerificationStatus?>((s) => s).catchError((_) => null);
 
+  /// Provider accounts start on "I offer a service", everyone else on "I need
+  /// help". A default, not a decision: one tap switches it.
+  ///
+  /// "Provider" is the app's one definition, a confirmed profession on the
+  /// profile (the first thing ProviderReadiness checks). There is no stored
+  /// role. The profile this phone last saw answers before the first frame;
+  /// only a phone that has never opened Profile as this account waits for the
+  /// network, and a late answer never overrides a choice already made.
+  void _preselectType() {
+    final uid = context.read<AuthProvider>().currentUserId ?? '';
+    final cached = ProfileSnapshotCache.user(uid);
+    _selectedType = _defaultTypeFor(cached?.profession);
+    if (cached != null || uid.isEmpty) return;
+    UserProfileService.getUser(uid).then((profile) {
+      if (!mounted || _typeTouched || _currentStep != 0 || profile == null) return;
+      final type = _defaultTypeFor(profile.profession);
+      if (type != _selectedType) _selectType(type);
+    }).catchError((Object _) {
+      // The default stays. Nothing about posting depends on this read.
+    });
+  }
+
+  static PostType _defaultTypeFor(String? profession) =>
+      ProfessionRegistry.instance.isConfirmed(profession)
+          ? PostType.offer
+          : PostType.request;
+
+  /// A tap on one of the step-0 choices: select it and move on, with the same
+  /// short pause the category step uses so the selection registers.
+  void _chooseType(PostType type) {
+    _typeTouched = true;
+    _selectType(type);
+    _advanceRequestDelayed();
+  }
+
+  /// The nudge's one-tap switch: same post, the other kind.
+  ///
+  /// What both journeys ask for travels: category, title, description,
+  /// location, map pin, photos and a typed amount. What only one asks for
+  /// ("When?" and the budget choice for a request, a starting price and
+  /// availability for an offer) is asked again. So the person lands on the
+  /// step after the title in the new journey and walks forward through answers
+  /// already filled in. Category answers are cleared, as on any change of
+  /// kind: a schema can ask different questions of a request and an offer.
+  Future<void> _switchType(PostType to) async {
+    // Offering care or in-home work needs a check (migration 135), asked here
+    // exactly as picking the category in the offer journey asks it.
+    if (to == PostType.offer && _selectedCategory != null) {
+      final uid = context.read<AuthProvider>().currentUserId ?? '';
+      final vetted = await ensureVettedFor(
+        context,
+        uid: uid,
+        categoryName: _selectedCategory!.name,
+        applying: false,
+        known: _vettingStatus,
+      );
+      if (!mounted) return;
+      if (!vetted) {
+        _vettingStatus = _readVettingStatus();
+        return;
+      }
+    }
+    _typeTouched = true;
+    _selectType(to);
+    setState(() {
+      _nudgeKeptFor = null;
+      if (to == PostType.offer) {
+        // The offer journey snapshots its questions step on leaving the title
+        // step, which this jump skips. Requests snapshot on the When step,
+        // which is where this lands them.
+        _includeQuestions = _activeSchema != null;
+        _currentStep = _offerSteps.indexOf(OfferStepId.title) + 2;
+      } else {
+        _currentStep = _reqSteps.indexOf(RequestStepId.title) + 2;
+      }
+    });
+  }
+
+  /// The nudge for what has been written so far, or null to stay quiet.
+  PostType? get _suggestedType {
+    final chosen = _selectedType;
+    if (chosen == null || chosen == _nudgeKeptFor) return null;
+    return suggestedPostType(
+      chosen: chosen,
+      title: _titleController.text,
+      description: _descriptionController.text,
+    );
+  }
+
+  Widget _buildTypeNudge() {
+    final suggested = _suggestedType;
+    final chosen = _selectedType;
+    if (suggested == null || chosen == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpace.lg),
+      child: _TypeNudge(
+        suggested: suggested,
+        chosen: chosen,
+        onSwitch: () => _switchType(suggested),
+        onKeep: () => setState(() => _nudgeKeptFor = chosen),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _preselectType();
     // Add listeners to trigger rebuild when text changes (for button state)
     _titleController.addListener(_onFormChanged);
     _descriptionController.addListener(_onFormChanged);
@@ -676,7 +793,7 @@ class _PostScreenState extends State<PostScreen> {
   }
 
   String _getStepTitle() {
-    if (_currentStep == 0) return 'What would you like to do?';
+    if (_currentStep == 0) return 'What are you posting?';
     if (_isRequestFlow) {
       switch (_currentReqStep) {
         case RequestStepId.category:
@@ -851,31 +968,42 @@ class _PostScreenState extends State<PostScreen> {
     );
   }
 
+  /// Step 0: one plain question, answered in the poster's own words.
+  ///
+  /// It used to be three equal cards named after the database's types
+  /// ("Request a Service", "Offer a Service", "Post a Job"), and people
+  /// picked the wrong one: a provider advertising ("Edger here anyone in need
+  /// of plumber") posted as a Request. The two answers now say who needs what,
+  /// the likely one is already chosen from the account (see [_preselectType]),
+  /// and a job, which is a different thing (a position with regular pay, its
+  /// own form and its own tab), is a quieter third answer with one line that
+  /// says what makes it a job.
   Widget _buildTypeSelection() {
     return Column(
       children: [
         _TypeCard(
           icon: AppIcons.postRequest,
-          title: 'Request a Service',
-          description: 'Looking for someone to help you with a task or service',
+          title: 'I need help',
+          description: 'Someone to do a task, a repair or a service for you',
           isSelected: _selectedType == PostType.request,
-          onTap: () => _selectType(PostType.request),
+          onTap: () => _chooseType(PostType.request),
         ),
         const SizedBox(height: 12),
         _TypeCard(
           icon: AppIcons.listing,
-          title: 'Offer a Service',
-          description: 'Share your skills and get hired by people who need help',
+          title: 'I offer a service',
+          description: 'You do this work and want people nearby to hire you',
           isSelected: _selectedType == PostType.offer,
-          onTap: () => _selectType(PostType.offer),
+          onTap: () => _chooseType(PostType.offer),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpace.xl),
         _TypeCard(
+          compact: true,
           icon: AppIcons.jobs,
-          title: 'Post a Job',
-          description: 'Hire someone for a position or project',
+          title: 'Hiring for a job',
+          description: 'A position with regular pay, like a house help or a shop attendant',
           isSelected: _selectedType == PostType.job,
-          onTap: () => _selectType(PostType.job),
+          onTap: () => _chooseType(PostType.job),
         ),
         const SizedBox(height: 32),
         SizedBox(
@@ -884,6 +1012,8 @@ class _PostScreenState extends State<PostScreen> {
           child: ElevatedButton(
             onPressed: _selectedType != null
                 ? () {
+                    // Continuing on the default is choosing it.
+                    _typeTouched = true;
                     setState(() {
                       _currentStep = 1;
                     });
@@ -1372,6 +1502,9 @@ class _PostScreenState extends State<PostScreen> {
             color: isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary,
           ),
         ),
+        // Where the wrong kind is cheapest to fix: only the category and the
+        // title have been given, and both carry over.
+        _buildTypeNudge(),
         const SizedBox(height: 28),
         _flowContinueButton(
           enabled: _titleController.text.trim().isNotEmpty,
@@ -1928,6 +2061,10 @@ class _PostScreenState extends State<PostScreen> {
           attributes: _attributeSummary(),
         ),
 
+        // The last look before posting reads the description too. A
+        // suggestion only: "Post Now" below works whatever is chosen here.
+        _buildTypeNudge(),
+
         const SizedBox(height: 32),
 
         // Upload progress indicator (only when uploading images)
@@ -2064,18 +2201,8 @@ class _PostScreenState extends State<PostScreen> {
     }
   }
 
-  String _getTypeDisplayLabel() {
-    switch (_selectedType) {
-      case PostType.request:
-        return 'Request';
-      case PostType.offer:
-        return 'Offer';
-      case PostType.job:
-        return 'Job';
-      default:
-        return 'Post';
-    }
-  }
+  // The same words the feed card will use for this post.
+  String _getTypeDisplayLabel() => _selectedType?.kindLabel ?? 'Post';
 
   Future<void> _submitPost() async {
     if (_isSubmitting) return;
@@ -2122,6 +2249,9 @@ class _PostScreenState extends State<PostScreen> {
     final schemaVersion = _selectedCategory != null
         ? CategorySchemaService.instance.schemaVersionFor(_selectedCategory!.name)
         : null;
+
+    // The request just published, for the "finding help" moment that follows.
+    PostModel? createdRequest;
 
     try {
       await AuthService.ensureCurrentUserInSupabase();
@@ -2221,6 +2351,19 @@ class _PostScreenState extends State<PostScreen> {
         if (createdPost == null) {
           throw Exception(provider.postingError ?? 'Failed to create post');
         }
+        if (createdPost.type == PostType.request) createdRequest = createdPost;
+      }
+
+      // A request is someone waiting for help: they get a moment that says
+      // what happens next instead of a toast. `result: true` still reaches the
+      // shell, so Discover is underneath when they close it, as before.
+      final request = createdRequest;
+      if (request != null && mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => FindingHelpScreen(post: request)),
+          result: true,
+        );
+        return;
       }
 
       if (mounted) {
@@ -2300,23 +2443,28 @@ class _TypeCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
 
+  /// The quieter third answer (a job): less padding, a smaller icon.
+  final bool compact;
+
   const _TypeCard({
     required this.icon,
     required this.title,
     required this.description,
     required this.isSelected,
     required this.onTap,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final box = compact ? 40.0 : 52.0;
 
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.all(compact ? 14 : 20),
         decoration: BoxDecoration(
           color: isSelected
               ? AppTheme.primaryAccent.withValues(alpha: 0.1)
@@ -2332,8 +2480,8 @@ class _TypeCard extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 52,
-              height: 52,
+              width: box,
+              height: box,
               decoration: BoxDecoration(
                 color: isSelected
                     ? AppTheme.primaryAccent.withValues(alpha: 0.2)
@@ -2345,7 +2493,7 @@ class _TypeCard extends StatelessWidget {
                 color: isSelected
                     ? AppTheme.primaryAccent
                     : (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
-                size: 24,
+                size: compact ? 20 : 24,
               ),
             ),
             const SizedBox(width: 16),
@@ -2355,7 +2503,10 @@ class _TypeCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    style: (compact
+                            ? Theme.of(context).textTheme.titleMedium
+                            : Theme.of(context).textTheme.titleLarge)
+                        ?.copyWith(
                       color: isSelected ? AppTheme.primaryAccent : null,
                     ),
                   ),
@@ -2383,6 +2534,63 @@ class _TypeCard extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "This sounds like you're offering a service. Post as an offer?"
+///
+/// A suggestion with two answers and no third state: switch, or keep what was
+/// chosen. It never blocks posting and never repeats itself for a kind the
+/// person already said to keep.
+class _TypeNudge extends StatelessWidget {
+  const _TypeNudge({
+    required this.suggested,
+    required this.chosen,
+    required this.onSwitch,
+    required this.onKeep,
+  });
+
+  final PostType suggested;
+  final PostType chosen;
+  final VoidCallback onSwitch;
+  final VoidCallback onKeep;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final keep = chosen == PostType.offer ? 'Keep as an offer' : 'Keep as a request';
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.md, AppSpace.sm, AppSpace.xs),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpace.sm),
+            child: Text(
+              postIntentNudge(suggested),
+              style: AppTypeScale.bodyM.copyWith(
+                fontFamily: AppTypeScale.family,
+                color: c.contentPrimary,
+              ),
+            ),
+          ),
+          Wrap(
+            spacing: AppSpace.xs,
+            children: [
+              TextButton(
+                onPressed: onSwitch,
+                child: Text(postIntentSwitchLabel(suggested)),
+              ),
+              TextButton(
+                onPressed: onKeep,
+                style: TextButton.styleFrom(foregroundColor: c.contentSecondary),
+                child: Text(keep),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

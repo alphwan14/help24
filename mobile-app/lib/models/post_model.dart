@@ -7,6 +7,20 @@ import 'place.dart';
 
 enum PostType { request, offer, job }
 
+/// What a listing IS, in the words every card and badge uses.
+///
+/// "Request" and "Offer" were the database's words, and on a busy feed they
+/// read alike: both are nouns about a deal, so a provider advertising
+/// ("Edger here anyone in need of plumber") and a client asking looked the
+/// same at a glance. These say who needs what.
+extension PostTypeKindLabel on PostType {
+  String get kindLabel => switch (this) {
+        PostType.request => 'Needs help',
+        PostType.offer => 'Offering',
+        PostType.job => 'Hiring',
+      };
+}
+
 /// How price is quoted: per task, per hour, per day, per week, per month.
 enum PricingType { task, hour, day, week, month }
 
@@ -786,14 +800,8 @@ class PostModel {
     }
   }
 
-  /// Display label for post type — shown on feed cards and in the detail sheet.
-  String get typeDisplayLabel {
-    switch (type) {
-      case PostType.request: return 'Request';
-      case PostType.offer: return 'Offer';
-      case PostType.job: return 'Job';
-    }
-  }
+  /// Display label for post type, shown on feed cards and in the detail sheet.
+  String get typeDisplayLabel => type.kindLabel;
 
   /// Badge color for post type.
   Color get typeBadgeColor {

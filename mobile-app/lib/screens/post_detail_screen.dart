@@ -12,6 +12,7 @@ import '../services/application_service.dart';
 import '../services/category_schema_service.dart';
 import '../services/jobs_service.dart';
 import '../services/mpesa_service.dart';
+import '../services/post_service.dart';
 import '../services/reputation_service.dart';
 import '../services/saved_service.dart';
 import '../services/user_profile_service.dart';
@@ -41,6 +42,7 @@ import '../models/moderation.dart';
 import '../widgets/report_sheet.dart';
 import '../utils/vetting_labels.dart';
 import '../widgets/vetting_badge.dart';
+import '../widgets/vetting_gate.dart';
 
 /// Production post detail, the conversion surface of Help24.
 ///
@@ -90,7 +92,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   /// stays open, so it must refresh).
   int _paymentRefreshTick = 0;
 
-  PostModel get post => widget.post;
+  /// The server's copy after the author changed the listing here (its type),
+  /// shown in place of the one this screen was opened with.
+  PostModel? _edited;
+
+  PostModel get post => _edited ?? widget.post;
 
   @override
   void initState() {
@@ -201,6 +207,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       ),
                       const SizedBox(height: 10),
                       _buildCategoryRow(isDark),
+                      if (isAuthor) _buildTypeSwitch(),
                       const SizedBox(height: AppSpace.xl),
                       _PriceBlock(post: post, isDark: isDark),
                       const SizedBox(height: AppSpace.xl),
@@ -446,6 +453,29 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               background: _ImageCarousel(images: post.images),
             )
           : null,
+    );
+  }
+
+  // ── The author's "wrong type?" switch ─────────────────────────────────────
+
+  /// Shown to the author only while [ownerTypeSwitchTarget] allows it.
+  Widget _buildTypeSwitch() {
+    final to = ownerTypeSwitchTarget(
+      type: post.type,
+      status: post.status,
+      selectedProviderId: _selectedProviderId,
+      applicationCount: post.applications.length,
+    );
+    if (to == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpace.xs),
+      child: _TypeSwitchRow(
+        post: post,
+        to: to,
+        onChanged: (updated) {
+          if (mounted) setState(() => _edited = updated);
+        },
+      ),
     );
   }
 
@@ -1165,6 +1195,109 @@ class _CircleIconButton extends StatelessWidget {
 }
 
 /// The large post-type identity badge (REQUEST / OFFER / JOB).
+/// "Wrong type? Change to an offer", for the author of an open listing that
+/// nobody has responded to yet.
+///
+/// Confirms first, because the change alters what people can do with the
+/// listing (send an offer, or message the provider), then writes through the
+/// database's rules (migration 145) and puts the server's copy back on screen
+/// and in every list AppProvider holds.
+class _TypeSwitchRow extends StatefulWidget {
+  const _TypeSwitchRow({
+    required this.post,
+    required this.to,
+    required this.onChanged,
+  });
+
+  final PostModel post;
+  final PostType to;
+  final ValueChanged<PostModel> onChanged;
+
+  @override
+  State<_TypeSwitchRow> createState() => _TypeSwitchRowState();
+}
+
+class _TypeSwitchRowState extends State<_TypeSwitchRow> {
+  bool _busy = false;
+
+  String get _action =>
+      widget.to == PostType.offer ? 'Change to an offer' : 'Change to a request';
+
+  Future<void> _confirmAndChange() async {
+    final toOffer = widget.to == PostType.offer;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(toOffer ? 'Change to an offer?' : 'Change to a request?'),
+        content: Text(
+          toOffer
+              ? 'It will show as ${PostType.offer.kindLabel}. People who need this work can message you about it.'
+              : 'It will show as ${PostType.request.kindLabel}. Providers can send you offers for it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Change'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // Offering care or in-home work needs a check (migration 135): asked
+    // before the write, not read back as a refusal after it.
+    if (toOffer) {
+      final uid = context.read<AuthProvider>().currentUserId ?? '';
+      final vetted = await ensureVettedFor(
+        context,
+        uid: uid,
+        categoryName: widget.post.category.name,
+        applying: false,
+      );
+      if (!mounted || !vetted) return;
+    }
+
+    final appProvider = context.read<AppProvider>();
+    setState(() => _busy = true);
+    try {
+      final updated = await PostService.changeType(widget.post.id, widget.to);
+      if (!mounted) return;
+      appProvider.applyPostEdit(updated);
+      widget.onChanged(updated);
+      ActionFeedback.success(context, 'Now showing as ${updated.type.kindLabel}.');
+    } catch (e) {
+      if (!mounted) return;
+      ActionFeedback.failure(context, e, context_: ErrorContext.save);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Row(
+      children: [
+        Text(
+          'Wrong type?',
+          style: AppTypeScale.bodyS.copyWith(
+            fontFamily: AppTypeScale.family,
+            color: c.contentTertiary,
+          ),
+        ),
+        TextButton(
+          onPressed: _busy ? null : _confirmAndChange,
+          child: Text(_busy ? 'Changing…' : _action),
+        ),
+      ],
+    );
+  }
+}
+
 class _TypeBadge extends StatelessWidget {
   final String label;
   final Color color;
