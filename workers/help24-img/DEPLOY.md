@@ -9,10 +9,20 @@ Every step below changes production, so each needs explicit approval first.
 Commands run from `workers/help24-img/`. Wrangler is logged in with OAuth
 (`npx wrangler whoami`); no API token is needed. The Worker has no secrets.
 
+**Check the account first.** `whoami` must show the account that owns the
+`help24.co.ke` zone (alphwan14's, where help24-files and help24-mail live).
+On 2026-11-17 this PC was logged in to someone else's account: the deploy
+uploaded the script there and then failed on the domain ("zone does not
+exist on your account"). After switching the login, wrangler still aimed at
+the old account from `.wrangler/cache/wrangler-account.json` in this folder;
+deleting that file fixed it.
+
+Live since 2026-11-17 (version `d4e81564`).
+
 ## 0. Before anything
 
 ```sh
-node --test "test/*.test.js"     # unit + security suite (30 tests)
+node --test "test/*.test.js"     # unit + security suite (31 tests)
 npx wrangler deploy --dry-run    # bundles, uploads nothing
 ```
 

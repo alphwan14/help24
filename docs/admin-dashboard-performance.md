@@ -1,8 +1,49 @@
 # Admin dashboard performance
 
-Status as of **2026-11-06**. The record of the admin console
+Status as of **2026-11-17**. The record of the admin console
 (admin.help24.co.ke) speed work: what was measured, what shipped, and what
 is still open. Read "Where we stopped" first.
+
+## Regions and the dub1 move (2026-11-17)
+
+Read live that day, not from config files:
+
+| Piece | Where it runs | Read from |
+|---|---|---|
+| Supabase | eu-west-1, Dublin | Supabase management API (`supabase projects list`) |
+| Render `help24-backend` | Frankfurt, free plan, 1 instance | Render API |
+| Vercel page functions | **dub1** since 2026-11-17 (was fra1) | `x-vercel-id` (`cpt1::dub1::…`) |
+| Vercel middleware | the edge nearest the reader (cpt1 from Nairobi) | `x-vercel-id` has no function region |
+
+The project's own default region is iad1; `vercel.json` overrides it.
+Fluid Compute is **on** (Vercel API `resourceConfig.fluid`), which closes
+old open item 3.
+
+**What changed:** `vercel.json` `["fra1"]` → `["dub1"]` (PR #27), and an
+`[sb]` log line per server-side Supabase call (`lib/supabase-timing.ts`),
+the counterpart of `[api]`.
+
+**Measured** (owner's click-through, each section twice, medians from the
+Vercel runtime logs; fra1 n = 103 Supabase / 39 backend calls, dub1 n = 117 / 54):
+
+| Call | fra1 | dub1 |
+|---|---|---|
+| Page function → Supabase (all) | 126 ms | **76 ms** |
+| Page function → backend (all) | 414 ms | 412 ms |
+| `/admin/me` (on every page) | 230 ms | 306 ms |
+| Middleware session + gate (edge) | 94 + 73 ms | 90 + 73 ms |
+
+Each Supabase query got about 50 ms faster; each backend call got 25 to 75 ms
+slower, because the backend stays in Frankfurt (Render has no Dublin region).
+A page's reads run in parallel, so a page gains about one query's worth, and
+pages that wait on the backend gain about nothing. The owner noticed only a
+minor improvement, which is what these numbers predict.
+
+**Where the time is now**, biggest first: the backend's own work on the free
+Render instance (alerts 0.9 to 2.1 s, support inbox 0.9 to 1.1 s, Trust &
+Safety reports 1.3 s); middleware's two serial Supabase calls (about 165 ms on
+every request and prefetch); Overview's chart settle in the browser (item 2
+below).
 
 ## Where we stopped
 
@@ -13,7 +54,8 @@ one decision was reversed (see Stage 3).
 
 **Open, in the order I would take them:**
 
-1. **Re-measure.** Nothing has been timed from the owner's browser since
+1. **Re-measure in the browser.** The server side was re-measured from the
+   logs on 2026-11-17 (above); the browser snippet has not been re-run since
    2026-10-26, and f5a7a47 (2026-10-29) made 13 pages render per request,
    which costs server time on every view. Use the snippet in
    [Measuring](#measuring), visit every section twice, and compare against
@@ -22,18 +64,17 @@ one decision was reversed (see Stage 3).
 2. **Overview takes ~3 s to settle** with no server request in the samples:
    charts drawing and animating in the browser. Not yet looked at. Likely fix:
    no entry animation, and the charts rendered after the figures.
-3. **Vercel Fluid Compute** — whether it is on was never read (the CLI does
-   not show it). Owner to check in Vercel → Project → Settings → Functions.
-   It reduces cold starts, which the logs suggest are part of the 260–450 ms
-   gap between middleware and the page function.
+3. ~~Vercel Fluid Compute~~: on (read 2026-11-17).
 4. **Render backend is on the free plan.** It sleeps when idle and is kept
    awake only by an UptimeRobot `HEAD /health` every 5 minutes. If that
    monitor stops, the first console click after a quiet spell waits for a
    cold start (tens of seconds), and the auto-approval sweep and event retry
    loop stop too. A paid instance removes the dependency.
 
-Not worth doing (measured, see Diagnosis): moving off Supabase, moving
-regions, adding Redis, rewriting the dashboard in another framework.
+Not worth doing (measured, see Diagnosis): moving off Supabase, adding
+Redis, rewriting the dashboard in another framework. Moving the functions
+next to the database was done on 2026-11-17 and bought about 50 ms per
+Supabase query (above); moving regions further buys nothing more.
 
 ## Diagnosis (2026-10-25/26)
 
