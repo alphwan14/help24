@@ -87,6 +87,18 @@ kazi", looking for work, beats "natafuta"). A tie says nothing. The file's
 header explains how to edit it; `test/post_intent_test.dart` holds real
 phrasing and should gain a line for every phrase that fixes a real post.
 
+**It reads anywhere in the title and description**, in any case, with
+punctuation ignored. It matches whole words rather than raw substrings on
+purpose: "am a" must not fire inside "Kama" or "drama", nor "need" inside
+"needle". "Help24 test I am a plumber please ignore" (the phone test of
+2026-11-17) is caught by "i am a" in the middle of the title, and is a test
+case now. On the phone the nudge did show for it on the title step; it was
+missing at "Post Now" only because "Keep as a request" had been tapped.
+Since then **"Keep" quiets the words it was shown for, not the whole post**
+(`showPostIntentNudge`): if the description later adds new words that read
+the other way ("we offer repairs"), the nudge comes back once more. "iam a"
+(no space) was added to the offer phrases.
+
 ### 3. Fixing the type after posting
 
 **The author**, on the post screen, is offered a **correction, not a free
@@ -112,6 +124,21 @@ type** (to either other kind; a job needs an employment type) with a reason,
 and every change so far with who made it and why. Any open listing with
 nobody chosen can be reclassified, including one people have responded to
 (the dialog says how many; their responses stay).
+
+**Marketplace > Wrong type** (`/dashboard/marketplace/type-check`) lists
+every live request and offer whose own words read as the other kind, with
+the words that say so ("anyone in need of"), and **Change type** in each row,
+starting on the kind the words suggest. Listings with a provider are shown
+but locked, with the reason. A listing flagged on hints alone (words both
+kinds use) is marked **weak** and listed after the clear ones: on
+2026-11-17 the live data had two, "Edger here anyone in need of plumber"
+(clear) and "Fundi wa fridge" (weak, no description: a fundi advertising or
+a customer asking for one). A changed listing leaves the list. It runs the
+app's check in the console (`admin-dashboard/lib/post-intent.ts`); the phrase
+lists there are a copy of the app's, and `lib/post-intent.test.mjs` reads the
+Dart file and fails if they differ. Edit the app's file first, then the
+copy. A suggestion, not a verdict: open the listing when the words are
+unclear.
 
 **Migration 145** is the authority for both:
 
@@ -145,23 +172,43 @@ list on screen (an edit, not an install), and in My Posts
 type's text tone (info, positive, accent). The detail badge, Saved and the
 composer preview use the same words.
 
-### 5. "Finding help" after a request (`screens/finding_help_screen.dart`)
+### 5. "Finding help" while a request goes up (`widgets/finding_help_view.dart`)
 
-After a request is posted the composer is replaced by a moment built from the
-logo: the two ink bars (customer and provider) slide in from the sides, the
-amber crossbar (escrow) settles between them and breathes, and the line reads
-"Finding {category} near {location}…" from the post itself ("help" for Other,
-"you" with no place). Three beats, then it goes away by itself (Patch 2,
-after the owner saw Patch 1's version form too fast and wait to be closed):
-the H forms over 1.6 s, "Finding…" holds until about 3.8 s, then "Your
-request is live. We'll notify you when providers send offers." with **View
-your post** for 3 s, and the screen closes on its own back to Discover, where
-the request now is. The close button works throughout.
+A moment built from the logo: the two ink bars (customer and provider) and
+the amber crossbar (escrow) between them. Its third version (after Patch 2)
+follows the work instead of a script:
 
-Plain `AnimationController`s, four boxes, fades written into the colours (no
-Opacity layer), theme tokens only (`contentPrimary`, `accentFill`). Under the
-phone's reduce-motion setting the mark is still and the words change without
-a fade. Offers and jobs keep the toast.
+- **It starts on the tap on "Post Now"**, in place of the button's spinner:
+  the composer swaps its form for the view and publishes behind it. The bars
+  slide in from the edges of the screen at full ink (no fade), the crossbar
+  grows between them (1 s in all), then breathes while the request saves.
+- **Real progress under the words**: "Uploading photo 1 of 2", "Uploading
+  photo 2 of 2", "2 photos uploaded", from the actual upload (the upload now
+  reports its start, after the row is saved). Nothing without photos.
+- **"Your request is live." the moment the server confirms**, with a floor
+  of 1.2 s from the tap so a fast network does not flash the first state, and
+  nothing added after. The crossbar gives one small settle (to 90 %, back to
+  rest) with `HapticFeedback.lightImpact`, then everything is still.
+- Three seconds later it closes by itself, back to Discover; **View your
+  post** and the close button appear with the live state (nothing can be
+  cancelled while the request is going up, so neither shows before).
+- **A failure brings the form back** as it was, with the error and Retry.
+- The words sit in **one fixed-height area** sized for the tallest state (both
+  states laid out, one shown), so the mark never moves between them.
+- The **halo is softer and smaller**: at most 14 % amber, at most 4 units
+  around the crossbar, which sits 8 units from each bar, so it never touches
+  them; one slow breath every 1.6 s each way, eased in and out.
+- The line is "Finding {category} help near {location}…", the category in
+  lower case ("Finding plumbing help near Adams Arcade, Nairobi…") except
+  short all-capital words ("TV repair", "AC repair", "IT"); "Other" reads
+  "Finding help", a name ending in "help" is not doubled, no place reads
+  "near you".
+
+Plain `AnimationController`s, four boxes, theme tokens only (`contentPrimary`,
+`accentFill`). Under the phone's reduce-motion setting the mark is still, the
+words change without a fade and the pace still follows the work. Offers and
+jobs keep the button's spinner and the toast. `test/finding_help_test.dart`
+covers the timing, the halo's clearance, the fixed layout and reduce motion.
 
 ## Why there is no "Sent to 12 providers"
 

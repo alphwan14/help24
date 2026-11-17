@@ -130,6 +130,7 @@ export const NAV: NavSection[] = [
       { label: "Hiring", href: "/dashboard/marketplace/jobs", keywords: "jobs" },
       { label: "Job matches", href: "/dashboard/marketplace/active-jobs", keywords: "active jobs" },
       { label: "Completed", href: "/dashboard/marketplace/completed", keywords: "finished jobs" },
+      { label: "Wrong type", href: "/dashboard/marketplace/type-check", keywords: "mislabelled reclassify request offer" },
     ],
   },
   {

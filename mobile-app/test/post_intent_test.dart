@@ -26,6 +26,43 @@ void main() {
     });
   });
 
+  group('"Help24 test I am a plumber please ignore" (the 2026-11-17 phone test)', () {
+    const title = 'Help24 test I am a plumber please ignore';
+
+    test('reads as an offer, from "i am a" in the middle of the title', () {
+      final reading = readPostIntent(title);
+      expect(reading.offerPhrases, ['i am a']);
+      expect(reading.requestPhrases, isEmpty);
+      expect(reading.leaning, PostType.offer);
+      expect(suggestedPostType(chosen: PostType.request, title: title), PostType.offer);
+    });
+
+    test('anywhere: the same words in the description count the same', () {
+      expect(
+        suggestedPostType(chosen: PostType.request, title: 'Help24 test', description: 'I am a plumber, please ignore'),
+        PostType.offer,
+      );
+    });
+
+    test('in any case and with any punctuation', () {
+      for (final text in [
+        'HELP24 TEST I AM A PLUMBER PLEASE IGNORE',
+        'help24 test i am a plumber please ignore',
+        'Help24 test: I am a plumber!! Please ignore.',
+        'Help24 test (I am a plumber) please ignore',
+        'Help24 test Iam a plumber please ignore',
+      ]) {
+        expect(suggestedPostType(chosen: PostType.request, title: text), PostType.offer, reason: text);
+      }
+    });
+
+    test('whole words, so it never fires inside another word', () {
+      expect(readPostIntent('Drama class for kids').offerPhrases, isEmpty, reason: '"am a" inside "drama a"');
+      expect(readPostIntent('Kama sink imevuja').offerPhrases, isEmpty, reason: '"am a" inside "kama"');
+      expect(readPostIntent('Needle work repair').requestPhrases, isEmpty, reason: '"need" inside "needle"');
+    });
+  });
+
   group('offers', () {
     for (final text in [
       'I am a plumber in Kisumu',
@@ -117,6 +154,39 @@ void main() {
         ),
         PostType.offer,
       );
+    });
+
+    test('carry the words they rest on', () {
+      final s = suggestPostType(
+        chosen: PostType.request,
+        title: 'I am a plumber',
+        description: 'We offer repairs, call us',
+      )!;
+      expect(s.type, PostType.offer);
+      expect(s.evidence, {'i am a', 'we offer', 'call us'});
+    });
+
+    test('"Keep as a request" quiets those words, not the rest of the post', () {
+      final kept = suggestPostType(chosen: PostType.request, title: 'I am a plumber')!;
+      bool shows(String title, String description, {PostType chosen = PostType.request}) =>
+          showPostIntentNudge(
+            suggestion: suggestPostType(chosen: chosen, title: title, description: description),
+            chosen: chosen,
+            keptType: PostType.request,
+            keptEvidence: kept.evidence,
+          );
+      // Before anything is kept, it shows.
+      expect(
+        showPostIntentNudge(suggestion: kept, chosen: PostType.request),
+        isTrue,
+      );
+      // The same words, or the same words typed on: quiet.
+      expect(shows('I am a plumber', ''), isFalse);
+      expect(shows('I am a plumber in Kisumu', ''), isFalse);
+      // New words that read as an offer, in the description: once more.
+      expect(shows('I am a plumber', 'We offer repairs'), isTrue);
+      // Nothing to suggest: nothing shows.
+      expect(shows('Looking for a plumber', ''), isFalse);
     });
 
     test('never for a job, and never into one', () {

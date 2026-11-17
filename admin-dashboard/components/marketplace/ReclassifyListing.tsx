@@ -22,11 +22,14 @@ import {
 export default function ReclassifyListing({
   postId,
   currentType,
+  suggestedType,
   applications,
   blockedReason,
 }: {
   postId: string;
   currentType: string;
+  /** The kind the listing's words read as (Wrong type list): chosen first in the dialog. */
+  suggestedType?: ListingType;
   /** How many people already responded: they keep their responses. */
   applications: number;
   /** Why the type cannot change here, or null. */
@@ -34,8 +37,9 @@ export default function ReclassifyListing({
 }) {
   const router = useRouter();
   const others = LISTING_TYPES.filter((t) => t !== currentType);
+  const first = suggestedType && others.includes(suggestedType) ? suggestedType : others[0];
   const [open, setOpen] = useState(false);
-  const [type, setType] = useState<ListingType>(others[0]);
+  const [type, setType] = useState<ListingType>(first);
   const [employment, setEmployment] = useState<EmploymentType | "">("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +49,7 @@ export default function ReclassifyListing({
   const invalid = reclassifyInputError({ type, current: currentType, employmentType: employment || null, reason });
 
   function openDialog() {
-    setType(others[0]);
+    setType(first);
     setEmployment("");
     setReason("");
     setError(null);

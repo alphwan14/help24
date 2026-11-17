@@ -1159,6 +1159,63 @@ try {
     check("a listing with a provider keeps its type: the control is off and says why",
       await evaluate(`${bodyHas("It already has a provider, so its type stays.")} && [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Change type").disabled`));
     check("nothing was sent for it", fake.reclassifications.every((r) => r.body.p_post_id !== TAKEN));
+
+    // Marketplace > Wrong type: the live listings whose own words say the other
+    // kind, by the app's own phrase check, each with Change type to hand.
+    const MISLABELLED = "7b2e4c0a-3d9f-4e5c-9a43-2f8b6d0c9e33";
+    const FINE = "8c3f5d1b-4e0a-4f6d-8b54-3a9c7e1d0f44";
+    const ASKS = "9d4a6e2c-5f1b-4a7e-9c65-4b0d8f2e1a55";
+    const GONE = "ae5b7f3d-6a2c-4b8f-8d76-5c1e9a3f2b66";
+    const HIRED = "bf6c8a4e-7b3d-4c9a-9e87-6d2f0b4a3c77";
+    const HINT = "c07d9b5f-8c4e-4dab-8f98-7e3a1c5b4d88";
+    fake.setTable("posts", [
+      // A hint alone ("fundi wa"), listed first so the sort has to move it.
+      listing(HINT, { title: "Fundi wa fridge", description: "" }),
+      listing(MISLABELLED),
+      listing(FINE, { title: "Kitchen sink leaking, need someone today", description: "" }),
+      listing(ASKS, { title: "Looking for a plumber in Westlands", description: "", type: "offer" }),
+      listing(GONE, { title: "I am a fundi, call me", archived_at: new Date().toISOString(), archived_by: "author" }),
+      listing(HIRED, { title: "We offer painting", status: "assigned", selected_provider_id: fake.idOf(CAROL) }),
+    ]);
+    const enabledChange = `[...document.querySelectorAll("table button")].filter((b) => b.textContent.trim() === "Change type" && !b.disabled)`;
+    await goto(`${APP}/dashboard/marketplace/type-check`);
+    await waitFor(`${bodyHas("Edger here anyone in need of plumber")} && !!document.querySelector("table")`, "wrong type list", 30000);
+    await waitFor(`!document.body.innerText.includes('Opening the console')`, "console ready", 30000).catch(() => {});
+    check("wrong type: in the marketplace tabs", await evaluate(`[...document.querySelectorAll("a")].some((a) => a.textContent.trim() === "Wrong type" && a.getAttribute("href") === "/dashboard/marketplace/type-check")`));
+    check("wrong type: lists the live listings whose words say the other kind, and only those", await evaluate(`(() => {
+      const t = document.querySelector("table").innerText;
+      return t.includes("Edger here anyone in need of plumber") && t.includes("Looking for a plumber in Westlands") && t.includes("We offer painting")
+        && !t.includes("Kitchen sink leaking") && !t.includes("I am a fundi, call me");
+    })()`), await evaluate(`document.querySelector("table").innerText.slice(0, 600)`));
+    check("wrong type: says what each reads as, and the words that say so", await evaluate(`(() => {
+      const cells = [...document.querySelectorAll('[data-testid="reads-as"]')].map((c) => c.innerText);
+      return cells.some((c) => c.includes("Offer") && c.includes("“anyone in need of”")) && cells.some((c) => c.includes("Request") && c.includes("“looking for”"));
+    })()`));
+    check("wrong type: a listing with a provider is shown, but its type stays",
+      await evaluate(`${bodyHas("It already has a provider, so its type stays.")} && ${enabledChange}.length === 3`));
+    check("wrong type: a hint alone is marked weak and comes after the clear ones", await evaluate(`(() => {
+      const rows = [...document.querySelectorAll("table tbody tr")].map((r) => r.innerText);
+      const hint = rows.findIndex((t) => t.includes("Fundi wa fridge"));
+      const clear = rows.findIndex((t) => t.includes("Looking for a plumber in Westlands"));
+      return hint > clear && clear >= 0 && rows[hint].includes("Weak: words both kinds use") && !rows[clear].includes("Weak");
+    })()`), await evaluate(`[...document.querySelectorAll("table tbody tr")].map((r) => r.innerText.split("\\n")[0]).join(" | ")`));
+
+    await evaluate(`[...document.querySelectorAll("table tbody tr")].find((r) => r.innerText.includes("Edger here anyone in need of plumber")).querySelector("button").click()`);
+    await waitFor(`!!document.querySelector('[role="dialog"]')`, "reclassify dialog from the list");
+    check("wrong type: the dialog starts on the kind the words say",
+      await evaluate(`document.querySelector('[role="dialog"] input[name="listing-type"]:checked')?.value === "offer"`));
+    await fill('[role="dialog"] textarea', "Says anyone in need of plumber: an offer");
+    await waitFor(`!${saveButton("Change to offer")}.disabled`, "save enabled from the list");
+    await clickText("Change to offer");
+    await waitFor(`!document.querySelector('[role="dialog"]') && !document.querySelector("table").innerText.includes("Edger here anyone in need of plumber")`, "left the list", 15000);
+    const fromList = fake.reclassifications.at(-1);
+    check("wrong type: reclassified from the list, and it leaves the list",
+      fromList?.body.p_post_id === MISLABELLED && fromList.body.p_type === "offer" &&
+        (await evaluate(`document.querySelector("table").innerText.includes("Looking for a plumber in Westlands")`)),
+      JSON.stringify(fromList));
+    check("wrong type: its note leaves with it, not onto the row below",
+      await evaluate(`!document.querySelector("table").innerText.includes("Changed:")`));
+    await shot("26-wrong-type-list.png", true);
   }
 
   // Desktop: the shell is one screen tall and only <main> scrolls, so the rail
