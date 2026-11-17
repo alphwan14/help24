@@ -18,8 +18,11 @@ export const dynamic = "force-dynamic";
  * not an admin, inactive, no admin record) is a normal "recovery" outcome the
  * caller renders, not an error — so reasons are returned, not thrown.
  */
-export async function POST() {
-  const accessToken = await getServerAccessToken();
+export async function POST(request: Request) {
+  // The sign-in page sends the token it was just given: its session cookie may
+  // not be readable here yet. The backend verifies either one itself.
+  const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const accessToken = bearer ?? (await getServerAccessToken());
   if (!accessToken) {
     return NextResponse.json({ connected: false, reason: "no-session" });
   }

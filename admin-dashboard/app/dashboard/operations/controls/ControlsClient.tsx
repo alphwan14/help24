@@ -11,6 +11,7 @@ import {
   controlProblems,
   controlValue,
   describeChange,
+  formatMegabytes,
   isRestrictive,
   nextAnnouncementId,
   versionImpact,
@@ -262,7 +263,14 @@ function FeaturesCard({ value, last, canEdit, review }: CardProps<KillSwitches>)
 function VersionCard({ value, last, canEdit, review, latest, usage }: CardProps<MinVersion>) {
   // An empty store_url falls back to the app's compiled link; the form shows
   // the real page instead, and only a change the admin makes counts as one.
-  const base: MinVersion = { ...value, store_url: value.store_url || DEFAULT_STORE_URL };
+  // The download fields arrive with backend 2026-11-14; before that they are absent.
+  const base: MinVersion = {
+    ...value,
+    store_url: value.store_url || DEFAULT_STORE_URL,
+    apk_url: value.apk_url ?? "",
+    sha256: value.sha256 ?? "",
+    size_bytes: value.size_bytes ?? 0,
+  };
   const [draft, setDraft] = useState<MinVersion>(base);
   const problems = controlProblems("ops.min_version", draft, latest?.version ?? null);
   const dirty = !same(draft, base);
@@ -278,7 +286,17 @@ function VersionCard({ value, last, canEdit, review, latest, usage }: CardProps<
       dirty={dirty && problems.length === 0}
       canEdit={canEdit}
       onReset={() => setDraft(base)}
-      onReview={() => review("ops.min_version", { ...draft, soft: draft.soft.trim(), hard: draft.hard.trim(), store_url: draft.store_url.trim() })}
+      onReview={() =>
+        review("ops.min_version", {
+          ...draft,
+          soft: draft.soft.trim(),
+          hard: draft.hard.trim(),
+          store_url: draft.store_url.trim(),
+          apk_url: draft.apk_url.trim(),
+          sha256: draft.sha256.trim().toLowerCase(),
+          size_bytes: Number(draft.size_bytes) || 0,
+        })
+      }
     >
       <div className="grid grid-cols-2 gap-3">
         <Field label="Suggest update below" hint="A banner with an Update button. Can be dismissed.">
@@ -294,6 +312,34 @@ function VersionCard({ value, last, canEdit, review, latest, usage }: CardProps<
       <Field label="Update button opens">
         <input className="input" value={draft.store_url} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, store_url: e.target.value })} />
       </Field>
+      <div className="space-y-3" data-testid="in-app-download">
+        <p className="text-[12.5px] text-gray-500">
+          In-app download (app 1.0.13 and later): the app downloads this APK itself, checks its SHA-256 and opens the
+          install prompt. Leave all three empty to open the page above instead.
+        </p>
+        <Field label="APK link" hint="The release's app-release.apk on GitHub, or a help24.co.ke link.">
+          <input name="apk_url" className="input" placeholder="none" value={draft.apk_url} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, apk_url: e.target.value })} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="SHA-256" hint="As GitHub shows it for the asset.">
+            <input name="sha256" className="input font-tabular" placeholder="none" value={draft.sha256} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, sha256: e.target.value })} />
+          </Field>
+          <Field
+            label="Size in bytes"
+            hint={Number(draft.size_bytes) > 0 ? `Shown in the app as ${formatMegabytes(Number(draft.size_bytes))}.` : "For example 84986212."}
+          >
+            <input
+              name="size_bytes"
+              className="input font-tabular"
+              inputMode="numeric"
+              placeholder="0"
+              value={draft.size_bytes ? String(draft.size_bytes) : ""}
+              disabled={!canEdit}
+              onChange={(e) => setDraft({ ...draft, size_bytes: Number(e.target.value.replace(/\D/g, "")) || 0 })}
+            />
+          </Field>
+        </div>
+      </div>
       <VersionsInUse usage={usage} hard={draft.hard.trim()} />
       {problems.length > 0 && (
         <ul className="text-[12.5px] text-critical-700 space-y-1" role="alert">

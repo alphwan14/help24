@@ -29,6 +29,7 @@ import 'screens/post_detail_screen.dart';
 import 'services/profile_snapshot_cache.dart';
 import 'services/post_service.dart';
 import 'services/agent_code_service.dart';
+import 'services/app_updater.dart';
 import 'services/provider_card_link.dart';
 import 'services/account_status_service.dart';
 import 'services/auth_service.dart';
@@ -208,6 +209,15 @@ class _Help24AppState extends State<Help24App> with WidgetsBindingObserver {
       // first frame (HomeScreen's post-frame callback) precisely so the launch
       // transaction keeps no network dependency.
       await RemoteConfigService.instance.warmUp();
+      // Downloaded updates live in the cache: an installed one leaves its file
+      // behind, and an update no longer offered is not worth keeping.
+      {
+        final rc = RemoteConfigService.instance;
+        final wanted = rc.suggestsUpdate || rc.requiresHardUpdate
+            ? UpdateTarget.fromConfig(rc.config.minVersion)
+            : null;
+        unawaited(AppUpdater.instance.cleanup(keep: wanted));
+      }
       // Warm the category registry (cache-first, 24h TTL) so feed cards can
       // resolve highlight chips without opening the Post screen. Fire-and-
       // forget: never blocks startup, never throws.

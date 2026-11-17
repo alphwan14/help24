@@ -95,10 +95,32 @@ class RemoteConfigService extends ChangeNotifier {
   http.Client get _http => _transportOverride ?? api;
 
   /// The live configuration. Never null, never partial, safe before [warmUp].
-  RemoteConfig get config => _config;
+  RemoteConfig get config => _withTestUpdate(_config);
 
   /// The configuration as it stood at cold start.
-  RemoteConfig get launchConfig => _launchConfig;
+  RemoteConfig get launchConfig => _withTestUpdate(_launchConfig);
+
+  /// TEST BUILDS ONLY. `--dart-define=HELP24_TEST_MIN_VERSION=<base64 JSON>`
+  /// replaces `min_version` with that object (the backend's snake_case shape),
+  /// so the in-app updater can be tried against a test APK without touching
+  /// the live config every member reads. Release builds never pass it: the
+  /// constant is empty and this is a no-op.
+  static const String _testMinVersion = String.fromEnvironment('HELP24_TEST_MIN_VERSION');
+  static final MinVersionConfig? _testMinVersionConfig = () {
+    if (_testMinVersion.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(utf8.decode(base64.decode(_testMinVersion)));
+      return decoded is Map<String, dynamic> ? MinVersionConfig.fromJson(decoded) : null;
+    } catch (e) {
+      debugPrint('[CONFIG] HELP24_TEST_MIN_VERSION unreadable: $e');
+      return null;
+    }
+  }();
+
+  RemoteConfig _withTestUpdate(RemoteConfig c) {
+    final override = _testMinVersionConfig;
+    return override == null ? c : c.copyWith(minVersion: override);
+  }
 
   /// The running app's version ("1.2.3"), or '' before [warmUp] resolves it.
   String get appVersion => _appVersion;
@@ -117,12 +139,12 @@ class RemoteConfigService extends ChangeNotifier {
 
   /// Blocking update required — evaluated against the LAUNCH snapshot.
   bool get requiresHardUpdate =>
-      isBelowVersion(_appVersion, _launchConfig.minVersion.hard);
+      isBelowVersion(_appVersion, launchConfig.minVersion.hard);
 
   /// Dismissible update banner — evaluated against live config, since a
   /// suggestion appearing mid-session interrupts nothing.
   bool get suggestsUpdate =>
-      !requiresHardUpdate && isBelowVersion(_appVersion, _config.minVersion.soft);
+      !requiresHardUpdate && isBelowVersion(_appVersion, config.minVersion.soft);
 
   /// The announcement to show, or null when there is none the user has not
   /// already dismissed.
