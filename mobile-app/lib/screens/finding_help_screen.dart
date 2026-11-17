@@ -29,6 +29,17 @@ import 'post_detail_screen.dart';
 /// show. What IS real is said: the request is live, and the poster is told
 /// when a provider sends an offer (the `provider_applied` notification).
 ///
+/// ── The pace, and the exit ───────────────────────────────────────────────
+/// Three beats, then it goes away by itself (the owner's call after seeing
+/// the first version on the S20+, where the H formed too fast to read and the
+/// screen waited to be closed):
+///   1. the H forms, slowly enough to watch (1.6 s);
+///   2. "Finding…" while the crossbar breathes, about 4 s from the start;
+///   3. "Your request is live." for 3 s, then the screen closes on its own
+///      and the person is back on Discover, where the request now is.
+/// "View your post" stays on screen during beat 3 for anyone who wants it,
+/// and the close button works throughout.
+///
 /// ── Reduce motion ────────────────────────────────────────────────────────
 /// With animations turned off on the phone, the mark is drawn still, in its
 /// final position, and the words change without a fade. The timing stays,
@@ -37,7 +48,8 @@ class FindingHelpScreen extends StatefulWidget {
   const FindingHelpScreen({
     super.key,
     required this.post,
-    this.searchFor = const Duration(milliseconds: 2600),
+    this.searchFor = const Duration(milliseconds: 3800),
+    this.liveFor = const Duration(milliseconds: 3000),
   });
 
   /// The request just published.
@@ -45,6 +57,9 @@ class FindingHelpScreen extends StatefulWidget {
 
   /// How long "Finding…" shows before the calm state.
   final Duration searchFor;
+
+  /// How long "Your request is live." shows before the screen closes itself.
+  final Duration liveFor;
 
   @override
   State<FindingHelpScreen> createState() => _FindingHelpScreenState();
@@ -68,14 +83,15 @@ class _FindingHelpScreenState extends State<FindingHelpScreen>
     with TickerProviderStateMixin {
   late final AnimationController _intro = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 900),
+    duration: const Duration(milliseconds: 1600),
   );
   late final AnimationController _pulse = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1100),
+    duration: const Duration(milliseconds: 1400),
   );
 
   Timer? _settleTimer;
+  Timer? _closeTimer;
   bool _settled = false;
   bool _still = false;
   bool _started = false;
@@ -123,11 +139,23 @@ class _FindingHelpScreenState extends State<FindingHelpScreen>
       // The breathing eases out to rest rather than freezing mid-breath.
       _pulse.animateTo(0, duration: AppMotion.sheet, curve: AppMotion.enter);
     }
+    _closeTimer = Timer(widget.liveFor, _closeByItself);
+  }
+
+  /// The last beat: back to Discover, without being asked. Only while this
+  /// screen is still the one on top; "View your post" or the close button
+  /// replace or pop it first, and dispose cancels this.
+  void _closeByItself() {
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
+    Navigator.of(context).maybePop();
   }
 
   @override
   void dispose() {
     _settleTimer?.cancel();
+    _closeTimer?.cancel();
     _intro.dispose();
     _pulse.dispose();
     super.dispose();
@@ -276,7 +304,7 @@ class _FindingMark extends StatelessWidget {
   /// How far each bar travels in from its side.
   static const double _travel = 28 * _s;
 
-  // The choreography, as slices of the 900 ms intro: the bars arrive first,
+  // The choreography, as slices of the 1.6 s intro: the bars arrive first,
   // the crossbar settles between them as they land (a slight overshoot is
   // the "settle").
   static const _barsMove = Interval(0.0, 0.55, curve: Curves.easeOutCubic);

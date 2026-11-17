@@ -38,6 +38,7 @@ const List<String> kOfferPhrases = [
   "i'm a",
   "i'm an",
   'am a',
+  'am an',
   'anyone in need of',
   'anyone who needs',
   'anyone looking for',

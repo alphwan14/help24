@@ -1,4 +1,5 @@
 import '../models/post_model.dart';
+import 'post_intent.dart';
 
 /// Ownership and response rules for a marketplace listing — the SINGLE
 /// definition every surface reads.
@@ -76,6 +77,39 @@ PostType? ownerTypeSwitchTarget({
     PostType.offer => PostType.request,
     PostType.job => null,
   };
+}
+
+/// The correction to OFFER the author of a posted listing, or null.
+///
+/// A correction, not a free choice. The switch used to appear on every open
+/// request and offer, so an author could turn "Am an experienced welder based
+/// in Mombasa" into a request (the owner did, to see what happens): the label
+/// then contradicted the words, the exact problem the switch exists to fix.
+/// Now it appears only when BOTH hold:
+///   * the listing may still change kind ([ownerTypeSwitchTarget]), and
+///   * its own words read as that other kind (the composer's nudge check,
+///     [suggestedPostType], with the same phrase lists).
+/// So a mislabelled post ("Edger here anyone in need of plumber" as a
+/// request) is offered "Change to an offer"; a correctly labelled or neutral
+/// one is offered nothing. An admin can still reclassify any open listing
+/// from the console, with a reason.
+PostType? ownerTypeCorrection({
+  required PostType type,
+  required String status,
+  String? selectedProviderId,
+  required int applicationCount,
+  required String title,
+  String description = '',
+}) {
+  final to = ownerTypeSwitchTarget(
+    type: type,
+    status: status,
+    selectedProviderId: selectedProviderId,
+    applicationCount: applicationCount,
+  );
+  if (to == null) return null;
+  final words = suggestedPostType(chosen: type, title: title, description: description);
+  return words == to ? to : null;
 }
 
 /// The primary action a listing should offer the person looking at it.

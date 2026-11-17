@@ -457,15 +457,18 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
   }
 
-  // ── The author's "wrong type?" switch ─────────────────────────────────────
+  // ── The author's type correction ──────────────────────────────────────────
 
-  /// Shown to the author only while [ownerTypeSwitchTarget] allows it.
+  /// Shown to the author only when [ownerTypeCorrection] finds the listing's
+  /// own words reading as the other kind: a correction, never a free switch.
   Widget _buildTypeSwitch() {
-    final to = ownerTypeSwitchTarget(
+    final to = ownerTypeCorrection(
       type: post.type,
       status: post.status,
       selectedProviderId: _selectedProviderId,
       applicationCount: post.applications.length,
+      title: post.title,
+      description: post.description,
     );
     if (to == null) return const SizedBox.shrink();
     return Padding(
@@ -1195,9 +1198,9 @@ class _CircleIconButton extends StatelessWidget {
   }
 }
 
-/// The large post-type identity badge (REQUEST / OFFER / JOB).
-/// "Wrong type? Change to an offer", for the author of an open listing that
-/// nobody has responded to yet.
+/// "This reads like an offer. Change to an offer", for the author of an open
+/// listing that nobody has responded to yet, whose words read as the other
+/// kind ([ownerTypeCorrection]).
 ///
 /// Confirms first, because the change alters what people can do with the
 /// listing (send an offer, or message the provider), then writes through the
@@ -1281,10 +1284,15 @@ class _TypeSwitchRowState extends State<_TypeSwitchRow> {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    return Row(
+    // Says WHY it is offered: the words read as the other kind.
+    final reads = widget.to == PostType.offer
+        ? 'This reads like an offer.'
+        : 'This reads like a request.';
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Text(
-          'Wrong type?',
+          reads,
           style: AppTypeScale.bodyS.copyWith(
             fontFamily: AppTypeScale.family,
             color: c.contentTertiary,
@@ -1299,6 +1307,7 @@ class _TypeSwitchRowState extends State<_TypeSwitchRow> {
   }
 }
 
+/// The large post-type identity badge (NEEDS HELP / OFFERING / HIRING).
 class _TypeBadge extends StatelessWidget {
   final String label;
   final Color color;

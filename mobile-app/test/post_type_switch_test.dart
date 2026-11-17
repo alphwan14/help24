@@ -67,6 +67,53 @@ void main() {
     });
   });
 
+  group('the author is offered a CORRECTION, never a free switch', () {
+    PostType? correction(PostType type, String title, {int applications = 0}) =>
+        ownerTypeCorrection(
+          type: type,
+          status: 'open',
+          applicationCount: applications,
+          title: title,
+        );
+
+    test('a clear offer is not offered "Change to a request"', () {
+      // The owner turned this into a request on 1.0.13 Patch 1; it is an offer.
+      expect(correction(PostType.offer, 'Am an experienced welder based in Mombasa'), isNull);
+    });
+
+    test('a mislabelled post is offered the kind its words say', () {
+      expect(correction(PostType.request, 'Edger here anyone in need of plumber'), PostType.offer);
+      // ...which is how the owner's test switch is undone.
+      expect(correction(PostType.request, 'Am an experienced welder based in Mombasa'), PostType.offer);
+      expect(correction(PostType.offer, 'Looking for a plumber in Westlands'), PostType.request);
+    });
+
+    test('neutral words are offered nothing (an admin can still reclassify)', () {
+      expect(correction(PostType.request, 'Plumbing'), isNull);
+      expect(correction(PostType.offer, 'Kitchen sink repair'), isNull);
+    });
+
+    test('the listing rules still come first', () {
+      expect(
+        correction(PostType.request, 'Edger here anyone in need of plumber', applications: 1),
+        isNull,
+      );
+    });
+
+    test('the description counts too', () {
+      expect(
+        ownerTypeCorrection(
+          type: PostType.request,
+          status: 'open',
+          applicationCount: 0,
+          title: 'Plumbing',
+          description: 'We offer repairs, call us',
+        ),
+        PostType.offer,
+      );
+    });
+  });
+
   group('the words for each kind', () {
     test('say who needs what', () {
       expect(PostType.request.kindLabel, 'Needs help');
@@ -131,6 +178,25 @@ void main() {
           reason: 'applyPostEdit must publish by replacing the map');
       expect(provider.contains('_editedPosts = const {};'), isTrue,
           reason: "sign-out must not carry one account's edits into the next");
+    });
+  });
+
+  group('the composer puts the keyboard away when the step changes', () {
+    // Seen on the S20+ with 1.0.13 Patch 1: "Post as an offer" jumped from the
+    // title to the next question and the title's keyboard stayed up over it.
+    final composer = File('lib/screens/post_screen.dart').readAsStringSync();
+
+    test('the step setter unfocuses', () {
+      expect(
+        RegExp(r'set _currentStep\(int value\) \{\s*if \(value != _step\) FocusManager\.instance\.primaryFocus\?\.unfocus\(\);')
+            .hasMatch(composer),
+        isTrue,
+      );
+    });
+
+    test('nothing writes the step around the setter', () {
+      // The declaration and the setter's own write, and nothing else.
+      expect(RegExp(r'\b_step\s*(=|\+\+|--|\+=|-=)').allMatches(composer).length, 2);
     });
   });
 
