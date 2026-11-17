@@ -1,0 +1,26 @@
+# img.help24.co.ke — public Help24 photos, cached at the edge. See DEPLOY.md
+# before deploying.
+name = "help24-img"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# Served ONLY on the Help24 hostname. No *.workers.dev address and no preview
+# URLs: the Cache API does nothing on workers.dev, and a second hostname would
+# be a second, uncached way in.
+workers_dev = false
+preview_urls = false
+routes = [
+  { pattern = "img.help24.co.ke", custom_domain = true },
+]
+
+# Invocation logs would record request URLs, and an avatar's URL carries its
+# owner's uid. Leave off; the Worker's own console lines never contain a uid
+# or a path (only an event name, a status and a bucket).
+[observability]
+enabled = false
+
+[vars]
+SUPABASE_URL = "https://taohzhnvaitrpxcyjflq.supabase.co"
+
+# No secrets. The public buckets are read anonymously, and the Worker never
+# sends an Authorization or apikey header upstream.

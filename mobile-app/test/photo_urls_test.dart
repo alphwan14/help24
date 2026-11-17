@@ -81,11 +81,15 @@ void main() {
       '$public/post-images/chat_attachments/c/f.jpg',
       '$public/post-images/test/probe.png',
       // Not a photo, or a query the Worker would drop.
-      '$public/post-images/posts/a.pdf',
-      '$public/post-images/posts/a.svg',
-      '$public/post-images/posts/a.jpg?download=1',
+      '$public/post-images/posts/0b5c2d1e-4f3a-4b2c-9d8e-7f6a5b4c3d2e.pdf',
+      '$public/post-images/posts/0b5c2d1e-4f3a-4b2c-9d8e-7f6a5b4c3d2e.svg',
+      '$photo?download=1',
       '$public/profiles/u/avatar.jpg?t=abc',
       '$public/post-images/posts/../../chat-attachments/x.jpg',
+      // Names outside the Worker's rules: not a uuid, not avatar.jpg, folder case.
+      '$public/post-images/posts/not-a-uuid.jpg',
+      '$public/profiles/k4DZSMyRNRNMRpXM0SypV5v6IHo2/banner.png',
+      '$public/Post-Images/posts/0b5c2d1e-4f3a-4b2c-9d8e-7f6a5b4c3d2e.jpg',
       // Another project, another host, nothing at all.
       'https://otherref.supabase.co/storage/v1/object/public/post-images/posts/a.jpg',
       'https://lh3.googleusercontent.com/a/photo.jpg',

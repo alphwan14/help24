@@ -34,10 +34,19 @@ const String photoHost = 'https://img.help24.co.ke';
 
 const String _publicPrefix = '${SupabaseConfig.supabaseUrl}/storage/v1/object/public/';
 
-/// `post-images/posts/<name>`, `post-images/avatars/<name>` or
-/// `profiles/<uid>/<name>`, an image extension, and at most `?t=<digits>`.
-final RegExp _served = RegExp(
-  r'^(post-images/(posts|avatars)/[A-Za-z0-9_-][A-Za-z0-9._-]*|profiles/[A-Za-z0-9_-]+/[A-Za-z0-9_-][A-Za-z0-9._-]*)'
-  r'\.(jpe?g|png|gif|webp)(\?t=\d{1,20})?$',
-  caseSensitive: false,
-);
+/// Exactly the Worker's RULES (workers/help24-img/src/policy.js), so nothing
+/// rewritten here is refused there: `post-images/posts/<uuid>.<ext>` and
+/// `<uuid>.thumb.jpg`, `post-images/avatars/<uid>.<ext>` and
+/// `profiles/<uid>/avatar.jpg`, then at most `?t=<digits>`. Folder names are
+/// exact; the hex and the extension may be any case.
+final RegExp _served = () {
+  const hex = '[0-9a-fA-F]';
+  const uuid = '$hex{8}-$hex{4}-$hex{4}-$hex{4}-$hex{12}';
+  const uid = '[A-Za-z0-9_-]{1,128}';
+  const ext = '(?:[jJ][pP][gG]|[jJ][pP][eE][gG]|[pP][nN][gG]|[gG][iI][fF]|[wW][eE][bB][pP])';
+  return RegExp('^(?:post-images/posts/$uuid\\.$ext'
+      '|post-images/posts/$uuid\\.thumb\\.jpg'
+      '|post-images/avatars/$uid\\.$ext'
+      '|profiles/$uid/avatar\\.jpg)'
+      r'(?:\?t=\d{1,20})?$');
+}();
