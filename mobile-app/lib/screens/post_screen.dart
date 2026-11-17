@@ -85,7 +85,22 @@ class PostScreen extends StatefulWidget {
 }
 
 class _PostScreenState extends State<PostScreen> {
-  int _currentStep = 0;
+  /// The step on screen. EVERY move between steps (Continue, back, the
+  /// one-tap auto-advance, the nudge's switch) goes through the setter, and the
+  /// setter puts the keyboard away.
+  ///
+  /// A text step's keyboard used to outlive it: seen on the S20+ after "Post as
+  /// an offer", which jumps from the title to the next question with the title
+  /// field still focused, so the keyboard covered the new step until a tap
+  /// elsewhere. A step that wants the keyboard (an empty title) still gets it:
+  /// its autofocus runs as the new step builds, after this.
+  int _step = 0;
+  int get _currentStep => _step;
+  set _currentStep(int value) {
+    if (value != _step) FocusManager.instance.primaryFocus?.unfocus();
+    _step = value;
+  }
+
   PostType? _selectedType;
 
   /// The person chose (or switched) the kind themselves. Until then the

@@ -42,6 +42,8 @@ void main() {
       // A provider looking for CLIENTS is not asking for help.
       'Mechanic looking for clients in Thika',
       'Natafuta wateja wa kushona nguo',
+      // A real listing, switched to a request by its owner as a test.
+      'Am an experienced welder based in Mombasa',
     ]) {
       test(text, () => expect(readPostIntent(text).leaning, PostType.offer));
     }

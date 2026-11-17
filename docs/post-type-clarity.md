@@ -89,9 +89,21 @@ phrasing and should gain a line for every phrase that fixes a real post.
 
 ### 3. Fixing the type after posting
 
-**The author**, on the post screen: "Wrong type? Change to an offer" (or
-request), confirmed in a dialog, while the listing is open, nobody has been
-chosen and nobody has responded. A job never switches here.
+**The author**, on the post screen, is offered a **correction, not a free
+switch** (`ownerTypeCorrection`, Patch 2). It appears only when the listing's
+own words read as the other kind, by the same phrase check as the composer's
+nudge: "This reads like an offer. Change to an offer", confirmed in a
+dialog, while the listing is open, nobody has been chosen and nobody has
+responded. A correctly labelled or neutral listing shows nothing; a job never
+switches here.
+
+Why: Patch 1 showed "Wrong type? Change to a request" on every open offer,
+and the owner turned "Am an experienced welder based in Mombasa" into a
+request to see what happens. The label then contradicted the words, the
+exact problem the switch exists to fix. It was switched back the same day
+(both changes are in `post_type_changes`). The gate is in the app, where the
+phrase lists are; the database rules are unchanged, and admins remain the
+override for anything the words do not settle.
 
 **Admins**, on the listing page in the console
 (`/dashboard/marketplace/requests/:id`, now linked from the offer and job
@@ -139,9 +151,12 @@ After a request is posted the composer is replaced by a moment built from the
 logo: the two ink bars (customer and provider) slide in from the sides, the
 amber crossbar (escrow) settles between them and breathes, and the line reads
 "Finding {category} near {location}…" from the post itself ("help" for Other,
-"you" with no place). After about 2.6 seconds it settles: "Your request is
-live. We'll notify you when providers send offers." and **View your post**.
-The close button returns to Discover, as before.
+"you" with no place). Three beats, then it goes away by itself (Patch 2,
+after the owner saw Patch 1's version form too fast and wait to be closed):
+the H forms over 1.6 s, "Finding…" holds until about 3.8 s, then "Your
+request is live. We'll notify you when providers send offers." with **View
+your post** for 3 s, and the screen closes on its own back to Discover, where
+the request now is. The close button works throughout.
 
 Plain `AnimationController`s, four boxes, fades written into the colours (no
 Opacity layer), theme tokens only (`contentPrimary`, `accentFill`). Under the
