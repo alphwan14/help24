@@ -7,6 +7,7 @@ import '../models/app_notification.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
+import '../utils/photo_urls.dart';
 
 // ── Tuning ───────────────────────────────────────────────────────────────────
 // One place for every number the interaction depends on, so "the swipe feels
@@ -659,7 +660,7 @@ class _NotificationBannerState extends State<_NotificationBanner>
           // Never a visible load: a cached photo paints on the same frame, and
           // one that is uncached or broken stays on the initials.
           child: CachedNetworkImage(
-            imageUrl: widget.avatarUrl,
+            imageUrl: displayPhotoUrl(widget.avatarUrl),
             width: size,
             height: size,
             fit: BoxFit.cover,

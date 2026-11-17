@@ -43,6 +43,7 @@ import '../widgets/report_sheet.dart';
 import '../utils/vetting_labels.dart';
 import '../widgets/vetting_badge.dart';
 import '../widgets/vetting_gate.dart';
+import '../utils/photo_urls.dart';
 
 /// Production post detail, the conversion surface of Help24.
 ///
@@ -908,7 +909,7 @@ class _ImageCarouselState extends State<_ImageCarousel> {
             onDoubleTap: () =>
                 _open(index, zoomedAt: (at: _doubleTapAt, preview: box.biggest)),
             child: CachedNetworkImage(
-              imageUrl: widget.images[index],
+              imageUrl: displayPhotoUrl(widget.images[index]),
               fit: BoxFit.cover,
               placeholder: (_, __) => Container(
                 color: AppTheme.darkCard,
@@ -1038,7 +1039,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
   /// this photo, so it normally resolves from the image cache at once; if it
   /// cannot be sized the gallery simply opens unzoomed.
   void _zoomWhenSized() {
-    final stream = CachedNetworkImageProvider(widget.images[widget.initialIndex])
+    final stream = CachedNetworkImageProvider(displayPhotoUrl(widget.images[widget.initialIndex]))
         .resolve(ImageConfiguration.empty);
     final listener = ImageStreamListener(
       (info, _) {
@@ -1094,7 +1095,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
               onZoomChanged: (zoomed) => setState(() => _zoomed = zoomed),
               child: Center(
                 child: CachedNetworkImage(
-                  imageUrl: widget.images[index],
+                  imageUrl: displayPhotoUrl(widget.images[index]),
                   fit: BoxFit.contain,
                   placeholder: (_, __) => const Center(
                     child: CircularProgressIndicator(strokeWidth: 2),
@@ -1504,7 +1505,7 @@ class _AuthorCard extends StatelessWidget {
                 radius: 24,
                 backgroundColor: c.surfaceSunken,
                 backgroundImage: post.authorAvatar.isNotEmpty
-                    ? NetworkImage(post.authorAvatar)
+                    ? NetworkImage(displayPhotoUrl(post.authorAvatar))
                     : null,
                 child: post.authorAvatar.isEmpty
                     ? Text(

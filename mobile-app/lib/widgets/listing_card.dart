@@ -11,6 +11,7 @@ import '../theme/tokens.dart';
 import '../utils/post_ownership.dart';
 import '../utils/time_utils.dart';
 import '../utils/feed_images.dart';
+import '../utils/photo_urls.dart';
 import 'primitives.dart';
 
 /// ONE ROW FOR EVERY LISTING.
@@ -461,8 +462,10 @@ class _Thumbnail extends StatelessWidget {
           errorWidget: (_, __, ___) => onError(),
         );
     // The small JPEG made at upload, or the photo itself for a post that has
-    // none. A missing thumbnail is remembered for the session.
+    // none. A missing thumbnail is remembered for the session. Both as shown
+    // (utils/photo_urls.dart).
     final src = feedCardImageUrl(url);
+    final photo = displayPhotoUrl(url);
     return ClipRRect(
       borderRadius: AppRadius.mdAll,
       child: SizedBox(
@@ -473,11 +476,11 @@ class _Thumbnail extends StatelessWidget {
           children: [
             image(
               src,
-              src == url
+              src == photo
                   ? broken
                   : () {
                       markFeedThumbMissing(src);
-                      return image(url, broken);
+                      return image(photo, broken);
                     },
             ),
             if (extra != null)

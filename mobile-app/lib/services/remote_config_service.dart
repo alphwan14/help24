@@ -137,6 +137,10 @@ class RemoteConfigService extends ChangeNotifier {
   bool get postingEnabled => _config.killSwitches.posting;
   bool get applicationsEnabled => _config.killSwitches.applications;
 
+  /// Live, not the launch snapshot: switching it off must take effect at the
+  /// next refresh, without waiting for a cold start.
+  bool get imageCdnEnabled => _config.killSwitches.imageCdn;
+
   /// Blocking update required — evaluated against the LAUNCH snapshot.
   bool get requiresHardUpdate =>
       isBelowVersion(_appVersion, launchConfig.minVersion.hard);

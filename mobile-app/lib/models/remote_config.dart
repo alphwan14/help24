@@ -32,6 +32,7 @@ class KillSwitches {
     required this.promotions,
     required this.posting,
     required this.applications,
+    required this.imageCdn,
   });
 
   final bool payments;
@@ -39,11 +40,16 @@ class KillSwitches {
   final bool posting;
   final bool applications;
 
+  /// Public photos load through img.help24.co.ke (utils/photo_urls.dart).
+  /// Off: straight from Supabase Storage, the URLs as stored.
+  final bool imageCdn;
+
   static const KillSwitches defaults = KillSwitches(
     payments: true,
     promotions: true,
     posting: true,
     applications: true,
+    imageCdn: true,
   );
 
   factory KillSwitches.fromJson(Map<String, dynamic>? json) {
@@ -53,6 +59,7 @@ class KillSwitches {
       promotions: _boolOr(json['promotions'], defaults.promotions),
       posting: _boolOr(json['posting'], defaults.posting),
       applications: _boolOr(json['applications'], defaults.applications),
+      imageCdn: _boolOr(json['image_cdn'], defaults.imageCdn),
     );
   }
 
@@ -61,6 +68,7 @@ class KillSwitches {
         'promotions': promotions,
         'posting': posting,
         'applications': applications,
+        'image_cdn': imageCdn,
       };
 }
 

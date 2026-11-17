@@ -29,6 +29,7 @@ import '../utils/feature_errors.dart';
 import '../utils/feed_scope.dart';
 import '../utils/proximity.dart';
 import '../utils/feed_images.dart';
+import '../utils/photo_urls.dart';
 import 'connectivity_provider.dart' show NetworkHealth;
 
 class AppProvider extends ChangeNotifier implements SessionScoped {
@@ -2042,7 +2043,7 @@ class AppProvider extends ChangeNotifier implements SessionScoped {
       if (url.isEmpty || !_warmedAvatarUrls.add(url)) continue;
       started++;
       try {
-        CachedNetworkImageProvider(url).resolve(ImageConfiguration.empty);
+        CachedNetworkImageProvider(displayPhotoUrl(url)).resolve(ImageConfiguration.empty);
       } catch (_) {
         // Never let a bad URL disturb the provider.
       }

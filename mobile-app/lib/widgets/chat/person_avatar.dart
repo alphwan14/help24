@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../models/chat_person.dart';
 import '../../theme/app_icons.dart';
 import '../../theme/tokens.dart';
+import '../../utils/photo_urls.dart';
 
 /// A chat partner's face, from the best source this phone has:
 ///
@@ -44,7 +45,7 @@ class PersonAvatar extends StatelessWidget {
     Widget network() => url.isEmpty
         ? fallback
         : CachedNetworkImage(
-            imageUrl: url,
+            imageUrl: displayPhotoUrl(url),
             width: size,
             height: size,
             fit: BoxFit.cover,

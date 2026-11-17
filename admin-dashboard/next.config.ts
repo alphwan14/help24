@@ -19,9 +19,11 @@
  *   eu-central-1 (Frankfurt) -> fra1     eu-west-1 (Ireland) -> dub1
  *   eu-west-2    (London)    -> lhr1     us-east-1 (Virginia) -> iad1
  *
- * fra1 is set as the EU default. If the project is in Ireland this is still far
- * better than the unpinned US East it replaces — an intra-EU hop rather than a
- * transatlantic one. Keep both properties on the same value.
+ * dub1 since 2026-11-17: the project is eu-west-1 (read from the Supabase
+ * management API that day). It was fra1 before, as an EU default. The Render
+ * backend stays in Frankfurt, so backend calls now cross Dublin -> Frankfurt
+ * instead; docs/admin-dashboard-performance.md has the before/after timings.
+ * The project's own setting says iad1; this file overrides it.
  */
 
 import type { NextConfig } from "next";
