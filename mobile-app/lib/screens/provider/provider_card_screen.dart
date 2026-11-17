@@ -19,6 +19,7 @@ import '../../services/user_profile_service.dart';
 import '../../theme/app_icons.dart';
 import '../../theme/tokens.dart';
 import '../../utils/action_feedback.dart';
+import '../../utils/photo_urls.dart';
 
 /// "My Help24 card" — Profile → Business.
 ///
@@ -81,7 +82,7 @@ class _ProviderCardScreenState extends State<ProviderCardScreen> {
     if (!mounted) return;
     final photo = profile?.profileImage.trim() ?? '';
     if (photo.isNotEmpty) {
-      await precacheImage(CachedNetworkImageProvider(photo), context, onError: (_, __) {});
+      await precacheImage(CachedNetworkImageProvider(displayPhotoUrl(photo)), context, onError: (_, __) {});
       if (!mounted) return;
     }
     setState(() {
@@ -389,7 +390,7 @@ class _Photo extends StatelessWidget {
       child: url.isEmpty
           ? fallback
           : Image(
-              image: CachedNetworkImageProvider(url),
+              image: CachedNetworkImageProvider(displayPhotoUrl(url)),
               width: size,
               height: size,
               fit: BoxFit.cover,

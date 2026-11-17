@@ -10,6 +10,8 @@ import {
   isRestrictive,
   minVersionProblems,
   nextAnnouncementId,
+  SWITCHES,
+  switchOn,
 } from "./app-controls.ts";
 
 const gate = (soft, hard, store_url = "https://help24.co.ke/download") => ({ soft, hard, message: "", store_url });
@@ -75,6 +77,17 @@ test("the description names only what changes", () => {
     describeChange("ops.min_version", gate("1.0.4", "1.0.4"), gate("1.0.5", "1.0.4")),
     ["Suggest update below: 1.0.4 → 1.0.5"],
   );
+});
+
+test("the photo switch: absent reads as on, and switching it off is named", () => {
+  const old = { payments: true, promotions: true, posting: true, applications: true };
+  assert.equal(switchOn(old, "image_cdn"), true, "a backend that has not sent it yet means on");
+  assert.equal(switchOn({ ...old, image_cdn: false }, "image_cdn"), false);
+  assert.deepEqual(describeChange("ops.kill_switches", old, { ...old, image_cdn: true }), []);
+  assert.deepEqual(describeChange("ops.kill_switches", { ...old, image_cdn: true }, { ...old, image_cdn: false }), [
+    "Photos through Cloudflare: on → off",
+  ]);
+  assert.ok(SWITCHES.some((s) => s.key === "image_cdn"));
 });
 
 test("restrictive changes are the ones that take something away", () => {

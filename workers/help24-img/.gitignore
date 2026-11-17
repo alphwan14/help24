@@ -1,0 +1,5 @@
+# Local overrides for `wrangler dev`; never committed.
+.dev.vars
+.dev.vars.*
+.wrangler/
+node_modules/
