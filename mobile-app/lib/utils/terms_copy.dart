@@ -74,6 +74,10 @@ class TermsCopy {
   static const String agreementNote =
       'By tapping I agree, you accept the Terms of Service and the Privacy Policy.';
 
+  /// The tick that unlocks I agree, once the reader has reached the end.
+  static const String confirm = 'I have read and understood these terms';
+  static const String scrollHint = 'Scroll to the end to continue';
+
   static const String accept = 'I agree';
   static const String close = 'Close Help24';
 }

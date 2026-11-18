@@ -1549,6 +1549,13 @@ class _PostScreenState extends State<PostScreen> {
           controller: _titleController,
           autofocus: _titleController.text.isEmpty,
           textCapitalization: TextCapitalization.sentences,
+          // Wraps and grows to four lines so the whole title stays readable,
+          // instead of one line that scrolls the start out of view. Still a
+          // single-line value: the keyboard shows Done, not a new-line key.
+          minLines: 1,
+          maxLines: 4,
+          keyboardType: TextInputType.text,
+          textInputAction: TextInputAction.done,
           decoration: InputDecoration(
             hintText: _isOfferFlow
                 ? 'e.g. "Fundi wa magari, engine na brakes"'
