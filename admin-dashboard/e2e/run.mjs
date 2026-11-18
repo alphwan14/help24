@@ -1120,7 +1120,18 @@ try {
     check("the dialog offers only the other kinds", await evaluate(
       `JSON.stringify([...document.querySelectorAll('[role="dialog"] input[name="listing-type"]')].map((i) => i.value)) === '["offer","job"]'`));
     check("reclassifying is refused without a reason", await evaluate(`${saveButton("Change to offer")}.disabled`));
-    await fill('[role="dialog"] textarea', "The title says they offer plumbing");
+    // Typed one letter at a time, as a person does: each letter re-renders the
+    // dialog, and the dialog once re-focused its first field (a radio here) on
+    // every render, closing a phone's keyboard after one letter.
+    await click('[role="dialog"] textarea');
+    await evaluate(`(() => { document.querySelector('[role="dialog"] textarea').focus(); return true; })()`);
+    for (const ch of "The title says they offer plumbing") {
+      await send("Input.insertText", { text: ch });
+      await evaluate("new Promise(r => requestAnimationFrame(() => r(true)))");
+    }
+    check("the reason box keeps focus while typing letter by letter, and holds every letter", await evaluate(
+      `document.activeElement === document.querySelector('[role="dialog"] textarea') && document.activeElement.value === "The title says they offer plumbing"`),
+      await evaluate(`JSON.stringify({ focus: document.activeElement?.tagName + ":" + (document.activeElement?.name ?? ""), value: document.querySelector('[role="dialog"] textarea').value })`));
     await waitFor(`!${saveButton("Change to offer")}.disabled`, "save enabled");
     await clickText("Change to offer");
     await waitFor(`!document.querySelector('[role="dialog"]') && ${bodyHas("Changed: Request to Offer")}`, "reclassified", 15000);

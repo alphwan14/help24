@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef } from "react";
 
 /**
  * The dialog shell every Trust & Safety decision opens in.
@@ -33,22 +33,33 @@ export default function Modal({
   const panel = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(null);
 
+  // The latest close handler and busy flag, read by the key handler. They are
+  // NOT dependencies of the effect below: callers pass a fresh onClose on every
+  // render, and each keystroke in a reason box re-renders the dialog. As a
+  // dependency it re-ran the effect per letter, moving focus to the opener and
+  // back to the FIRST field (a radio in Change type), which closed the phone's
+  // keyboard after one letter and sent desktop typing nowhere.
+  const latest = useRef({ onClose, busy });
+  useLayoutEffect(() => {
+    latest.current = { onClose, busy };
+  });
+
   useEffect(() => {
     if (!open) return;
     opener.current = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    // Focus the first field, so typing a reason starts immediately.
+    // Focus the first field once, as the dialog opens, so typing a reason starts immediately.
     const first = panel.current?.querySelector<HTMLElement>(
       "textarea, input:not([type=hidden]), select, button[data-autofocus]",
     );
     first?.focus();
 
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !busy) {
+      if (e.key === "Escape" && !latest.current.busy) {
         e.preventDefault();
-        onClose();
+        latest.current.onClose();
       }
       // Keep Tab inside the dialog.
       if (e.key === "Tab" && panel.current) {
@@ -73,7 +84,7 @@ export default function Modal({
       document.body.style.overflow = previousOverflow;
       opener.current?.focus?.();
     };
-  }, [open, busy, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
