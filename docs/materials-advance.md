@@ -1,7 +1,10 @@
 # Materials Advance
 
-Status: **built 2026-11-10, switched off.** Migration 139 not applied. The backend
-reads `MATERIALS_ADVANCE_ENABLED` and it is not set, so nobody is offered an advance.
+Status: **live and switched off** (backend `18547e6`, app Patch 5, both 2026-11-11).
+Migration 139 applied 2026-11-11 with the owner's approval via `supabase db query --remote`
+(the MCP apply prompt was declined twice); verified in the catalog (RLS on, no anon or
+authenticated grants or policies, 0 rows) and from outside (app key gets 401 / 42501).
+The backend reads `MATERIALS_ADVANCE_ENABLED` and it is not set, so nobody is offered an advance.
 
 ## What it is
 
@@ -78,9 +81,9 @@ approving, and a restriction must never strand the provider's materials money
 
 ## Turning it on (in this order)
 
-1. Apply migration 139 (production write: needs explicit approval).
-2. Deploy the backend (merge to main). Safe before step 1 too: a missing table reads as no advances.
-3. Publish the app (Shorebird patch; no new icons, no `en.json` strings).
+1. ~~Apply migration 139~~ (done 2026-11-11).
+2. ~~Deploy the backend~~ (done, `18547e6`).
+3. ~~Publish the app~~ (done, Shorebird 1.0.11 Patch 5, phone-verified).
 4. Only when real payouts work: `MPESA_ENV=production`, payout destinations on, and at least
    one verified provider. Then set `MATERIALS_ADVANCE_ENABLED=true` on Render.
 5. Test on the sandbox first: a KES 10,000 job with a verified test provider, pay with the
