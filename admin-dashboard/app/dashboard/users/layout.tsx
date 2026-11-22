@@ -5,7 +5,7 @@ export default function UsersLayout({ children }: { children: React.ReactNode })
     <div>
       <div className="page-header">
         <h1>Users</h1>
-        <p>Accounts, activity and admin roles</p>
+        <p>Accounts, activity, admin roles and security</p>
       </div>
       <SectionNav section="users" />
       {children}

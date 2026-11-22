@@ -44,9 +44,11 @@ async function getGoogleCerts(): Promise<Record<string, string>> {
 /** Fully verify a Firebase ID token (RS256 signature + iss/aud/exp).
  *  Returns the uid, or a precise rejection reason (safe to surface: header
  *  shape, key id, or the jose claim-check message — never secrets). */
+type SignIn = { authTime: number | null; provider: string | null };
+
 async function verifyFirebaseToken(
   idToken: string,
-): Promise<{ uid: string | null; reason?: string }> {
+): Promise<{ uid: string | null; reason?: string; signIn?: SignIn }> {
   try {
     const { kid, alg } = decodeProtectedHeader(idToken);
     if (alg !== 'RS256' || !kid) return { uid: null, reason: 'unexpected token header' };
@@ -58,7 +60,12 @@ async function verifyFirebaseToken(
       issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
       audience: FIREBASE_PROJECT_ID,
     });
-    if (typeof payload.sub === 'string' && payload.sub.length > 0) return { uid: payload.sub };
+    if (typeof payload.sub === 'string' && payload.sub.length > 0) {
+      const authTime = typeof payload.auth_time === 'number' ? payload.auth_time : null;
+      const fb = payload.firebase as { sign_in_provider?: unknown } | undefined;
+      const provider = typeof fb?.sign_in_provider === 'string' ? fb.sign_in_provider : null;
+      return { uid: payload.sub, signIn: { authTime, provider } };
+    }
     return { uid: null, reason: 'missing sub claim' };
   } catch (e) {
     return { uid: null, reason: (e as Error)?.message ?? 'verification failed' };
@@ -76,6 +83,47 @@ function looksLikeJwt(token: string | null | undefined): token is string {
     token.split('.').length === 3 &&
     !token.startsWith('sb_')
   );
+}
+
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+/**
+ * Security log (migration 146): one row per real sign-in. Firebase's auth_time
+ * only changes when the person signs in, so the hourly refreshes of the same
+ * session add nothing. Best effort and off the response path: a failure here
+ * never delays or fails the token exchange.
+ */
+async function recordSignIn(req: Request, uid: string, signIn: SignIn | undefined): Promise<void> {
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !signIn?.authTime) return;
+  const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || req.headers.get('x-real-ip');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/record_member_sign_in`, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        apikey: SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_user_id: uid,
+        p_auth_time: signIn.authTime,
+        p_provider: signIn.provider,
+        p_ip: ip || null,
+        p_user_agent: req.headers.get('user-agent'),
+        p_country: req.headers.get('cf-ipcountry'),
+        p_city: null,
+      }),
+    });
+    // 404 = migration 146 not applied yet: nothing to record into.
+    if (!res.ok && res.status !== 404) console.warn(`[EXCHANGE] sign-in not logged: ${res.status}`);
+  } catch (e) {
+    console.warn(`[EXCHANGE] sign-in not logged: ${(e as Error)?.message ?? e}`);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -115,7 +163,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const { uid, reason } = await verifyFirebaseToken(idToken);
+  const { uid, reason, signIn } = await verifyFirebaseToken(idToken);
   if (!uid) {
     console.error(
       `[EXCHANGE] token rejected: ${reason} (expected project: ${FIREBASE_PROJECT_ID})`,
@@ -141,6 +189,12 @@ Deno.serve(async (req: Request) => {
     .setIssuedAt()
     .setExpirationTime('1h')
     .sign(secret);
+
+  // Logged after the token is ready, without holding the response.
+  const logging = recordSignIn(req, uid, signIn);
+  // deno-lint-ignore no-explicit-any
+  const runtime = (globalThis as any).EdgeRuntime;
+  if (runtime?.waitUntil) runtime.waitUntil(logging);
 
   return new Response(
     JSON.stringify({ access_token: accessToken, refresh_token: accessToken, expires_in: 3600 }),

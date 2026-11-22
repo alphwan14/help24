@@ -35,13 +35,17 @@ export function rememberIdentity(ident: ArbitrationIdentity) {
   }
 }
 
-async function doRestore(accessToken?: string): Promise<RestoreResult> {
+async function doRestore(accessToken?: string, method?: "password" | "google"): Promise<RestoreResult> {
   try {
     // A token straight from sign-in is sent along: the session cookie it also
     // wrote may not be readable by the server yet on a slow phone.
     const res = await fetch("/api/admin/session/restore", {
       method: "POST",
-      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      headers: {
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        // How they signed in, for the security log (Users > Security log).
+        ...(method ? { "X-H24-Sign-In": method } : {}),
+      },
     });
     const data = (await res.json()) as RestoreResult;
     lastResult = data;
@@ -61,11 +65,15 @@ async function doRestore(accessToken?: string): Promise<RestoreResult> {
  * briefly cached. Pass force=true to bypass the cache (used right after clearing
  * a mismatched token, where a brand-new identity must be minted).
  */
-export async function restoreArbitration(force = false, accessToken?: string): Promise<RestoreResult> {
+export async function restoreArbitration(
+  force = false,
+  accessToken?: string,
+  method?: "password" | "google",
+): Promise<RestoreResult> {
   if (!force && lastResult && Date.now() - lastAt < 5000) return lastResult;
   if (!force && inFlight) return inFlight;
 
-  const p = doRestore(accessToken);
+  const p = doRestore(accessToken, method);
   inFlight = p;
   try {
     return await p;

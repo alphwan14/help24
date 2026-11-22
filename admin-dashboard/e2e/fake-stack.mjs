@@ -70,6 +70,8 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
   // admin_reclassify_post call accepted ({ body, admin }).
   const typeChanges = [];
   const reclassifications = [];
+  // Security log (migration 146): rows the console inserted.
+  const securityEvents = [];
 
   const recoveryTemplate = readFileSync(join(templatesDir, "recovery.html"), "utf8");
   const recoverySubject = JSON.parse(readFileSync(join(templatesDir, "manifest.json"), "utf8"))
@@ -325,6 +327,13 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       const senior = (a) => a && (a.role === "senior_admin" || a.role === "super_admin");
       const log = (agent_id, action, a, reason = null) =>
         partnerEvents.push({ agent_id, action, reason, admin_email: a?.email ?? null, created_at: new Date().toISOString() });
+      if (fn === "security_auth_events") {
+        // Supabase Auth's log, as migration 146 reads it: one password sign-in each.
+        return send(200, [...admins.values()].filter((a) => a.token).map((a) => ({
+          id: randomUUID(), occurred_at: new Date(Date.now() - 60e3).toISOString(), auth_id: null,
+          email: a.email, action: "login", provider: "email", ip: "197.248.10.20",
+        })));
+      }
       if (fn === "admin_overview") {
         return overview ? send(200, overview) : pgError(404, "function admin_overview does not exist");
       }
@@ -425,6 +434,11 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       if (a && body.last_seen_at) a.lastSeen = body.last_seen_at;
       return send(204);
     }
+    if (req.method === "POST" && p === "/rest/v1/security_events") {
+      const rows = Array.isArray(body) ? body : [body];
+      for (const r of rows) securityEvents.push({ id: randomUUID(), occurred_at: new Date().toISOString(), detail: {}, ...r });
+      return send(201, []);
+    }
     if (req.method === "GET" && p.startsWith("/rest/v1/")) {
       const table = p.slice("/rest/v1/".length);
       const eq = (k) => url.searchParams.get(k)?.replace(/^eq\./, "");
@@ -442,6 +456,10 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
           : []);
       }
       if (table === "app_settings_history") return send(200, [...configHistory].reverse());
+      if (table === "security_events") {
+        const kind = eq("actor_kind"), outcome = eq("outcome");
+        return send(200, securityEvents.filter((e) => (!kind || e.actor_kind === kind) && (!outcome || e.outcome === outcome)).slice().reverse());
+      }
       // A listing page (/dashboard/marketplace/requests/:id) reads its post by
       // id, and its applications and type changes by post_id.
       if (table === "posts" && eq("id")) return send(200, (tables.posts ?? []).filter((r) => r.id === eq("id")));
@@ -461,9 +479,9 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       }
       if (table === "admin_users") {
         // The reset request asks by email and active; Admin Roles asks for every row.
-        const email = eq("email"), active = eq("active");
+        const email = url.searchParams.get("email")?.replace(/^(eq|ilike)\./, "").replace(/\\(.)/g, "$1").toLowerCase(), active = eq("active");
         const rows = [...admins.values()].filter((a) => (email ? a.email === email : true) && (active ? String(a.active) === active : true));
-        return send(200, rows.map((a) => ({ id: a.id, last_seen_at: a.lastSeen ?? null })));
+        return send(200, rows.map((a) => ({ id: a.id, email: a.email, name: a.name, role: a.role, last_seen_at: a.lastSeen ?? null })));
       }
       if (table === "partner_logins") {
         const sub = eq("auth_subject"), aid = eq("agent_id");
@@ -706,6 +724,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       const person = personByEmail(email);
       links.push({ subject: u.id, help24: person.id });
     },
+    securityEvents,
     addArbitrationAdmin(email, name, role, active = true) {
       admins.set(email, { id: randomUUID(), email, name, role, active, token: null });
     },

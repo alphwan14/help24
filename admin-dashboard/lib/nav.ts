@@ -143,6 +143,7 @@ export const NAV: NavSection[] = [
       { label: "All users", href: "/dashboard/users", keywords: "people accounts" },
       { label: "Active", href: "/dashboard/users/active" },
       { label: "Admin roles", href: "/dashboard/users/admins", keywords: "staff invites logins" },
+      { label: "Security log", href: "/dashboard/users/security", keywords: "audit sign-in login ip device activity access" },
     ],
   },
   {
