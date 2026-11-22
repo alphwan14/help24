@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
+  NUDGE_MINIMUM_SCORE,
   OFFER_HINTS,
   OFFER_PHRASES,
   REQUEST_HINTS,
@@ -10,6 +11,13 @@ import {
   readPostIntent,
   suggestPostType,
 } from "./post-intent.ts";
+
+test("the minimum evidence is the app's", () => {
+  const intent = readFileSync(new URL("../../mobile-app/lib/utils/post_intent.dart", import.meta.url), "utf8");
+  const m = /const int kNudgeMinimumScore = (\d+);/.exec(intent);
+  assert.ok(m, "kNudgeMinimumScore not found in post_intent.dart");
+  assert.equal(NUDGE_MINIMUM_SCORE, Number(m[1]));
+});
 
 // The app's lists are the source; this file's copy must match them exactly.
 const dart = readFileSync(new URL("../../mobile-app/lib/config/post_intent_phrases.dart", import.meta.url), "utf8");
@@ -68,15 +76,16 @@ test("strength and overlap: a phrase beats a hint, the longer phrase claims its 
   assert.equal(readPostIntent("Natafuta kazi ya plumbing").leaning, "offer");
 });
 
-test("a hint alone is weak: the words both kinds use", () => {
+test("one weak word says nothing; two are listed but marked weak", () => {
   // A live request on 2026-11-17, with no description: a fundi advertising, or
-  // a customer asking for one?
-  assert.deepEqual(suggestPostType({ chosen: "request", title: "Fundi wa fridge" }), {
+  // a customer asking for one? Not enough to say anything.
+  assert.equal(suggestPostType({ chosen: "request", title: "Fundi wa fridge" }), null);
+  assert.equal(suggestPostType({ chosen: "offer", title: "Need a plumber" }), null);
+  assert.deepEqual(suggestPostType({ chosen: "request", title: "Fundi wa stima, niko na experience" }), {
     type: "offer",
-    evidence: ["fundi wa"],
+    evidence: ["fundi wa", "niko na"],
     strong: false,
   });
-  assert.equal(suggestPostType({ chosen: "request", title: "Fundi wa stima, niko na experience" })?.strong, false);
   assert.equal(suggestPostType({ chosen: "request", title: "Fundi wa stima, call me" })?.strong, true);
 });
 

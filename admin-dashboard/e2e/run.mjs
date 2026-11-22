@@ -1207,9 +1207,12 @@ try {
     const GONE = "ae5b7f3d-6a2c-4b8f-8d76-5c1e9a3f2b66";
     const HIRED = "bf6c8a4e-7b3d-4c9a-9e87-6d2f0b4a3c77";
     const HINT = "c07d9b5f-8c4e-4dab-8f98-7e3a1c5b4d88";
+    const ONE_HINT = "d18eac60-9d5f-4ebc-9fa9-8f4b2d6c5e99";
     fake.setTable("posts", [
-      // A hint alone ("fundi wa"), listed first so the sort has to move it.
-      listing(HINT, { title: "Fundi wa fridge", description: "" }),
+      // Two hints ("fundi wa", "niko na"), listed first so the sort has to move it.
+      listing(HINT, { title: "Fundi wa stima, niko na experience", description: "" }),
+      // One hint alone says nothing, here or in the app.
+      listing(ONE_HINT, { title: "Fundi wa fridge", description: "" }),
       listing(MISLABELLED),
       listing(FINE, { title: "Kitchen sink leaking, need someone today", description: "" }),
       listing(ASKS, { title: "Looking for a plumber in Westlands", description: "", type: "offer" }),
@@ -1224,7 +1227,7 @@ try {
     check("wrong type: lists the live listings whose words say the other kind, and only those", await evaluate(`(() => {
       const t = document.querySelector("table").innerText;
       return t.includes("Edger here anyone in need of plumber") && t.includes("Looking for a plumber in Westlands") && t.includes("We offer painting")
-        && !t.includes("Kitchen sink leaking") && !t.includes("I am a fundi, call me");
+        && !t.includes("Kitchen sink leaking") && !t.includes("I am a fundi, call me") && !t.includes("Fundi wa fridge");
     })()`), await evaluate(`document.querySelector("table").innerText.slice(0, 600)`));
     check("wrong type: says what each reads as, and the words that say so", await evaluate(`(() => {
       const cells = [...document.querySelectorAll('[data-testid="reads-as"]')].map((c) => c.innerText);
@@ -1232,9 +1235,9 @@ try {
     })()`));
     check("wrong type: a listing with a provider is shown, but its type stays",
       await evaluate(`${bodyHas("It already has a provider, so its type stays.")} && ${enabledChange}.length === 3`));
-    check("wrong type: a hint alone is marked weak and comes after the clear ones", await evaluate(`(() => {
+    check("wrong type: hints only are marked weak and come after the clear ones", await evaluate(`(() => {
       const rows = [...document.querySelectorAll("table tbody tr")].map((r) => r.innerText);
-      const hint = rows.findIndex((t) => t.includes("Fundi wa fridge"));
+      const hint = rows.findIndex((t) => t.includes("Fundi wa stima, niko na experience"));
       const clear = rows.findIndex((t) => t.includes("Looking for a plumber in Westlands"));
       return hint > clear && clear >= 0 && rows[hint].includes("Weak: words both kinds use") && !rows[clear].includes("Weak");
     })()`), await evaluate(`[...document.querySelectorAll("table tbody tr")].map((r) => r.innerText.split("\\n")[0]).join(" | ")`));

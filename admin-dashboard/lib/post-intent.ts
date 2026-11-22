@@ -232,22 +232,31 @@ export type IntentSuggestion = {
   /** The phrases and hints that read that way, as written in the lists. */
   evidence: string[];
   /**
-   * At least one PHRASE says it ("anyone in need of"), not only hints. A
-   * hint is a word both kinds use: "Fundi wa fridge" alone may be a fundi
-   * advertising or a customer asking for one, so hint-only is weak.
+   * At least one PHRASE says it ("anyone in need of"), not only hints. Two
+   * hints are enough to be listed, but hints are words both kinds use, so a
+   * hint-only listing is marked weak.
    */
   strong: boolean;
 };
 
 /**
+ * The least evidence before anything is suggested: one phrase (2) or two
+ * hints (1 + 1). The app's kNudgeMinimumScore; a single weak word ("Fundi wa
+ * fridge") says nothing, in the app or here.
+ */
+export const NUDGE_MINIMUM_SCORE = 2;
+
+/**
  * What a listing posted as [chosen] reads as instead, or null when its words
- * agree with it or do not lean. Only a request and an offer are compared: a
- * job has its own form and is never suggested.
+ * agree with it, do not lean, or lean too weakly. Only a request and an offer
+ * are compared: a job has its own form and is never suggested.
  */
 export function suggestPostType(input: { chosen: string; title: string; description?: string | null }): IntentSuggestion | null {
   if (input.chosen !== "request" && input.chosen !== "offer") return null;
   const reading = readPostIntent(`${input.title}\n${input.description ?? ""}`);
   if (!reading.leaning || reading.leaning === input.chosen) return null;
+  const score = reading.leaning === "offer" ? reading.offerScore : reading.requestScore;
+  if (score < NUDGE_MINIMUM_SCORE) return null;
   const evidence = [...new Set(reading.leaning === "offer" ? reading.offerPhrases : reading.requestPhrases)];
   const phrases: readonly string[] = reading.leaning === "offer" ? OFFER_PHRASES : REQUEST_PHRASES;
   return { type: reading.leaning, evidence, strong: evidence.some((e) => phrases.includes(e)) };

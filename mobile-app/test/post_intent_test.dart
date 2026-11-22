@@ -166,27 +166,46 @@ void main() {
       expect(s.evidence, {'i am a', 'we offer', 'call us'});
     });
 
-    test('"Keep as a request" quiets those words, not the rest of the post', () {
-      final kept = suggestPostType(chosen: PostType.request, title: 'I am a plumber')!;
-      bool shows(String title, String description, {PostType chosen = PostType.request}) =>
-          showPostIntentNudge(
-            suggestion: suggestPostType(chosen: chosen, title: title, description: description),
-            chosen: chosen,
-            keptType: PostType.request,
-            keptEvidence: kept.evidence,
-          );
+    test('"Keep as a request" is the last word for that post', () {
+      final first = suggestPostType(chosen: PostType.request, title: 'I am a plumber');
       // Before anything is kept, it shows.
-      expect(
-        showPostIntentNudge(suggestion: kept, chosen: PostType.request),
-        isTrue,
-      );
-      // The same words, or the same words typed on: quiet.
-      expect(shows('I am a plumber', ''), isFalse);
-      expect(shows('I am a plumber in Kisumu', ''), isFalse);
-      // New words that read as an offer, in the description: once more.
-      expect(shows('I am a plumber', 'We offer repairs'), isTrue);
+      expect(showPostIntentNudge(suggestion: first, chosen: PostType.request), isTrue);
+      // Once kept, nothing brings it back: not typing on, not new words.
+      for (final (title, description) in [
+        ('I am a plumber', ''),
+        ('I am a plumber in Kisumu', ''),
+        ('I am a plumber', 'We offer repairs, call us'),
+      ]) {
+        expect(
+          showPostIntentNudge(
+            suggestion: suggestPostType(chosen: PostType.request, title: title, description: description),
+            chosen: PostType.request,
+            keptType: PostType.request,
+          ),
+          isFalse,
+          reason: '$title / $description',
+        );
+      }
       // Nothing to suggest: nothing shows.
-      expect(shows('Looking for a plumber', ''), isFalse);
+      expect(
+        showPostIntentNudge(
+          suggestion: suggestPostType(chosen: PostType.request, title: 'Looking for a plumber'),
+          chosen: PostType.request,
+        ),
+        isFalse,
+      );
+    });
+
+    test('one weak word alone says nothing; a phrase or two weak words does', () {
+      // A live request on 2026-11-17: a fundi advertising, or a customer asking?
+      expect(suggestedPostType(chosen: PostType.request, title: 'Fundi wa fridge'), isNull);
+      expect(suggestedPostType(chosen: PostType.offer, title: 'Need a plumber'), isNull);
+      expect(suggestedPostType(chosen: PostType.request, title: 'Plumber, available weekends'), isNull);
+      // Two hints, or one phrase: clear enough.
+      expect(suggestedPostType(chosen: PostType.request, title: 'Fundi wa stima, niko na experience'),
+          PostType.offer);
+      expect(suggestedPostType(chosen: PostType.request, title: 'Fundi wa fridge, call me'), PostType.offer);
+      expect(suggestedPostType(chosen: PostType.offer, title: 'Plumber needed in Kilimani'), PostType.request);
     });
 
     test('never for a job, and never into one', () {

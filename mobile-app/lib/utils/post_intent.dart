@@ -16,6 +16,13 @@ import '../models/post_model.dart';
 /// substrings, on purpose: "am a" must not fire inside "Kama" or "drama",
 /// and "need" must not fire inside "needle".
 ///
+/// ── Light by design (owner's call, 2026-11-22) ──────────────────────────
+/// The app suggests a switch only on clear evidence: at least one phrase, or
+/// two hints ([kNudgeMinimumScore]). One weak word alone ("Fundi wa fridge":
+/// a fundi advertising, or a customer asking for one?) says nothing. And a
+/// suggestion the person has dismissed stays dismissed for that post. People
+/// should not feel watched while they write.
+///
 /// The admin console runs the same check over live listings
 /// (admin-dashboard/lib/post-intent.ts). Its phrase lists are a copy of
 /// config/post_intent_phrases.dart, and a console test fails if the two
@@ -47,6 +54,10 @@ class PostIntentReading {
 
 const int _phraseWeight = 2;
 const int _hintWeight = 1;
+
+/// The least evidence for the other kind before anything is suggested: one
+/// phrase (2), or two hints (1 + 1). A single hint is never enough.
+const int kNudgeMinimumScore = 2;
 
 class _Phrase {
   const _Phrase(this.tokens, this.type, this.source, this.weight, this.order);
@@ -179,8 +190,10 @@ class PostIntentSuggestion {
 
 /// What to suggest instead of [chosen], or null to say nothing.
 ///
-/// Only a request and an offer are ever swapped for each other. A job has its
-/// own form, so a job is never nudged and nothing is nudged into one.
+/// Only on clear evidence: the other kind must score strictly more AND at
+/// least [kNudgeMinimumScore] (a phrase, or two hints). Only a request and an
+/// offer are ever swapped for each other. A job has its own form, so a job is
+/// never nudged and nothing is nudged into one.
 PostIntentSuggestion? suggestPostType({
   required PostType chosen,
   required String title,
@@ -190,6 +203,8 @@ PostIntentSuggestion? suggestPostType({
   final reading = readPostIntent('$title\n$description');
   final leaning = reading.leaning;
   if (leaning == null || leaning == chosen) return null;
+  final score = leaning == PostType.offer ? reading.offerScore : reading.requestScore;
+  if (score < kNudgeMinimumScore) return null;
   return PostIntentSuggestion(
     leaning,
     {...(leaning == PostType.offer ? reading.offerPhrases : reading.requestPhrases)},
@@ -206,20 +221,14 @@ PostType? suggestedPostType({
 
 /// Whether the nudge should show, given what the person already answered.
 ///
-/// "Keep as a request" quiets the nudge for the words it was shown for, not
-/// for the rest of the post: if the description then adds NEW words that
-/// read the other way ("we offer repairs"), the nudge comes back once more.
-/// The same words, or fewer, stay quiet; typing on never brings it back.
+/// Once: "Keep as a request" quiets it for the rest of this post, whatever is
+/// typed afterwards. Asked and answered is enough.
 bool showPostIntentNudge({
   required PostIntentSuggestion? suggestion,
   required PostType chosen,
   PostType? keptType,
-  Set<String> keptEvidence = const {},
-}) {
-  if (suggestion == null) return false;
-  if (keptType != chosen) return true;
-  return !keptEvidence.containsAll(suggestion.evidence);
-}
+}) =>
+    suggestion != null && keptType != chosen;
 
 /// The nudge, in words. One place, so the composer and its tests agree.
 String postIntentNudge(PostType suggested) => suggested == PostType.offer
