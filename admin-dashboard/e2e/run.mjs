@@ -203,6 +203,18 @@ try {
   const loginSignOut = await waitFor(pathIs("/login"), "sign-out after signing in", 20000).then(() => true, () => false);
   check("existing login flow: Sign out works straight after signing in", loginSignOut);
   if (!loginSignOut) await pg.clearCookies();
+  // Security log (migration 146): a wrong password on an admin address is
+  // recorded; the same on an address nobody uses is not.
+  await signIn(ALICE, "not-alices-password-1");
+  await waitFor(bodyHas("Invalid email or password."), "wrong password refused");
+  await signIn("nobody-here@help24.test", "whatever-password-1");
+  await waitFor(bodyHas("Invalid email or password."), "unknown address refused");
+  for (let i = 0; i < 20 && !fake.securityEvents.some((e) => e.event === "sign_in.failed"); i++) await sleep(150);
+  check("Security log: a failed password attempt on an admin address is recorded, with where it came from",
+    fake.securityEvents.some((e) => e.event === "sign_in.failed" && e.actor_email === ALICE && e.outcome === "failure" && e.detail?.method === "password" && e.user_agent),
+    JSON.stringify(fake.securityEvents.map((e) => [e.event, e.actor_email])));
+  check("Security log: attempts on an address that is not an admin are not recorded",
+    !fake.securityEvents.some((e) => e.actor_email === "nobody-here@help24.test"));
   await signIn(ALICE, ALICE_PW1);
   await waitFor(`location.pathname.startsWith('/dashboard')`, "admin lands in dashboard again");
   await goto(`${APP}/dashboard/users/admins`);
@@ -234,6 +246,22 @@ try {
   check("Invite an admin: people search renews a key retired by another device",
     searchOk && !(await evaluate(`document.body.innerText.includes("Invalid admin token")`)) && (fake.restores.get(ALICE) ?? 0) === restoresBeforeSearch + 1,
     `restores +${(fake.restores.get(ALICE) ?? 0) - restoresBeforeSearch}`);
+  // The security log page, as a super admin.
+  check("Security log: signing in records the console opening and how they signed in",
+    fake.securityEvents.some((e) => e.event === "console.opened" && e.actor_email === ALICE && e.actor_role === "super_admin" && e.detail?.method === "password"));
+  await goto(`${APP}/dashboard/users/security`);
+  await waitFor(bodyHas("Times are Nairobi time"), "Security log page");
+  check("Security log: shows console openings, failed attempts and Supabase sign-ins in one timeline",
+    await evaluate(`${bodyHas("opened the console")} && ${bodyHas("failed to sign in")} && ${bodyHas("signed in with password")} && ${bodyHas("Alice Wanjiru")}`));
+  check("Security log: a failed attempt says why and is marked as a failure",
+    await evaluate(`[...document.querySelectorAll("li")].some((li) => li.innerText.includes("failed to sign in") && li.querySelector(".bg-critical-500") && li.innerText.includes("Wrong email or password"))`));
+  check("Security log: listed in the Users section", await evaluate(`!!document.querySelector('a[href="/dashboard/users/security"]')`));
+  await goto(`${APP}/dashboard/users/security?category=failed`);
+  const onlyFailures = await waitFor(`location.search.includes("category=failed") && ${bodyHas("failed to sign in")} && !(${bodyHas("opened the console")})`, "Security log, failed only", 15000).then(() => true, () => false);
+  check("Security log: Failed attempts shows only failures", onlyFailures);
+  check("Security log: no em dash or middle dot in the page",
+    !(await evaluate(`/[—·]/.test(document.querySelector("main").innerText)`)));
+  await shot("security-log.png");
   await click('nav a[href="/dashboard/settings"]');
   await waitFor(`${pathIs("/dashboard/settings")} && ${bodyHas("Change password")}`, "Settings via sidebar");
   check("sidebar Settings entry navigates to /dashboard/settings", true);

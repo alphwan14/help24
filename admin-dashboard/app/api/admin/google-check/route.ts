@@ -5,6 +5,7 @@ import { restoreAdminSession } from "@/lib/api";
 import { storeArbitrationToken } from "@/lib/arbitration-session";
 import type { GoogleSignInError } from "@/lib/google-sign-in";
 import type { ArbitrationIdentity } from "@/lib/arbitration-client";
+import { recordSecurityEvent } from "@/lib/security-log";
 
 export const dynamic = "force-dynamic";
 
@@ -47,10 +48,21 @@ export async function POST(request: Request) {
 
   const access = await resolveAdminAccess(user.id);
   if (access.ok) {
-    return NextResponse.json({ ok: true, identity: await connect(bearer) });
+    const identity = await connect(bearer);
+    if (identity.connected) {
+      await recordSecurityEvent(
+        { event: "console.opened", outcome: "success", actorKind: "admin", email: identity.email, role: identity.role, detail: { method: "google" } },
+        request.headers,
+      );
+    }
+    return NextResponse.json({ ok: true, identity });
   }
 
   console.log(`[Admin Check] Google sign-in DENIED for subject ${user.id} (${access.reason})`);
+  await recordSecurityEvent(
+    { event: "google.refused", outcome: "failure", actorKind: "admin", email: user.email ?? null, detail: { reason: access.reason, method: "google" } },
+    request.headers,
+  );
   await supabase.auth.signOut({ scope: "local" });
   return NextResponse.json({ ok: false, error: DENIAL[access.reason] });
 }

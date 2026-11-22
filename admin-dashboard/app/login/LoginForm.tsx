@@ -134,13 +134,28 @@ export default function LoginForm({ query }: { query: LoginQuery }) {
     if (authError) {
       setError(friendlyAuthError(authError.message));
       setLoading(false);
+      // For the security log: attempts on admin addresses are recorded there.
+      // Fire and forget; the server answers the same for every address.
+      const code = (authError as { code?: string }).code;
+      const reason =
+        code === "invalid_credentials" || code === "email_not_confirmed"
+          ? code
+          : authError.status === 429
+            ? "rate_limited"
+            : "other";
+      void fetch("/api/admin/security/failed-sign-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), reason }),
+        keepalive: true,
+      }).catch(() => {});
       return;
     }
 
     // Set console access while the button still says it is signing in, so the
     // dashboard opens straight away rather than behind "Opening the console".
     // A failure is not final: AdminShell restores again on arrival.
-    const ident = await restoreArbitration(true, data.session?.access_token);
+    const ident = await restoreArbitration(true, data.session?.access_token, "password");
     if (ident.connected) rememberIdentity(ident);
 
     // Straight to the overview in ONE navigation. This was push("/dashboard")
