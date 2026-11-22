@@ -150,7 +150,6 @@ class _TermsAcceptanceScreenState extends State<TermsAcceptanceScreen> {
                               body: sections[i].body,
                               headingStyle: heading,
                               bodyStyle: body,
-                              divider: i < sections.length - 1,
                             ),
                         ],
                       ),
@@ -185,11 +184,10 @@ class _TermsAcceptanceScreenState extends State<TermsAcceptanceScreen> {
               ),
 
               // ── Agree: always on screen, unlocked by reading ───────────────
+              // Its own background and the space above set it apart; no rule
+              // (the design gate: whitespace, not lines).
               DecoratedBox(
-                decoration: BoxDecoration(
-                  color: c.page,
-                  border: Border(top: BorderSide(color: c.borderHairline)),
-                ),
+                decoration: BoxDecoration(color: c.page),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(AppSpace.xl, AppSpace.md, AppSpace.xl, AppSpace.md),
                   child: Column(
@@ -241,7 +239,6 @@ class _Section extends StatelessWidget {
   final String body;
   final TextStyle headingStyle;
   final TextStyle bodyStyle;
-  final bool divider;
 
   const _Section({
     required this.number,
@@ -249,15 +246,14 @@ class _Section extends StatelessWidget {
     required this.body,
     required this.headingStyle,
     required this.bodyStyle,
-    required this.divider,
   });
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    return Container(
+    // Sections are set apart by their padding, not by a line between them.
+    return Padding(
       padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, AppSpace.lg),
-      decoration: divider ? BoxDecoration(border: Border(bottom: BorderSide(color: c.borderHairline))) : null,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -327,7 +323,7 @@ class _Understood extends StatelessWidget {
                     activeColor: c.actionFill,
                     checkColor: c.contentOnAction,
                     side: BorderSide(color: c.borderStrong, width: 1.5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                    shape: RoundedRectangleBorder(borderRadius: AppRadius.smAll),
                   ),
                 ),
                 const SizedBox(width: AppSpace.md),
