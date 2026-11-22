@@ -29,6 +29,15 @@ settings (peak 4.75 GB in the VM). Log: `~/h24build/out/patch-1.0.13-p2.log`.
 Phone-checked 2026-11-17 on the published APK (sha `09dbde98…`): patch 2
 downloaded on the first start, `active path …/patches/2` on the second.
 
+**Patch 3** (2026-11-17, stable, Shorebird id 816502, from main `c78fd4b`,
+PR #33): Finding help follows the work, the admin Wrong type list. **Patch 4**
+(2026-11-22, stable, id 831254, from main `90eeb67`, PRs #37 and #35): the
+lighter nudge, the growing title field, the read-tick-agree terms screen.
+Both Dart only, no icons added, no asset diffs, both built first time with the
+lean settings. Phone-checked 2026-11-22 on the published APK: `patches/3`
+active at the first start, patch 4 downloaded (1,615,074 bytes) and verified,
+`active path …/patches/4` on the second. Next patch is #5.
+
 **Do not patch 1.0.12 from main any more.** Main has the updater's native code
 and the new permission, which the 1.0.12 APK lacks. 1.0.12+13 keeps its
 Patches 1 and 2; new work ships as a patch to 1.0.13+14.
