@@ -108,12 +108,10 @@ class _PostScreenState extends State<PostScreen> {
   /// role-based default may still be corrected by a late profile read.
   bool _typeTouched = false;
 
-  /// The kind the person said to keep when the nudge suggested the other one,
-  /// and the words the nudge had read. The nudge stays quiet for those words;
-  /// new ones that read the other way (say, in the description) bring it back
-  /// once more. See [showPostIntentNudge].
+  /// The kind the person said to keep when the nudge suggested the other one.
+  /// The nudge stays quiet for the rest of the post until they switch kind
+  /// themselves. See [showPostIntentNudge].
   PostType? _nudgeKeptFor;
-  Set<String> _nudgeKeptEvidence = const {};
 
   // Form controllers
   final _titleController = TextEditingController();
@@ -303,7 +301,6 @@ class _PostScreenState extends State<PostScreen> {
     _selectType(to);
     setState(() {
       _nudgeKeptFor = null;
-      _nudgeKeptEvidence = const {};
       if (to == PostType.offer) {
         // The offer journey snapshots its questions step on leaving the title
         // step, which this jump skips. Requests snapshot on the When step,
@@ -330,7 +327,6 @@ class _PostScreenState extends State<PostScreen> {
       suggestion: suggestion,
       chosen: chosen,
       keptType: _nudgeKeptFor,
-      keptEvidence: _nudgeKeptEvidence,
     );
     return show ? suggestion : null;
   }
@@ -345,10 +341,7 @@ class _PostScreenState extends State<PostScreen> {
         suggested: suggestion.type,
         chosen: chosen,
         onSwitch: () => _switchType(suggestion.type),
-        onKeep: () => setState(() {
-          _nudgeKeptFor = chosen;
-          _nudgeKeptEvidence = suggestion.evidence;
-        }),
+        onKeep: () => setState(() => _nudgeKeptFor = chosen),
       ),
     );
   }

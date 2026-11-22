@@ -94,10 +94,17 @@ purpose: "am a" must not fire inside "Kama" or "drama", nor "need" inside
 2026-11-17) is caught by "i am a" in the middle of the title, and is a test
 case now. On the phone the nudge did show for it on the title step; it was
 missing at "Post Now" only because "Keep as a request" had been tapped.
-Since then **"Keep" quiets the words it was shown for, not the whole post**
-(`showPostIntentNudge`): if the description later adds new words that read
-the other way ("we offer repairs"), the nudge comes back once more. "iam a"
-(no space) was added to the offer phrases.
+"iam a" (no space) was added to the offer phrases.
+
+**Light by design (owner's call, 2026-11-22: "I hate apps that nudge").**
+Two rules keep it from feeling like a restriction:
+
+- **Clear evidence only** (`kNudgeMinimumScore = 2`): at least one phrase, or
+  two hints. One weak word alone says nothing. "Fundi wa fridge" (a live
+  request: a fundi advertising, or a customer asking for one?) no longer
+  nudges, and its author is not offered a correction either.
+- **Asked once** (`showPostIntentNudge`): "Keep as a request" is the last word
+  for that post, whatever is typed afterwards.
 
 ### 3. Fixing the type after posting
 
@@ -129,11 +136,10 @@ nobody chosen can be reclassified, including one people have responded to
 every live request and offer whose own words read as the other kind, with
 the words that say so ("anyone in need of"), and **Change type** in each row,
 starting on the kind the words suggest. Listings with a provider are shown
-but locked, with the reason. A listing flagged on hints alone (words both
-kinds use) is marked **weak** and listed after the clear ones: on
-2026-11-17 the live data had two, "Edger here anyone in need of plumber"
-(clear) and "Fundi wa fridge" (weak, no description: a fundi advertising or
-a customer asking for one). A changed listing leaves the list. It runs the
+but locked, with the reason. It uses the app's minimum evidence, so one weak
+word lists nothing; a listing flagged on two hints and no phrase is marked
+**weak** and listed after the clear ones. On 2026-11-22 none of the 57 live
+requests and offers is flagged. A changed listing leaves the list. It runs the
 app's check in the console (`admin-dashboard/lib/post-intent.ts`); the phrase
 lists there are a copy of the app's, and `lib/post-intent.test.mjs` reads the
 Dart file and fails if they differ. Edit the app's file first, then the

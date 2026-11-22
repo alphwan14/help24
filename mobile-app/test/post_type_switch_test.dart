@@ -91,6 +91,8 @@ void main() {
     test('neutral words are offered nothing (an admin can still reclassify)', () {
       expect(correction(PostType.request, 'Plumbing'), isNull);
       expect(correction(PostType.offer, 'Kitchen sink repair'), isNull);
+      // One weak word is not enough to question someone's own listing.
+      expect(correction(PostType.request, 'Fundi wa fridge'), isNull);
     });
 
     test('the listing rules still come first', () {
