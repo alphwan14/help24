@@ -23,12 +23,34 @@ Build in WSL from a commit, never from Windows:
 
 ## Waiting
 
-Nothing since 1.0.13 Patch 2 (below). Live `ops.min_version` is soft and hard **1.0.13** (the owner
+Nothing since 1.0.13 Patch 4 (below). Live `ops.min_version` is soft and hard **1.0.13** (the owner
 raised it on 2026-11-17; read from `/config` that day). The in-app updater only helps
 from 1.0.13 on: 1.0.12 and older phones still update from the download page.
 For the next release, fill `apk_url`, `sha256` and `size_bytes` in App
 controls (the GitHub asset link, its sha256 and byte size) so 1.0.13 phones
 update in one tap.
+
+## Shipped as 1.0.13+14 Patch 4 (2026-11-22)
+
+Shorebird patch #4 (id 831254) on stable, built from main `90eeb67` (merges
+of PRs #37, #35, #12, #32; only #37 and #35 touch the app). Dart only, no
+icons added, no asset diffs. Built first time with the lean settings in
+docs/shorebird.md. Carries Patches 1 to 3.
+
+| Commit | Change | Verified |
+|---|---|---|
+| `9aece6d` (PR #37) | **Lighter nudge (owner's call: nudges stay light).** The composer suggests the other kind only on clear evidence: one phrase ("I am a", "we offer", "anyone in need of") or two weak words. One weak word alone ("Fundi wa fridge", "Need a plumber") says nothing. "Keep as a request" / "Keep as an offer" is final for that post, whatever is typed after. The same bar (`kNudgeMinimumScore = 2`) gates the author's "This reads like an offer" correction and the admin Wrong type list, whose TypeScript copy reads the minimum from the Dart file in its drift test | 1812 Flutter tests on the combined tree (the 3 known WSL-mirror failures), analyze clean; admin tsc clean, 213 unit, e2e 221/221. S20+ on the published APK, 2026-11-22: start 1 downloaded patch 4 (1.6 MB, signature valid), start 2 ran `active path …/patches/4`. In the request composer "Fundi wa fridge" showed no nudge; "Help24 test I am a plumber please ignore …" showed "This sounds like you're offering a service. Post as an offer?"; after "Keep as a request", adding "we offer plumbing" brought nothing back. Closed without posting |
+| `fae163c`, `8090485` (PR #35) | The title field grows to 4 lines as it fills. First-launch terms: a numbered card with a reading line under the header; "I have read and understood" unlocks at the end, and I agree only once it is ticked. `8090485` took out two hairlines and a hand-set radius the design gate refused | Same test run. S20+: a long title wrapped to 4 lines with the field growing. The terms screen was **not** seen on the phone: `TermsAcceptance.currentVersion` is still `2026-11-10`, so installs that accepted already never see it again; only new installs do |
+
+## Shipped as 1.0.13+14 Patch 3 (2026-11-17)
+
+Shorebird patch #3 (id 816502) on stable, built from main `c78fd4b` (PR #33
+merge). Dart only, no icons added, no asset diffs. Same lean settings, built
+first time (peak 4.8 GB in the VM).
+
+| Commit | Change | Verified |
+|---|---|---|
+| `502a00c` (PR #33) | **Finding help follows the work** (owner's spec, docs/post-type-clarity.md): it starts on the tap on Post inside the composer with real "Uploading photo k of n", turns to "Your request is live." the moment the server confirms (1.2 s floor, nothing added after), the pill settles once with a light haptic, and it closes 3 s later; a failure brings the form back. Fixed-height words, bars slide in from the sides, a softer halo clear of the bars, "Finding {category} help near {place}…". The intent check reads the whole title and description; "iam a" added. Admin Marketplace > Wrong type lists live listings whose words read the other kind | Flutter suite (3 known WSL-mirror failures); admin e2e incl. the Wrong type list. S20+ on the published APK, 2026-11-22: `active path …/patches/3` on the first start of the day, before patch 4 arrived. The post flow itself is the owner's own phone test (not recorded here) |
 
 ## Shipped as 1.0.13+14 Patch 2 (2026-11-17)
 
