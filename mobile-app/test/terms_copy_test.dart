@@ -118,9 +118,43 @@ void main() {
     expect(find.text(TermsCopy.accept), findsOneWidget);
     expect(find.text(TermsCopy.close), findsOneWidget);
 
+    // Reaching the end unlocks the tick; the tick unlocks I agree.
+    await tester.drag(find.byType(ListView), const Offset(0, -5000));
+    await tester.pumpAndSettle();
+    expect(find.text(TermsCopy.scrollHint), findsNothing);
+    await tester.tap(find.text(TermsCopy.confirm));
+    await tester.pump();
     await tester.tap(find.text(TermsCopy.accept));
     await tester.pumpAndSettle();
     expect(accepted, isTrue);
     expect(TermsAcceptance.isAccepted, isTrue);
+  });
+
+  testWidgets('I agree stays locked until the terms are read and ticked', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    TermsAcceptance.load(await SharedPreferences.getInstance());
+    var accepted = false;
+    await tester.binding.setSurfaceSize(const Size(400, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: TermsAcceptanceScreen(onAccepted: () => accepted = true),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text(TermsCopy.scrollHint), findsOneWidget);
+
+    // Neither the tick nor the button does anything before the end.
+    await tester.tap(find.text(TermsCopy.confirm));
+    await tester.tap(find.text(TermsCopy.accept));
+    await tester.pumpAndSettle();
+    expect(accepted, isFalse);
+
+    // Read to the end but do not tick: still locked.
+    await tester.drag(find.byType(ListView), const Offset(0, -5000));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(TermsCopy.accept));
+    await tester.pumpAndSettle();
+    expect(accepted, isFalse);
+    expect(TermsAcceptance.isAccepted, isFalse);
   });
 }

@@ -11,9 +11,13 @@ import '../utils/terms_copy.dart';
 ///
 /// Shown by StartupGate over the app (which keeps building underneath, so the
 /// feed is ready the moment this is accepted) whenever this install has not
-/// accepted [TermsAcceptance.currentVersion]. Plain type and whitespace: a
-/// summary people can actually read, with the full Terms and Privacy Policy a
-/// tap away on help24.co.ke. Uses no icon, so it ships in a code patch.
+/// accepted [TermsAcceptance.currentVersion].
+///
+/// Read, then agree: the summary is a numbered card with a thin line under the
+/// header that fills as the reader scrolls. The "read and understood" tick
+/// unlocks only once they reach the end, and I agree only once it is ticked.
+/// The full Terms and Privacy Policy stay a tap away on help24.co.ke. Uses no
+/// icon font glyph, so it ships in a code patch.
 class TermsAcceptanceScreen extends StatefulWidget {
   final VoidCallback onAccepted;
 
@@ -24,10 +28,40 @@ class TermsAcceptanceScreen extends StatefulWidget {
 }
 
 class _TermsAcceptanceScreenState extends State<TermsAcceptanceScreen> {
+  final _scroll = ScrollController();
+  final _progress = ValueNotifier<double>(0);
+  bool _reachedEnd = false;
+  bool _understood = false;
   bool _saving = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+    // On a tall screen the whole summary may already fit: nothing to scroll.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onScroll());
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    _progress.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final p = _scroll.position;
+    final max = p.maxScrollExtent;
+    _progress.value = max <= 0 ? 1 : (p.pixels / max).clamp(0.0, 1.0);
+    if (!_reachedEnd && (max <= 0 || p.pixels >= max - 24)) {
+      setState(() => _reachedEnd = true);
+    }
+  }
+
   Future<void> _accept() async {
-    if (_saving) return;
+    if (_saving || !_understood) return;
     setState(() => _saving = true);
     try {
       await TermsAcceptance.accept();
@@ -44,7 +78,8 @@ class _TermsAcceptanceScreenState extends State<TermsAcceptanceScreen> {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final heading = TextStyle(color: c.contentPrimary, fontSize: 15, fontWeight: FontWeight.w600, height: 1.3);
-    final body = TextStyle(color: c.contentSecondary, fontSize: 14, height: 1.5);
+    final body = TextStyle(color: c.contentSecondary, fontSize: 14, height: 1.55);
+    const sections = TermsCopy.sections;
 
     return PopScope(
       // Back does not skip the terms; it leaves the app, as Close does.
@@ -56,10 +91,13 @@ class _TermsAcceptanceScreenState extends State<TermsAcceptanceScreen> {
         backgroundColor: c.page,
         body: SafeArea(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(AppSpace.xl, AppSpace.xxl, AppSpace.xl, AppSpace.xl),
+              // ── Header: stays put while the terms scroll under it ──────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(AppSpace.xl, AppSpace.xl, AppSpace.xl, AppSpace.lg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       TermsCopy.title,
@@ -71,64 +109,241 @@ class _TermsAcceptanceScreenState extends State<TermsAcceptanceScreen> {
                         letterSpacing: -0.3,
                       ),
                     ),
-                    const SizedBox(height: AppSpace.md),
-                    Text(TermsCopy.lead, style: body.copyWith(fontSize: 15)),
-                    const SizedBox(height: AppSpace.xxl),
-                    for (final s in TermsCopy.sections) ...[
-                      Text(s.heading, style: heading),
-                      const SizedBox(height: AppSpace.xs + 2),
-                      Text(s.body, style: body),
-                      const SizedBox(height: AppSpace.xl),
-                    ],
                     const SizedBox(height: AppSpace.sm),
-                    _LinkText(
-                      label: TermsCopy.readTerms,
-                      color: c.accentText,
-                      onTap: () => openHelp24Url(context, AppUrls.termsOfService),
-                    ),
-                    const SizedBox(height: AppSpace.md),
-                    _LinkText(
-                      label: TermsCopy.readPrivacy,
-                      color: c.accentText,
-                      onTap: () => openHelp24Url(context, AppUrls.privacyPolicy),
+                    Text(TermsCopy.lead, style: body.copyWith(fontSize: 15)),
+                  ],
+                ),
+              ),
+              // How far through the terms the reader is.
+              ValueListenableBuilder<double>(
+                valueListenable: _progress,
+                builder: (_, v, __) => Stack(
+                  children: [
+                    Container(height: 2, color: c.borderHairline),
+                    FractionallySizedBox(
+                      alignment: AlignmentDirectional.centerStart,
+                      widthFactor: v,
+                      child: Container(height: 2, color: c.accentFill),
                     ),
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(AppSpace.xl, AppSpace.md, AppSpace.xl, AppSpace.lg),
-                child: Column(
+
+              // ── The terms ──────────────────────────────────────────────────
+              Expanded(
+                child: ListView(
+                  controller: _scroll,
+                  padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, AppSpace.xl),
                   children: [
-                    Text(
-                      TermsCopy.agreementNote,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: c.contentTertiary, fontSize: 12.5, height: 1.4),
-                    ),
-                    const SizedBox(height: AppSpace.md),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: FilledButton(
-                        onPressed: _saving ? null : _accept,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: c.actionFill,
-                          foregroundColor: c.contentOnAction,
-                          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
-                        ),
-                        child: Text(TermsCopy.accept,
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: c.surface,
+                        borderRadius: AppRadius.lgAll,
+                        border: Border.all(color: c.borderHairline),
+                      ),
+                      child: Column(
+                        children: [
+                          for (var i = 0; i < sections.length; i++)
+                            _Section(
+                              number: i + 1,
+                              heading: sections[i].heading,
+                              body: sections[i].body,
+                              headingStyle: heading,
+                              bodyStyle: body,
+                            ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: AppSpace.xs),
-                    TextButton(
-                      onPressed: _saving ? null : () => SystemNavigator.pop(),
-                      style: TextButton.styleFrom(foregroundColor: c.contentSecondary),
-                      child: const Text(TermsCopy.close),
+                    const SizedBox(height: AppSpace.lg),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpace.xs),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _LinkText(
+                            label: TermsCopy.readTerms,
+                            color: c.accentText,
+                            onTap: () => openHelp24Url(context, AppUrls.termsOfService),
+                          ),
+                          const SizedBox(height: AppSpace.xs),
+                          _LinkText(
+                            label: TermsCopy.readPrivacy,
+                            color: c.accentText,
+                            onTap: () => openHelp24Url(context, AppUrls.privacyPolicy),
+                          ),
+                          const SizedBox(height: AppSpace.md),
+                          Text(
+                            TermsCopy.agreementNote,
+                            style: TextStyle(color: c.contentTertiary, fontSize: 12.5, height: 1.4),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
+                ),
+              ),
+
+              // ── Agree: always on screen, unlocked by reading ───────────────
+              // Its own background and the space above set it apart; no rule
+              // (the design gate: whitespace, not lines).
+              DecoratedBox(
+                decoration: BoxDecoration(color: c.page),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(AppSpace.xl, AppSpace.md, AppSpace.xl, AppSpace.md),
+                  child: Column(
+                    children: [
+                      _Understood(
+                        enabled: _reachedEnd && !_saving,
+                        value: _understood,
+                        hint: _reachedEnd ? null : TermsCopy.scrollHint,
+                        onChanged: (v) => setState(() => _understood = v),
+                      ),
+                      const SizedBox(height: AppSpace.md),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: FilledButton(
+                          onPressed: (_understood && !_saving) ? _accept : null,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: c.actionFill,
+                            foregroundColor: c.contentOnAction,
+                            disabledBackgroundColor: c.surfaceSunken,
+                            disabledForegroundColor: c.contentTertiary,
+                            shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
+                          ),
+                          child: Text(TermsCopy.accept,
+                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _saving ? null : () => SystemNavigator.pop(),
+                        style: TextButton.styleFrom(foregroundColor: c.contentSecondary),
+                        child: const Text(TermsCopy.close),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One numbered term inside the card.
+class _Section extends StatelessWidget {
+  final int number;
+  final String heading;
+  final String body;
+  final TextStyle headingStyle;
+  final TextStyle bodyStyle;
+
+  const _Section({
+    required this.number,
+    required this.heading,
+    required this.body,
+    required this.headingStyle,
+    required this.bodyStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    // Sections are set apart by their padding, not by a line between them.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, AppSpace.lg),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: c.accentSubtle, shape: BoxShape.circle),
+            child: Text(
+              '$number',
+              style: TextStyle(color: c.accentText, fontSize: 12, fontWeight: FontWeight.w600, height: 1),
+            ),
+          ),
+          const SizedBox(width: AppSpace.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(heading, style: headingStyle),
+                ),
+                const SizedBox(height: AppSpace.xs + 2),
+                Text(body, style: bodyStyle),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "I have read and understood these terms". Dimmed, with a hint, until the
+/// reader has scrolled to the end.
+class _Understood extends StatelessWidget {
+  final bool enabled;
+  final bool value;
+  final String? hint;
+  final ValueChanged<bool> onChanged;
+
+  const _Understood({required this.enabled, required this.value, required this.hint, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 200),
+      opacity: enabled ? 1 : 0.5,
+      child: Semantics(
+        hint: hint,
+        child: InkWell(
+          onTap: enabled ? () => onChanged(!value) : null,
+          borderRadius: AppRadius.smAll,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Checkbox(
+                    value: value,
+                    onChanged: enabled ? (v) => onChanged(v ?? false) : null,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    activeColor: c.actionFill,
+                    checkColor: c.contentOnAction,
+                    side: BorderSide(color: c.borderStrong, width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: AppRadius.smAll),
+                  ),
+                ),
+                const SizedBox(width: AppSpace.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        TermsCopy.confirm,
+                        style: TextStyle(color: c.contentPrimary, fontSize: 14, fontWeight: FontWeight.w500, height: 1.3),
+                      ),
+                      if (hint != null) ...[
+                        const SizedBox(height: 2),
+                        Text(hint!, style: TextStyle(color: c.contentTertiary, fontSize: 12.5, height: 1.3)),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
