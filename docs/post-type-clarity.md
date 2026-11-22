@@ -256,7 +256,13 @@ docs/later-with-traction.md.
   change with the right actor. 17/17.
 - Admin: `tsc` clean, 195 unit tests (`lib/listing-type.test.mjs` new), e2e
   "listing type" section 9/9 in a real browser against the fake stack.
-- Owed: a phone check on the S20+ once the patch is published (step 0
-  preselect for a provider account, the nudge on "Edger here anyone in need
-  of plumber", the switch on a real listing, the finding-help moment with
-  animations on and off).
+- Phone, S20+ on the published APK, 2026-11-17. Patch 1: step 0 preselects
+  "I offer a service" for a provider account, the nudge on "Edger here
+  anyone in need of plumber" and its switch, the owner's switch and dialog,
+  the finding-help moment. Patch 2: no switch on the welder offer; the
+  keyboard goes away after "Post as an offer"; a test request paced as
+  designed (about 1.5 s to form, about 4 s of "Finding…", then "Your request
+  is live." and a close by itself onto Discover); its post screen offered
+  "This reads like an offer. Change to an offer". Both test requests were
+  deleted at once. Not checked on the phone: reduce motion (covered by
+  `finding_help_test`).
