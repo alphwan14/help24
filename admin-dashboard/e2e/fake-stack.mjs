@@ -113,8 +113,13 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       token_type: "bearer", expires_in: 3600, expires_at: iat + 3600, refresh_token: s.refreshToken, user: userJson(u),
     };
   }
+  // Session limits (lib/session-limits.ts): the next sign-in can be made to
+  // look this many seconds old, as if it happened earlier.
+  let nextSessionAge = 0;
   function issue(u, method) {
-    const s = { id: randomUUID(), userId: u.id, createdAt: now(), amr: [{ method, timestamp: now() }], refreshToken: randomUUID() };
+    const at = now() - nextSessionAge;
+    nextSessionAge = 0;
+    const s = { id: randomUUID(), userId: u.id, createdAt: at, amr: [{ method, timestamp: at }], refreshToken: randomUUID() };
     sessions.set(s.id, s);
     return sessionJson(s);
   }
@@ -725,6 +730,7 @@ export async function startFakeStack({ port, siteUrl, redirectAllowList, templat
       links.push({ subject: u.id, help24: person.id });
     },
     securityEvents,
+    ageNextSession(seconds) { nextSessionAge = seconds; },
     addArbitrationAdmin(email, name, role, active = true) {
       admins.set(email, { id: randomUUID(), email, name, role, active, token: null });
     },

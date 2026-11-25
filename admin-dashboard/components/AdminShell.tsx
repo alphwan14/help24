@@ -15,6 +15,7 @@ import AlertsProvider from "@/components/alerts/AlertsProvider";
 import ConsolePresence from "@/components/ConsolePresence";
 import ConnectAccess from "@/app/dashboard/disputes/ConnectAccess";
 import CommandPalette from "@/components/CommandPalette";
+import IdleSignOut from "@/components/IdleSignOut";
 import { ShellContext, type Shell } from "@/components/ShellContext";
 
 type Status = "checking" | "restoring" | "ready" | "recovery";
@@ -163,6 +164,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
           {/* Who is in the console now; Admin Roles reads it (migration 132). */}
           <ConsolePresence enabled={status === "ready"} />
+          {/* 30 minutes without activity in any tab signs the console out. */}
+          <IdleSignOut enabled={status === "ready"} />
           <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} role={role} />
           {status === "restoring" && <Splash />}
           {status === "recovery" && <RecoveryOverlay />}

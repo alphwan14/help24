@@ -4,7 +4,7 @@ import BrandMark from "@/components/BrandMark";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getSupabaseBrowser } from "@/lib/supabase-browser";
+import { signOutOfConsole } from "@/lib/sign-out-client";
 import AlertsBell from "@/components/alerts/AlertsBell";
 import { useAlerts } from "@/components/alerts/AlertsProvider";
 import { useShell } from "@/components/ShellContext";
@@ -41,31 +41,6 @@ function useAttention(): Attention {
   const alerts = useAlerts();
   const list = alerts?.data?.alerts;
   return useMemo(() => attentionBySection(list ?? []), [list]);
-}
-
-/**
- * Sign out of both identities: the arbitration bearer cookie first, then the
- * Supabase session. Clearing only one leaves the other active (split brain).
- * Neither goes through Next's router, whose queued navigations once left
- * "Signing out" hanging; a full page load also drops the dashboard from memory.
- */
-async function signOut() {
-  try {
-    // The role AdminShell remembers for a fast first paint goes with the session.
-    localStorage.removeItem("h24_admin_identity");
-  } catch {
-    /* private mode */
-  }
-  try {
-    await fetch("/api/admin/session", { method: "DELETE" });
-  } catch {
-    /* still end the Supabase session */
-  }
-  try {
-    await getSupabaseBrowser().auth.signOut();
-  } finally {
-    window.location.assign("/login");
-  }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -187,7 +162,7 @@ export default function Sidebar({
 
   function handleSignOut() {
     setSigningOut(true);
-    void signOut();
+    void signOutOfConsole();
   }
 
   const title = onSettings ? "Settings" : (activeSection?.label ?? "Help24");
