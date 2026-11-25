@@ -4,6 +4,7 @@ import { resolveAdminAccess, resolveAdminIdentity, type AccessDenial } from "@/l
 import { DASHBOARD_HOME } from "@/lib/routes";
 import { isPartnerHost } from "@/lib/partners/hosts";
 import { resolvePartnerAccess } from "@/lib/partners/access";
+import { pastAbsoluteLimit, signedInAt } from "@/lib/session-limits";
 
 /**
  * The partner portal (partners.help24.co.ke) — the same app, a different
@@ -68,6 +69,31 @@ function withTiming<T extends NextResponse>(res: T, t: { start: number; auth?: n
   return res;
 }
 
+/**
+ * The 12-hour limit (lib/session-limits.ts): past it, end this browser's
+ * Supabase session and the console's admin cookie, and send them to sign in.
+ * Returns null when the session is within its limit.
+ */
+/** lib/api.ts ADMIN_TOKEN_COOKIE (that module is server-only, not for middleware). */
+const ADMIN_TOKEN_COOKIE = "h24_admin_token";
+
+async function expiredSession(
+  supabase: ReturnType<typeof createMiddlewareClient>,
+  user: { last_sign_in_at?: string | null },
+  request: NextRequest,
+  response: NextResponse,
+): Promise<NextResponse | null> {
+  const { data } = await supabase.auth.getSession();
+  const at = signedInAt(data.session?.access_token) ?? (user.last_sign_in_at ? Date.parse(user.last_sign_in_at) : null);
+  if (!pastAbsoluteLimit(at)) return null;
+  console.log("[Admin Check] Session past its 12-hour limit: signing out");
+  await supabase.auth.signOut({ scope: "local" });
+  const redirect = NextResponse.redirect(new URL("/login?error=session-limit", request.url));
+  for (const c of response.cookies.getAll()) redirect.cookies.set(c);
+  redirect.cookies.delete(ADMIN_TOKEN_COOKIE);
+  return redirect;
+}
+
 export async function middleware(request: NextRequest) {
   if (isPartnerHost(request.headers.get("host"))) return partnerMiddleware(request);
   // The portal's pages never exist on the admin host.
@@ -97,6 +123,8 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/login") {
     // Redirect already-logged-in admins straight to dashboard
     if (user) {
+      const expired = await expiredSession(supabase, user, request, response);
+      if (expired) return expired;
       const identity = await resolveAdminIdentity(user.id);
       console.log(
         `[Admin Check] subject=${user.id} help24=${identity?.help24UserId ?? "unlinked"} ` +
@@ -114,6 +142,9 @@ export async function middleware(request: NextRequest) {
     console.log("[Admin Check] No session — redirecting to /login");
     return NextResponse.redirect(new URL("/login", request.url));
   }
+
+  const expired = await expiredSession(supabase, user, request, response);
+  if (expired) return withTiming(expired, timing);
 
   // Resolved from the session's auth.users id via user_auth_identities, NOT from
   // the session's email. The email path made one user-writable string decide who

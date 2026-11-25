@@ -46,6 +46,15 @@ const URL_MESSAGES: Record<string, { text: string; type: "info" | "error" }> = {
     text: "Your session expired. Please sign in again.",
     type: "info",
   },
+  // lib/session-limits.ts: middleware's 12-hour limit and AdminShell's idle limit.
+  "session-limit": {
+    text: "For security, the console asks you to sign in again every 12 hours.",
+    type: "info",
+  },
+  "signed-out-idle": {
+    text: "You were signed out after 30 minutes without activity. Sign in again to continue.",
+    type: "info",
+  },
   "password-updated": {
     text: "Password updated. Sign in with your new password.",
     type: "info",

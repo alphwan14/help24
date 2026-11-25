@@ -32,6 +32,7 @@ const ERIN = "erin@help24.test", ERIN_OLD = "Erin-old-pass-1", ERIN_PW = "Erin-n
 const FRANK = "frank@help24.test", FRANK_OLD = "Frank-old-pass-1", FRANK_PW = "Frank-new-pass-2";
 const GINA = "gina@help24.test", GINA_OLD = "Gina-old-pass-1", GINA_PW = "Gina-new-pass-2";
 const HANA = "hana@help24.test", HANA_OLD = "Hana-old-pass-1", HANA_PW = "Hana-new-pass-2";
+const ZURI = "zuri.limits@help24.test", ZURI_PW = "Zuris-pass-55"; // session limits, at the end
 const UMA = "uma@help24.test", UMA_PW = "Umas-pass-55"; // an admin whose login nobody has linked
 const SECRETS = ["Partner-pass-31", ALICE_PW1, ALICE_PW2, ALICE_PW3, ALICE_PW4, BOB_PW, CAROL_PW, DAVE_PW, ERIN_OLD, ERIN_PW, FRANK_OLD, FRANK_PW, GINA_OLD, GINA_PW, HANA_OLD, HANA_PW, UMA_PW];
 
@@ -73,6 +74,7 @@ person(BOB, BOB_PW, "admin", { arbitration: { name: "Bob Kamau", role: "senior_a
 person(CAROL, CAROL_PW, "user");
 person(UMA, UMA_PW, "admin", { linked: false });
 person(DAVE, null, "user"); // uses the app; no dashboard login yet
+person(ZURI, ZURI_PW, "admin", { arbitration: { name: "Zuri Chebet", role: "support_agent" } });
 for (const [email, old] of [[ERIN, ERIN_OLD], [FRANK, FRANK_OLD], [GINA, GINA_OLD], [HANA, HANA_OLD]]) {
   person(email, old, "admin", { arbitration: { name: email.split("@")[0], role: "support_agent", active: false } });
 }
@@ -1367,6 +1369,37 @@ try {
   check("server logs: no password, no recovery token", !SECRETS.some((s) => logText.includes(s)) && !tokens.some((t) => logText.includes(t)));
   check("browser console: no password, no recovery token", !pg.consoleLines.some((l) => SECRETS.some((s) => l.includes(s)) || tokens.some((t) => l.includes(t))));
   if (/GET \/auth\/callback\?code=/.test(logText)) note("the dev server's request log prints /auth/callback?code=… — Supabase's one-time PKCE code, useless without this browser's verifier");
+  /* ════════════════════════════════════════════════════════════════════ */
+  section("session limits");
+  // 12 hours after signing in, the console asks for a fresh sign-in.
+  await pg.clearCookies();
+  fake.ageNextSession(13 * 3600);
+  await signIn(ZURI, ZURI_PW);
+  const limited = await waitFor(`location.search.includes("error=session-limit") && ${bodyHas("sign in again every 12 hours")}`, "12-hour limit", 30000).then(() => true, () => false);
+  check("session limits: a sign-in older than 12 hours is sent back to sign in, and told why", limited);
+  check("session limits: …with the Supabase session and the admin cookie both gone",
+    !(await pg.cookie(APP, "h24_admin_token")) && (await sessionCookies()).length === 0);
+  await goto(`${APP}/dashboard/overview`);
+  check("session limits: …and it cannot simply come back", await waitFor(pathIs("/login"), "still signed out").then(() => true, () => false));
+  // A fresh sign-in, even with a stale idle mark from earlier in this browser, works.
+  await evaluate(`localStorage.setItem("h24_admin_active_at", String(Date.now() - 5 * 3600e3)), true`);
+  await signIn(ZURI, ZURI_PW);
+  await waitFor(`location.pathname.startsWith("/dashboard")`, "fresh sign-in lands", 30000);
+  await sleep(1500);
+  check("session limits: a fresh sign-in is never mistaken for yesterday's idle tab", await evaluate(`location.pathname.startsWith("/dashboard")`));
+  // 30 minutes with no activity signs every console tab out.
+  await openRail();
+  await clickText("Sign out", "nav button");
+  await waitFor(pathIs("/login"), "signed out");
+  fake.ageNextSession(40 * 60);
+  await signIn(ZURI, ZURI_PW);
+  await waitFor(`location.pathname.startsWith("/dashboard")`, "40-minute-old sign-in lands", 30000);
+  await evaluate(`localStorage.setItem("h24_admin_active_at", String(Date.now() - 35 * 60e3)), true`);
+  await goto(`${APP}/dashboard/overview`);
+  const idled = await waitFor(`location.search.includes("error=signed-out-idle") && ${bodyHas("30 minutes without activity")}`, "idle sign-out", 30000).then(() => true, () => false);
+  check("session limits: 30 minutes without activity signs the console out, and says why", idled);
+  check("session limits: …ending the Supabase session too", (await sessionCookies()).length === 0);
+
   const thrown = pg.exceptions.filter((e) => !/overview|recharts/i.test(e));
   check("no uncaught browser exceptions", thrown.length === 0, thrown.slice(0, 3).join(" || "));
 } catch (err) {
