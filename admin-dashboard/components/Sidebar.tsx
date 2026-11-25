@@ -3,7 +3,7 @@
 import BrandMark from "@/components/BrandMark";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import AlertsBell from "@/components/alerts/AlertsBell";
 import { useAlerts } from "@/components/alerts/AlertsProvider";
@@ -29,6 +29,10 @@ const ROLE_LABELS: Record<AdminRole, string> = {
 };
 
 const RAIL_KEY = "help24-admin-rail";
+/** Hover intent: a pass across the rail on the way somewhere else opens
+ *  nothing, and a brief slip off its edge closes nothing. */
+const OPEN_DELAY = 120;
+const CLOSE_DELAY = 320;
 const GROUPS = groupedNav();
 
 type Attention = Partial<Record<NavSectionId, { count: number; high: boolean }>>;
@@ -79,9 +83,11 @@ async function signOut() {
    on a phone, listed under the active section in the drawer as well, since
    tabs there can scroll out of view).
 
-   Desktop: a rail that collapses to icons (remembered per browser) to give
-   tables and charts the full width. Phone: a top bar and a left drawer, so
-   the screen belongs to the content until you ask for the menu.
+   Desktop: by default a rail of icons that opens while the pointer (or the
+   keyboard focus) is on it and folds away when it leaves, drawn over the page
+   so the content never shifts. "Keep open" pins it open beside the content
+   (remembered per browser). Phone: a top bar and a left drawer, so the screen
+   belongs to the content until you ask for the menu.
 ═══════════════════════════════════════════════════════════ */
 export default function Sidebar({
   supabaseEmail,
@@ -92,7 +98,14 @@ export default function Sidebar({
 }) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  // pinned: open beside the content. Otherwise the rail is icons and opens
+  // over the page while hovered or focused (peek).
+  const [pinned, setPinned] = useState(false);
+  const [peek, setPeek] = useState(false);
+  const collapsed = !pinned && !peek;
+  const hovered = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const railRef = useRef<HTMLElement>(null);
   const [signingOut, setSigningOut] = useState(false);
   const attention = useAttention();
   const { openSearch } = useShell();
@@ -100,28 +113,62 @@ export default function Sidebar({
   const active = activeSection?.id ?? null;
   const onSettings = pathname === SETTINGS_HREF || pathname.startsWith(SETTINGS_HREF + "/");
 
-  // The rail's width is a per-browser preference. Read after mount (the
-  // shell's splash covers the first paint, so there is no visible jump).
+  // Pinned or not is a per-browser preference, read after mount. The old
+  // "collapsed" value and no value both mean the hover rail.
   useEffect(() => {
     try {
-      setCollapsed(localStorage.getItem(RAIL_KEY) === "collapsed");
+      setPinned(localStorage.getItem(RAIL_KEY) === "pinned");
     } catch {
-      /* private mode: stay expanded */
+      /* private mode: the hover rail */
     }
   }, []);
 
-  function toggleRail() {
-    setCollapsed((c) => {
-      const next = !c;
-      try {
-        if (next) localStorage.setItem(RAIL_KEY, "collapsed");
-        else localStorage.removeItem(RAIL_KEY);
-      } catch {
-        /* the toggle still works for this visit */
-      }
-      return next;
-    });
+  function togglePin() {
+    const next = !pinned;
+    setPinned(next);
+    setPeek(false);
+    try {
+      if (next) localStorage.setItem(RAIL_KEY, "pinned");
+      else localStorage.setItem(RAIL_KEY, "hover");
+    } catch {
+      /* still works for this visit */
+    }
   }
+
+  const clearTimer = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+
+  function openSoon() {
+    hovered.current = true;
+    if (pinned || peek) return clearTimer();
+    clearTimer();
+    timer.current = setTimeout(() => setPeek(true), OPEN_DELAY);
+  }
+
+  function closeSoon() {
+    hovered.current = false;
+    if (pinned) return;
+    clearTimer();
+    const attempt = () => {
+      const focusInside = railRef.current?.contains(document.activeElement) ?? false;
+      if (hovered.current || focusInside) return;
+      // The alerts panel opens beside the rail: wait for it to close.
+      if (document.querySelector("[data-rail-popover]")) {
+        timer.current = setTimeout(attempt, CLOSE_DELAY);
+        return;
+      }
+      setPeek(false);
+    };
+    timer.current = setTimeout(attempt, CLOSE_DELAY);
+  }
+
+  useEffect(() => clearTimer, []);
+  // Arriving on a new page folds a peeking rail once the pointer has left it.
+  useEffect(() => {
+    if (!hovered.current) setPeek(false);
+  }, [pathname]);
 
   useEffect(() => setDrawerOpen(false), [pathname]);
 
@@ -148,12 +195,28 @@ export default function Sidebar({
   return (
     <>
       {/* ── Desktop rail ─────────────────────────────────────── */}
-      <nav
-        aria-label="Console"
+      {/* The wrapper holds the rail's place in the layout: the icon width, or
+          the full width when pinned. Peeking draws the rail over the page. */}
+      <div
         className={[
-          "hidden lg:flex lg:flex-col lg:h-screen lg:shrink-0 bg-page border-r border-gray-200",
-          "transition-[width] duration-200 ease-out",
-          collapsed ? "lg:w-[68px]" : "lg:w-[244px]",
+          "hidden lg:block lg:relative lg:h-screen lg:shrink-0 transition-[width] duration-200 ease-out",
+          pinned ? "lg:w-[244px]" : "lg:w-[68px]",
+        ].join(" ")}
+      >
+      <nav
+        ref={railRef}
+        aria-label="Console"
+        onMouseEnter={openSoon}
+        onMouseLeave={closeSoon}
+        onFocus={openSoon}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) closeSoon();
+        }}
+        className={[
+          "absolute inset-y-0 left-0 z-40 flex flex-col bg-page border-r border-gray-200",
+          "transition-[width,box-shadow] duration-200 ease-out",
+          collapsed ? "w-[68px]" : "w-[244px]",
+          peek && !pinned ? "shadow-[8px_0_24px_-12px_rgba(0,0,0,0.18)]" : "",
         ].join(" ")}
       >
         {/* Brand and alerts */}
@@ -220,22 +283,25 @@ export default function Sidebar({
           compact={collapsed}
         />
 
-        {/* Collapse control, out of the way at the very bottom */}
+        {/* Pin control, out of the way at the very bottom. Hover mode opens
+            and folds the rail by itself; pinning keeps it open. */}
         <div className={["shrink-0 border-t border-gray-200 p-2", collapsed ? "flex justify-center" : ""].join(" ")}>
           <button
-            onClick={toggleRail}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={togglePin}
+            aria-pressed={pinned}
+            aria-label={pinned ? "Collapse sidebar" : "Keep sidebar open"}
+            title={pinned ? "Fold away, open on hover" : "Keep the sidebar open"}
             className={[
               "flex items-center gap-3 h-8 rounded-lg text-[12px] text-gray-400 hover:text-gray-800 hover:bg-gray-200/50 transition-colors",
               collapsed ? "w-10 justify-center" : "w-full px-3",
             ].join(" ")}
           >
-            <PanelIcon className={["w-4 h-4 transition-transform", collapsed ? "rotate-180" : ""].join(" ")} />
-            {!collapsed && "Collapse"}
+            <PanelIcon className={["w-4 h-4 transition-transform", pinned ? "" : "rotate-180"].join(" ")} />
+            {!collapsed && (pinned ? "Collapse" : "Keep open")}
           </button>
         </div>
       </nav>
+      </div>
 
       {/* ── Phone top bar ────────────────────────────────────── */}
       <header className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-page border-b border-gray-200 flex items-center gap-2 pl-2 pr-2">

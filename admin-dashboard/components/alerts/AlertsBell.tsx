@@ -115,6 +115,8 @@ function AlertsPanel({ placement, onClose }: { placement: "rail" | "rail-compact
         role="dialog"
         aria-modal="false"
         aria-labelledby="alerts-panel-title"
+        // The rail stays open while this is showing (Sidebar, hover mode).
+        data-rail-popover=""
         className={[
           "fixed z-[65] flex flex-col bg-surface border border-gray-200 rounded-xl shadow-2xl overflow-hidden",
           placement === "rail"
