@@ -134,7 +134,22 @@ try {
     await fill("input[autocomplete=current-password]", password);
     await click("form button[type=submit]");
   }
+  // The rail rests as icons and opens on hover, as a person would use it.
+  async function openRail() {
+    // Away first (a pointer already resting on the rail is not a new hover),
+    // and again until it opens: right after a redirect the page may still be
+    // hydrating and miss the first hover, as a person's first wiggle would.
+    for (let i = 0; i < 12; i++) {
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 700, y: 400 });
+      await sleep(50);
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 30, y: 400 });
+      await sleep(450);
+      const open = await evaluate(`(document.querySelector('nav[aria-label="Console"]')?.getBoundingClientRect().width ?? 0) > 200`);
+      if (open) return;
+    }
+  }
   async function signOut() {
+    await openRail();
     await clickText("Sign out", "nav button");
     await waitFor(pathIs("/login"), "sign-out to /login");
   }
@@ -199,6 +214,7 @@ try {
   // The sign-in page reaches the dashboard by a client-side navigation too; Sign
   // out must work from there without a page load in between.
   await waitFor(`!document.body.innerText.includes('Opening the console')`, "shell ready", 30000).catch(() => {});
+  await openRail();
   await clickText("Sign out", "nav button");
   const loginSignOut = await waitFor(pathIs("/login"), "sign-out after signing in", 20000).then(() => true, () => false);
   check("existing login flow: Sign out works straight after signing in", loginSignOut);
@@ -1281,6 +1297,41 @@ try {
   const deskState = JSON.parse(desk);
   check("desktop Settings: only <main> scrolls — the document never moves the rail",
     deskState.docOverflow <= 0 && deskState.windowScrollY === 0, desk);
+
+  // The rail opens while the pointer is on it and folds when it leaves, over
+  // the page (the content never moves). "Keep open" pins it.
+  const rail = () => evaluate(`(() => { const n = document.querySelector('nav[aria-label="Console"]'); const m = document.querySelector("main");
+    return JSON.stringify({ w: Math.round(n.getBoundingClientRect().width), mainLeft: Math.round(m.getBoundingClientRect().left), label: !!n.querySelector('a[href="/dashboard/inbox"]')?.innerText.trim() }); })()`).then(JSON.parse);
+  const mouse = (x, y) => send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await evaluate(`localStorage.removeItem("help24-admin-rail"), true`);
+  await goto(`${APP}/dashboard/settings`);
+  await waitFor(`${bodyHas("Change password")}`, "settings desktop, hover rail");
+  await mouse(900, 400);
+  await sleep(500);
+  const railRest = await rail();
+  check("rail: by default it rests as icons", railRest.w === 68 && !railRest.label, JSON.stringify(railRest));
+  await mouse(30, 300);
+  await sleep(600);
+  const railOpen = await rail();
+  check("rail: hovering opens it, with labels, over the page (content does not move)",
+    railOpen.w === 244 && railOpen.label && railOpen.mainLeft === railRest.mainLeft, JSON.stringify(railOpen));
+  await mouse(900, 400);
+  await sleep(900);
+  const railGone = await rail();
+  check("rail: moving away folds it again by itself", railGone.w === 68, JSON.stringify(railGone));
+  await mouse(30, 700);
+  await sleep(600);
+  await click('nav[aria-label="Console"] button[aria-label="Keep sidebar open"]');
+  await mouse(900, 400);
+  await sleep(900);
+  const railPinned = await rail();
+  check("rail: Keep open pins it beside the content, and it stays when the pointer leaves",
+    railPinned.w === 244 && railPinned.mainLeft > railRest.mainLeft && (await evaluate(`localStorage.getItem("help24-admin-rail") === "pinned"`)), JSON.stringify(railPinned));
+  await shot("rail-pinned.png");
+  await click('nav[aria-label="Console"] button[aria-label="Collapse sidebar"]');
+  await mouse(900, 400);
+  await sleep(900);
+  check("rail: Collapse returns it to opening on hover", (await rail()).w === 68);
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await goto(`${APP}/dashboard/settings`);
   await waitFor(`${bodyHas("Change password")} && !document.body.innerText.includes('Opening the console')`, "settings mobile");
