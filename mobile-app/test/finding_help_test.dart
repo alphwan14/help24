@@ -10,7 +10,8 @@ import 'package:help24/widgets/finding_help_view.dart';
 ///
 /// It starts on the tap on Post, follows the real work (the photo upload,
 /// then the server's confirmation), never shows "live" before 1.2 s or a
-/// moment after the confirmation, and goes away by itself. What it must
+/// moment after the confirmation, and goes away by itself. It is a small
+/// card over the page, which stays on screen under a light dim. What it must
 /// NEVER show is a count of people: nothing is sent anywhere when a request
 /// is posted. The only number allowed is the photo upload, which is real.
 PostModel _request() => PostModel(
@@ -28,9 +29,9 @@ const _line = 'Finding plumbing help near Westlands, Nairobi…';
 
 /// Stands in for the composer: holds what the work has reported so far.
 class _Host extends StatefulWidget {
-  const _Host({super.key, required this.onClose, required this.onViewPost});
+  const _Host({super.key, required this.onClose, required this.onPageTap});
   final VoidCallback onClose;
-  final ValueChanged<PostModel> onViewPost;
+  final VoidCallback onPageTap;
 
   @override
   State<_Host> createState() => _HostState();
@@ -47,12 +48,25 @@ class _HostState extends State<_Host> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        body: FindingHelpView(
-          line: _line,
-          upload: upload,
-          posted: posted,
-          onViewPost: widget.onViewPost,
-          onClose: widget.onClose,
+        body: Stack(
+          children: [
+            // The page the card sits over, as the composer's preview does.
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: ElevatedButton(onPressed: widget.onPageTap, child: const Text('Post Now')),
+              ),
+            ),
+            Positioned.fill(
+              child: FindingHelpView(
+                line: _line,
+                upload: upload,
+                posted: posted,
+                onClose: widget.onClose,
+              ),
+            ),
+          ],
         ),
       );
 }
@@ -60,12 +74,12 @@ class _HostState extends State<_Host> {
 class _Harness {
   final key = GlobalKey<_HostState>();
   int closes = 0;
-  final viewed = <PostModel>[];
+  int pageTaps = 0;
   final haptics = <String>[];
 
   _HostState get host => key.currentState!;
 
-  Future<void> pump(WidgetTester tester, {bool reduceMotion = false}) async {
+  Future<void> pump(WidgetTester tester, {bool reduceMotion = false, ThemeData? theme}) async {
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
       if (call.method == 'HapticFeedback.vibrate') haptics.add(call.arguments as String);
       return null;
@@ -74,12 +88,12 @@ class _Harness {
         .setMockMethodCallHandler(SystemChannels.platform, null));
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.lightTheme,
+        theme: theme ?? AppTheme.lightTheme,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context).copyWith(disableAnimations: reduceMotion),
           child: child!,
         ),
-        home: _Host(key: key, onClose: () => closes++, onViewPost: viewed.add),
+        home: _Host(key: key, onClose: () => closes++, onPageTap: () => pageTaps++),
       ),
     );
   }
@@ -195,7 +209,7 @@ void main() {
     await _finish(tester);
   });
 
-  testWidgets('settles once, comes to rest, then closes by itself after 3 s', (tester) async {
+  testWidgets('settles once, comes to rest, then closes by itself after 2 s', (tester) async {
     final h = _Harness();
     await h.pump(tester);
     await tester.pump(const Duration(milliseconds: 1500));
@@ -210,7 +224,7 @@ void main() {
     final pill = find.descendant(of: _mark, matching: find.byType(Transform)).evaluate().last.widget as Transform;
     expect(pill.transform.getMaxScaleOnAxis(), moreOrLessEquals(1.0, epsilon: 1e-6));
 
-    await tester.pump(const Duration(milliseconds: 2400)); // 2.9 s after live
+    await tester.pump(const Duration(milliseconds: 1400)); // 1.9 s after live
     expect(h.closes, 0);
     await tester.pump(const Duration(milliseconds: 200));
     expect(h.closes, 1);
@@ -290,24 +304,72 @@ void main() {
     await _finish(tester);
   });
 
-  testWidgets('close and "View your post" only once it is live', (tester) async {
+  testWidgets('a small card in the centre; the page stays, dimmed, and cannot be tapped', (tester) async {
     final h = _Harness();
     await h.pump(tester);
-    IgnorePointer gate(Finder f) =>
-        tester.widget<IgnorePointer>(find.ancestor(of: f, matching: find.byType(IgnorePointer)).first);
-    expect(gate(find.byTooltip('Close')).ignoring, isTrue);
-    expect(gate(find.text('View your post')).ignoring, isTrue);
-
-    await tester.pump(const Duration(milliseconds: 1300));
-    final post = _request();
-    h.host.report(posted: post);
-    await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(gate(find.byTooltip('Close')).ignoring, isFalse);
-    await tester.tap(find.text('View your post'));
-    expect(h.viewed, [post]);
-    await tester.tap(find.byTooltip('Close'));
-    expect(h.closes, 1);
+
+    final screen = tester.getRect(find.byType(Scaffold));
+    final card = tester.getRect(find.byKey(const ValueKey('finding-help-card')));
+    expect(card.width, lessThanOrEqualTo(FindingHelpView.maxCardWidth));
+    expect(card.height, lessThan(screen.height / 2), reason: 'a card, not a takeover');
+    expect(card.center.dx, moreOrLessEquals(screen.center.dx, epsilon: 0.5));
+    expect(card.center.dy, moreOrLessEquals(screen.center.dy, epsilon: 0.5));
+    // The mark and the words are inside it.
+    expect(card.contains(tester.getRect(_mark).center), isTrue);
+    expect(card.contains(tester.getCenter(find.text(_line))), isTrue);
+
+    // The page under it is still there, under a light dim, not a blur.
+    expect(find.text('Post Now'), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsNothing);
+    final dim = tester.widgetList<ColoredBox>(find.descendant(
+      of: find.byType(FindingHelpView),
+      matching: find.byType(ColoredBox),
+    )).first;
+    expect(dim.color.a, moreOrLessEquals(findingHelpDimAlpha(Brightness.light), epsilon: 1e-6));
+    expect(dim.color.a, lessThanOrEqualTo(0.15), reason: 'the page must still read');
+
+    // A tap on the page goes nowhere, before and after it is live.
+    await tester.tap(find.text('Post Now'), warnIfMissed: false);
+    expect(h.pageTaps, 0);
+    h.host.report(posted: _request());
+    await tester.pump(const Duration(milliseconds: 1000));
+    await tester.tap(find.text('Post Now'), warnIfMissed: false);
+    expect(h.pageTaps, 0);
+
+    // No buttons on the card: it closes by itself.
+    expect(find.descendant(of: find.byType(FindingHelpView), matching: find.byType(ButtonStyleButton)),
+        findsNothing);
+    expect(find.text('View your post'), findsNothing);
+    await _finish(tester);
+  });
+
+  testWidgets('the dim is stronger in dark, where a light one would not show', (tester) async {
+    expect(findingHelpDimAlpha(Brightness.dark), greaterThan(findingHelpDimAlpha(Brightness.light)));
+    final h = _Harness();
+    await h.pump(tester, theme: AppTheme.darkTheme);
+    await tester.pump(const Duration(milliseconds: 300));
+    final dim = tester.widgetList<ColoredBox>(find.descendant(
+      of: find.byType(FindingHelpView),
+      matching: find.byType(ColoredBox),
+    )).first;
+    expect(dim.color.a, moreOrLessEquals(findingHelpDimAlpha(Brightness.dark), epsilon: 1e-6));
+    await _finish(tester);
+  });
+
+  testWidgets('the bars slide in from the card edges and are cut by them', (tester) async {
+    final h = _Harness();
+    await h.pump(tester);
+    await tester.pump(const Duration(milliseconds: 1));
+    final card = tester.getRect(find.byKey(const ValueKey('finding-help-card')));
+    final ink = AppColors.of(tester.element(_mark)).contentPrimary;
+    final bars = _boxes(tester).where((b) => b.color == ink).map((b) => b.rect).toList()
+      ..sort((a, b) => a.left.compareTo(b.left));
+    // At the very start each bar is just past the card's edge.
+    expect(bars.first.right, lessThanOrEqualTo(card.left + 1));
+    expect(bars.last.left, greaterThanOrEqualTo(card.right - 1));
+    final container = tester.widget<Container>(find.byKey(const ValueKey('finding-help-card')));
+    expect(container.clipBehavior, isNot(Clip.none));
     await _finish(tester);
   });
 
@@ -326,7 +388,7 @@ void main() {
     expect(tester.hasRunningAnimations, isFalse);
     expect(h.haptics, hasLength(1));
 
-    await tester.pump(const Duration(milliseconds: 3100));
+    await tester.pump(const Duration(milliseconds: 2100));
     expect(h.closes, 1);
     await _finish(tester);
   });

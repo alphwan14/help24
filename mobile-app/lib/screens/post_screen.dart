@@ -27,7 +27,6 @@ import '../utils/format_utils.dart';
 import '../utils/post_intent.dart';
 import '../widgets/primitives.dart';
 import '../widgets/finding_help_view.dart';
-import 'post_detail_screen.dart';
 import '../widgets/location_experience.dart';
 import '../widgets/location_picker.dart';
 import '../widgets/post_preview_card.dart';
@@ -137,13 +136,15 @@ class _PostScreenState extends State<PostScreen> {
   List<SelectedImage> _selectedImages = [];
   final ImagePicker _picker = ImagePicker();
 
-  /// A REQUEST is published behind the finding-help view, from the tap on
-  /// "Post Now" until the view closes: true swaps the whole form for it.
+  /// A REQUEST is published under the finding-help card, from the tap on
+  /// "Post Now" until the card closes: true lays the card over the form,
+  /// which stays where it was under a light dim.
   /// Offers and jobs keep the button's spinner and the toast.
   ///
-  /// The view only shows what the work reports: [_upload] from the real photo
-  /// upload, [_postedRequest] when the server confirms. A failure swaps the
-  /// form back, exactly as it was, with the error and Retry.
+  /// The card only shows what the work reports: [_upload] from the real photo
+  /// upload, [_postedRequest] when the server confirms. A failure takes the
+  /// card away; the form is underneath, exactly as it was, with the error
+  /// and Retry.
   bool _findingHelp = false;
   String _findingLine = '';
   ({int done, int total})? _upload;
@@ -702,7 +703,7 @@ class _PostScreenState extends State<PostScreen> {
         if (didPop) return;
         if (_findingHelp) {
           // Nothing to step back to while a request goes up; once it is live,
-          // back closes, as the view's close button does.
+          // back closes it, as its own timer would.
           if (_postedRequest != null) _closeAfterPosting();
           return;
         }
@@ -719,20 +720,11 @@ class _PostScreenState extends State<PostScreen> {
       // composer opened on a BLACK page with its title clipped under the
       // status bar.
       child: Scaffold(
-        // A request, from the tap on Post: the finding-help view in place of
-        // the whole form (see [_findingHelp]).
-        body: _findingHelp
-            ? FindingHelpView(
-                line: _findingLine,
-                upload: _upload,
-                posted: _postedRequest,
-                onViewPost: (post) => Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)),
-                  result: true,
-                ),
-                onClose: _closeAfterPosting,
-              )
-            : SafeArea(
+        // A request, from the tap on Post: the finding-help card over the
+        // form, which stays where it was underneath (see [_findingHelp]).
+        body: Stack(
+          children: [
+            SafeArea(
       child: Column(
         children: [
           // Header
@@ -843,6 +835,17 @@ class _PostScreenState extends State<PostScreen> {
           ),
         ],
       ),
+            ),
+            if (_findingHelp)
+              Positioned.fill(
+                child: FindingHelpView(
+                  line: _findingLine,
+                  upload: _upload,
+                  posted: _postedRequest,
+                  onClose: _closeAfterPosting,
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -2130,8 +2133,10 @@ class _PostScreenState extends State<PostScreen> {
 
         const SizedBox(height: 32),
 
-        // Upload progress indicator (only when uploading images)
-        if (_isSubmitting && _totalImages > 0) ...[
+        // Upload progress indicator (only when uploading images). A request
+        // shows its upload in the finding-help card instead, and the page
+        // under the card does not change.
+        if (_isSubmitting && !_findingHelp && _totalImages > 0) ...[
           Column(
             children: [
               Text(
@@ -2153,8 +2158,10 @@ class _PostScreenState extends State<PostScreen> {
           width: double.infinity,
           height: 52,
           child: ElevatedButton(
-            onPressed: _isSubmitting ? null : _submitPost,
-            child: _isSubmitting
+            // Under the finding-help card the button keeps its look: the
+            // card's dim holds taps off, and _submitPost ignores a second tap.
+            onPressed: _formBusy ? null : _submitPost,
+            child: _formBusy
                 ? Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -2178,7 +2185,8 @@ class _PostScreenState extends State<PostScreen> {
           width: double.infinity,
           height: 52,
           child: OutlinedButton(
-            onPressed: _isSubmitting ? null : () {
+            onPressed: _formBusy ? null : () {
+              if (_isSubmitting) return;
               setState(() {
                 // Step back one screen; the header back button walks further.
                 _currentStep = _currentStep - 1;
@@ -2267,9 +2275,13 @@ class _PostScreenState extends State<PostScreen> {
   // The same words the feed card will use for this post.
   String _getTypeDisplayLabel() => _selectedType?.kindLabel ?? 'Post';
 
-  /// The finding-help view is done (its close button, back, or its own
-  /// timer): leave with `true`, a listing was created. Only while this screen
-  /// is the one on top; "View your post" replaces it first.
+  /// Posting without the finding-help card (offers, jobs): the preview's
+  /// buttons show it. A request's card shows it instead, over a page that
+  /// does not change.
+  bool get _formBusy => _isSubmitting && !_findingHelp;
+
+  /// The finding-help card is done (back, or its own timer): leave with
+  /// `true`, a listing was created. Only while this screen is the one on top.
   void _closeAfterPosting() {
     if (!mounted) return;
     final route = ModalRoute.of(context);
@@ -2439,7 +2451,7 @@ class _PostScreenState extends State<PostScreen> {
         if (createdPost.type == PostType.request) createdRequest = createdPost;
       }
 
-      // A request is someone waiting for help: the finding-help view already
+      // A request is someone waiting for help: the finding-help card already
       // on screen turns to "Your request is live." now, with no wait added.
       // It closes the composer with `true` (_closeAfterPosting), so the shell
       // still learns a listing was created and puts Discover underneath.

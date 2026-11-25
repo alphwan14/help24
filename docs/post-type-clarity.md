@@ -181,13 +181,24 @@ composer preview use the same words.
 ### 5. "Finding help" while a request goes up (`widgets/finding_help_view.dart`)
 
 A moment built from the logo: the two ink bars (customer and provider) and
-the amber crossbar (escrow) between them. Its third version (after Patch 2)
-follows the work instead of a script:
+the amber crossbar (escrow) between them. It follows the work instead of a
+script, and since 2026-11-25 it is **a small card over the page, not a
+full-screen takeover** (owner's call, after Reddit's launch, where the app
+stays put and only a small mark moves in the centre):
 
-- **It starts on the tap on "Post Now"**, in place of the button's spinner:
-  the composer swaps its form for the view and publishes behind it. The bars
-  slide in from the edges of the screen at full ink (no fade), the crossbar
-  grows between them (1 s in all), then breathes while the request saves.
+- **A card in the centre, the page stays.** "Preview & Post" stays where it
+  was under a light dim (12 % black, 40 % in dark, where less would not
+  show); no blur, which the owner did not want. The card is at most 232 px
+  wide, page-coloured surface, `AppRadius.lg`, `AppElevation.floating`, so it
+  plainly sits on top of the buttons behind it rather than almost covering
+  them (280 px left thin slivers of "Post Now" on each side, which read as a
+  mistake). The page is not touched: "Post Now" keeps its words (no spinner,
+  no greying, `_formBusy`), taps on it are held off by the dim, and a screen
+  reader hears only the card.
+- **It starts on the tap on "Post Now"**: the dim and card arrive (200 ms,
+  the card from 96 %), the bars slide in from the card's edges at full ink
+  (no fade; the card clips them), the crossbar grows between them (1 s in
+  all), then breathes while the request saves.
 - **Real progress under the words**: "Uploading photo 1 of 2", "Uploading
   photo 2 of 2", "2 photos uploaded", from the actual upload (the upload now
   reports its start, after the row is saved). Nothing without photos.
@@ -195,10 +206,12 @@ follows the work instead of a script:
   of 1.2 s from the tap so a fast network does not flash the first state, and
   nothing added after. The crossbar gives one small settle (to 90 %, back to
   rest) with `HapticFeedback.lightImpact`, then everything is still.
-- Three seconds later it closes by itself, back to Discover; **View your
-  post** and the close button appear with the live state (nothing can be
-  cancelled while the request is going up, so neither shows before).
-- **A failure brings the form back** as it was, with the error and Retry.
+- **Two seconds later it closes by itself**, and the composer with it, back
+  to Discover. No buttons on the card (the owner chose this over a small
+  "View your post" link); back closes it sooner once it is live. The post is
+  in My posts.
+- **A failure takes the card away**; the form was never gone, and shows the
+  error and Retry.
 - The words sit in **one fixed-height area** sized for the tallest state (both
   states laid out, one shown), so the mark never moves between them.
 - The **halo is softer and smaller**: at most 14 % amber, at most 4 units
@@ -211,10 +224,11 @@ follows the work instead of a script:
   "near you".
 
 Plain `AnimationController`s, four boxes, theme tokens only (`contentPrimary`,
-`accentFill`). Under the phone's reduce-motion setting the mark is still, the
-words change without a fade and the pace still follows the work. Offers and
+`accentFill`). Under the phone's reduce-motion setting the card and mark are
+still, the words change without a fade and the pace still follows the work. Offers and
 jobs keep the button's spinner and the toast. `test/finding_help_test.dart`
-covers the timing, the halo's clearance, the fixed layout and reduce motion.
+covers the timing, the halo's clearance, the fixed layout, the card's size
+and place, the dim in both themes, taps held off the page, and reduce motion.
 
 ## Why there is no "Sent to 12 providers"
 

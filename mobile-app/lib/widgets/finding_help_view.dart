@@ -1,34 +1,40 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/post_model.dart';
-import '../theme/app_icons.dart';
 import '../theme/tokens.dart';
 
 /// THE MOMENT A REQUEST GOES UP.
 ///
 /// Someone asking for help wants to know two things: that it worked, and
-/// what happens now. This view says both, and nothing else.
+/// what happens now. This card says both, and nothing else.
+///
+/// ── Where it sits ────────────────────────────────────────────────────────
+/// A small card in the middle of the screen, over the composer's "Preview &
+/// Post" page, which stays where it was under a light dim (owner's call,
+/// 2026-11-25, after Reddit's launch: the app stays put and only a small mark
+/// moves in the centre). No blur, no full-screen takeover, no buttons. The
+/// page underneath does not change: the "Post Now" button keeps its words,
+/// and taps on it are held off by the dim, not by greying it out.
 ///
 /// ── When it runs ─────────────────────────────────────────────────────────
-/// From the tap on "Post Now", in place of the button's spinner: the
-/// composer swaps itself for this view and publishes behind it. Its pace is
-/// the work's pace, not a script:
-///   1. the bars slide in from the edges of the screen and the amber
-///      crossbar grows between them (1 s), then breathes while the request
-///      is saved and its photos upload ("Uploading photo 1 of 2", from the
-///      real upload);
+/// From the tap on "Post Now", and its pace is the work's pace, not a script:
+///   1. the dim and the card arrive, the bars slide in from the card's edges
+///      and the amber crossbar grows between them (1 s), then breathes while
+///      the request is saved and its photos upload ("Uploading photo 1 of 2",
+///      from the real upload);
 ///   2. the moment the server confirms, "Your request is live." The
 ///      crossbar gives one small settle and the phone a light tap. The only
 ///      floor is [minFinding] (1.2 s from the tap), so a fast network does
 ///      not flash the first state; nothing is added after the confirmation;
-///   3. three seconds later the view closes by itself, back to Discover,
-///      where the request now is. "View your post" and the close button are
-///      there for anyone who wants them.
-/// A failure never reaches this view's words: the composer takes it back,
-/// with the form as it was and the error and Retry it always showed.
+///   3. [liveFor] later it closes by itself, and the composer with it, back
+///      to Discover, where the request now is. Back closes it sooner.
+/// A failure never reaches this card's words: the composer takes the card
+/// away, and the form is still there underneath, with the error and Retry
+/// it always showed.
 ///
 /// ── The mark ─────────────────────────────────────────────────────────────
 /// Built from the logo, not from category art, so it reads the same for
@@ -44,22 +50,22 @@ import '../theme/tokens.dart';
 ///
 /// ── Nothing moves but the mark ───────────────────────────────────────────
 /// The words sit in one fixed-height area sized for the tallest state, so
-/// the mark never shifts when "Finding…" becomes "Your request is live.".
+/// neither the mark nor the card's edges shift when "Finding…" becomes
+/// "Your request is live.".
 ///
 /// ── Reduce motion ────────────────────────────────────────────────────────
-/// With animations off on the phone the mark is drawn still and the words
-/// change without a fade. The pace stays: it follows the work, not a
-/// movement.
+/// With animations off on the phone the card and mark are drawn still and
+/// the words change without a fade. The pace stays: it follows the work, not
+/// a movement.
 class FindingHelpView extends StatefulWidget {
   const FindingHelpView({
     super.key,
     required this.line,
-    required this.onViewPost,
     required this.onClose,
     this.upload,
     this.posted,
     this.minFinding = const Duration(milliseconds: 1200),
-    this.liveFor = const Duration(milliseconds: 3000),
+    this.liveFor = const Duration(milliseconds: 2000),
   });
 
   /// "Finding plumbing help near Westlands, Nairobi…" ([findingHelpLine]).
@@ -72,18 +78,19 @@ class FindingHelpView extends StatefulWidget {
   /// The request as the server returned it. Null until it confirms.
   final PostModel? posted;
 
-  /// "View your post".
-  final ValueChanged<PostModel> onViewPost;
-
-  /// The close button, and the view closing by itself.
+  /// The card closing by itself once the request has been live for
+  /// [liveFor].
   final VoidCallback onClose;
 
   /// The shortest time "Finding…" shows, so a fast confirmation does not
   /// flash it.
   final Duration minFinding;
 
-  /// How long "Your request is live." shows before the view closes itself.
+  /// How long "Your request is live." shows before the card closes itself.
   final Duration liveFor;
+
+  /// The card is never wider than this, however wide the phone.
+  static const double maxCardWidth = 232;
 
   @override
   State<FindingHelpView> createState() => _FindingHelpViewState();
@@ -127,8 +134,19 @@ String? uploadProgressLine(({int done, int total})? upload) {
 const String kRequestLiveTitle = 'Your request is live.';
 const String kRequestLiveBody = "We'll notify you when providers send offers.";
 
+/// How much the page under the card is dimmed: enough to set the card on
+/// top, little enough that the page still reads. Dark needs more, because a
+/// dim over a near-black page has less room to show.
+double findingHelpDimAlpha(Brightness brightness) => brightness == Brightness.dark ? 0.40 : 0.12;
+
 class _FindingHelpViewState extends State<FindingHelpView>
     with TickerProviderStateMixin {
+  /// The dim and the card arriving.
+  late final AnimationController _arrive = AnimationController(
+    vsync: this,
+    duration: AppMotion.transition,
+  );
+
   /// The bars arriving and the crossbar growing. Done before [minFinding]
   /// ends, so "live" never interrupts the mark mid-formation.
   late final AnimationController _intro = AnimationController(
@@ -147,6 +165,10 @@ class _FindingHelpViewState extends State<FindingHelpView>
   late final AnimationController _settle = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 360),
+  );
+
+  late final Animation<double> _cardScale = Tween<double>(begin: 0.96, end: 1).animate(
+    CurvedAnimation(parent: _arrive, curve: AppMotion.enter),
   );
 
   Timer? _minimumTimer;
@@ -178,14 +200,17 @@ class _FindingHelpViewState extends State<FindingHelpView>
       _started = true;
       _still = still;
       if (still) {
+        _arrive.value = 1;
         _intro.value = 1;
       } else {
+        _arrive.forward();
         _intro.forward();
       }
       return;
     }
     if (still && !_still) {
       // Turned off mid-way: stop where it would have ended, at rest.
+      _arrive.value = 1;
       _intro.value = 1;
       _breath.stop();
       _breath.value = 0;
@@ -223,6 +248,7 @@ class _FindingHelpViewState extends State<FindingHelpView>
   void dispose() {
     _minimumTimer?.cancel();
     _closeTimer?.cancel();
+    _arrive.dispose();
     _intro.dispose();
     _breath.dispose();
     _settle.dispose();
@@ -230,7 +256,7 @@ class _FindingHelpViewState extends State<FindingHelpView>
   }
 
   /// One state of the words: laid out always (that is what fixes the
-  /// area's height), shown, heard and touchable only while it is current.
+  /// area's height), shown and heard only while it is current.
   Widget _state({required bool current, required Duration fade, required Widget child}) {
     return AnimatedOpacity(
       opacity: current ? 1 : 0,
@@ -246,9 +272,14 @@ class _FindingHelpViewState extends State<FindingHelpView>
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    final brightness = Theme.of(context).brightness;
     final fade = _still ? Duration.zero : AppMotion.transition;
     final progress = uploadProgressLine(widget.upload);
-    final posted = widget.posted;
+
+    final cardWidth = math.min(
+      FindingHelpView.maxCardWidth,
+      MediaQuery.sizeOf(context).width - 2 * AppSpace.xl,
+    );
 
     final finding = Column(
       mainAxisSize: MainAxisSize.min,
@@ -263,7 +294,7 @@ class _FindingHelpViewState extends State<FindingHelpView>
             color: c.contentPrimary,
           ),
         ),
-        const SizedBox(height: AppSpace.sm),
+        const SizedBox(height: AppSpace.xs),
         // The upload line keeps its height with nothing to say, so the first
         // "Uploading photo 1 of 2" does not push anything.
         Visibility(
@@ -276,7 +307,7 @@ class _FindingHelpViewState extends State<FindingHelpView>
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppTypeScale.bodyM.copyWith(
+            style: AppTypeScale.bodyS.copyWith(
               fontFamily: AppTypeScale.family,
               color: c.contentSecondary,
             ),
@@ -291,16 +322,16 @@ class _FindingHelpViewState extends State<FindingHelpView>
         Text(
           kRequestLiveTitle,
           textAlign: TextAlign.center,
-          style: AppTypeScale.headingM.copyWith(
+          style: AppTypeScale.headingS.copyWith(
             fontFamily: AppTypeScale.family,
             color: c.contentPrimary,
           ),
         ),
-        const SizedBox(height: AppSpace.sm),
+        const SizedBox(height: AppSpace.xs),
         Text(
           kRequestLiveBody,
           textAlign: TextAlign.center,
-          style: AppTypeScale.bodyL.copyWith(
+          style: AppTypeScale.bodyS.copyWith(
             fontFamily: AppTypeScale.family,
             color: c.contentSecondary,
           ),
@@ -308,87 +339,57 @@ class _FindingHelpViewState extends State<FindingHelpView>
       ],
     );
 
-    return ColoredBox(
-      color: c.page,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpace.xl),
-          child: Column(
+    final card = Container(
+      key: const ValueKey('finding-help-card'),
+      width: cardWidth,
+      // Clipped to its own corners: the bars slide in from beyond the card's
+      // edges and are cut by them, never drawn over the dim.
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: AppRadius.lgAll,
+        boxShadow: AppElevation.floating(brightness),
+      ),
+      padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.xl, AppSpace.lg, AppSpace.lg),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          RepaintBoundary(
+            child: _FindingMark(
+              intro: _intro,
+              breath: _breath,
+              settle: _settle,
+              // From just past the card's edge to the bar's place in the mark.
+              travel: (cardWidth - _FindingMark._w) / 2 + _FindingMark._barW,
+              ink: c.contentPrimary,
+              amber: c.accentFill,
+            ),
+          ),
+          const SizedBox(height: AppSpace.lg),
+          // Both states laid out on top of each other: the area is as tall
+          // as the taller one in every frame.
+          Stack(
+            alignment: Alignment.topCenter,
             children: [
-              // Nothing to cancel while the request is going up; the close
-              // button arrives with the calm state, in a space kept for it.
-              Align(
-                alignment: Alignment.centerRight,
-                child: AnimatedOpacity(
-                  opacity: _live ? 1 : 0,
-                  duration: fade,
-                  child: IgnorePointer(
-                    ignoring: !_live,
-                    child: ExcludeSemantics(
-                      excluding: !_live,
-                      child: IconButton(
-                        onPressed: widget.onClose,
-                        tooltip: 'Close',
-                        icon: Icon(AppIcons.close, color: c.contentSecondary),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      RepaintBoundary(
-                        child: _FindingMark(
-                          intro: _intro,
-                          breath: _breath,
-                          settle: _settle,
-                          ink: c.contentPrimary,
-                          amber: c.accentFill,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpace.xxl),
-                      // Both states laid out on top of each other: the area is
-                      // as tall as the taller one in every frame.
-                      Stack(
-                        alignment: Alignment.topCenter,
-                        children: [
-                          _state(current: !_live, fade: fade, child: finding),
-                          _state(current: _live, fade: fade, child: live),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // Held in place while hidden, so nothing above it moves when it
-              // arrives. Always "enabled": a Material button animates its own
-              // disabled-to-enabled change even with animations off, so it is
-              // hidden, untouchable and silent instead until the request is live.
-              AnimatedOpacity(
-                opacity: _live ? 1 : 0,
-                duration: fade,
-                child: IgnorePointer(
-                  ignoring: !_live,
-                  child: ExcludeSemantics(
-                    excluding: !_live,
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          if (posted != null) widget.onViewPost(posted);
-                        },
-                        child: const Text('View your post'),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpace.xl),
+              _state(current: !_live, fade: fade, child: finding),
+              _state(current: _live, fade: fade, child: live),
             ],
+          ),
+        ],
+      ),
+    );
+
+    // The page under the card stays as it was, dimmed a little; nothing on
+    // it can be tapped, and a screen reader hears only the card.
+    return BlockSemantics(
+      child: AbsorbPointer(
+        child: FadeTransition(
+          opacity: _arrive,
+          child: ColoredBox(
+            color: Colors.black.withValues(alpha: findingHelpDimAlpha(brightness)),
+            child: Center(
+              child: ScaleTransition(scale: _cardScale, child: card),
+            ),
           ),
         ),
       ),
@@ -397,7 +398,7 @@ class _FindingHelpViewState extends State<FindingHelpView>
 }
 
 /// The Help24 mark in motion: `|` `▬` `|` on the 60 × 56 grid of
-/// assets/brand/help24-mark.svg, scaled.
+/// assets/brand/help24-mark.svg, scaled to sit in a small card.
 ///
 /// One builder over three controllers, four plain boxes and a transform
 /// each. No Opacity layer, no clipping, no shader, no layout work per frame:
@@ -407,6 +408,7 @@ class _FindingMark extends StatelessWidget {
     required this.intro,
     required this.breath,
     required this.settle,
+    required this.travel,
     required this.ink,
     required this.amber,
   });
@@ -414,11 +416,15 @@ class _FindingMark extends StatelessWidget {
   final Animation<double> intro;
   final Animation<double> breath;
   final Animation<double> settle;
+
+  /// How far each bar starts from its place: from just past the edge of the
+  /// card, which clips it.
+  final double travel;
   final Color ink;
   final Color amber;
 
   /// Scale of the 60 × 56 source grid.
-  static const double _s = 1.6;
+  static const double _s = 1.1;
   static const double _w = 60 * _s;
   static const double _h = 56 * _s;
   static const double _barW = 11 * _s;
@@ -460,8 +466,6 @@ class _FindingMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // From just past the edge of the screen to the bar's place in the mark.
-    final travel = (MediaQuery.sizeOf(context).width - _w) / 2 + _barW;
     return Semantics(
       label: 'Help24',
       image: true,

@@ -206,7 +206,7 @@ void main() {
     final composer = File('lib/screens/post_screen.dart').readAsStringSync();
     final submit = composer.substring(composer.indexOf('Future<void> _submitPost() async {'));
 
-    test('swaps the form for the finding-help view at the tap, not after the server', () {
+    test('lays the finding-help card over the form at the tap, not after the server', () {
       expect(composer.contains('FindingHelpView('), isTrue);
       final starts = submit.indexOf('_findingHelp = true;');
       final saves = submit.indexOf('await AuthService.ensureCurrentUserInSupabase()');
@@ -226,7 +226,24 @@ void main() {
 
     test('the shell still learns that a listing was created', () {
       expect(RegExp(r'void _closeAfterPosting\(\) \{[\s\S]{0,300}pop\(true\)').hasMatch(composer), isTrue);
-      expect(RegExp(r'pushReplacement\([\s\S]{0,200}result: true').hasMatch(composer), isTrue);
+    });
+
+    test('the form stays on screen under the card, unchanged', () {
+      // Owner's call (2026-11-25): a small card in the centre over the page,
+      // not a takeover. The form is always built; the card is laid on top.
+      expect(
+        RegExp(r'body: Stack\([\s\S]{0,80}SafeArea\(').hasMatch(composer),
+        isTrue,
+        reason: 'the form must stay built under the card',
+      );
+      expect(
+        RegExp(r'if \(_findingHelp\)\s*Positioned\.fill\(\s*child: FindingHelpView\(').hasMatch(composer),
+        isTrue,
+      );
+      // Under the card "Post Now" keeps its words: no spinner, no greying.
+      expect(composer.contains('bool get _formBusy => _isSubmitting && !_findingHelp;'), isTrue);
+      expect(composer.contains('onPressed: _isSubmitting ? null'), isFalse);
+      expect(composer.contains('if (_isSubmitting && !_findingHelp && _totalImages > 0)'), isTrue);
     });
 
     test('the upload reports its start, so "photo 1 of n" is true while it goes up', () {
